@@ -19,6 +19,7 @@ from versatil.data.metadata import (
     GripperActionMetadata,
     GripperObservationMetadata,
     OnTheFlyActionMetadata,
+    PositionActionMetadata,
     PositionObservationMetadata,
 )
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -37,6 +38,7 @@ def mock_dataloader_config() -> Callable[..., DataLoaderConfig]:
         preload_data_in_memory: bool = False,
         image_height: int = 64,
         image_width: int = 64,
+        trailing_padded_actions: int | None = None,
     ) -> DataLoaderConfig:
         config = MagicMock(spec=DataLoaderConfig)
         config.val_ratio = val_ratio
@@ -47,6 +49,7 @@ def mock_dataloader_config() -> Callable[..., DataLoaderConfig]:
         config.preload_data_in_memory = preload_data_in_memory
         config.image_height = image_height
         config.image_width = image_width
+        config.trailing_padded_actions = trailing_padded_actions
         config.color_augmentation = None
         config.spatial_augmentation = None
         config.kinematics_norm_type = "min_max"
@@ -138,6 +141,8 @@ def episodic_dataset_factory(
         total_ratio: float = 1.0,
         downsample_factor: int = 1,
         preload_data_in_memory: bool = False,
+        trailing_padded_actions: int | None = None,
+        action_backward_shift: int = 1,
     ) -> EpisodicDataset:
         if actions_metadata is None:
             actions_metadata = {}
@@ -153,6 +158,8 @@ def episodic_dataset_factory(
             total_ratio=total_ratio,
             downsample_factor=downsample_factor,
             preload_data_in_memory=preload_data_in_memory,
+            trailing_padded_actions=trailing_padded_actions,
+            action_backward_shift=action_backward_shift,
         )
         extra_keys = list(
             set(
@@ -369,6 +376,61 @@ class TestEpisodicDatasetLen:
             timesteps_per_episode=timesteps_per_episode,
         )
         assert len(dataset) == len(dataset.sampler)
+
+    @pytest.mark.parametrize(
+        "trailing_padded_actions, expected_starts_per_episode",
+        [
+            (None, 8),
+            (0, 5),
+            (2, 7),
+            (3, 8),
+        ],
+    )
+    def test_trailing_padded_actions_controls_valid_start_count(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        trailing_padded_actions: int | None,
+        expected_starts_per_episode: int,
+    ):
+        num_episodes = 5
+        timesteps_per_episode = 10
+        obs_horizon = 2
+        pred_horizon = 4
+        dataset = episodic_dataset_factory(
+            num_episodes=num_episodes,
+            timesteps_per_episode=timesteps_per_episode,
+            obs_horizon=obs_horizon,
+            pred_horizon=pred_horizon,
+            action_backward_shift=0,
+            val_ratio=0.0,
+            trailing_padded_actions=trailing_padded_actions,
+        )
+        assert len(dataset) == expected_starts_per_episode * num_episodes
+
+    def test_precomputed_only_fits_full_horizon_window_without_padding(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        position_action_metadata_factory: Callable[..., PositionActionMetadata],
+    ):
+        obs_horizon = 1
+        pred_horizon = 4
+        dataset = episodic_dataset_factory(
+            num_episodes=1,
+            timesteps_per_episode=obs_horizon + pred_horizon - 1,
+            obs_horizon=obs_horizon,
+            pred_horizon=pred_horizon,
+            action_backward_shift=0,
+            val_ratio=0.0,
+            trailing_padded_actions=0,
+            actions_metadata={
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: (
+                    position_action_metadata_factory(prediction_dimension=3)
+                ),
+            },
+        )
+        assert len(dataset) == 1
+        mask = dataset[0][SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value]
+        torch.testing.assert_close(mask, torch.zeros(pred_horizon, dtype=torch.bool))
 
 
 class TestEpisodicDatasetGetItem:
@@ -775,10 +837,34 @@ class TestGetNormalizerAndTokenizer:
             assert call_kwargs["depth_winsorize_quantiles"] is not None
         else:
             assert call_kwargs["depth_winsorize_quantiles"] is None
+
         if winsorize_kinematics:
             assert call_kwargs["kinematics_winsorize_quantiles"] is not None
         else:
             assert call_kwargs["kinematics_winsorize_quantiles"] is None
+
+    @pytest.mark.parametrize("action_sample_size", [0, 100, 2048])
+    def test_passes_action_sample_size_to_builder(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        action_sample_size: int,
+    ):
+        dataset = episodic_dataset_factory()
+        with patch(
+            "versatil.data.episodic_dataset.TransformBuilder"
+        ) as mock_builder_class:
+            mock_builder_instance = MagicMock()
+            mock_builder_instance.create_normalizer_and_tokenizer.return_value = (
+                MagicMock(),
+                None,
+            )
+            mock_builder_class.return_value = mock_builder_instance
+            dataset.get_normalizer_and_tokenizer(
+                action_sample_size=action_sample_size,
+            )
+        assert (
+            mock_builder_class.call_args[1]["action_sample_size"] == action_sample_size
+        )
 
 
 class TestApplyDownsampling:

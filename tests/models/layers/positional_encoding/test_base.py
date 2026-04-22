@@ -302,3 +302,62 @@ class TestPositionalEncoding1DForward:
         output_default = module(tensor)
         output_explicit = module(tensor, offset=0)
         assert torch.equal(output_default, output_explicit)
+
+    def test_precomputed_sequence_exceeding_maximum_length_raises(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        maximum_length = 16
+        sequence_length = maximum_length + 4
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            precompute_encodings=True,
+            maximum_length=maximum_length,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Requested positions [0, {sequence_length}) exceed "
+                f"precomputed maximum_length {maximum_length}. "
+                f"Increase maximum_length."
+            ),
+        ):
+            module(tensor)
+
+    def test_precomputed_offset_pushes_past_maximum_length_raises(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        maximum_length = 16
+        sequence_length = 4
+        offset = 14
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            precompute_encodings=True,
+            maximum_length=maximum_length,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Requested positions [{offset}, {offset + sequence_length}) exceed "
+                f"precomputed maximum_length {maximum_length}. "
+                f"Increase maximum_length."
+            ),
+        ):
+            module(tensor, offset=offset)

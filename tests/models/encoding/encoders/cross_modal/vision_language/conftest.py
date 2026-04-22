@@ -12,7 +12,7 @@ from transformers import (
     SiglipVisionConfig,
 )
 
-from versatil.data.constants import Cameras, SampleKey
+from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
     PaliGemmaModelType,
     SmolVLMModelType,
@@ -29,7 +29,6 @@ TINY_HIDDEN_DIM = 32
 
 VLM_INPUT_KEYS = [
     Cameras.LEFT.value,
-    SampleKey.TOKENIZED_OBSERVATIONS.value,
 ]
 
 

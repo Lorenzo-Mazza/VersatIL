@@ -82,6 +82,7 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         self.output_dim: int | tuple[int, ...] = self.feature_dim
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _build_backbone(self, img_size: tuple[int, int] | None = None):
         """Build backbone using timm features_only mode with single input channel.
@@ -183,8 +184,11 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
             if self.frozen:
                 self._freeze_weights()
 
+        probe_dtype = (
+            self.model_dtype if self.model_dtype is not None else torch.float32
+        )
         with torch.no_grad():
-            mock_input = torch.zeros(1, 1, image_height, image_width)
+            mock_input = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
             mock_features = self.backbone(mock_input)[-1]
 
         expected_channels = self.feature_dim
@@ -204,6 +208,7 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         if self.frozen:
             self._freeze_weights()
+        self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that input metadata is single-channel depth camera metadata.

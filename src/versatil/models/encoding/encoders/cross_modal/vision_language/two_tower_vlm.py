@@ -54,8 +54,11 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
             attention_type: Attention implementation (e.g. SDPA, eager).
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
+        if isinstance(input_keys, str):
+            input_keys = [input_keys]
+        all_keys = list(input_keys) + [SampleKey.TOKENIZED_OBSERVATIONS.value]
         specification = EncoderInput(
-            keys=input_keys,
+            keys=all_keys,
             at_least_one_of_groups=[RGB_CAMERAS],
             required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,
@@ -78,8 +81,6 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
             self.encoder = AutoModel.from_config(
                 config, attn_implementation=attention_type
             )
-        if self.model_dtype is not None:
-            self.encoder = self.encoder.to(self.model_dtype)
         self.image_processor = AutoImageProcessor.from_pretrained(
             model_name,
             do_rescale=False,
@@ -116,6 +117,7 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
         )
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _pool_features(
         self, outputs: BaseModelOutputWithPooling, modality: str

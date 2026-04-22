@@ -78,6 +78,7 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         self.output_dim = self.token_pooling_head.output_dim
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _build_backbone(self):
         """Build backbone using timm library."""
@@ -162,6 +163,7 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         self.output_dim = self.token_pooling_head.output_dim
         if self.frozen:
             self._freeze_weights()
+        self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that input metadata is camera metadata.

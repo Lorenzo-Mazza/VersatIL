@@ -24,15 +24,10 @@ from versatil.data.synthetic.constants import (
     MULTIPATH_DEFAULT_NOISE_STD,
     MULTIPATH_DEFAULT_NUM_MODES,
     MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-    RADIAL_CENTER,
-    SyntheticTaskName,
 )
 from versatil.data.synthetic.generators import generate_task_episodes
 from versatil.data.synthetic.renderer import render_frame
-from versatil.data.synthetic.task_layout import (
-    SyntheticTaskLayout,
-    get_task_layout,
-)
+from versatil.data.synthetic.task_layout import get_task_layout
 from versatil.data.synthetic.visualization import (
     plot_trajectories_2d,
     save_rollouts_gif,
@@ -97,11 +92,9 @@ def run_rollouts(
     timestep are averaged with exponential weights favoring more recent
     queries. Without it, only the first predicted action is used.
 
-    Note:
-        For tasks with mode-dependent goals (sequential_decision,
-        radial), the rendered goal is an approximate center since the
-        true endpoint is unknown at inference time. Circle tasks have
-        no goal and render without a goal marker.
+    Policy-input frames intentionally render without any goal marker.
+    Per-mode expert goals are still drawn in the user-facing rollout
+    visualization via ``layout.goals``.
 
     Args:
         policy: Trained policy in eval mode.
@@ -121,7 +114,6 @@ def run_rollouts(
     """
     layout = get_task_layout(task_name=task_name)
     start = layout.start
-    render_goal = _get_render_goal(layout=layout, task_name=task_name)
     obstacles = layout.obstacles
     num_modes = layout.num_modes
     prediction_horizon = policy.prediction_horizon
@@ -161,7 +153,6 @@ def run_rollouts(
                 observation = _prepare_observation(
                     position_history=history,
                     obstacles=obstacles,
-                    goal=render_goal,
                     image_size=image_size,
                     observation_keys=observation_keys,
                     trail=trail,
@@ -201,7 +192,6 @@ def run_rollouts(
                 observation = _prepare_observation(
                     position_history=history,
                     obstacles=obstacles,
-                    goal=render_goal,
                     image_size=image_size,
                     observation_keys=observation_keys,
                     trail=trail,
@@ -375,59 +365,25 @@ def _expert_endpoint_reach_threshold(
     expert_trajectories: np.ndarray,
     expert_mode_ids: np.ndarray,
     mode_endpoints: np.ndarray,
+    min_threshold: float = 0.1,
 ) -> float:
     """Expert-derived "close enough" radius around each mode endpoint.
 
     Uses mean + 5·std of expert final-position distances to their own
-    mode mean. The mean covers the typical Rayleigh-distributed offset,
-    and 5·std on top gives a generous tail margin so trajectories that
-    are noticeably-but-acceptably off center still count as reaching
-    the endpoint.
+    mode mean, floored at ``min_threshold``. The floor prevents overly strict
+    thresholds on closed-loop tasks where all endpoints cluster at the
+    start.
     """
     final_positions = expert_trajectories[:, -1, :]  # (num_expert, 2)
     distances = np.linalg.norm(
         final_positions - mode_endpoints[expert_mode_ids], axis=-1
     )  # (num_expert,)
-    return float(distances.mean() + 5.0 * distances.std())
-
-
-def _get_render_goal(
-    layout: SyntheticTaskLayout,
-    task_name: str,
-) -> np.ndarray | None:
-    """Return a goal position for rendering, or None for goal-less tasks.
-
-    Circle tasks have no goal (closed loop). Radial tasks have per-mode
-    goals, so the center point is used as an approximate render target.
-
-    Args:
-        layout: Task layout from ``get_task_layout``.
-        task_name: SyntheticTaskName.value string, used to select the
-            fallback location for mode-dependent tasks.
-
-    Returns:
-        Cartesian (x, y) goal position for rendering, shape (2,), or
-        None for tasks without a goal.
-    """
-    if layout.goal is not None:
-        return layout.goal.copy()
-    match task_name:
-        case (
-            SyntheticTaskName.CIRCLE.value | SyntheticTaskName.CONDITIONAL_CIRCLE.value
-        ):
-            return None
-        case SyntheticTaskName.SEQUENTIAL_DECISION.value:
-            return np.array([0.5, 0.95], dtype=np.float32)
-        case SyntheticTaskName.RADIAL.value:
-            return RADIAL_CENTER.copy()
-        case _:
-            return None
+    return float(max(distances.mean() + 5.0 * distances.std(), min_threshold))
 
 
 def _prepare_observation(
     position_history: np.ndarray,
     obstacles: list[tuple[float, float, float, float]],
-    goal: np.ndarray | None,
     image_size: int,
     observation_keys: set[str],
     trail: np.ndarray | None = None,
@@ -439,12 +395,10 @@ def _prepare_observation(
     Renders one frame per history timestep with progressive trails, and
     stacks all modalities along the temporal dimension to match the
     (B, T, ...) convention used during training.
-
     Args:
         position_history: Last obs_horizon Cartesian positions (x, y)
             in [0, 1]. Shape (obs_horizon, 2).
         obstacles: Obstacle rectangles for rendering.
-        goal: Goal position for rendering. Shape (2,), or None.
         image_size: Side length of rendered square images.
         observation_keys: Set of keys the policy's observation space requires.
         trail: Full trail up to current step for rendering. Shape (N, 2)
@@ -471,7 +425,6 @@ def _prepare_observation(
             frame = render_frame(
                 position=position_history[timestep_index],
                 obstacles=obstacles,
-                goal=goal,
                 image_size=image_size,
                 trail=frame_trail,
                 context_color=context_color,

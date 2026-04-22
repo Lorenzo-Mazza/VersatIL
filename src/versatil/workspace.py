@@ -32,6 +32,7 @@ from versatil.training.callback_provider import CallbackProvider
 from versatil.training.callbacks import (
     EMACallback,
     GradientNormCallback,
+    ProgressiveFreezingCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
@@ -145,7 +146,11 @@ class Workspace:
         logging.info("Starting training...")
         if self.trainer is None:
             raise RuntimeError("Trainer should be initialized before training.")
-        self.trainer.fit(model=self.lightning_policy, ckpt_path=resume_checkpoint_path)
+        self.trainer.fit(
+            model=self.lightning_policy,
+            ckpt_path=resume_checkpoint_path,
+            weights_only=False,
+        )
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
     def _set_seed(self):
@@ -205,6 +210,10 @@ class Workspace:
         """Instantiate policy and wrap with Lightning."""
         logging.info("Instantiating policy...")
         self.policy: Policy = self.config.policy
+        pipeline_dtype = PrecisionType(
+            str(self.config.experiment.precision)
+        ).get_model_dtype()
+        self.policy.encoding_pipeline.set_output_dtype(pipeline_dtype)
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
@@ -268,6 +277,7 @@ class Workspace:
             log_every_n_steps=50,
             enable_progress_bar=True,
             enable_model_summary=True,
+            enable_checkpointing=self.config.experiment.save_checkpoints,
             deterministic=False,  # For performance
             precision=self.config.experiment.precision,
         )
@@ -290,63 +300,71 @@ class Workspace:
             callbacks.append(ema_callback)
             logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
 
-        if has_validation:
-            checkpoint_callback_best = ModelCheckpoint(
+        if self.config.experiment.save_checkpoints:
+            if has_validation:
+                checkpoint_callback_best = ModelCheckpoint(
+                    dirpath=self.output_dir,
+                    filename="best-{epoch:02d}-{val_loss:.4f}",
+                    monitor="val_loss",
+                    mode="min",
+                    save_top_k=3,
+                    save_last=True,
+                    verbose=True,
+                    auto_insert_metric_name=False,
+                )
+            else:
+                checkpoint_callback_best = ModelCheckpoint(
+                    dirpath=self.output_dir,
+                    filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
+                    monitor="train_loss_epoch",
+                    mode="min",
+                    save_top_k=3,
+                    save_last=True,
+                    verbose=True,
+                    auto_insert_metric_name=False,
+                )
+            callbacks.append(checkpoint_callback_best)
+            logging.info(
+                f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
+            )
+
+            checkpoint_callback_latest = ModelCheckpoint(
                 dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{val_loss:.4f}",
-                monitor="val_loss",
-                mode="min",
-                save_top_k=3,
+                filename="latest-{epoch:02d}",
+                monitor="epoch",
+                mode="max",
+                save_top_k=-1,
+                every_n_epochs=self.config.experiment.checkpoint_every,
                 save_last=True,
                 verbose=True,
                 auto_insert_metric_name=False,
+                save_on_train_epoch_end=not has_validation,
+            )
+            callbacks.append(checkpoint_callback_latest)
+            logging.info(
+                f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
             )
         else:
-            checkpoint_callback_best = ModelCheckpoint(
-                dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
-                monitor="train_loss_epoch",
-                mode="min",
-                save_top_k=3,
-                save_last=True,
-                verbose=True,
-                auto_insert_metric_name=False,
+            logging.info("Skipping ModelCheckpoint callbacks (save_checkpoints=False)")
+
+        early_stopping_patience = self.config.training.early_stopping_patience
+        if not has_validation:
+            logging.info("Skipping EarlyStopping callback (no validation data)")
+        elif early_stopping_patience is None:
+            logging.info(
+                "Skipping EarlyStopping callback (early_stopping_patience=None)"
             )
-        callbacks.append(checkpoint_callback_best)
-        logging.info(
-            f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
-        )
-
-        checkpoint_callback_latest = ModelCheckpoint(
-            dirpath=self.output_dir,
-            filename="latest-{epoch:02d}",
-            monitor="epoch",
-            mode="max",
-            save_top_k=-1,
-            every_n_epochs=self.config.experiment.checkpoint_every,
-            save_last=True,
-            verbose=True,
-            auto_insert_metric_name=False,
-            save_on_train_epoch_end=not has_validation,
-        )
-        callbacks.append(checkpoint_callback_latest)
-        logging.info(
-            f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
-        )
-
-        if has_validation:
+        else:
             early_stopping_callback = ResumableEarlyStopping(
                 monitor="val_loss",
                 mode="min",
-                patience=self.config.training.early_stopping_patience,
+                patience=early_stopping_patience,
                 verbose=True,
             )
             callbacks.append(early_stopping_callback)
             logging.info(
-                f"Added EarlyStopping callback (patience={self.config.training.early_stopping_patience})"
+                f"Added EarlyStopping callback (patience={early_stopping_patience})"
             )
-        else:
-            logging.info("Skipping EarlyStopping callback (no validation data)")
 
         gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
         callbacks.append(gradient_norm_callback)
@@ -370,6 +388,16 @@ class Workspace:
             logging.info(
                 f"Added SWA callback (lr={self.config.training.swa_lrs}, "
                 f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
+            )
+
+        progressive_freezing = self.config.training.progressive_freezing
+        if progressive_freezing:
+            progressive_freezing_callback = ProgressiveFreezingCallback(
+                schedule=progressive_freezing
+            )
+            callbacks.append(progressive_freezing_callback)
+            logging.info(
+                f"Added ProgressiveFreezing callback ({len(progressive_freezing)} phases)"
             )
 
         if self.config.training.reduce_lr_on_plateau:

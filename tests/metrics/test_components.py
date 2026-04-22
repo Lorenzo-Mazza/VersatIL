@@ -1200,6 +1200,46 @@ class TestPriorDenoisingLossForward:
         expected = F.mse_loss(pred, target)
         assert output.total_loss.item() == pytest.approx(expected.item())
 
+    def test_logs_target_scale_normalized_prior_metrics(self):
+        pred = torch.zeros(2, 2)
+        target = torch.tensor([[1.0, 3.0], [5.0, 7.0]])
+        predictions = {
+            LatentKey.PRIOR_PREDICTION.value: pred,
+            LatentKey.PRIOR_TARGET.value: target,
+        }
+        loss = PriorDenoisingLoss(weight=1.0)
+        output = loss(predictions, {})
+
+        prior_mse = F.mse_loss(pred, target)
+        target_var = target.var(unbiased=False)
+        target_std = torch.sqrt(target_var + 1e-8)
+        assert output.component_losses[
+            MetricKey.PRIOR_DENOISING_TARGET_STD.value
+        ].item() == pytest.approx(target_std.item())
+        assert output.component_losses[
+            MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value
+        ].item() == pytest.approx((prior_mse / (target_var + 1e-8)).item())
+        assert output.component_losses[
+            MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value
+        ].item() == pytest.approx((torch.sqrt(prior_mse) / target_std).item())
+
+    def test_normalized_prior_metrics_are_finite_for_constant_target(self):
+        pred = torch.zeros(2, 2)
+        target = torch.ones(2, 2)
+        predictions = {
+            LatentKey.PRIOR_PREDICTION.value: pred,
+            LatentKey.PRIOR_TARGET.value: target,
+        }
+        loss = PriorDenoisingLoss(weight=1.0)
+        output = loss(predictions, {})
+
+        assert torch.isfinite(
+            output.component_losses[MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value]
+        )
+        assert torch.isfinite(
+            output.component_losses[MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value]
+        )
+
     def test_weight_scales_loss(self, rng):
         pred = torch.from_numpy(rng.standard_normal((4, 8)).astype(np.float32))
         target = torch.from_numpy(rng.standard_normal((4, 8)).astype(np.float32))
@@ -1344,6 +1384,143 @@ class TestGaussianMixtureNLLossForward:
         assert output_w2.total_loss.item() == pytest.approx(
             2.0 * output_w1.total_loss.item(), rel=1e-4
         )
+
+    def test_per_trajectory_routing_uses_joint_logsumexp(self):
+        batch_size, horizon, num_experts, action_dim = 1, 3, 2, 2
+        target = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]])
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[0, :, 0, :] = target[0]
+        means[0, :, 1, :] = -target[0]
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        routing_weights = torch.tensor([[0.5, 0.5]])
+        predictions = {
+            "position_mean": means,
+            "position_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        actual = loss(predictions, {"position": target}).total_loss
+        log_norm = -0.5 * action_dim * math.log(2 * math.pi)
+        log_pi = math.log(0.5)
+        sum_sq_match = float((target**2).sum().item())
+        log_traj_match = horizon * log_norm - 0.5 * 0.0
+        log_traj_other = horizon * log_norm - 0.5 * 4.0 * sum_sq_match
+        expected = (
+            -math.log(
+                math.exp(log_pi + log_traj_match) + math.exp(log_pi + log_traj_other)
+            )
+            / horizon
+        )
+        assert actual.item() == pytest.approx(expected, rel=1e-4)
+
+    def test_per_step_routing_uses_per_step_logsumexp(self):
+        batch_size, horizon, num_experts, action_dim = 1, 3, 2, 2
+        target = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]])
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[0, :, 0, :] = target[0]
+        means[0, :, 1, :] = -target[0]
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        routing_weights = torch.full((batch_size, horizon, num_experts), 0.5)
+        predictions = {
+            "position_mean": means,
+            "position_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        actual = loss(predictions, {"position": target}).total_loss
+        log_norm = -0.5 * action_dim * math.log(2 * math.pi)
+        log_pi = math.log(0.5)
+        per_step_nll = 0.0
+        for step in range(horizon):
+            sq_match = float((target[0, step] ** 2).sum().item())
+            log_match = log_norm - 0.5 * 0.0
+            log_other = log_norm - 0.5 * 4.0 * sq_match
+            log_step_mix = math.log(
+                math.exp(log_pi + log_match) + math.exp(log_pi + log_other)
+            )
+            per_step_nll -= log_step_mix
+        expected = per_step_nll / horizon
+        assert actual.item() == pytest.approx(expected, rel=1e-4)
+
+    def test_padding_excludes_padded_timesteps_from_trajectory_sum(self):
+        batch_size, horizon, num_experts, action_dim = 1, 4, 2, 2
+        target = torch.zeros(batch_size, horizon, action_dim)
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[0, 3, :, :] = 100.0
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        routing_weights = torch.tensor([[0.5, 0.5]])
+        predictions = {
+            "position_mean": means,
+            "position_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        is_pad = torch.tensor([[False, False, False, True]])
+        finite = loss(predictions, {"position": target}, is_pad=is_pad).total_loss
+        no_pad_target = target[:, :3].clone()
+        no_pad_means = means[:, :3].clone()
+        no_pad_logvars = logvars[:, :3].clone()
+        reference_predictions = {
+            "position_mean": no_pad_means,
+            "position_logvar": no_pad_logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        reference = loss(reference_predictions, {"position": no_pad_target}).total_loss
+        assert finite.item() == pytest.approx(reference.item(), rel=1e-5)
+
+    def test_trajectory_loss_separates_opposite_modes(self):
+        torch.manual_seed(0)
+        batch_size, horizon, num_experts, action_dim = 256, 60, 2, 2
+        timesteps = torch.linspace(0, 2 * math.pi, horizon)
+        cos = torch.cos(timesteps)
+        sin = torch.sin(timesteps)
+        mode_a = torch.stack([cos, sin], dim=-1)
+        mode_b = torch.stack([cos, -sin], dim=-1)
+        targets = torch.stack(
+            [mode_a if i < batch_size // 2 else mode_b for i in range(batch_size)]
+        )
+        targets = targets + 0.01 * torch.randn_like(targets)
+        means = torch.nn.Parameter(torch.randn(num_experts, horizon, action_dim) * 0.3)
+        logvars = torch.nn.Parameter(torch.zeros(num_experts, horizon, action_dim))
+        pi_logits = torch.nn.Parameter(torch.zeros(num_experts))
+        optimizer = torch.optim.Adam([means, logvars, pi_logits], lr=1e-2)
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        for _ in range(800):
+            stacked_means = (
+                means.unsqueeze(0).expand(batch_size, -1, -1, -1).permute(0, 2, 1, 3)
+            )
+            stacked_logvars = (
+                logvars.unsqueeze(0).expand(batch_size, -1, -1, -1).permute(0, 2, 1, 3)
+            )
+            routing_weights = (
+                torch.softmax(pi_logits, dim=0).unsqueeze(0).expand(batch_size, -1)
+            )
+            output = loss(
+                {
+                    "position_mean": stacked_means,
+                    "position_logvar": stacked_logvars,
+                    DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+                },
+                {"position": targets},
+            )
+            optimizer.zero_grad()
+            output.total_loss.backward()
+            optimizer.step()
+        with torch.no_grad():
+            mode_a_reference = mode_a
+            mode_b_reference = mode_b
+            distances_to_a = [
+                (means[k] - mode_a_reference).pow(2).mean().sqrt().item()
+                for k in range(num_experts)
+            ]
+            distances_to_b = [
+                (means[k] - mode_b_reference).pow(2).mean().sqrt().item()
+                for k in range(num_experts)
+            ]
+        assignment_one = distances_to_a[0] + distances_to_b[1]
+        assignment_two = distances_to_a[1] + distances_to_b[0]
+        best_assignment = min(assignment_one, assignment_two)
+        assert best_assignment < 0.05
 
 
 @pytest.mark.unit
@@ -1490,6 +1667,77 @@ class TestMoELossForward:
         output = moe_loss(predictions, targets)
         # Weighted mean = 0.5 * 0 + 0.5 * 2 = 1.0 = target => MSE ≈ 0
         assert output.total_loss.item() == pytest.approx(0.0, abs=1e-5)
+
+    def test_load_balance_minimum_at_uniform_per_trajectory_routing(self):
+        batch_size, num_experts = 8, 4
+        # Each example argmaxes to a different expert in round-robin → uniform usage
+        routing_weights = torch.full((batch_size, num_experts), 1.0 / num_experts)
+        argmax_targets = torch.arange(batch_size) % num_experts
+        for b, k in enumerate(argmax_targets):
+            routing_weights[b, k] += 1e-3  # break ties toward round-robin assignment
+        routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
+        predictions = {
+            "position": torch.zeros(batch_size, 3, 2),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": torch.zeros(batch_size, 3, 2)}
+        base_loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        moe_loss = MoELoss(
+            base_loss=base_loss, entropy_weight=0.0, load_balance_weight=1.0
+        )
+        output = moe_loss(predictions, targets)
+        load_balance = output.component_losses[
+            MetricKey.EXPERTS_LOAD_BALANCE.value
+        ].item()
+        # f_k = 1/K, P_k ≈ 1/K, so K * sum(f_k * P_k) ≈ K * K * (1/K)² = 1.0
+        assert load_balance == pytest.approx(1.0, rel=1e-3)
+
+    def test_load_balance_penalises_collapsed_routing(self):
+        batch_size, num_experts = 8, 4
+        # All examples route exclusively to expert 0
+        routing_weights = torch.zeros(batch_size, num_experts)
+        routing_weights[:, 0] = 1.0
+        predictions = {
+            "position": torch.zeros(batch_size, 3, 2),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": torch.zeros(batch_size, 3, 2)}
+        base_loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        moe_loss = MoELoss(
+            base_loss=base_loss, entropy_weight=0.0, load_balance_weight=1.0
+        )
+        output = moe_loss(predictions, targets)
+        load_balance = output.component_losses[
+            MetricKey.EXPERTS_LOAD_BALANCE.value
+        ].item()
+        # f_0 = 1, P_0 = 1, all others = 0 → K * sum = K * 1 = num_experts
+        assert load_balance == pytest.approx(float(num_experts), rel=1e-5)
+
+    def test_load_balance_handles_per_step_routing_with_padding(self):
+        batch_size, horizon, num_experts = 2, 4, 4
+        # Per-step routing collapsed at every valid timestep to expert 0;
+        # padded timestep would (incorrectly) look balanced but must be ignored.
+        routing_weights = torch.zeros(batch_size, horizon, num_experts)
+        routing_weights[:, :3, 0] = 1.0
+        routing_weights[:, 3, :] = 1.0 / num_experts
+        is_pad = torch.tensor(
+            [[False, False, False, True], [False, False, False, True]]
+        )
+        predictions = {
+            "position": torch.zeros(batch_size, horizon, 2),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": torch.zeros(batch_size, horizon, 2)}
+        base_loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        moe_loss = MoELoss(
+            base_loss=base_loss, entropy_weight=0.0, load_balance_weight=1.0
+        )
+        output = moe_loss(predictions, targets, is_pad=is_pad)
+        load_balance = output.component_losses[
+            MetricKey.EXPERTS_LOAD_BALANCE.value
+        ].item()
+        # Only valid positions count → all route to expert 0 → load_balance == K
+        assert load_balance == pytest.approx(float(num_experts), rel=1e-5)
 
 
 @pytest.mark.unit

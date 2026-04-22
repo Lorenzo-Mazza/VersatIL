@@ -1,0 +1,26 @@
+# @package _global_
+# Sweep: LACT variational Gaussian prior with MMD objective.
+# 5 tasks × 2 weights × 3 seeds = 30 runs.
+# WAE recipe: IMQ kernel, use_median_heuristic=false, bandwidth=2*latent_dim.
+
+defaults:
+  - /end_to_end_training_runs/synthetic/lact_mmd_gaussian
+  - /task_bundle/synthetic: circle
+  - override /hydra/sweeper: basic
+  - _self_
+
+policy:
+  loss:
+    loss_modules:
+      maximum_mean_discrepancy:
+        kernel_type: ${kernel_type:IMQ}
+        use_median_heuristic: false
+        bandwidth_multipliers:
+          - ${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}
+
+hydra:
+  sweeper:
+    params:
+      task_bundle/synthetic: circle,sequential,corridor_k8,corridor_k16,radial_k16
+      policy.loss.loss_modules.maximum_mean_discrepancy.weight: 1,10
+      experiment.seed: 42,43,44

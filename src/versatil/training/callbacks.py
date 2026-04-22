@@ -2,7 +2,11 @@
 
 import copy
 import io
-from typing import Any
+import logging
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,6 +24,30 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 from versatil.metrics.constants import MetadataKey
 
 plt.set_loglevel("warning")
+
+
+@dataclass(frozen=True)
+class FreezingPhase:
+    """Compiled progressive-freezing rule used by ProgressiveFreezingCallback."""
+
+    epoch: int
+    trainable_patterns: tuple[re.Pattern[str], ...]
+    frozen_patterns: tuple[re.Pattern[str], ...]
+    eval_frozen_modules: bool
+    log: bool
+
+
+class FreezingRuleConfig(Protocol):
+    """Structural type for Hydra progressive-freezing config objects."""
+
+    epoch: int
+    trainable_patterns: Sequence[str]
+    frozen_patterns: Sequence[str]
+    eval_frozen_modules: bool
+    log: bool
+
+
+FreezingRuleInput = Mapping[str, Any] | FreezingRuleConfig
 
 
 class ResumableEarlyStopping(EarlyStopping):
@@ -209,6 +237,237 @@ class EMACallback(Callback):
             delattr(self, "_original_policy")
 
 
+class ProgressiveFreezingCallback(Callback):
+    """Apply regex-based parameter freezing/unfreezing at epoch boundaries.
+
+    The optimizer is intentionally not rebuilt. Frozen parameters remain in the
+    optimizer param groups but receive no gradients, so Adam/AdamW will not update
+    them. If a later phase unfreezes parameters, they are already present in the
+    optimizer and can resume training.
+    """
+
+    def __init__(self, schedule: Sequence[FreezingRuleInput]) -> None:
+        """Initialize callback.
+
+        Args:
+            schedule: List of rules. Each rule must provide ``epoch`` and may
+                provide ``trainable_patterns``, ``frozen_patterns``,
+                ``eval_frozen_modules``, and ``log``. Rules can be dataclasses,
+                OmegaConf objects, or dictionaries.
+        """
+        super().__init__()
+        if not schedule:
+            message = "ProgressiveFreezingCallback requires a non-empty schedule."
+            raise ValueError(message)
+        self.schedule = sorted(
+            [self._normalize_rule(rule) for rule in schedule],
+            key=lambda rule: rule.epoch,
+        )
+        self._last_applied_phase_index: int | None = None
+        self._frozen_modules: tuple[torch.nn.Module, ...] = ()
+        self._trainable_modules: tuple[torch.nn.Module, ...] = ()
+
+    @staticmethod
+    def _normalize_rule(rule: FreezingRuleInput) -> FreezingPhase:
+        """Convert config objects or mappings into a compiled freezing phase."""
+        if isinstance(rule, Mapping):
+            epoch = int(rule["epoch"])
+            trainable_patterns = tuple(rule.get("trainable_patterns") or [])
+            frozen_patterns = tuple(rule.get("frozen_patterns") or [])
+            eval_frozen_modules = bool(rule.get("eval_frozen_modules", True))
+            log = bool(rule.get("log", True))
+        else:
+            epoch = int(rule.epoch)
+            trainable_patterns = tuple(rule.trainable_patterns or [])
+            frozen_patterns = tuple(rule.frozen_patterns or [])
+            eval_frozen_modules = bool(rule.eval_frozen_modules)
+            log = bool(rule.log)
+        if not trainable_patterns and not frozen_patterns:
+            raise ValueError(
+                "Each progressive freezing rule needs trainable_patterns or frozen_patterns."
+            )
+        return FreezingPhase(
+            epoch=epoch,
+            trainable_patterns=tuple(
+                re.compile(pattern) for pattern in trainable_patterns
+            ),
+            frozen_patterns=tuple(re.compile(pattern) for pattern in frozen_patterns),
+            eval_frozen_modules=eval_frozen_modules,
+            log=log,
+        )
+
+    def on_train_epoch_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Apply the latest active freezing rule at the start of each epoch."""
+        active_index = self._active_phase_index(trainer.current_epoch)
+        if active_index is None:
+            return
+        if active_index == self._last_applied_phase_index:
+            self._restore_cached_module_modes()
+            return
+        self._apply_rule(
+            pl_module=pl_module,
+            rule=self.schedule[active_index],
+            phase_index=active_index,
+        )
+        self._last_applied_phase_index = active_index
+
+    def _active_phase_index(self, current_epoch: int) -> int | None:
+        """Return the latest phase whose epoch has been reached."""
+        active_index = None
+        for candidate_index, rule in enumerate(self.schedule):
+            if current_epoch >= rule.epoch:
+                active_index = candidate_index
+            else:
+                break
+        return active_index
+
+    def _apply_rule(
+        self,
+        pl_module: pl.LightningModule,
+        rule: FreezingPhase,
+        phase_index: int,
+    ) -> None:
+        """Apply one freezing phase to the wrapped policy."""
+        policy = pl_module.policy
+        trainable_patterns = rule.trainable_patterns
+        frozen_patterns = rule.frozen_patterns
+        trainable_tensors = 0
+        frozen_tensors = 0
+        trainable_parameters = 0
+        frozen_parameters = 0
+
+        for name, parameter in policy.named_parameters():
+            should_train = parameter.requires_grad
+            if trainable_patterns:
+                should_train = self._matches_any(name, trainable_patterns)
+            if frozen_patterns and self._matches_any(name, frozen_patterns):
+                should_train = False
+
+            parameter.requires_grad_(should_train)
+            if not should_train:
+                parameter.grad = None
+
+            count = parameter.numel()
+            if should_train:
+                trainable_tensors += 1
+                trainable_parameters += count
+            else:
+                frozen_tensors += 1
+                frozen_parameters += count
+
+        if rule.eval_frozen_modules:
+            self._frozen_modules, self._trainable_modules = self._sync_module_modes(
+                policy
+            )
+        else:
+            self._frozen_modules = ()
+            self._trainable_modules = ()
+
+        if rule.log:
+            self._log_counts(
+                pl_module=pl_module,
+                phase_index=phase_index,
+                trainable_tensors=trainable_tensors,
+                frozen_tensors=frozen_tensors,
+                trainable_parameters=trainable_parameters,
+                frozen_parameters=frozen_parameters,
+            )
+        logging.info(
+            "Applied progressive freezing phase %s at epoch %s: "
+            "%s trainable tensors, %s frozen tensors",
+            phase_index,
+            rule.epoch,
+            trainable_tensors,
+            frozen_tensors,
+        )
+
+    @staticmethod
+    def _matches_any(name: str, patterns: Sequence[re.Pattern[str]]) -> bool:
+        """Return whether a parameter name matches any compiled regex."""
+        return any(pattern.search(name) for pattern in patterns)
+
+    @staticmethod
+    def _sync_module_modes(
+        policy: torch.nn.Module,
+    ) -> tuple[tuple[torch.nn.Module, ...], tuple[torch.nn.Module, ...]]:
+        """Put fully frozen modules in eval mode and fully trainable modules in train mode."""
+        frozen_modules: list[torch.nn.Module] = []
+        trainable_modules: list[torch.nn.Module] = []
+        for name, module in policy.named_modules():
+            if name == "":
+                continue
+            parameters = list(module.parameters(recurse=True))
+            if not parameters:
+                continue
+            if all(not parameter.requires_grad for parameter in parameters):
+                module.eval()
+                frozen_modules.append(module)
+            elif all(parameter.requires_grad for parameter in parameters):
+                module.train()
+                trainable_modules.append(module)
+        return tuple(frozen_modules), tuple(trainable_modules)
+
+    def _restore_cached_module_modes(self) -> None:
+        """Restore module modes without reapplying parameter freezing."""
+        for module in self._trainable_modules:
+            module.train()
+        for module in self._frozen_modules:
+            module.eval()
+
+    @staticmethod
+    def _log_counts(
+        pl_module: pl.LightningModule,
+        phase_index: int,
+        trainable_tensors: int,
+        frozen_tensors: int,
+        trainable_parameters: int,
+        frozen_parameters: int,
+    ) -> None:
+        """Log freezing counts to the active Lightning logger."""
+        pl_module.log(
+            "progressive_freezing/phase",
+            float(phase_index),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "progressive_freezing/trainable_tensors",
+            float(trainable_tensors),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "progressive_freezing/frozen_tensors",
+            float(frozen_tensors),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "progressive_freezing/trainable_parameters",
+            float(trainable_parameters),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "progressive_freezing/frozen_parameters",
+            float(frozen_parameters),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+        )
+
+
 class ExpertUsageCallback(Callback):
     """Callback to log expert usage statistics for mixture-of-experts models.
 
@@ -391,11 +650,14 @@ class ConfusionMatrixCallback(Callback):
 
 
 class GradientNormCallback(Callback):
-    """Callback to log gradient norms before and after clipping.
+    """Callback to log gradient norms during training.
 
     Logs:
-    - grad_norm_before_clip: Total gradient norm before clipping
-    - grad_norm_after_clip: Total gradient norm after clipping (if clipping is enabled)
+    - grad_norm: root step metric
+    - train/grad_norm_step: Step metric under the train namespace
+    - train/grad_norm_epoch: Mean sampled gradient norm over the epoch
+    - train/grad_norm_max_epoch: Max sampled gradient norm over the epoch
+    - train/grad_clip_active_ratio: Fraction of sampled steps above the clip threshold
     - Individual parameter group gradient norms
     """
 
@@ -407,6 +669,8 @@ class GradientNormCallback(Callback):
         """
         super().__init__()
         self.log_every_n_steps = log_every_n_steps
+        self._epoch_grad_norms: list[float] = []
+        self._epoch_grad_clip_active: list[float] = []
 
     def on_before_optimizer_step(
         self,
@@ -414,7 +678,7 @@ class GradientNormCallback(Callback):
         pl_module: pl.LightningModule,
         optimizer: torch.optim.Optimizer,
     ) -> None:
-        """Log gradient norms before optimizer step (after gradient clipping).
+        """Log gradient norms before optimizer step.
 
         Args:
             trainer: Lightning trainer
@@ -424,12 +688,35 @@ class GradientNormCallback(Callback):
         if trainer.global_step % self.log_every_n_steps != 0:
             return
 
-        # Compute gradient norm across all parameters
         grad_norm = self._compute_grad_norm(pl_module)
+        self._epoch_grad_norms.append(grad_norm)
+        clip_val = getattr(trainer, "gradient_clip_val", None)
+        clip_active = (
+            isinstance(clip_val, (int, float))
+            and clip_val > 0.0
+            and grad_norm > clip_val
+        )
+        self._epoch_grad_clip_active.append(float(clip_active))
 
-        # Log to wandb
+        # Keep the old root metric for existing W&B panels.
         pl_module.log(
             "grad_norm",
+            grad_norm,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "train/grad_clip_active_step",
+            float(clip_active),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "train/grad_norm_step",
             grad_norm,
             on_step=True,
             on_epoch=False,
@@ -451,6 +738,36 @@ class GradientNormCallback(Callback):
                     prog_bar=False,
                     logger=True,
                 )
+                pl_module.log(
+                    f"train/grad_norm_group_{idx}_step",
+                    group_grad_norm,
+                    on_step=True,
+                    on_epoch=False,
+                    prog_bar=False,
+                    logger=True,
+                )
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Log epoch-level summaries so gradient norms appear with train charts."""
+        if not self._epoch_grad_norms:
+            return
+
+        grad_norms = np.asarray(self._epoch_grad_norms, dtype=np.float32)
+        metrics = {
+            "train/grad_norm_epoch": float(grad_norms.mean()),
+            "train/grad_norm_max_epoch": float(grad_norms.max()),
+            "epoch": trainer.current_epoch,
+        }
+        if self._epoch_grad_clip_active:
+            metrics["train/grad_clip_active_ratio"] = float(
+                np.asarray(self._epoch_grad_clip_active, dtype=np.float32).mean()
+            )
+        if trainer.logger is not None:
+            trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
+        self._epoch_grad_norms.clear()
+        self._epoch_grad_clip_active.clear()
 
     def _compute_grad_norm(self, pl_module: pl.LightningModule) -> float:
         """Compute the total gradient norm across all parameters.
@@ -612,14 +929,43 @@ class LatentVisualizationCallback(Callback):
         self.log_every_n_epochs = log_every_n_epochs
         self.max_samples = max_samples
 
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Create and log latent space visualization at end of training epoch."""
+        self._log_latent(
+            trainer=trainer,
+            metrics_accumulator=pl_module.train_metrics,
+            split="train",
+        )
+
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         """Create and log latent space visualization at end of validation epoch."""
+        self._log_latent(
+            trainer=trainer,
+            metrics_accumulator=pl_module.val_metrics,
+            split="val",
+        )
+
+    def _log_latent(
+        self,
+        trainer: pl.Trainer,
+        metrics_accumulator,
+        split: str,
+    ) -> None:
+        """Compute and log latent-space visualizations for the given metrics accumulator.
+
+        Args:
+            trainer: Lightning trainer.
+            metrics_accumulator: Either train_metrics or val_metrics.
+            split: "train" or "val" — used as a prefix on logged metric keys.
+        """
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
-        latent_data = pl_module.val_metrics.compute_latent_visualization_data()
+        latent_data = metrics_accumulator.compute_latent_visualization_data()
         if latent_data is None:
             return
         z, z_prior, phase_per_sample = latent_data
@@ -632,8 +978,8 @@ class LatentVisualizationCallback(Callback):
                 self._build_latent_figures(
                     z=z,
                     phases=phase_per_sample,
-                    prefix="posterior",
-                    title="Posterior latent space",
+                    prefix=f"{split}_posterior",
+                    title=f"{split.title()} posterior latent space",
                 )
             )
         if z_prior is not None:
@@ -641,19 +987,19 @@ class LatentVisualizationCallback(Callback):
                 self._build_latent_figures(
                     z=z_prior,
                     phases=phase_per_sample,
-                    prefix="prior",
-                    title="Prior latent space",
+                    prefix=f"{split}_prior",
+                    title=f"{split.title()} prior latent space",
                 )
             )
 
         latent_stats_table = self._create_latent_stats_table(
-            pl_module.val_metrics.metadata
+            metrics_accumulator.metadata
         )
 
         if trainer.logger is not None:
             metrics = {key: _figure_to_wandb_image(fig) for key, fig in figures.items()}
             if latent_stats_table is not None:
-                metrics["latent_space_statistics"] = latent_stats_table
+                metrics[f"{split}_latent_space_statistics"] = latent_stats_table
             trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
 
         for fig in figures.values():

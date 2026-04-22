@@ -115,6 +115,21 @@ class EncodingMixin(nn.Module, abc.ABC):
         for param in self.parameters():
             param.requires_grad = False
 
+    def _apply_model_dtype(self) -> None:
+        """Cast the entire encoder module tree to a consistent dtype.
+
+        When ``model_dtype`` is set explicitly, casts to that dtype.
+        When ``model_dtype`` is None, casts to ``torch.float32``.
+
+        Called by child encoders at the end of ``__init__`` and after any
+        deferred-build method (``set_image_size``, ``_build_network``, …) so
+        a rebuild cannot leak mismatched-dtype submodules back into the tree.
+        """
+        target_dtype = (
+            self.model_dtype if self.model_dtype is not None else torch.float32
+        )
+        self.to(target_dtype)
+
     @abstractmethod
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Get encoder structured output specification."""

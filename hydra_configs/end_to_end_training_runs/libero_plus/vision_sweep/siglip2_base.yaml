@@ -62,7 +62,7 @@ policy:
         input_keys:
           - ${cameras:AGENTVIEW}
           - ${cameras:EYE_IN_HAND}
-          - ${sample_key:TOKENIZED_OBSERVATIONS}
+        # Language is routed automatically in a VLM
         model_name: ${vlm_model:SIGLIP_BASE_PATCH16}
         pooling_method: none
   decoder:

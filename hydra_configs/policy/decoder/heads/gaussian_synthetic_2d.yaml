@@ -9,5 +9,5 @@ ${proprio_key:SYNTHETIC_POSITION_ACTION}:
       output_dim: null
       activation: ${activation_function:SILU}
       dropout: ${policy.decoder.dropout_rate}
-  min_logvar: -10.0
+  min_logvar: -2.0
   max_logvar: 4.0

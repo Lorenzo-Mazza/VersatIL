@@ -17,10 +17,8 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 from versatil.models.decoding.latent.reparametrize import reparametrize
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.detr_transformer import (
-    TransformerEncoder,
-    TransformerEncoderLayer,
-)
+from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -28,6 +26,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.models.layers.transformer.encoder import TransformerEncoder
 
 
 class VAETransformerEncoder(PosteriorLatentEncoder):
@@ -40,7 +39,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         number_of_encoder_layers: Number of transformer encoder layers
         activation: Activation function name
         dropout_rate: Dropout probability
-        normalize_before: Use pre-normalization
+        attention_type: Attention mechanism type (use AttentionType enum values)
         latent_dimension: Dimension of VAE latent space (z)
         use_proprioceptive: Whether to condition on proprioceptive observations
         prediction_horizon: Number of action timesteps
@@ -59,11 +58,15 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         number_of_encoder_layers: int = 4,
         activation: str = ActivationFunction.SWIGLU.value,
         dropout_rate: float = 0.1,
-        normalize_before: bool = False,
+        attention_dropout: float = 0.0,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
+        attention_type: str = AttentionType.MULTI_HEAD.value,
+        positional_encoding_type: str | None = None,
         use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         min_logvar: float | None = None,
         deterministic: bool = False,
+        mu_tanh_bound: float | None = None,
     ):
         """Initialize VAE latent action encoder.
 
@@ -78,21 +81,26 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             number_of_encoder_layers: Number of transformer encoder layers
             activation: Activation function name
             dropout_rate: Dropout probability
-            normalize_before: Use pre-normalization
+            attention_type: Attention mechanism type (use AttentionType enum values)
             use_proprioceptive: Whether to condition on proprioceptive observations
             exclude_keys: List of keys to exclude from encoding
             min_logvar: Minimum log variance for avoiding variance collapse
             deterministic: If True, output deterministic embeddings without reparameterization.
                 Use with MMD or OT regularizers instead of KL divergence.
+            mu_tanh_bound: Optional symmetric bound for posterior mu. When set, applies
+                ``bound * tanh(raw_mu / bound)`` before sampling/returning z.
 
         """
         super().__init__(
             latent_dimension=latent_dimension,
             device=device,
         )
+        if mu_tanh_bound is not None and mu_tanh_bound <= 0:
+            raise ValueError("mu_tanh_bound must be positive when set.")
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
         self.deterministic = deterministic
+        self.mu_tanh_bound = mu_tanh_bound
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
@@ -102,21 +110,22 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.number_of_encoder_layers = number_of_encoder_layers
         self.activation = activation
         self.dropout_rate = dropout_rate
-        self.normalize_before = normalize_before
+        self.attention_dropout = attention_dropout
+        self.normalization_type = normalization_type
+        self.attention_type = attention_type
+        self.positional_encoding_type = positional_encoding_type
         self.vae_latent_dimension = latent_dimension
         self.transformer_encoder = TransformerEncoder(
-            encoder_layer=TransformerEncoderLayer(
-                embedding_dimension=self.embedding_dimension,
-                number_of_heads=self.number_of_heads,
-                feedforward_dimension=self.feedforward_dimension,
-                activation=self.activation,
-                dropout=self.dropout_rate,
-                normalize_before=self.normalize_before,
-            ),
             number_of_layers=self.number_of_encoder_layers,
-            normalization=nn.LayerNorm(self.embedding_dimension)
-            if self.normalize_before
-            else None,
+            embedding_dimension=self.embedding_dimension,
+            number_of_heads=self.number_of_heads,
+            feedforward_dimension=self.feedforward_dimension,
+            activation=self.activation,
+            dropout=self.dropout_rate,
+            attention_dropout=self.attention_dropout,
+            normalization_type=self.normalization_type,
+            attention_type=self.attention_type,
+            positional_encoding_type=self.positional_encoding_type,
         )
         temporal_positional_encoding = None
         if self.observation_horizon > 1:
@@ -147,6 +156,11 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             projection_dim,
         )
         self.to(device)
+
+    def _bound_mu(self, mu: torch.Tensor) -> torch.Tensor:
+        if self.mu_tanh_bound is None:
+            return mu
+        return self.mu_tanh_bound * torch.tanh(mu / self.mu_tanh_bound)
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Gaussian posterior keys, excluding logvar when deterministic."""
@@ -210,19 +224,20 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension), CLS token at the end
+        hidden_states = input_tokens + pos_encodings
         encoder_output = self.transformer_encoder(
-            input_tokens,
-            positional_encoding=pos_encodings,
-            source_key_padding_mask=padding_mask,
+            hidden_states=hidden_states,
+            padding_mask=padding_mask,
         )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
-            z = latent_stats  # (B, latent_dim)
+            z = self._bound_mu(latent_stats)  # (B, latent_dim)
             return {
                 LatentKey.POSTERIOR_LATENT.value: z,
                 LatentKey.POSTERIOR_MU.value: z,
             }
-        mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        raw_mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        mu = self._bound_mu(raw_mu)
         if self.min_logvar is not None:
             logvar = torch.clamp(logvar, min=self.min_logvar)
         z = reparametrize(mu, logvar)  # (B, latent_dim)

@@ -54,10 +54,7 @@ def vlm_encoder_factory() -> Callable[..., TwoTowerVLMEncoder]:
         model_name: str = ImageTextModelType.CLIP_VITB32.value,
     ) -> TwoTowerVLMEncoder:
         if input_keys is None:
-            input_keys = [
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ]
+            input_keys = [Cameras.LEFT.value]
         mock_encoder = _create_mock_encoder()
         mock_config = MagicMock()
 
@@ -135,10 +132,7 @@ class TestTwoTowerVLMEncoderInitialization:
 
     @pytest.mark.parametrize(
         "input_keys",
-        [
-            [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-            [Cameras.RIGHT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-        ],
+        [[Cameras.LEFT.value], [Cameras.RIGHT.value]],
     )
     @pytest.mark.parametrize(
         "pooling_method",

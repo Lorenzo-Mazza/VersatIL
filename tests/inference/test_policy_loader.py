@@ -436,6 +436,62 @@ class TestPolicyLoaderCheckpointValidation:
                 checkpoint_path=str(tmp_path),
             )
 
+    def test_raises_on_current_lazy_module_prefix_mismatch(self, tmp_path, mock_config):
+        lazy_prefix = (
+            "policy.decoder.input_sequence_builder.feature_projection."
+            "spatial_projections.left_rgb:agentview_rgb.weight"
+        )
+        checkpoint_state = {
+            lazy_prefix: torch.tensor([1.0]),
+        }
+        mock_checkpoint = {"state_dict": checkpoint_state}
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("dummy: true")
+        checkpoint_file = tmp_path / "last.ckpt"
+        checkpoint_file.write_text("dummy")
+
+        mock_lightning = MagicMock()
+        mock_lightning.state_dict.return_value = {
+            "policy.decoder.other.weight": torch.tensor([5.0]),
+        }
+
+        with (
+            patch(
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
+                return_value=MagicMock(),
+            ),
+            patch(
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
+                return_value=mock_config,
+            ),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
+            patch(
+                f"{FLOAT_LOADER_MODULE}.torch.load",
+                return_value=mock_checkpoint,
+            ),
+            patch(
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                return_value=mock_lightning,
+            ),
+            pytest.raises(
+                RuntimeError,
+                match=re.escape(
+                    "Checkpoint loading validation failed with "
+                    "1 critical error(s). "
+                    "The model will NOT produce correct outputs. "
+                    "First error: CRITICAL: FeatureProjection spatial "
+                    "failed to load. Checkpoint has 1 keys but model "
+                    "has NONE. Example keys: "
+                    f"['{lazy_prefix}']"
+                ),
+            ),
+        ):
+            PolicyLoader(
+                device=torch.device("cpu"),
+                checkpoint_path=str(tmp_path),
+            )
+
     def test_raises_on_weight_value_mismatch(self, tmp_path, mock_config):
         shared_key = "policy.decoder.weight"
         checkpoint_state = {

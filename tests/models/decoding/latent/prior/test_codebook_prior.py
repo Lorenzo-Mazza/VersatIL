@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -21,6 +21,10 @@ def codebook_prior_factory() -> Callable[..., CodebookPrior]:
         embedding_dimension: int = 16,
         observation_horizon: int = 1,
         temperature: float = 1.0,
+        attention_dropout: float = 0.0,
+        normalization_type: str = "rmsnorm",
+        attention_type: str = "mha",
+        positional_encoding_type: str | None = None,
     ) -> CodebookPrior:
         return CodebookPrior(
             latent_dimension=latent_dimension,
@@ -34,6 +38,10 @@ def codebook_prior_factory() -> Callable[..., CodebookPrior]:
             number_of_encoder_layers=1,
             dropout_rate=0.0,
             temperature=temperature,
+            attention_dropout=attention_dropout,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            positional_encoding_type=positional_encoding_type,
         )
 
     return factory
@@ -67,6 +75,31 @@ class TestCodebookPriorInit:
         assert prior.num_residual_layers == num_residual_layers
         assert prior.latent_dimension == latent_dimension
         assert len(prior.code_heads) == num_residual_layers
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope"])
+    def test_positional_encoding_type_forwarded_to_transformer(
+        self,
+        positional_encoding_type: str | None,
+    ) -> None:
+        with patch(
+            "versatil.models.decoding.latent.prior.codebook_prior.TransformerEncoder"
+        ) as mock_encoder_cls:
+            CodebookPrior(
+                latent_dimension=8,
+                num_codes=4,
+                num_residual_layers=1,
+                embedding_dimension=16,
+                observation_horizon=1,
+                device="cpu",
+                number_of_heads=2,
+                feedforward_dimension=32,
+                number_of_encoder_layers=1,
+                positional_encoding_type=positional_encoding_type,
+            )
+        assert (
+            mock_encoder_cls.call_args.kwargs["positional_encoding_type"]
+            == positional_encoding_type
+        )
 
 
 class TestCodebookPriorWirePosterior:

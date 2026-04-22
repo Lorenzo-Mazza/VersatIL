@@ -1,7 +1,7 @@
 """Tests for versatil.models.decoding.decoders.factory.action_transformer module."""
 
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -178,6 +178,25 @@ class TestActionTransformerInitialization:
         assert decoder.learnable_query.weight.shape == (
             prediction_horizon,
             embedding_dimension,
+        )
+
+    @pytest.mark.parametrize(
+        "positional_encoding_type",
+        [None, PositionalEncodingType.ROPE.value],
+    )
+    def test_positional_encoding_type_forwarded_to_decoder(
+        self,
+        action_transformer_factory: Callable[..., ActionTransformer],
+        positional_encoding_type: str | None,
+    ):
+        with patch(
+            "versatil.models.decoding.decoders.factory.action_transformer.BidirectionalDecoder",
+        ) as mock_decoder_class:
+            action_transformer_factory(
+                positional_encoding_type=positional_encoding_type,
+            )
+        assert mock_decoder_class.call_args.kwargs["positional_encoding_type"] == (
+            positional_encoding_type
         )
 
 

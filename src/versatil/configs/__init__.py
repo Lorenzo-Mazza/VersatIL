@@ -156,6 +156,7 @@ from versatil.configs.training import (
     AdamWConfig,
     OptimizerConfig,
     ParameterGroupConfig,
+    ProgressiveFreezingConfig,
     SGDConfig,
     TrainingConfig,
 )
@@ -221,6 +222,7 @@ __all__ = [
     "TrainingConfig",
     "OptimizerConfig",
     "ParameterGroupConfig",
+    "ProgressiveFreezingConfig",
     "TaskSpaceConfig",
     "PolicyConfig",
     "EncoderConfig",
@@ -566,6 +568,11 @@ def register_resolvers():
             "prunable_layer",
             lambda name: PrunableLayerType[name].value,
         )
+    if not OmegaConf.has_resolver("mul"):
+        OmegaConf.register_new_resolver(
+            "mul",
+            lambda a, b: float(a) * float(b),
+        )
 
 
 def register_configs():
@@ -669,6 +676,11 @@ def register_configs():
         group="training/optimizer/parameter_group",
         name="base",
         node=ParameterGroupConfig,
+    )
+    cs.store(
+        group="training/progressive_freezing",
+        name="base",
+        node=ProgressiveFreezingConfig,
     )
 
     cs.store(group="policy", name="base", node=PolicyConfig)

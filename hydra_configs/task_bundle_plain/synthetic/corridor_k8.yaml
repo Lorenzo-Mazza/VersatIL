@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /task/dataset_schema: synthetic/corridor_navigation
+  - override /task/observation_space: synthetic_image_state
+  - override /policy/encoding_pipeline: mono_rgb
+
+task:
+  dataset_schema:
+    num_modes: 8
+
+training:
+  num_epochs: 4000

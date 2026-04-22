@@ -183,6 +183,8 @@ class MoELossConfig:
 
     _target_: str = "versatil.metrics.components.MoELoss"
     base_loss: BaseLossConfig = MISSING
+    entropy_weight: float = 0.0
+    load_balance_weight: float = 0.0
 
 
 @dataclass

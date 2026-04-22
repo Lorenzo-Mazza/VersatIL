@@ -209,6 +209,31 @@ ActionHead(
 
 ---
 
+## Positional Encoding
+
+All transformer decoder factories follow a unified positional encoding (PE) pattern when using the transformer package (`versatil.models.layers.transformer`).
+
+### How it works
+
+1. **`TransformerInputBuilder`** projects input features to a common embedding dimension and computes additive PE: 2D sinusoidal for spatial features, 1D sinusoidal for flat/sequential features. When the observation horizon is greater than 1, an additional learned temporal PE layer is added so that the policy receives distinct temporal representations across timesteps. The builder returns `(input_tokens, pos_encodings, padding_mask)`.
+2. **Always pre-add** the PE to tokens before the transformer call: `hidden_states = input_tokens + pos_encodings`. This ensures cross-attention keys carry absolute position information regardless of the transformer's internal PE setting.
+3. **`positional_encoding_type`** on the transformer controls self-attention PE only:
+    - `None`: no internal PE. Position info comes entirely from the pre-added additive PE.
+    - `rope`: RoPE (rotary) applied to Q/K inside self-attention layers, complementing the pre-added additive PE.
+    - `sinusoidal` or `learned`: an additional absolute PE is applied inside the transformer. In the context of action decoders this is redundant with the pre-added PE from step 1, but it preserves the self-contained correctness of the transformer module when used independently.
+4. **Cross-attention** never applies RoPE. Keys receive position info solely from the pre-added additive PE. This avoids position-space collisions between query and key sequences from different modalities.
+
+
+### Exceptions
+
+Two decoder families intentionally diverge from the contract above. They are correct by design within their own attention scheme; the unified contract does not apply.
+
+**DETR-style decoders** (`ACT`, `DiscreteDETRActionTransformer`) use `versatil.models.layers.detr_transformer.Transformer`, which takes `source_positional_encoding` as a separate argument and re-adds it at every attention layer (the original DETR pattern). They do **not** pre-add PE to the tokens before the transformer call. New decoders should follow the standard pre-add contract; the DETR variant is preserved for parity with the published architectures.
+
+**VLA decoders** (`Pi0Decoder`, `SmolVLADecoder`) bypass `TransformerInputBuilder` entirely. They consume pre-embedded VLM prefix tokens and apply RoPE jointly across the concatenated `[prefix, action]` sequence using position IDs derived from a shared validity mask (see `pi0.py:321-328`, `smolvla.py:380-386`). This means RoPE *is* used across what would normally be cross-attention boundaries — it works because the VLM and expert layers share the same position space by construction. If a VLA decoder is ever paired with a non-VLM encoder whose outputs do not carry positional information, the prefix keys will be position-blind and the contract breaks; document this explicitly in any new VLA-style decoder.
+
+---
+
 ## Adding a New Decoder
 
 ### 1. Implement the decoder class
@@ -289,6 +314,14 @@ _target_: versatil.models.decoding.decoders.factory.my_decoder.MyDecoder
 ### 5. Add tests
 
 Create tests in `tests/models/decoding/` following the patterns in `tests/CLAUDE.md`.
+
+### 6.Checklist for new decoders
+
+When implementing a new decoder factory:
+
+- Always call `self.input_sequence_builder(features)` and pre-add the returned `pos_encodings` to the tokens.
+- Accept `positional_encoding_type` as an `__init__` parameter and pass it through to the transformer constructor.
+- Do **not** hardcode `positional_encoding_type=None` — let the user configure it via Hydra.
 
 ---
 

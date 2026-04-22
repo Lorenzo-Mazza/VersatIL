@@ -1,0 +1,13 @@
+# @package _global_
+# Task bundle: synthetic conditional_circle, K=2 modes with context observation.
+defaults:
+  - override /task/dataset_schema: synthetic/conditional_circle
+  - override /task/observation_space: synthetic_image_state_context
+  - override /policy/encoding_pipeline: mono_rgb_context
+
+policy:
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 1
+    prior:
+      latent_dimension: 1

@@ -107,6 +107,7 @@ class ActionTransformer(ActionDecoder):
             activation=self.activation,
             normalization_type=self.normalization_type,
             attention_type=self.attention_type,
+            positional_encoding_type=self.positional_encoding_type,
         )
 
     def _apply_action_heads(

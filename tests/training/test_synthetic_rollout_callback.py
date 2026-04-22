@@ -42,9 +42,11 @@ def mock_trainer_factory() -> Callable[..., MagicMock]:
     def factory(
         current_epoch: int = 0,
         has_logger: bool = True,
+        max_epochs: int = 2000,
     ) -> MagicMock:
         trainer = MagicMock()
         trainer.current_epoch = current_epoch
+        trainer.max_epochs = max_epochs
         if not has_logger:
             trainer.logger = None
         return trainer
@@ -151,14 +153,16 @@ def test_stores_configuration(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "current_epoch, log_every_n_epochs, should_run",
+    "current_epoch, log_every_n_epochs, max_epochs, should_run",
     [
-        (0, 1, True),
-        (1, 1, True),
-        (3, 5, False),
-        (5, 5, True),
-        (7, 3, False),
-        (9, 3, True),
+        (0, 1, 100, True),
+        (1, 1, 100, True),
+        (3, 5, 100, False),
+        (5, 5, 100, True),
+        (7, 3, 100, False),
+        (9, 3, 100, True),
+        (1999, 100, 2000, True),
+        (1998, 100, 2000, False),
     ],
 )
 def test_epoch_gating(
@@ -169,10 +173,13 @@ def test_epoch_gating(
     fake_results_factory: Callable[..., dict],
     current_epoch: int,
     log_every_n_epochs: int,
+    max_epochs: int,
     should_run: bool,
 ):
     callback = callback_factory(log_every_n_epochs=log_every_n_epochs)
-    trainer = mock_trainer_factory(current_epoch=current_epoch, has_logger=False)
+    trainer = mock_trainer_factory(
+        current_epoch=current_epoch, has_logger=False, max_epochs=max_epochs
+    )
     pl_module = mock_pl_module_factory()
 
     with (

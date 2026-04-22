@@ -420,7 +420,7 @@ def test_generate_conditional_circle_passes_context_color_to_render(
 
 
 @pytest.mark.unit
-def test_generate_sequential_decision_renders_with_per_mode_goal_and_obstacles(
+def test_generate_sequential_decision_renders_without_goal(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
 ):
     num_episodes = SEQUENTIAL_NUM_COMPOUND_MODES
@@ -439,10 +439,8 @@ def test_generate_sequential_decision_renders_with_per_mode_goal_and_obstacles(
         )
 
     assert mock_render.call_count == num_episodes
-    goals_received = [call.kwargs["goal"] for call in mock_render.call_args_list]
-    unique_goals = {(float(g[0]), float(g[1])) for g in goals_received}
-    assert len(unique_goals) == SEQUENTIAL_NUM_COMPOUND_MODES
     for call in mock_render.call_args_list:
+        assert "goal" not in call.kwargs
         assert call.kwargs["obstacles"] == SEQUENTIAL_OBSTACLES
 
 
@@ -646,6 +644,7 @@ def test_generate_radial_renders_with_dynamic_obstacles(
     for call in mock_render.call_args_list:
         obstacles = call.kwargs["obstacles"]
         assert len(obstacles) == num_modes
+        assert "goal" not in call.kwargs
 
 
 @pytest.mark.unit
@@ -672,6 +671,7 @@ def test_generate_corridor_renders_with_dynamic_obstacles(
     for call in mock_render.call_args_list:
         obstacles = call.kwargs["obstacles"]
         assert len(obstacles) == num_modes - 1
+        assert "goal" not in call.kwargs
 
 
 @pytest.mark.unit

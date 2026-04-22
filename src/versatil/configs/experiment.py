@@ -25,6 +25,9 @@ class ExperimentConfig:
         Float32MatmulPrecision.MEDIUM.value
     )  #: Float32 matmul precision for Tensor Cores (None to disable)
     checkpoint_every: int = 100
+    save_checkpoints: bool = (
+        True  #: When False, skip ModelCheckpoint callbacks entirely.
+    )
     val_every: int = 1
     plot_every: int = 200
     validate_loss_keys: bool = True

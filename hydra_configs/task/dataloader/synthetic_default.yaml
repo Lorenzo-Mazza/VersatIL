@@ -17,6 +17,7 @@ rotation_augmentation: null
 skip_initial_episode_steps: 0
 downsample_factor: 1
 action_backward_shift: 0
+trailing_padded_actions: 0
 
-val_ratio: 0.1
+val_ratio: 0.0
 total_ratio: 1.0

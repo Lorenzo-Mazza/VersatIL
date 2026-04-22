@@ -1,7 +1,5 @@
 """Tests for versatil.configs.experiment module."""
 
-import dataclasses
-
 import pytest
 from omegaconf import MISSING
 
@@ -11,89 +9,63 @@ from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
 @pytest.mark.unit
 class TestExperimentConfig:
-    def test_name_and_checkpoint_folder_default_to_missing(self):
-        config = ExperimentConfig()
-        assert config.name == MISSING
-        assert config.checkpoint_folder == MISSING
-
-    @pytest.mark.parametrize(
-        "precision", [PrecisionType.FP32.value, PrecisionType.BF16_MIXED.value]
-    )
     @pytest.mark.parametrize("device", ["cuda", "cpu"])
     @pytest.mark.parametrize("distributed", [True, False])
-    def test_stores_configuration(self, precision, device, distributed):
-        config = ExperimentConfig(
-            name="experiment",
-            checkpoint_folder="/tmp",
-            precision=precision,
-            device=device,
-            distributed=distributed,
-        )
-        assert config.precision == precision
-        assert config.device == device
-        assert config.distributed == distributed
-
-    def test_precision_default_is_fp16_mixed_string(self):
-        config = ExperimentConfig(name="test", checkpoint_folder="/tmp")
-        assert config.precision == PrecisionType.FP16_MIXED.value
-        assert config.precision == "16-mixed"
-
-    def test_float32_matmul_precision_default_is_medium_string(self):
-        config = ExperimentConfig(name="test", checkpoint_folder="/tmp")
-        assert config.float32_matmul_precision == Float32MatmulPrecision.MEDIUM.value
-        assert config.float32_matmul_precision == "medium"
-
+    @pytest.mark.parametrize(
+        "precision",
+        [PrecisionType.FP32.value, PrecisionType.BF16_MIXED.value],
+    )
     @pytest.mark.parametrize(
         "float32_matmul_precision",
-        [
-            Float32MatmulPrecision.HIGHEST.value,
-            None,
-        ],
+        [Float32MatmulPrecision.HIGHEST.value, None],
     )
-    def test_float32_matmul_precision_nullable(self, float32_matmul_precision):
+    @pytest.mark.parametrize("save_checkpoints", [True, False])
+    @pytest.mark.parametrize("use_wandb", [True, False])
+    @pytest.mark.parametrize("validate_loss_keys", [True, False])
+    def test_stores_configuration(
+        self,
+        device: str,
+        distributed: bool,
+        precision: str,
+        float32_matmul_precision: str | None,
+        save_checkpoints: bool,
+        use_wandb: bool,
+        validate_loss_keys: bool,
+    ):
         config = ExperimentConfig(
             name="test",
             checkpoint_folder="/tmp",
+            device=device,
+            distributed=distributed,
+            precision=precision,
             float32_matmul_precision=float32_matmul_precision,
+            save_checkpoints=save_checkpoints,
+            use_wandb=use_wandb,
+            validate_loss_keys=validate_loss_keys,
         )
+        assert config.device == device
+        assert config.distributed == distributed
+        assert config.precision == precision
         assert config.float32_matmul_precision == float32_matmul_precision
+        assert config.save_checkpoints == save_checkpoints
+        assert config.use_wandb == use_wandb
+        assert config.validate_loss_keys == validate_loss_keys
 
-    def test_has_all_expected_fields(self):
-        field_names = {f.name for f in dataclasses.fields(ExperimentConfig)}
-        expected = {
-            "name",
-            "seed",
-            "checkpoint_folder",
-            "resume_from",
-            "use_wandb",
-            "wandb_project",
-            "wandb_entity",
-            "device",
-            "distributed",
-            "precision",
-            "float32_matmul_precision",
-            "checkpoint_every",
-            "val_every",
-            "plot_every",
-            "validate_loss_keys",
-        }
-        assert expected == field_names
-
-    @pytest.mark.parametrize(
-        "checkpoint_every, val_every, plot_every",
-        [
-            (50, 2, 100),
-            (200, 5, 500),
-        ],
-    )
-    def test_stores_interval_settings(self, checkpoint_every, val_every, plot_every):
-        config = ExperimentConfig(
-            name="test",
-            checkpoint_folder="/tmp",
-            checkpoint_every=checkpoint_every,
-            val_every=val_every,
-            plot_every=plot_every,
-        )
-        assert config.checkpoint_every == checkpoint_every
-        assert config.val_every == val_every
-        assert config.plot_every == plot_every
+    def test_defaults(self):
+        config = ExperimentConfig()
+        assert config.name == MISSING
+        assert config.seed == 42
+        assert config.checkpoint_folder == MISSING
+        assert config.resume_from is None
+        assert config.use_wandb is True
+        assert config.wandb_project is None
+        assert config.wandb_entity is None
+        assert config.device == "cuda"
+        assert config.distributed is False
+        assert config.precision == PrecisionType.FP16_MIXED.value
+        assert config.float32_matmul_precision == Float32MatmulPrecision.MEDIUM.value
+        assert config.checkpoint_every == 100
+        assert config.save_checkpoints is True
+        assert config.val_every == 1
+        assert config.plot_every == 200
+        assert config.validate_loss_keys is True

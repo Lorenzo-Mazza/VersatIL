@@ -352,6 +352,37 @@ class TestActionSpaceBooleanProperties:
         assert action_space.has_precomputed_actions
         assert not action_space.has_on_the_fly_actions
 
+    @pytest.mark.parametrize(
+        "case, expected",
+        [
+            ("empty", False),
+            ("only_precomputed", True),
+            ("only_on_the_fly", False),
+            ("mixed", False),
+        ],
+    )
+    def test_has_only_precomputed_actions(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+        precomputed_gripper: GripperActionMetadata,
+        case: str,
+        expected: bool,
+    ):
+        if case == "empty":
+            actions_metadata = {}
+        elif case == "only_precomputed":
+            actions_metadata = {"gripper": precomputed_gripper}
+        elif case == "only_on_the_fly":
+            actions_metadata = {"position": position_on_the_fly}
+        else:
+            actions_metadata = {
+                "position": position_on_the_fly,
+                "gripper": precomputed_gripper,
+            }
+        action_space = action_space_factory(actions_metadata=actions_metadata)
+        assert action_space.has_only_precomputed_actions is expected
+
     def test_has_delta_actions_true_when_delta_method(
         self,
         action_space_factory: Callable[..., ActionSpace],

@@ -87,10 +87,7 @@ def paligemma_encoder_factory(
         use_embeddings_only: bool = False,
     ) -> PaliGemmaEncoder:
         if input_keys is None:
-            input_keys = [
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ]
+            input_keys = [Cameras.LEFT.value]
         mock_config = _create_mock_config()
         mock_vlm = mock_vlm_factory()
 
@@ -179,15 +176,8 @@ class TestPaliGemmaEncoderInitialization:
     @pytest.mark.parametrize(
         "input_keys, expected_camera_count",
         [
-            ([Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value], 1),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2,
-            ),
+            ([Cameras.LEFT.value], 1),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2),
         ],
     )
     @pytest.mark.parametrize("frozen", [True, False])
@@ -222,15 +212,8 @@ class TestPaliGemmaEncoderForward:
     @pytest.mark.parametrize(
         "input_keys, num_cameras",
         [
-            ([Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value], 1),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2,
-            ),
+            ([Cameras.LEFT.value], 1),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2),
         ],
     )
     def test_output_shape_scales_with_cameras_and_time(
@@ -497,18 +480,8 @@ class TestPaliGemmaEncoderGetOutputSpecification:
     @pytest.mark.parametrize(
         "input_keys, expected_total_image_tokens",
         [
-            (
-                [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-                NUM_IMAGE_TOKENS,
-            ),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2 * NUM_IMAGE_TOKENS,
-            ),
+            ([Cameras.LEFT.value], NUM_IMAGE_TOKENS),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2 * NUM_IMAGE_TOKENS),
         ],
     )
     def test_fused_dimension_scales_with_cameras(

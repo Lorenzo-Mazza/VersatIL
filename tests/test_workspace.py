@@ -26,6 +26,7 @@ from versatil.training.callbacks import (
     ExpertUsageCallback,
     GradientNormCallback,
     LatentVisualizationCallback,
+    ProgressiveFreezingCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
@@ -50,6 +51,7 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         precision: str = "32",
         float32_matmul_precision: str | None = None,
         checkpoint_every: int = 10,
+        save_checkpoints: bool = True,
         val_every: int = 1,
         plot_every: int = 200,
         validate_loss_keys: bool = True,
@@ -67,6 +69,7 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         config.precision = precision
         config.float32_matmul_precision = float32_matmul_precision
         config.checkpoint_every = checkpoint_every
+        config.save_checkpoints = save_checkpoints
         config.val_every = val_every
         config.plot_every = plot_every
         config.validate_loss_keys = validate_loss_keys
@@ -90,10 +93,11 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         swa_epoch_start: float = 0.5,
         swa_annealing_epochs: int = 10,
         tune_lr: bool = False,
-        early_stopping_patience: int = 10,
+        early_stopping_patience: int | None = 10,
         reduce_lr_on_plateau: bool = False,
         reduce_lr_patience: int = 10,
         reduce_lr_cooldown: int = 10,
+        progressive_freezing: list[dict[str, object]] | None = None,
         compile: bool = False,
         compile_mode: str = "default",
         lr: float = 1e-4,
@@ -113,6 +117,7 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         config.reduce_lr_on_plateau = reduce_lr_on_plateau
         config.reduce_lr_patience = reduce_lr_patience
         config.reduce_lr_cooldown = reduce_lr_cooldown
+        config.progressive_freezing = progressive_freezing or []
         config.compile = compile
         config.compile_mode = compile_mode
         config.optimizer = MagicMock(spec=AdamWConfig)
@@ -141,6 +146,7 @@ def mock_workspace_policy_factory(
         if decoder_callbacks is not None:
             policy.decoder.get_callbacks = MagicMock(return_value=decoder_callbacks)
 
+        policy.encoding_pipeline = MagicMock()
         policy.algorithm = MagicMock()
         if algorithm_callbacks is not None:
             policy.algorithm.get_callbacks = MagicMock(return_value=algorithm_callbacks)
@@ -529,6 +535,24 @@ class TestCreateCallbacks:
         assert GradientNormCallback in callback_types
         assert LearningRateMonitor in callback_types
 
+    def test_no_checkpoint_callbacks_when_save_checkpoints_disabled(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            policy=policy,
+            experiment_kwargs={"save_checkpoints": False},
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        callback_types = [type(cb) for cb in callbacks]
+        assert ModelCheckpoint not in callback_types
+        assert GradientNormCallback in callback_types
+        assert LearningRateMonitor in callback_types
+
     def test_ema_callback_added_when_use_ema_enabled(
         self, workspace_factory, mock_workspace_policy_factory
     ):
@@ -588,6 +612,24 @@ class TestCreateCallbacks:
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
         workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        early_stop_callbacks = [
+            cb for cb in callbacks if isinstance(cb, ResumableEarlyStopping)
+        ]
+        assert len(early_stop_callbacks) == 0
+
+    def test_early_stopping_not_added_when_patience_is_none(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            training_kwargs={"early_stopping_patience": None},
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = MagicMock()
 
         callbacks = workspace._create_callbacks()
 
@@ -698,6 +740,33 @@ class TestCreateCallbacks:
                 swa_epoch_start=80,  # int(0.8 * 100)
                 annealing_epochs=5,
             )
+
+    def test_progressive_freezing_callback_added_when_configured(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        mock_workspace_policy_factory: Callable[..., MagicMock],
+    ) -> None:
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            training_kwargs={
+                "progressive_freezing": [
+                    {
+                        "epoch": 200,
+                        "trainable_patterns": [r"^algorithm\.prior\."],
+                    }
+                ]
+            },
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        progressive_callbacks = [
+            cb for cb in callbacks if isinstance(cb, ProgressiveFreezingCallback)
+        ]
+        assert len(progressive_callbacks) == 1
 
     def test_decoder_callbacks_collected_via_protocol(
         self, workspace_factory, mock_workspace_policy_factory
@@ -1148,6 +1217,24 @@ class TestSetupTrainer:
             assert call_kwargs["check_val_every_n_epoch"] == 5
             assert call_kwargs["limit_val_batches"] == 1.0
 
+    @pytest.mark.parametrize("save_checkpoints", [True, False])
+    def test_enable_checkpointing_flag_passed_to_trainer(
+        self, workspace_factory, mock_workspace_policy_factory, save_checkpoints
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            experiment_kwargs={"save_checkpoints": save_checkpoints},
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        with patch("versatil.workspace.pl.Trainer") as mock_trainer_cls:
+            workspace._setup_trainer()
+
+            call_kwargs = mock_trainer_cls.call_args[1]
+            assert call_kwargs["enable_checkpointing"] is save_checkpoints
+
 
 @pytest.mark.unit
 class TestSetupPolicy:
@@ -1177,6 +1264,45 @@ class TestSetupPolicy:
         policy.set_tokenizer.assert_called_once_with(None)
         policy.set_denoising_thresholds.assert_called_once_with({"key": 0.5})
         policy.set_gripper_class_weights.assert_called_once_with(None)
+
+    @pytest.mark.parametrize(
+        "precision, expected_dtype",
+        [
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+            ("bf16-true", torch.bfloat16),
+            ("16-mixed", torch.float16),
+        ],
+    )
+    def test_pipeline_output_dtype_set_from_experiment_precision(
+        self,
+        workspace_factory,
+        mock_workspace_policy_factory,
+        precision: str,
+        expected_dtype: torch.dtype,
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            experiment_kwargs={"precision": precision},
+            policy=policy,
+        )
+        workspace.policy = None
+
+        workspace.normalizer = MagicMock(spec=LinearNormalizer)
+        workspace.tokenizer = None
+        workspace.denoising_thresholds = {}
+        workspace.gripper_class_weights = None
+        mock_train_loader = MagicMock()
+        mock_train_loader.__len__ = MagicMock(return_value=10)
+        workspace.train_loader = mock_train_loader
+        workspace.config.policy = policy
+
+        with patch.object(workspace, "_initialize_lazy_modules"):
+            workspace._setup_policy()
+
+        policy.encoding_pipeline.set_output_dtype.assert_called_once_with(
+            expected_dtype
+        )
 
     def test_computes_total_training_steps_correctly(
         self, workspace_factory, mock_workspace_policy_factory
@@ -1522,6 +1648,7 @@ class TestRun:
             mock_trainer.fit.assert_called_once_with(
                 model=mock_lightning_policy,
                 ckpt_path=None,
+                weights_only=False,
             )
 
     def test_run_passes_resume_checkpoint_when_path_exists(
@@ -1555,6 +1682,7 @@ class TestRun:
             mock_trainer.fit.assert_called_once_with(
                 model=workspace.lightning_policy,
                 ckpt_path=str(checkpoint_path),
+                weights_only=False,
             )
 
     def test_run_starts_from_scratch_when_resume_path_does_not_exist(
@@ -1586,6 +1714,7 @@ class TestRun:
             mock_trainer.fit.assert_called_once_with(
                 model=workspace.lightning_policy,
                 ckpt_path=None,
+                weights_only=False,
             )
 
     def test_run_assigns_dataloaders_to_lightning_policy(

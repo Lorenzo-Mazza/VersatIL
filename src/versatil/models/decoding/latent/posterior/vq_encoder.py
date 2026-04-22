@@ -21,10 +21,8 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 from versatil.models.decoding.latent.vq.residual_vq import ResidualVQ
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.detr_transformer import (
-    TransformerEncoder,
-    TransformerEncoderLayer,
-)
+from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -32,6 +30,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.models.layers.transformer.encoder import TransformerEncoder
 
 
 class VQPosteriorEncoder(PosteriorLatentEncoder):
@@ -60,7 +59,7 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
         number_of_encoder_layers: Number of transformer encoder layers.
         activation: Activation function name.
         dropout_rate: Dropout probability.
-        normalize_before: Use pre-normalization.
+        attention_type: Attention mechanism type (use AttentionType enum values).
         exclude_keys: Observation keys to exclude from encoding.
     """
 
@@ -80,7 +79,10 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
         number_of_encoder_layers: int = 1,
         activation: str = ActivationFunction.SWIGLU.value,
         dropout_rate: float = 0.0,
-        normalize_before: bool = False,
+        attention_dropout: float = 0.0,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
+        attention_type: str = AttentionType.MULTI_HEAD.value,
+        positional_encoding_type: str | None = None,
         exclude_keys: list[str] | None = None,
     ):
         super().__init__(
@@ -96,18 +98,16 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
         self.observation_horizon = observation_horizon
 
         self.transformer_encoder = TransformerEncoder(
-            encoder_layer=TransformerEncoderLayer(
-                embedding_dimension=embedding_dimension,
-                number_of_heads=number_of_heads,
-                feedforward_dimension=feedforward_dimension,
-                activation=activation,
-                dropout=dropout_rate,
-                normalize_before=normalize_before,
-            ),
             number_of_layers=number_of_encoder_layers,
-            normalization=nn.LayerNorm(embedding_dimension)
-            if normalize_before
-            else None,
+            embedding_dimension=embedding_dimension,
+            number_of_heads=number_of_heads,
+            feedforward_dimension=feedforward_dimension,
+            activation=activation,
+            dropout=dropout_rate,
+            attention_dropout=attention_dropout,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            positional_encoding_type=positional_encoding_type,
         )
 
         temporal_positional_encoding = None
@@ -211,10 +211,10 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
             input_observations
         )  # (B, seq_len, emb_dim)
 
+        hidden_states = input_tokens + pos_encodings
         encoder_output = self.transformer_encoder(
-            input_tokens,
-            positional_encoding=pos_encodings,
-            source_key_padding_mask=padding_mask,
+            hidden_states=hidden_states,
+            padding_mask=padding_mask,
         )[:, -1, :]  # (B, emb_dim) — CLS token at last position
 
         z_continuous = self.latent_projection(encoder_output)  # (B, code_dim)

@@ -115,20 +115,21 @@ def _draw_task_background(
                 zorder=1,
             )
         )
-    if layout.goal is not None:
-        axes.add_patch(
-            Rectangle(
-                (
-                    layout.goal[0] - PLOT_GOAL_SIZE / 2,
-                    layout.goal[1] - PLOT_GOAL_SIZE / 2,
-                ),
-                PLOT_GOAL_SIZE,
-                PLOT_GOAL_SIZE,
-                facecolor=PLOT_GOAL_COLOR,
-                edgecolor="none",
-                zorder=2,
+    if layout.goals is not None:
+        for goal_position in layout.goals:
+            axes.add_patch(
+                Rectangle(
+                    (
+                        goal_position[0] - PLOT_GOAL_SIZE / 2,
+                        goal_position[1] - PLOT_GOAL_SIZE / 2,
+                    ),
+                    PLOT_GOAL_SIZE,
+                    PLOT_GOAL_SIZE,
+                    facecolor=PLOT_GOAL_COLOR,
+                    edgecolor="none",
+                    zorder=2,
+                )
             )
-        )
 
 
 def _build_legend_handles(
@@ -164,7 +165,7 @@ def _build_legend_handles(
             label="Trajectory",
         ),
     ]
-    if layout.goal is not None:
+    if layout.goals is not None:
         handles.append(Patch(facecolor=PLOT_GOAL_COLOR, edgecolor="none", label="Goal"))
     if len(layout.obstacles) > 0:
         handles.append(
@@ -316,9 +317,10 @@ def _render_multi_agent_frame(
         top_left = _cartesian_to_pixel(np.array([x_min, y_min]), image_size)
         bottom_right = _cartesian_to_pixel(np.array([x_max, y_max]), image_size)
         cv2.rectangle(image, top_left, bottom_right, OBSTACLE_COLOR, thickness=-1)
-    if layout.goal is not None:
-        goal_pixel = _cartesian_to_pixel(layout.goal, image_size)
-        cv2.circle(image, goal_pixel, goal_radius, GOAL_COLOR, thickness=-1)
+    if layout.goals is not None:
+        for goal_position in layout.goals:
+            goal_pixel = _cartesian_to_pixel(goal_position, image_size)
+            cv2.circle(image, goal_pixel, goal_radius, GOAL_COLOR, thickness=-1)
     num_agents = positions.shape[0]
     if trails is not None:
         for agent_index in range(num_agents):

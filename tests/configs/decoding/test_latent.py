@@ -20,7 +20,9 @@ from versatil.models.decoding.constants import (
     PredictionType,
 )
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.normalization.constants import NormalizationType
 
 
 @pytest.mark.unit
@@ -95,6 +97,39 @@ class TestVAETransformerEncoderConfig:
         )
         assert isinstance(config, PosteriorLatentEncoderConfig)
 
+    def test_attention_dropout_default(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_dropout == 0.0
+
+    def test_normalization_type_default_is_rms_norm(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.normalization_type == NormalizationType.RMS_NORM.value
+
+    def test_attention_type_default_is_multi_head(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_type == AttentionType.MULTI_HEAD.value
+
+    def test_positional_encoding_type_default_is_none(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.positional_encoding_type is None
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope", "sinusoidal"])
+    def test_stores_positional_encoding_type(self, positional_encoding_type):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            positional_encoding_type=positional_encoding_type,
+        )
+        assert config.positional_encoding_type == positional_encoding_type
+
 
 @pytest.mark.unit
 class TestGaussianPriorConfig:
@@ -140,6 +175,39 @@ class TestPriorTransformerEncoderConfig:
             latent_dimension=32, embedding_dimension=256
         )
         assert isinstance(config, PriorLatentEncoderConfig)
+
+    def test_attention_dropout_default(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_dropout == 0.0
+
+    def test_normalization_type_default_is_rms_norm(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.normalization_type == NormalizationType.RMS_NORM.value
+
+    def test_attention_type_default_is_multi_head(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_type == AttentionType.MULTI_HEAD.value
+
+    def test_positional_encoding_type_default_is_none(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.positional_encoding_type is None
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope", "sinusoidal"])
+    def test_stores_positional_encoding_type(self, positional_encoding_type):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            positional_encoding_type=positional_encoding_type,
+        )
+        assert config.positional_encoding_type == positional_encoding_type
 
 
 @pytest.mark.unit

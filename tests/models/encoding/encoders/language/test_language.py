@@ -641,20 +641,13 @@ class TestLanguageEncoderBuildEncoder:
         # full-model path assigns the patched HF model instance
         assert encoder.encoder is not None
 
-    def test_model_dtype_cast_applied_when_set(
+    def test_apply_model_dtype_called_when_model_dtype_set(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
     ):
-        mock_model = MagicMock()
-        casted_model = MagicMock()
-        mock_model.to.return_value = casted_model
-        encoder = language_encoder_factory(
-            real_build=True,
-            model_dtype="bf16-mixed",
-            mock_model=mock_model,
-        )
-        mock_model.to.assert_called_once_with(torch.bfloat16)
-        assert encoder.encoder is casted_model
+        with patch.object(LanguageEncoder, "_apply_model_dtype") as mock_apply:
+            language_encoder_factory(model_dtype="bf16-mixed")
+        mock_apply.assert_called_once()
 
     def test_frozen_calls_freeze_weights(
         self,
@@ -692,6 +685,13 @@ GATED_LANGUAGE_MODELS = {
     LanguageEncoderType.GEMMA_2B,
     LanguageEncoderType.QWEN_2_1_5B,
     LanguageEncoderType.LLAMA_3_2_1B,
+    LanguageEncoderType.EMBEDDINGGEMMA_300M,
+}
+
+TRUST_REMOTE_CODE_LANGUAGE_MODELS = {
+    LanguageEncoderType.LLAMA_EMBED_NEMOTRON_8B,
+    LanguageEncoderType.LLAMA_NEMOTRON_EMBED_1B_V2,
+    LanguageEncoderType.JINA_EMBEDDINGS_V3,
 }
 
 NO_SDPA_LANGUAGE_MODELS = {
@@ -712,6 +712,13 @@ def _integration_marks(encoder_type: LanguageEncoderType) -> list:
                 reason=f"{encoder_type.value} is a gated model requiring authentication",
             )
         )
+    if encoder_type in TRUST_REMOTE_CODE_LANGUAGE_MODELS:
+        marks.append(
+            pytest.mark.skipif(
+                True,
+                reason=f"{encoder_type.value} requires trust_remote_code=True",
+            )
+        )
     if encoder_type in TIKTOKEN_LANGUAGE_MODELS:
         marks.append(
             pytest.mark.xfail(
@@ -726,6 +733,21 @@ def _integration_marks(encoder_type: LanguageEncoderType) -> list:
     return marks
 
 
+ENCODER_ONLY_MODELS = [
+    LanguageEncoderType.BERT_BASE,
+    LanguageEncoderType.DISTILBERT_BASE,
+    LanguageEncoderType.MINI_LM_L6,
+    LanguageEncoderType.MINI_LM_L12,
+    LanguageEncoderType.ALBERT_BASE,
+    LanguageEncoderType.ROBERTA_BASE,
+    LanguageEncoderType.DISTIL_ROBERTA_BASE,
+    LanguageEncoderType.BGE_BASE_EN_V1_5,
+    LanguageEncoderType.E5_BASE,
+    LanguageEncoderType.EMBEDDINGGEMMA_300M,
+    LanguageEncoderType.QWEN_3_EMBEDDING_0_6B,
+]
+
+
 class TestLanguageEncoderIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize(
@@ -735,7 +757,7 @@ class TestLanguageEncoderIntegration:
                 encoder_type.value,
                 marks=_integration_marks(encoder_type),
             )
-            for encoder_type in LanguageEncoderType
+            for encoder_type in ENCODER_ONLY_MODELS
         ],
     )
     def test_forward_pass_per_model(
@@ -808,3 +830,75 @@ class TestLanguageEncoderIntegration:
         )
         for parameter in encoder.parameters():
             assert not parameter.requires_grad
+
+
+class TestLanguageEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_once_in_init(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        with patch.object(LanguageEncoder, "_apply_model_dtype") as mock_apply:
+            language_encoder_factory()
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_embedding_only_encoder_parameters_share_model_dtype(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = language_encoder_factory(
+            pretrained=False,
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+            model_dtype=model_dtype,
+            real_build=True,
+        )
+        # Real nn.Embedding built by _build_encoder when pretrained=False; all
+        # parameters (embedding + any pooling head weights) must be cast together.
+        trainable_params = [
+            p for p in encoder.parameters() if isinstance(p, torch.nn.Parameter)
+        ]
+        assert trainable_params, "Encoder should have at least the embedding params"
+        for parameter in trainable_params:
+            assert parameter.dtype == expected_dtype
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_full_encoder_pooling_head_matches_backbone_dtype(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        model_dtype: str,
+        expected_dtype: torch.dtype,
+    ):
+        # Build against a real nn.Module backbone (not just MagicMock) so
+        # .to(dtype) actually propagates.
+        mock_backbone = torch.nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE)
+        encoder = language_encoder_factory(
+            pretrained=True,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            use_embeddings_only=False,
+            model_dtype=model_dtype,
+            real_build=True,
+            mock_model=mock_backbone,
+        )
+        for parameter in encoder.encoder.parameters():
+            assert parameter.dtype == expected_dtype
+        for parameter in encoder.token_pooling_head.parameters():
+            assert parameter.dtype == expected_dtype

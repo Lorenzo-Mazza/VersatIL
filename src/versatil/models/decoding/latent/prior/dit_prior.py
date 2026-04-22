@@ -196,6 +196,17 @@ class DiTPrior(PriorLatentEncoder):
             use_gating=use_gating,
             use_final_normalization=False,  # FinalPredictionLayer has its own AdaNorm
         )
+
+        def _init_module(module: nn.Module) -> None:
+            if getattr(module, "_is_modulation_layer", False):
+                return
+            if isinstance(module, nn.Linear):
+                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+        self.latent_input_proj.apply(_init_module)
+        self.timestep_mlp.apply(_init_module)
         self.to(torch.device(device))
 
     def _filter_observations(

@@ -4,7 +4,7 @@ _target_: versatil.configs.main.MainConfig
 defaults:
   - /task: base
   - /policy: base
-  - /experiment: default
+  - /experiment: synthetic
   - /task/dataset_schema: synthetic/circle
   - /task/dataloader: synthetic_default
   - /task/action_space: synthetic_2d
@@ -42,27 +42,27 @@ policy:
   decoder:
     input_keys:
       - left_rgb
-    embedding_dimension: 64
-    number_of_heads: 4
-    feedforward_dimension: 128
-    number_of_layers: 2
+    embedding_dimension: 256
+    number_of_heads: 8
+    feedforward_dimension: 512
+    number_of_layers: 4
   algorithm:
     sampling_from_prior_probability: 0.0
     posterior_encoder:
       latent_dimension: 2
-      embedding_dimension: 64
-      number_of_heads: 4
-      feedforward_dimension: 128
-      number_of_encoder_layers: 1
+      embedding_dimension: 256
+      number_of_heads: 8
+      feedforward_dimension: 512
+      number_of_encoder_layers: 4
       dropout_rate: 0.0
       device: ${policy.device}
       min_logvar: -4.0
     prior:
       latent_dimension: 2
-      embedding_dimension: 64
-      number_of_heads: 4
-      feedforward_dimension: 128
-      number_of_encoder_layers: 1
+      embedding_dimension: 256
+      number_of_heads: 8
+      feedforward_dimension: 512
+      number_of_encoder_layers: 4
       dropout_rate: 0.0
       device: ${policy.device}
       min_logvar: -4.0

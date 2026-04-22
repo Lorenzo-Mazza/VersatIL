@@ -1197,6 +1197,11 @@ class PriorDenoisingLoss(BaseLoss):
             predictions[LatentKey.PRIOR_PREDICTION.value],
             predictions[LatentKey.PRIOR_TARGET.value],
         )
+        target = predictions[LatentKey.PRIOR_TARGET.value].float()
+        target_var = target.var(unbiased=False)
+        target_std = torch.sqrt(target_var + 1e-8)
+        normalized_mse = prior_loss / (target_var + 1e-8)
+        normalized_rmse = torch.sqrt(prior_loss) / target_std
         metadata: dict[str, torch.Tensor] = {}
         if LatentKey.POSTERIOR_LATENT.value in predictions:
             metadata[MetadataKey.POSTERIOR_Z.value] = predictions[
@@ -1223,9 +1228,67 @@ class PriorDenoisingLoss(BaseLoss):
 
         return LossOutput(
             total_loss=self.weight * prior_loss,
-            component_losses={MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss},
+            component_losses={
+                MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss,
+                MetricKey.PRIOR_DENOISING_TARGET_STD.value: target_std,
+                MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value: normalized_mse,
+                MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value: normalized_rmse,
+            },
             metadata=metadata,
         )
+
+
+def _aggregate_mixture_nll(
+    log_component: torch.Tensor,
+    mixing_probs: torch.Tensor,
+    is_pad: torch.Tensor | None,
+) -> torch.Tensor:
+    """Combine per-step per-component log densities into per-batch NLL.
+
+    Both regimes return a per-step-averaged NLL so the loss magnitude is
+    independent of the prediction horizon. This keeps gradients balanced
+    against other terms (e.g. routing entropy) and prevents the trajectory
+    log-likelihood from drowning the gating signal at long horizons.
+
+    Dispatch on routing shape:
+        (B, K)    → trajectory-level mixture: sum_t log p_k inside logsumexp_k,
+                    then divide by the number of valid timesteps.
+                    Components are full trajectories selected once per batch.
+        (B, T, K) → per-step mixture: logsumexp_k inside, then average over
+                    valid timesteps.
+                    Components are selected independently at each timestep.
+
+    Args:
+        log_component: (B, T, K) per-component per-timestep log-pdf.
+        mixing_probs: (B, K) or (B, T, K) mixture weights summing to 1 along K.
+        is_pad: (B, T) boolean mask, True for padded positions (excluded).
+
+    Returns:
+        (B,) per-batch NLL averaged over valid timesteps.
+    """
+    horizon = log_component.shape[1]
+    if mixing_probs.dim() == 2:
+        if is_pad is not None:
+            log_component = log_component.masked_fill(is_pad.unsqueeze(-1), 0.0)
+            valid_count = (~is_pad).float().sum(dim=-1).clamp(min=1.0)  # (B,)
+        else:
+            valid_count = torch.full(
+                (log_component.shape[0],),
+                float(horizon),
+                device=log_component.device,
+                dtype=log_component.dtype,
+            )
+        log_traj_per_component = log_component.sum(dim=1)  # (B, K)
+        log_pi = torch.log(mixing_probs + 1e-8)  # (B, K)
+        joint_nll = -torch.logsumexp(log_pi + log_traj_per_component, dim=-1)  # (B,)
+        return joint_nll / valid_count
+    log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)
+    log_step_mix = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
+    if is_pad is not None:
+        log_step_mix = log_step_mix.masked_fill(is_pad, 0.0)
+        valid_count = (~is_pad).float().sum(dim=-1).clamp(min=1.0)
+        return -log_step_mix.sum(dim=-1) / valid_count  # (B,)
+    return -log_step_mix.mean(dim=-1)  # (B,)
 
 
 class GaussianMixtureNLLoss(BaseLoss):
@@ -1233,7 +1296,17 @@ class GaussianMixtureNLLoss(BaseLoss):
 
     Supports both learned variance (from logvar predictions) and fixed variance (sigma parameter).
 
-    The loss computes: NLL = -log Σ_k π_k · N(a | μ_k, σ_k²)
+    Two regimes are supported, dispatched on the shape of routing_weights:
+
+    Per-trajectory routing (B, K) — one mixture component is selected for the entire
+    chunk (e.g., MoDEACT). The joint trajectory likelihood is:
+        log p(a_{1:T}|s) = logsumexp_k [log π_k + Σ_t log N(a_t | μ_k(t), σ_k(t)²)]
+    Components are forced to model coherent trajectories; without this formulation the
+    gating collapses to one component that averages distinct trajectory modes.
+
+    Per-timestep routing (B, T, K) — a component is selected per timestep (e.g.,
+    PhaseACT). The per-step mixture likelihood applies:
+        log p(a_t|s, t) = logsumexp_k [log π_kt + log N(a_t | μ_kt, σ_kt²)]
     """
 
     def __init__(
@@ -1279,7 +1352,7 @@ class GaussianMixtureNLLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - routing_weights: (B, K) or (B, T, K)
+                - routing_weights: (B, K) for per-trajectory or (B, T, K) for per-timestep.
                 - If learned_variance: {action_key}_mean (B, T, K, D), {action_key}_logvar (B, T, K, D)
                 - If fixed variance: {action_key} (B, T, K, D) stacked expert means
             targets: Dictionary with action_key targets (B, T, D).
@@ -1300,15 +1373,20 @@ class GaussianMixtureNLLoss(BaseLoss):
             if self.learned_variance:
                 logvar_key = f"{action_key}_{DecoderOutputKey.LOGVAR.value}"
                 logvars = predictions[logvar_key]  # (B, T, K, D)
-                nll = self._compute_learned_variance_nll(
-                    target, mixing_probs, means, logvars
+                log_component = self._compute_learned_variance_log_pdf(
+                    target, means, logvars
                 )
             else:
                 sigma = self.sigmas.get(action_key, 0.5)
-                nll = self._compute_fixed_variance_nll(
-                    target, mixing_probs, means, sigma
+                log_component = self._compute_fixed_variance_log_pdf(
+                    target, means, sigma
                 )
-            nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
+            nll_per_batch = _aggregate_mixture_nll(
+                log_component=log_component,
+                mixing_probs=mixing_probs,
+                is_pad=is_pad,
+            )  # (B,)
+            nll_reduced = nll_per_batch.mean()
             key_weight = self.per_key_weights.get(action_key, 1.0)
             component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = (
                 nll_reduced
@@ -1318,45 +1396,41 @@ class GaussianMixtureNLLoss(BaseLoss):
             total_loss=self.weight * total_loss, component_losses=component_losses
         )
 
-    def _compute_learned_variance_nll(
+    def _compute_learned_variance_log_pdf(
         self,
         target: torch.Tensor,
-        mixing_probs: torch.Tensor,
         means: torch.Tensor,
         logvars: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute NLL with learned variance from logvar predictions."""
+        """Per-component Gaussian log-pdf with learned variance.
+
+        Returns:
+            (B, T, K) tensor of log N(a_t | μ_kt, σ_kt²) per component per timestep.
+        """
         action_dimension = target.shape[-1]
         logvars = logvars.clamp(min=math.log(self.min_variance))
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
         scaled_squared_error = (difference**2) * torch.exp(-logvars)  # (B, T, K, D)
         log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
-        log_gaussian = log_normalization - 0.5 * (logvars + scaled_squared_error).sum(
-            dim=-1
-        )
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
-        return -log_mixture_prob
+        return log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
 
-    def _compute_fixed_variance_nll(
-        self,
+    @staticmethod
+    def _compute_fixed_variance_log_pdf(
         target: torch.Tensor,
-        mixing_probs: torch.Tensor,
         means: torch.Tensor,
         sigma: float,
     ) -> torch.Tensor:
-        """Compute NLL with fixed variance (sigma parameter)."""
+        """Per-component Gaussian log-pdf with fixed variance.
+
+        The constant log normalization is omitted (it cancels in logsumexp_k).
+
+        Returns:
+            (B, T, K) tensor of log-pdf up to a per-component-shared constant.
+        """
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
-        log_gaussian = -0.5 * (difference**2).sum(-1) / (sigma**2)  # (B, T, K)
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
-        return -log_mixture_prob
+        return -0.5 * (difference**2).sum(-1) / (sigma**2)
 
 
 class GripperMixtureNLLoss(BaseLoss):
@@ -1447,17 +1521,16 @@ class GripperMixtureNLLoss(BaseLoss):
             )
         target = targets[self.key]
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
         if self.gripper_type == GripperType.BINARY.value:
             log_component = self._compute_binary_log_component(predictions, target)
         else:
             log_component = self._compute_continuous_log_component(predictions, target)
-
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_component, dim=-1)
-        nll = -log_mixture_prob
-        nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
+        nll_per_batch = _aggregate_mixture_nll(
+            log_component=log_component,
+            mixing_probs=mixing_probs,
+            is_pad=is_pad,
+        )
+        nll_reduced = nll_per_batch.mean()
         return LossOutput(
             total_loss=self.weight * nll_reduced,
             component_losses={MetricKey.GRIPPER_NLL.value: nll_reduced},
@@ -1513,19 +1586,30 @@ class MoELoss(BaseLoss):
         self,
         base_loss: BaseLoss,
         entropy_weight: float = 0.0,
+        load_balance_weight: float = 0.0,
     ):
         """Initialize MoE wrapper.
 
         Args:
             base_loss: Any BaseLoss instance to wrap (e.g., RegressionLoss(...))
-            entropy_weight: Weight for entropy regularization on global routing weights.
-
-        Note: The entropy term enforces the use of multiple experts and tries to prevent the model
-         to only select a few of the available experts.
+            entropy_weight: Weight for per-example routing entropy.
+                Penalizes peaky-per-example routing. Pushes each example's routing
+                distribution toward uniform, which prevents one example from being
+                routed to a single expert with probability 1.
+            load_balance_weight: Weight for Switch-Transformer-style load-balancing
+                term. Penalizes batch-level imbalance in expert usage. The term is
+                ``K * sum_k f_k * P_k`` where ``f_k`` is the fraction of examples
+                whose argmax routes to expert k and ``P_k`` is the mean routing
+                weight for expert k across the batch. Minimum value 1.0 is reached
+                when usage is uniform across the batch. Crucially, this allows
+                per-example routing to be peaky (so experts can specialize) while
+                still forcing every expert to be used by some examples (so no
+                expert dies). Use this when entropy alone produces dead experts.
         """
         super().__init__()
         self.base_loss = base_loss
         self.entropy_weight = entropy_weight
+        self.load_balance_weight = load_balance_weight
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
         """Provide expert usage monitoring callback."""
@@ -1571,36 +1655,77 @@ class MoELoss(BaseLoss):
         targets: dict[str, torch.Tensor],
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
-        """Passthrough base loss, then add expert_usage from routing weights and optionally add entropy term."""
+        """Passthrough base loss, then add expert_usage and optional entropy/load-balance terms."""
         predictions = self._add_weighted_mean_predictions(predictions)
         base_output: LossOutput = self.base_loss(predictions, targets, is_pad)
         metadata = base_output.metadata if base_output.metadata is not None else {}
         component_losses = dict(base_output.component_losses)
-        entropy_loss = 0.0
         pi = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]  # (B, K) or (B, T, K)
+        total_loss = base_output.total_loss
         if self.entropy_weight != 0.0:
-            entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
+            entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B,) or (B, T)
             if entropy.dim() == 2:
-                # (B, T) -> reduce with padding
                 entropy_mean = reduce_loss_with_padding(
                     entropy, is_pad, reduction="mean"
                 )
             else:
-                # if we have B only (when the experts are not chunk-dependent)
                 entropy_mean = entropy.mean()
             component_losses[f"{MetricKey.EXPERTS_ENTROPY.value}"] = entropy_mean
-            # We want to maximize the entropy of the expert usage distribution
-            # Entropy is always positive, so we subtract it to the loss to maximize it.
-            entropy_loss = -self.entropy_weight * entropy_mean
+            total_loss = total_loss - self.entropy_weight * entropy_mean
+        if self.load_balance_weight != 0.0:
+            load_balance = self._compute_load_balance(pi=pi, is_pad=is_pad)
+            component_losses[f"{MetricKey.EXPERTS_LOAD_BALANCE.value}"] = load_balance
+            total_loss = total_loss + self.load_balance_weight * load_balance
         expert_usage = pi.mean(
             dim=list(range(pi.ndim - 1))
         )  # Mean over all but last dim, which is num_experts
         metadata[MetadataKey.EXPERT_USAGE.value] = expert_usage
         return LossOutput(
-            total_loss=base_output.total_loss + entropy_loss,
+            total_loss=total_loss,
             component_losses=component_losses,
             metadata=metadata,
         )
+
+    @staticmethod
+    def _compute_load_balance(
+        pi: torch.Tensor,
+        is_pad: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Switch-Transformer load-balancing loss on routing weights.
+
+        L = K * sum_k f_k * P_k
+            f_k: fraction of examples whose top-1 route is k (no gradient).
+            P_k: mean routing weight for k across batch (carries gradient).
+
+        Reaches its minimum of 1.0 when usage is uniform across the batch.
+        With ``pi`` of shape (B, K), the average is over B; with shape (B, T, K),
+        the average is over (B, T) excluding padded timesteps.
+        """
+        num_experts = pi.shape[-1]
+        if pi.dim() == 2:
+            # (B, K) — per-trajectory routing.
+            argmax_indices = pi.argmax(dim=-1)
+            f = (
+                torch.nn.functional.one_hot(argmax_indices, num_classes=num_experts)
+                .to(pi.dtype)
+                .mean(dim=0)
+            )  # (K,)
+            mean_routing = pi.mean(dim=0)  # (K,)
+        else:
+            # (B, T, K) — per-step routing; respect padding.
+            argmax_indices = pi.argmax(dim=-1)
+            one_hot = torch.nn.functional.one_hot(
+                argmax_indices, num_classes=num_experts
+            ).to(pi.dtype)  # (B, T, K)
+            if is_pad is not None:
+                valid = (~is_pad).to(pi.dtype).unsqueeze(-1)  # (B, T, 1)
+                valid_count = valid.sum().clamp(min=1.0)
+                f = (one_hot * valid).sum(dim=(0, 1)) / valid_count
+                mean_routing = (pi * valid).sum(dim=(0, 1)) / valid_count
+            else:
+                f = one_hot.mean(dim=(0, 1))
+                mean_routing = pi.mean(dim=(0, 1))
+        return num_experts * (f * mean_routing).sum()
 
 
 class MetadataPassthrough(BaseLoss):

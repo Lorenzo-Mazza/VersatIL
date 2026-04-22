@@ -1,0 +1,20 @@
+# @package _global_
+# Stage 2: AT with learned Gaussian prior (bc_with_learned_prior) + KL w=0.01.
+# 6 tasks × 1 = 6 runs.
+
+defaults:
+  - /end_to_end_training_runs/synthetic/action_transformer_kl
+  - /task_bundle/synthetic: circle
+  - override /hydra/sweeper: basic
+  - _self_
+
+policy:
+  loss:
+    loss_modules:
+      kl_divergence:
+        weight: 0.01
+
+hydra:
+  sweeper:
+    params:
+      task_bundle/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8

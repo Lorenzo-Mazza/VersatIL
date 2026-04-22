@@ -1,5 +1,6 @@
 """Tests for versatil.training.callbacks module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,7 @@ from versatil.training.callbacks import (
     ExpertUsageCallback,
     GradientNormCallback,
     LatentVisualizationCallback,
+    ProgressiveFreezingCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
     _figure_to_wandb_image,
@@ -66,7 +68,7 @@ def simple_module_factory(rng: np.random.Generator) -> Callable[..., torch.nn.Mo
 
 @pytest.fixture
 def pl_module_with_policy_factory(
-    simple_module_factory: Callable,
+    simple_module_factory: Callable[..., torch.nn.Module],
 ) -> Callable[..., MagicMock]:
     def factory(
         policy: torch.nn.Module | None = None,
@@ -108,6 +110,169 @@ def mock_pl_module_factory() -> Callable[..., MagicMock]:
     return factory
 
 
+# Real nn.Parameters are needed because the callback mutates requires_grad.
+class ToyPolicy(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.encoding_pipeline = torch.nn.Linear(2, 2)
+        self.algorithm = torch.nn.Module()
+        self.algorithm.posterior_encoder = torch.nn.Linear(2, 2)
+        self.algorithm.prior = torch.nn.Linear(2, 2)
+        self.decoder = torch.nn.Linear(2, 2)
+
+
+@pytest.mark.unit
+class TestProgressiveFreezingCallback:
+    def test_requires_non_empty_schedule(self) -> None:
+        expected_message = "ProgressiveFreezingCallback requires a non-empty schedule."
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            ProgressiveFreezingCallback(schedule=[])
+
+    def test_rule_is_not_applied_before_epoch(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 199
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 200,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        assert all(parameter.requires_grad for parameter in policy.parameters())
+
+    def test_trainable_patterns_freeze_everything_else(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        policy.train()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 200
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 200,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        for name, parameter in policy.named_parameters():
+            assert parameter.requires_grad is name.startswith("algorithm.prior.")
+        assert policy.algorithm.prior.training is True
+        assert policy.algorithm.posterior_encoder.training is False
+        assert policy.decoder.training is False
+        assert policy.encoding_pipeline.training is False
+
+    def test_later_phase_can_unfreeze_parameters(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 0,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                },
+                {
+                    "epoch": 2,
+                    "trainable_patterns": [r"^algorithm\.prior\.", r"^decoder\."],
+                },
+            ]
+        )
+
+        trainer.current_epoch = 0
+        callback.on_train_epoch_start(trainer, pl_module)
+        assert all(
+            parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("algorithm.prior.")
+        )
+        assert all(
+            not parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("decoder.")
+        )
+
+        trainer.current_epoch = 2
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        assert all(
+            parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("algorithm.prior.") or name.startswith("decoder.")
+        )
+        assert all(
+            not parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("algorithm.posterior_encoder.")
+            or name.startswith("encoding_pipeline.")
+        )
+        assert policy.decoder.training is True
+
+    def test_frozen_patterns_only_leave_other_parameters_unchanged(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        policy.nested = torch.nn.Module()
+        policy.nested.decoder = torch.nn.Linear(2, 2)
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 5
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 5,
+                    "frozen_patterns": [r"decoder\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        for name, parameter in policy.named_parameters():
+            should_be_trainable = "decoder." not in name
+            assert parameter.requires_grad is should_be_trainable
+
+    def test_same_phase_restores_modes_without_duplicate_logs(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 0
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 0,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+        assert policy.decoder.training is False
+
+        policy.decoder.train()
+        pl_module.log.reset_mock()
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        assert policy.decoder.training is False
+        pl_module.log.assert_not_called()
+
+
 @pytest.fixture
 def latent_data_factory(rng: np.random.Generator) -> Callable[..., np.ndarray]:
     def factory(
@@ -136,9 +301,9 @@ def mock_latent_pl_module_factory(
     phase_array_factory: Callable[..., np.ndarray],
 ) -> Callable[..., MagicMock]:
     """Factory for a ``pl_module`` MagicMock pre-wired for
-    ``LatentVisualizationCallback.on_validation_epoch_end`` tests. Override
-    ``posterior_latent`` / ``prior_latent`` with ``None`` to exercise the
-    missing-branch paths."""
+    ``LatentVisualizationCallback`` tests (both train and val epoch ends).
+    Override ``posterior_latent`` / ``prior_latent`` with ``None`` to exercise
+    the missing-branch paths."""
 
     def factory(
         posterior_latent: np.ndarray | None = ...,
@@ -154,12 +319,14 @@ def mock_latent_pl_module_factory(
         if phases is ...:
             phases = phase_array_factory()
         pl_module = MagicMock()
-        pl_module.val_metrics.compute_latent_visualization_data.return_value = (
-            posterior_latent,
-            prior_latent,
-            phases,
-        )
-        pl_module.val_metrics.metadata = metadata if metadata is not None else {}
+        for accumulator_name in ("train_metrics", "val_metrics"):
+            accumulator = getattr(pl_module, accumulator_name)
+            accumulator.compute_latent_visualization_data.return_value = (
+                posterior_latent,
+                prior_latent,
+                phases,
+            )
+            accumulator.metadata = metadata if metadata is not None else {}
         return pl_module
 
     return factory
@@ -739,6 +906,8 @@ class TestGradientNormCallback:
             for call_args in pl_module.log.call_args_list
         }
         assert abs(log_calls["grad_norm"] - expected_norm) < 1e-5
+        assert abs(log_calls["train/grad_norm_step"] - expected_norm) < 1e-5
+        assert log_calls["train/grad_clip_active_step"] == 0.0
 
     def test_logs_per_group_norms_with_multiple_param_groups(
         self,
@@ -773,8 +942,45 @@ class TestGradientNormCallback:
 
         assert "grad_norm_group_0" in log_calls
         assert "grad_norm_group_1" in log_calls
+        assert "train/grad_norm_group_0_step" in log_calls
+        assert "train/grad_norm_group_1_step" in log_calls
         assert abs(log_calls["grad_norm_group_0"] - 1.0) < 1e-5
         assert abs(log_calls["grad_norm_group_1"] - 2.0) < 1e-5
+        assert abs(log_calls["train/grad_norm_group_0_step"] - 1.0) < 1e-5
+        assert abs(log_calls["train/grad_norm_group_1_step"] - 2.0) < 1e-5
+
+    def test_logs_epoch_summary_and_clears_buffer(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = GradientNormCallback(log_every_n_steps=1)
+
+        param = torch.nn.Parameter(torch.zeros(2))
+        param.grad = torch.tensor([3.0, 4.0])
+
+        pl_module = MagicMock()
+        pl_module.parameters.return_value = [param]
+        pl_module.log = MagicMock()
+
+        optimizer = MagicMock()
+        optimizer.param_groups = [{"params": [param]}]
+        trainer = mock_trainer_factory(current_epoch=3, global_step=0)
+        trainer.gradient_clip_val = 4.0
+
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=optimizer
+        )
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_called_once()
+        metrics = trainer.logger.log_metrics.call_args.args[0]
+        assert metrics["train/grad_norm_epoch"] == pytest.approx(5.0)
+        assert metrics["train/grad_norm_max_epoch"] == pytest.approx(5.0)
+        assert metrics["train/grad_clip_active_ratio"] == pytest.approx(1.0)
+        assert metrics["epoch"] == 3
+        assert trainer.logger.log_metrics.call_args.kwargs["step"] == 3
+        assert callback._epoch_grad_norms == []
+        assert callback._epoch_grad_clip_active == []
 
 
 @pytest.mark.unit
@@ -1148,29 +1354,49 @@ class TestLatentVisualizationCallback:
         assert callback.log_every_n_epochs == log_every_n_epochs
         assert callback.max_samples == max_samples
 
+    @pytest.mark.parametrize(
+        "hook, accumulator_name",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
     def test_skips_logging_on_non_matching_epochs(
         self,
         mock_trainer_factory: Callable,
+        hook: str,
+        accumulator_name: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=5)
         pl_module = MagicMock()
         trainer = mock_trainer_factory(current_epoch=3)
 
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
-        pl_module.val_metrics.compute_latent_visualization_data.assert_not_called()
+        accumulator = getattr(pl_module, accumulator_name)
+        accumulator.compute_latent_visualization_data.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "hook, accumulator_name",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
     def test_skips_logging_when_no_latent_data(
         self,
         mock_trainer_factory: Callable,
+        hook: str,
+        accumulator_name: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1)
         pl_module = MagicMock()
-        pl_module.val_metrics.compute_latent_visualization_data.return_value = None
+        accumulator = getattr(pl_module, accumulator_name)
+        accumulator.compute_latent_visualization_data.return_value = None
 
         trainer = mock_trainer_factory(current_epoch=0)
 
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_not_called()
 
@@ -1250,28 +1476,37 @@ class TestFigureToWandbImage:
 
 
 @pytest.mark.unit
-class TestLatentVisualizationCallbackOnValidationEpochEnd:
+@pytest.mark.parametrize(
+    "hook, split",
+    [
+        ("on_train_epoch_end", "train"),
+        ("on_validation_epoch_end", "val"),
+    ],
+)
+class TestLatentVisualizationCallbackEpochEnd:
     def test_logs_posterior_and_prior_figures_with_phases(
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory()
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_called_once()
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         expected_keys = {
-            "posterior_latent_space_tsne",
-            "posterior_latent_space_pca",
-            "posterior_pca_explained_variance",
-            "prior_latent_space_tsne",
-            "prior_latent_space_pca",
-            "prior_pca_explained_variance",
+            f"{split}_posterior_latent_space_tsne",
+            f"{split}_posterior_latent_space_pca",
+            f"{split}_posterior_pca_explained_variance",
+            f"{split}_prior_latent_space_tsne",
+            f"{split}_prior_latent_space_pca",
+            f"{split}_prior_pca_explained_variance",
         }
         assert expected_keys.issubset(set(logged_metrics.keys()))
         assert trainer.logger.log_metrics.call_args.kwargs["step"] == 0
@@ -1280,29 +1515,30 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(latent_dimension=1)
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_called_once()
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         expected_keys = {
-            "posterior_latent_space_histogram",
-            "prior_latent_space_histogram",
+            f"{split}_posterior_latent_space_histogram",
+            f"{split}_prior_latent_space_histogram",
         }
         assert expected_keys.issubset(set(logged_metrics.keys()))
-        # PCA/t-SNE are skipped for 1D latents — histograms replace them.
         for pca_tsne_key in (
-            "posterior_latent_space_pca",
-            "posterior_latent_space_tsne",
-            "posterior_pca_explained_variance",
-            "prior_latent_space_pca",
-            "prior_latent_space_tsne",
-            "prior_pca_explained_variance",
+            f"{split}_posterior_latent_space_pca",
+            f"{split}_posterior_latent_space_tsne",
+            f"{split}_posterior_pca_explained_variance",
+            f"{split}_prior_latent_space_pca",
+            f"{split}_prior_latent_space_tsne",
+            f"{split}_prior_pca_explained_variance",
         ):
             assert pca_tsne_key not in logged_metrics
 
@@ -1310,6 +1546,8 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(
@@ -1317,7 +1555,7 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         )
         trainer = mock_trainer_factory(current_epoch=0)
 
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_not_called()
 
@@ -1325,24 +1563,26 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(posterior_latent=None)
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         prior_keys = {
-            "prior_latent_space_tsne",
-            "prior_latent_space_pca",
-            "prior_pca_explained_variance",
+            f"{split}_prior_latent_space_tsne",
+            f"{split}_prior_latent_space_pca",
+            f"{split}_prior_pca_explained_variance",
         }
         posterior_keys = {
-            "posterior_latent_space_tsne",
-            "posterior_latent_space_pca",
-            "posterior_pca_explained_variance",
+            f"{split}_posterior_latent_space_tsne",
+            f"{split}_posterior_latent_space_pca",
+            f"{split}_posterior_pca_explained_variance",
         }
         assert prior_keys.issubset(set(logged_metrics.keys()))
         assert posterior_keys.isdisjoint(set(logged_metrics.keys()))
@@ -1351,6 +1591,8 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(prior_latent=None)
@@ -1359,7 +1601,7 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         with patch(
             "versatil.training.callbacks._figure_to_wandb_image"
         ) as mock_to_wandb:
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         mock_to_wandb.assert_not_called()
 
@@ -1368,6 +1610,8 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
         rng: np.random.Generator,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         mu = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
@@ -1378,15 +1622,17 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
-        assert "latent_space_statistics" in logged_metrics
+        assert f"{split}_latent_space_statistics" in logged_metrics
 
     def test_closes_figures_after_logging(
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(prior_latent=None)
@@ -1396,7 +1642,7 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
             patch("versatil.training.callbacks._figure_to_wandb_image"),
             patch("versatil.training.callbacks.plt.close") as mock_close,
         ):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         # Posterior path generates 3 figures: tsne, pca, explained_variance
         assert mock_close.call_count == 3

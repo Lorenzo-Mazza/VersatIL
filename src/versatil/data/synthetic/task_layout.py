@@ -15,8 +15,12 @@ from versatil.data.synthetic.constants import (
     MULTIPATH_DEFAULT_NOISE_STD,
     RADIAL_CENTER,
     RADIAL_DEFAULT_NUM_MODES,
+    RADIAL_RADIUS,
+    SEQUENTIAL_ENDPOINT_Y,
+    SEQUENTIAL_FIRST_BRANCH_X_DELTA,
     SEQUENTIAL_NUM_COMPOUND_MODES,
     SEQUENTIAL_OBSTACLES,
+    SEQUENTIAL_SECOND_BRANCH_X_DELTA,
     SEQUENTIAL_START,
     SyntheticTaskName,
 )
@@ -41,13 +45,14 @@ class SyntheticTaskLayout:
 
     Attributes:
         start: Start position in [0, 1]x[0, 1] Cartesian space. Shape (2,).
-        goal: Goal position, or None for tasks with no fixed goal.
+        goals: Expert goal positions used during data generation, shape
+            (num_goals, 2), or None for tasks with no fixed goal.
         obstacles: List of (x_min, y_min, x_max, y_max) rectangles.
         num_modes: Number of behavioral modes for this task.
     """
 
     start: np.ndarray
-    goal: np.ndarray | None
+    goals: np.ndarray | None
     obstacles: list[tuple[float, float, float, float]]
     num_modes: int
 
@@ -82,21 +87,21 @@ def get_task_layout(
         case SyntheticTaskName.CIRCLE.value:
             return SyntheticTaskLayout(
                 start=CIRCLE_START,
-                goal=None,
+                goals=None,
                 obstacles=CIRCLE_OBSTACLES,
                 num_modes=CIRCLE_DEFAULT_NUM_MODES,
             )
         case SyntheticTaskName.CONDITIONAL_CIRCLE.value:
             return SyntheticTaskLayout(
                 start=CIRCLE_START,
-                goal=None,
+                goals=None,
                 obstacles=CIRCLE_OBSTACLES,
                 num_modes=CIRCLE_DEFAULT_NUM_MODES,
             )
         case SyntheticTaskName.SEQUENTIAL_DECISION.value:
             return SyntheticTaskLayout(
                 start=SEQUENTIAL_START,
-                goal=None,
+                goals=_compute_sequential_goals(),
                 obstacles=SEQUENTIAL_OBSTACLES,
                 num_modes=SEQUENTIAL_NUM_COMPOUND_MODES,
             )
@@ -106,7 +111,7 @@ def get_task_layout(
             )
             return SyntheticTaskLayout(
                 start=RADIAL_CENTER,
-                goal=None,
+                goals=_compute_radial_goals(num_modes=resolved_modes),
                 obstacles=_generate_radial_obstacles(
                     num_modes=resolved_modes, noise_std=noise_std
                 ),
@@ -122,9 +127,38 @@ def get_task_layout(
             gap_centers = _compute_corridor_gap_centers(num_gaps=resolved_modes)
             return SyntheticTaskLayout(
                 start=CORRIDOR_START,
-                goal=CORRIDOR_GOAL,
+                goals=CORRIDOR_GOAL[np.newaxis, :].astype(np.float32),
                 obstacles=_generate_corridor_obstacles(gap_centers=gap_centers),
                 num_modes=resolved_modes * resolved_styles,
             )
         case _:
             raise ValueError(f"Unknown synthetic task: {task_name}")
+
+
+def _compute_sequential_goals() -> np.ndarray:
+    """Expert endpoints for the 4 compound modes (LL, LR, RL, RR)."""
+    start_x = float(SEQUENTIAL_START[0])
+    goals = [
+        (
+            start_x
+            + first_sign * SEQUENTIAL_FIRST_BRANCH_X_DELTA
+            + second_sign * SEQUENTIAL_SECOND_BRANCH_X_DELTA,
+            SEQUENTIAL_ENDPOINT_Y,
+        )
+        for first_sign in (-1.0, 1.0)
+        for second_sign in (-1.0, 1.0)
+    ]
+    return np.array(goals, dtype=np.float32)
+
+
+def _compute_radial_goals(num_modes: int) -> np.ndarray:
+    """Expert endpoints on the radial circle, one per mode."""
+    angles = 2.0 * np.pi * np.arange(num_modes) / num_modes
+    endpoints = np.stack(
+        [
+            RADIAL_CENTER[0] + RADIAL_RADIUS * np.cos(angles),
+            RADIAL_CENTER[1] + RADIAL_RADIUS * np.sin(angles),
+        ],
+        axis=-1,
+    )
+    return endpoints.astype(np.float32)

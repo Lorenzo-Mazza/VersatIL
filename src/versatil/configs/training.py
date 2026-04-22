@@ -16,6 +16,29 @@ class ParameterGroupConfig:
 
 
 @dataclass
+class ProgressiveFreezingConfig:
+    """Epoch-triggered parameter freezing rule.
+
+    Patterns are regular expressions matched against ``policy.named_parameters()``
+    names, for example ``^algorithm\\.prior\\.``.
+
+    Args:
+        epoch: Zero-based epoch where this rule becomes active.
+        trainable_patterns: If non-empty, only matching parameters remain trainable.
+        frozen_patterns: Matching parameters are frozen after trainable patterns are
+            applied. Use this for additive freezing rules.
+        eval_frozen_modules: Put modules whose parameters are all frozen in eval mode.
+        log: Log trainable/frozen parameter counts when the rule is active.
+    """
+
+    epoch: int
+    trainable_patterns: list[str] = field(default_factory=list)
+    frozen_patterns: list[str] = field(default_factory=list)
+    eval_frozen_modules: bool = True
+    log: bool = True
+
+
+@dataclass
 class OptimizerConfig:
     """Base optimizer configuration."""
 
@@ -102,8 +125,8 @@ class TrainingConfig:
     tune_lr: bool = (
         False  # If True, automatically find optimal learning rate before training
     )
-    early_stopping_patience: int = (
-        10  # Number of validation checks with no improvement to stop training
+    early_stopping_patience: int | None = (
+        10  # Validation checks with no improvement before stopping. None disables early stopping.
     )
 
     # ReduceLROnPlateau - reduce learning rate when validation loss plateaus
@@ -112,3 +135,8 @@ class TrainingConfig:
         10  # Number of epochs with no improvement before reducing LR
     )
     reduce_lr_cooldown: int = 10  # Number of epochs to wait after LR reduction before resuming normal operation
+
+    # Progressive parameter freezing/unfreezing schedule. Each entry is applied
+    # at the start of the configured epoch and remains active until another
+    # entry becomes active.
+    progressive_freezing: list[ProgressiveFreezingConfig] = field(default_factory=list)

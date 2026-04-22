@@ -17,6 +17,7 @@ from versatil.data.metadata import (
     CameraMetadata,
     ObservationMetadata,
     OnTheFlyActionMetadata,
+    PositionActionMetadata,
     PositionObservationMetadata,
 )
 from versatil.data.sample_builder import SampleBuilder
@@ -434,20 +435,50 @@ class TestSliceActionData:
 
 
 class TestComputeActionPaddingMask:
-    def test_delta_actions_pad_when_either_position_invalid(
+    @pytest.mark.parametrize(
+        "action_type, expected_mask",
+        [
+            ("precomputed", [True, False, False, False]),
+            ("on_the_fly_delta", [True, False, False, True]),
+            ("on_the_fly_absolute", [False, False, False, True]),
+        ],
+    )
+    def test_padding_mask_respects_action_type_data_dependency(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
+        position_action_metadata_factory: Callable[..., PositionActionMetadata],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        action_type: str,
+        expected_mask: list[bool],
     ):
+        if action_type == "precomputed":
+            actions_metadata = {
+                "position": position_action_metadata_factory(prediction_dimension=3),
+            }
+        elif action_type == "on_the_fly_delta":
+            actions_metadata = {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(),
+                    computation_method=ActionComputationMethod.DELTA.value,
+                ),
+            }
+        else:
+            actions_metadata = {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(),
+                    computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+                ),
+            }
         builder = sample_builder_factory(
-            actions_metadata={
-                "position": on_the_fly_action_metadata_factory(),
-            },
+            actions_metadata=actions_metadata,
             obs_horizon=1,
             pred_horizon=4,
         )
         # sampler_indices[start_idx] = (buffer_start, buffer_end, sample_start, sample_end)
-        # Valid sample range: [1, 4) — positions 0 and 4+ are padded
+        # action_slice_start = 0, action_positions = [0, 1, 2, 3], valid range [1, 4)
         sampler_indices = np.array([[0, 6, 1, 4]])
 
         mask = builder._compute_action_padding_mask(
@@ -457,46 +488,7 @@ class TestComputeActionPaddingMask:
 
         assert mask.dtype == torch.bool
         assert mask.shape == (4,)
-        # action_slice_start = obs_horizon - 1 = 0
-        # action_positions = [0, 1, 2, 3]
-        # For deltas: both pos and pos+1 must be in [1, 4)
-        # pos=0: 0 < 1 → pad. pos=1: 1,2 in [1,4) → valid. pos=2: 2,3 in [1,4) → valid. pos=3: 3 ok, 4 >= 4 → pad
-        assert mask[0] is True or mask[0].item() is True
-        assert mask[1].item() is False
-        assert mask[2].item() is False
-        assert mask[3].item() is True
-
-    def test_absolute_actions_pad_when_next_position_invalid(
-        self,
-        sample_builder_factory: Callable[..., SampleBuilder],
-        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[
-            ..., PositionObservationMetadata
-        ],
-    ):
-        builder = sample_builder_factory(
-            actions_metadata={
-                "position": on_the_fly_action_metadata_factory(
-                    source_metadata=position_observation_metadata_factory(),
-                    computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
-                ),
-            },
-            obs_horizon=1,
-            pred_horizon=4,
-        )
-        sampler_indices = np.array([[0, 6, 1, 4]])
-
-        mask = builder._compute_action_padding_mask(
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # For absolute: only next position (pos+1) must be in [1, 4)
-        # pos=0: pos+1=1 in [1,4) → valid. pos=1: 2 → valid. pos=2: 3 → valid. pos=3: 4 >= 4 → pad
-        assert mask[0].item() is False
-        assert mask[1].item() is False
-        assert mask[2].item() is False
-        assert mask[3].item() is True
+        torch.testing.assert_close(mask, torch.tensor(expected_mask, dtype=torch.bool))
 
     def test_mask_shape_matches_prediction_horizon(
         self,
