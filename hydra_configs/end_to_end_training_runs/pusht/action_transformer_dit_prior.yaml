@@ -1,6 +1,5 @@
 # @package _global_
-# Flow Matching with DiT Cross-Attention Transformer - RGB + ee_pos proprio
-# Follows DiffusionPolicy-T hyperparameters from Chi et al. 2023 for Push-T image
+# Push-T with Action Transformer decoder + BC base algorithm + flow-matching DiT prior on z.
 _target_: versatil.configs.main.MainConfig
 
 defaults:
@@ -13,9 +12,9 @@ defaults:
   - /task/observation_space: pusht_rgb_proprio
   - /training: default
   - /policy/encoding_pipeline: pusht_rgb_proprio
-  - /policy/decoder: dit_multimodal
-  - /policy/algorithm: flow_matching
-  - /policy/loss: regression_synthetic
+  - /policy/decoder: action_transformer
+  - /policy/algorithm: bc_with_dit_prior
+  - /policy/loss: regression_denoising_prior
   - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: pusht_2d
   - _self_
@@ -47,9 +46,11 @@ policy:
       regression_loss:
         action_keys:
           - ${proprio_key:EE_POS_ACTION}
-        mse_weight: 1.0
-        l1_weight: 0.0
+        mse_weight: 0.0
+        l1_weight: 1.0
         huber_weight: 0.0
+      denoising_prior:
+        weight: 0.1
       trajectory_length:
         weight: 0.0
         action_key: ${proprio_key:EE_POS_ACTION}
@@ -63,9 +64,29 @@ policy:
       - left_rgb
       - robot_state_proprio
     embedding_dimension: 256
-    timestep_embedding_dimension: 128
     number_of_heads: 8
-    number_of_layers: 4
     feedforward_dimension: 1024
-    dropout_rate: 0.1
+    number_of_layers: 4
+    dropout_rate: 0.2
     attention_dropout: 0.01
+  algorithm:
+    sampling_from_prior_probability: 0.0
+    posterior_encoder:
+      latent_dimension: 4
+      embedding_dimension: 256
+      number_of_heads: 8
+      feedforward_dimension: 1024
+      number_of_encoder_layers: 4
+      dropout_rate: 0.0
+      device: ${policy.device}
+      min_logvar: -4.0
+    prior:
+      latent_dimension: 4
+      embedding_dimension: 256
+      number_of_heads: 8
+      number_of_layers: 4
+      feedforward_dimension: 1024
+      dropout: 0.0
+      use_gating: true
+      ode_solver: "euler"
+      num_inference_steps: 10

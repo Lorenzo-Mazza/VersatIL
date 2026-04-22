@@ -11,9 +11,9 @@ defaults:
   - /task/dataloader: pusht_state
   - /task/action_space: pusht_precomputed
   - /task/observation_space: pusht_state
-  - /training: ema
+  - /training: default
   - /policy/encoding_pipeline: pusht_state
-  - /policy/decoder: dit_cross_attention_transformer
+  - /policy/decoder: dit_multimodal
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_synthetic
   - /inference: default
@@ -59,7 +59,7 @@ policy:
     embedding_dimension: 256
     timestep_embedding_dimension: 128
     number_of_heads: 8
-    number_of_layers: 8
+    number_of_layers: 4
     feedforward_dimension: 1024
     dropout_rate: 0.1
     attention_dropout: 0.01
