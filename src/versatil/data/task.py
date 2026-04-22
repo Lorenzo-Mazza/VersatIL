@@ -269,22 +269,16 @@ class ObservationSpace:
         self,
     ) -> dict[
         str,
-        PositionObservationMetadata
+        ObservationMetadata
+        | PositionObservationMetadata
         | OrientationObservationMetadata
         | GripperObservationMetadata,
     ]:
-        """Get all proprioceptive observations (position, orientation, gripper)."""
+        """Get all proprioceptive observations (position, orientation, gripper, and numerical)."""
         return {
             k: v
             for k, v in self.observations_metadata.items()
-            if isinstance(
-                v,
-                (
-                    PositionObservationMetadata,
-                    OrientationObservationMetadata,
-                    GripperObservationMetadata,
-                ),
-            )
+            if isinstance(v, ObservationMetadata) and v.is_numerical
         }
 
     @property

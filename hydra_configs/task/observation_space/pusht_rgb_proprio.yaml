@@ -1,0 +1,23 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+observations_metadata:
+  ${cameras:AGENTVIEW}:
+    _target_: versatil.data.metadata.CameraMetadata
+    camera_key: ${raw_camera:IMAGE_PUSHT}
+    dtype: uint8
+    channels: 3
+    image_width: 96
+    image_height: 96
+
+  ${proprio_key:EE_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 2
+    frame: ${coordinate_system:UNKNOWN}

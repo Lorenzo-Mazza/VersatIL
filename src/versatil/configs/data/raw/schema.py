@@ -47,6 +47,7 @@ class SyntheticDatasetSchemaConfig(DatasetSchemaConfig):
     noise_std: float = 0.01
     num_styles: int = 1
     mode_weights: list[float] | None = None
+    num_rollouts: int = 200
 
 
 @dataclass

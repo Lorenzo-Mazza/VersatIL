@@ -13,3 +13,4 @@ num_modes: 8
 trajectory_length: 60
 noise_std: 0.006
 num_styles: 1
+num_rollouts: 200

@@ -90,6 +90,7 @@ def synthetic_schema_factory(
         noise_std: float = 0.05,
         num_styles: int = 6,
         mode_weights: list[float] | None = None,
+        num_rollouts: int = 50,
     ) -> SyntheticSchema:
         if zarr_path is None:
             zarr_path = str(tmp_path / "test.zarr")
@@ -108,6 +109,7 @@ def synthetic_schema_factory(
             noise_std=noise_std,
             num_styles=num_styles,
             mode_weights=mode_weights,
+            num_rollouts=num_rollouts,
         )
 
     return factory
@@ -134,6 +136,7 @@ class TestSyntheticSchemaInit:
         trajectory_length = 40
         noise_std = 0.2
         num_styles = 8
+        num_rollouts = 17
         schema = synthetic_schema_factory(
             task_name=task_name,
             num_episodes=num_episodes,
@@ -144,6 +147,7 @@ class TestSyntheticSchemaInit:
             noise_std=noise_std,
             num_styles=num_styles,
             mode_weights=mode_weights,
+            num_rollouts=num_rollouts,
         )
         assert schema.task_name == task_name
         assert schema.num_episodes == num_episodes
@@ -154,6 +158,7 @@ class TestSyntheticSchemaInit:
         assert schema.noise_std == noise_std
         assert schema.num_styles == num_styles
         assert schema.mode_weights == mode_weights
+        assert schema.num_rollouts == num_rollouts
 
     @pytest.mark.parametrize(
         "dataset_type, expectation",
@@ -282,7 +287,7 @@ class TestGetCallbacks:
         callback = callbacks[0]
         assert callback.task_name == task_name
         assert callback.image_size == image_size
-        assert callback.num_rollouts == 50
+        assert callback.num_rollouts == schema.num_rollouts
         assert callback.num_modes == schema.num_modes
         assert callback.num_styles == schema.num_styles
         assert callback.trajectory_length == schema.trajectory_length

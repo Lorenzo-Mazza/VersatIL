@@ -57,6 +57,10 @@ class RawCameraKey(enum.StrEnum):
     WRIST = "observation.images.wrist"
     # MetaWorld LeRobot
     IMAGE_METAWORLD = "observation.image"
+    # PushT LeRobot
+    IMAGE_PUSHT = "observation.image"
+    # Q-FAT Kitchen LeRobot
+    IMAGE_KITCHEN = "observation.image"
 
 
 RAW_TO_CAMERA_MAPPING: dict[str, str] = {
@@ -75,6 +79,8 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     RawCameraKey.WRIST.value: Cameras.EYE_IN_HAND.value,
     # MetaWorld LeRobot
     RawCameraKey.IMAGE_METAWORLD.value: Cameras.AGENTVIEW.value,
+    # PushT LeRobot (same raw key as MetaWorld, mapped to AGENTVIEW)
+    RawCameraKey.IMAGE_PUSHT.value: Cameras.AGENTVIEW.value,
 }
 
 
@@ -99,6 +105,29 @@ class ProprioKey(enum.StrEnum):
     # Synthetic data
     SYNTHETIC_POSITION = "synthetic_position"
     SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
+
+    # PushT data
+    PUSHT_BLOCK_POS = "pusht_block_pos"
+    PUSHT_BLOCK_ANGLE = "pusht_block_angle"
+    PUSHT_KEYPOINTS = "pusht_keypoints"
+    PUSHT_CONTACTS = "pusht_contacts"
+
+    # Q-FAT relay_kitchen data
+    KITCHEN_ARM_QPOS = "kitchen_arm_qpos"
+    KITCHEN_OBJECT_QPOS = "kitchen_object_qpos"
+    KITCHEN_TASK_GOAL = "kitchen_task_goal"
+    KITCHEN_ARM_ACTION = "kitchen_arm_action"
+
+    # Block pushing (multimodal_push_seed) data
+    BLOCK_PUSH_BLOCK1_POS = "block_push_block1_pos"
+    BLOCK_PUSH_BLOCK1_ANGLE = "block_push_block1_angle"
+    BLOCK_PUSH_BLOCK2_POS = "block_push_block2_pos"
+    BLOCK_PUSH_BLOCK2_ANGLE = "block_push_block2_angle"
+    BLOCK_PUSH_EE_COMMANDED = "block_push_ee_commanded"
+    BLOCK_PUSH_TARGET1_POS = "block_push_target1_pos"
+    BLOCK_PUSH_TARGET1_ANGLE = "block_push_target1_angle"
+    BLOCK_PUSH_TARGET2_POS = "block_push_target2_pos"
+    BLOCK_PUSH_TARGET2_ANGLE = "block_push_target2_angle"
 
 
 class SyntheticObsKey(enum.StrEnum):
@@ -158,6 +187,9 @@ class DatasetType(enum.StrEnum):
     TSO = "tso"
     METAWORLD = "metaworld"
     SYNTHETIC = "synthetic"
+    PUSHT = "pusht"
+    BLOCK_PUSHING = "block_pushing"
+    KITCHEN = "kitchen"
 
 
 class LeRobotPathsV30(enum.StrEnum):

@@ -533,6 +533,36 @@ def register_resolvers():
                 Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
             ),
         )
+    if not OmegaConf.has_resolver("pusht_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "pusht_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_PUSHT_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("kitchen_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "kitchen_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_KITCHEN_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("block_pushing_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "block_pushing_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_DIR", "."))
+                / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("block_pushing_lerobot_abs_dir"):
+        OmegaConf.register_new_resolver(
+            "block_pushing_lerobot_abs_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR", "."))
+                / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("prunable_layer"):
         OmegaConf.register_new_resolver(
             "prunable_layer",

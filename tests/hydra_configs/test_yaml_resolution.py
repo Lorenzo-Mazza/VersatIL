@@ -19,9 +19,18 @@ ALL_YAML_FILES = sorted(
     )
 )
 
+# Partial configs that use `override /x: y` in defaults require a consuming
+# parent that already declares `/x`. They are composed transitively via their
+# consumers (e.g. sweeps) and cannot be composed standalone.
+_PARTIAL_CONFIG_PREFIXES = ("task_bundle/", "task_bundle_plain/")
+
 ALL_CONFIG_IDS = [
-    str(Path(p).relative_to(HYDRA_CONFIGS_ROOT)).removesuffix(".yaml")
-    for p in ALL_YAML_FILES
+    config_id
+    for config_id in (
+        str(Path(p).relative_to(HYDRA_CONFIGS_ROOT)).removesuffix(".yaml")
+        for p in ALL_YAML_FILES
+    )
+    if not config_id.startswith(_PARTIAL_CONFIG_PREFIXES)
 ]
 
 
