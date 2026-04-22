@@ -20,7 +20,7 @@ from versatil.inference.observation_preprocessor import ObservationPreprocessor
 def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
     def factory(
         camera_keys: list[str] | None = None,
-        proprioceptive_keys: list[str] | None = None,
+        state_keys: list[str] | None = None,
         has_language: bool = False,
         image_height: int = 8,
         image_width: int = 8,
@@ -30,8 +30,8 @@ def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
     ) -> ObservationPreprocessor:
         if camera_keys is None:
             camera_keys = [Cameras.LEFT.value]
-        if proprioceptive_keys is None:
-            proprioceptive_keys = []
+        if state_keys is None:
+            state_keys = []
         camera_metadata = {}
         for key in camera_keys:
             channels = 1 if key == Cameras.DEPTH.value else 3
@@ -44,7 +44,7 @@ def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
             )
         return ObservationPreprocessor(
             camera_keys=camera_keys,
-            proprioceptive_keys=proprioceptive_keys,
+            state_keys=state_keys,
             has_language=has_language,
             camera_metadata=camera_metadata,
             compression_type=compression_type,
@@ -85,26 +85,26 @@ def single_environment_response_factory(
 ) -> Callable[..., dict]:
     def factory(
         camera_keys: list[str] | None = None,
-        proprioceptive_keys: list[str] | None = None,
-        proprioceptive_values: dict[str, list[float]] | None = None,
+        state_keys: list[str] | None = None,
+        state_values: dict[str, list[float]] | None = None,
         language: str | None = None,
         image_height: int = 16,
         image_width: int = 16,
     ) -> dict:
         if camera_keys is None:
             camera_keys = [Cameras.LEFT.value]
-        if proprioceptive_keys is None:
-            proprioceptive_keys = []
+        if state_keys is None:
+            state_keys = []
         response = {}
         for camera_key in camera_keys:
             response[camera_key] = rgb_image_factory(
                 height=image_height, width=image_width
             )
-        if proprioceptive_values is not None:
-            for key, value in proprioceptive_values.items():
+        if state_values is not None:
+            for key, value in state_values.items():
                 response[key] = value
         else:
-            for key in proprioceptive_keys:
+            for key in state_keys:
                 response[key] = [0.1, 0.2, 0.3]
         if language is not None:
             response[ObsKey.LANGUAGE.value] = language
@@ -119,7 +119,7 @@ def multi_environment_response_factory(
 ) -> Callable[..., dict]:
     def factory(
         camera_keys: list[str] | None = None,
-        proprioceptive_keys: list[str] | None = None,
+        state_keys: list[str] | None = None,
         environment_count: int = 2,
         language: str | None = None,
         image_height: int = 16,
@@ -127,8 +127,8 @@ def multi_environment_response_factory(
     ) -> dict:
         if camera_keys is None:
             camera_keys = [Cameras.LEFT.value]
-        if proprioceptive_keys is None:
-            proprioceptive_keys = []
+        if state_keys is None:
+            state_keys = []
         response = {}
         for camera_key in camera_keys:
             response[camera_key] = {}
@@ -136,7 +136,7 @@ def multi_environment_response_factory(
                 response[camera_key][str(environment_index)] = rgb_image_factory(
                     height=image_height, width=image_width
                 )
-        for key in proprioceptive_keys:
+        for key in state_keys:
             response[key] = {}
             for environment_index in range(environment_count):
                 response[key][str(environment_index)] = [0.1, 0.2, 0.3]
@@ -341,14 +341,14 @@ class TestParseSingleEnvironment:
 
             np.testing.assert_array_equal(result[0][Cameras.LEFT.value], image)
 
-    def test_proprioceptive_keys_cast_to_float32(
+    def test_state_keys_cast_to_float32(
         self,
         preprocessor_factory,
     ):
         proprio_key = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
         preprocessor = preprocessor_factory(
             camera_keys=[],
-            proprioceptive_keys=[proprio_key],
+            state_keys=[proprio_key],
         )
         response = {proprio_key: [1, 2, 3]}
 
@@ -458,14 +458,14 @@ class TestParseMultiEnvironment:
             assert rotated[0, 0, 0] == 4
             assert rotated[-1, -1, 0] == 1
 
-    def test_proprioceptive_data_per_environment(
+    def test_state_data_per_environment(
         self,
         preprocessor_factory,
     ):
         proprio_key = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
         preprocessor = preprocessor_factory(
             camera_keys=[Cameras.LEFT.value],
-            proprioceptive_keys=[proprio_key],
+            state_keys=[proprio_key],
         )
         image = np.zeros((4, 4, 3), dtype=np.uint8)
 

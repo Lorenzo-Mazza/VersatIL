@@ -451,7 +451,7 @@ def start_mock_observation_server(
         Running SocketServer instance (call .stop() when done).
     """
     camera_keys = list(observation_space.cameras.keys())
-    proprio_observations = observation_space.proprioceptive_observations
+    state_observations = observation_space.numerical_observations
     has_language = ObsKey.LANGUAGE.value in observation_space.observations_metadata
     server_rng = np.random.default_rng(seed=777)
 
@@ -472,7 +472,7 @@ def start_mock_observation_server(
                 response[key] = compress_array(
                     image, method=compression, as_base64=True
                 )
-        for key, metadata in proprio_observations.items():
+        for key, metadata in state_observations.items():
             if key in requested:
                 response[key] = (
                     server_rng.standard_normal(metadata.dimension)

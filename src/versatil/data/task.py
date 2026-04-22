@@ -23,6 +23,7 @@ from versatil.data.metadata import (
     PositionActionMetadata,
     PositionObservationMetadata,
     PrecomputedActionMetadata,
+    ProprioceptiveObservationMetadata,
 )
 from versatil.data.raw.schemas.base import DatasetSchema
 
@@ -267,14 +268,17 @@ class ObservationSpace:
     @property
     def proprioceptive_observations(
         self,
-    ) -> dict[
-        str,
-        ObservationMetadata
-        | PositionObservationMetadata
-        | OrientationObservationMetadata
-        | GripperObservationMetadata,
-    ]:
-        """Get all proprioceptive observations (position, orientation, gripper, and numerical)."""
+    ) -> dict[str, ProprioceptiveObservationMetadata]:
+        """Get robot proprioceptive observations (position, orientation, gripper)."""
+        return {
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(v, ProprioceptiveObservationMetadata)
+        }
+
+    @property
+    def numerical_observations(self) -> dict[str, ObservationMetadata]:
+        """Get all numerical non-image observations."""
         return {
             k: v
             for k, v in self.observations_metadata.items()
@@ -288,14 +292,7 @@ class ObservationSpace:
             k: v
             for k, v in self.observations_metadata.items()
             if isinstance(v, ObservationMetadata)
-            and not isinstance(
-                v,
-                (
-                    PositionObservationMetadata,
-                    OrientationObservationMetadata,
-                    GripperObservationMetadata,
-                ),
-            )
+            and not isinstance(v, ProprioceptiveObservationMetadata)
         }
 
     @property

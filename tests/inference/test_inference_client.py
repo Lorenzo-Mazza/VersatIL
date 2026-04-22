@@ -15,6 +15,7 @@ from tso_robotics_sockets import (
 )
 from versatil_constants.shared import ObsKey
 
+from versatil.data.metadata import ObservationMetadata
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.inference_client import (
     EpisodeStatus,
@@ -30,26 +31,26 @@ from versatil.inference.temporal_aggregation import TemporalAggregator
 def mock_observation_space_factory() -> Callable[..., MagicMock]:
     def factory(
         camera_keys: list[str] | None = None,
-        proprioceptive_keys: list[str] | None = None,
+        state_keys: list[str] | None = None,
         has_language: bool = False,
     ) -> MagicMock:
         if camera_keys is None:
             camera_keys = ["left", "right"]
-        if proprioceptive_keys is None:
-            proprioceptive_keys = ["proprio_robot_frame"]
+        if state_keys is None:
+            state_keys = ["proprio_robot_frame"]
 
         cameras = {key: MagicMock() for key in camera_keys}
-        proprioceptive_observations = {key: MagicMock() for key in proprioceptive_keys}
+        state_metadata = {key: MagicMock() for key in state_keys}
 
-        observations_metadata = {}
+        observations_metadata: dict = {}
         observations_metadata.update(cameras)
-        observations_metadata.update(proprioceptive_observations)
+        observations_metadata.update(state_metadata)
         if has_language:
             observations_metadata[ObsKey.LANGUAGE.value] = MagicMock()
 
         mock = MagicMock()
         mock.cameras = cameras
-        mock.proprioceptive_observations = proprioceptive_observations
+        mock.numerical_observations = state_metadata
         mock.observations_metadata = observations_metadata
         return mock
 
@@ -85,7 +86,7 @@ def mock_policy_loader_factory(
 ) -> Callable[..., MagicMock]:
     def factory(
         camera_keys: list[str] | None = None,
-        proprioceptive_keys: list[str] | None = None,
+        state_keys: list[str] | None = None,
         has_language: bool = False,
         action_keys_to_dimensions: dict[str, int] | None = None,
         prediction_horizon: int = 4,
@@ -98,7 +99,7 @@ def mock_policy_loader_factory(
         mock = MagicMock(spec=PolicyLoader)
         mock.observation_space = mock_observation_space_factory(
             camera_keys=camera_keys,
-            proprioceptive_keys=proprioceptive_keys,
+            state_keys=state_keys,
             has_language=has_language,
         )
         mock.action_space = mock_action_space_factory(
@@ -138,7 +139,7 @@ def inference_client_factory(
 ) -> Callable[..., InferenceClient]:
     def factory(
         camera_keys: list[str] | None = None,
-        proprioceptive_keys: list[str] | None = None,
+        state_keys: list[str] | None = None,
         has_language: bool = False,
         action_keys_to_dimensions: dict[str, int] | None = None,
         prediction_horizon: int = 4,
@@ -151,7 +152,7 @@ def inference_client_factory(
     ) -> InferenceClient:
         policy_loader = mock_policy_loader_factory(
             camera_keys=camera_keys,
-            proprioceptive_keys=proprioceptive_keys,
+            state_keys=state_keys,
             has_language=has_language,
             action_keys_to_dimensions=action_keys_to_dimensions,
             prediction_horizon=prediction_horizon,
@@ -192,17 +193,17 @@ class TestInferenceClientInitialization:
         assert client.temporal_aggregation == temporal_aggregation
         assert client.camera_keys == camera_keys
 
-    def test_derives_camera_and_proprioceptive_keys_from_observation_space(
+    def test_derives_camera_and_state_keys_from_observation_space(
         self,
         inference_client_factory: Callable[..., InferenceClient],
     ):
         client = inference_client_factory(
             camera_keys=["left", "right"],
-            proprioceptive_keys=["proprio_robot_frame"],
+            state_keys=["proprio_robot_frame"],
         )
 
         assert client.camera_keys == ["left", "right"]
-        assert client.proprioceptive_keys == ["proprio_robot_frame"]
+        assert client.state_keys == ["proprio_robot_frame"]
         assert "left" in client.all_observation_keys
         assert "right" in client.all_observation_keys
         assert "proprio_robot_frame" in client.all_observation_keys
@@ -293,6 +294,92 @@ class TestInferenceClientInitialization:
 
 
 @pytest.mark.unit
+class TestBucketObservationKeys:
+    def test_buckets_cameras_state_and_language(
+        self,
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        observation_space = mock_observation_space_factory(
+            camera_keys=["left", "right"],
+            state_keys=["proprio_robot_frame", "gripper_state_obs"],
+            has_language=True,
+        )
+
+        camera_keys, state_keys, has_language = (
+            InferenceClient._bucket_observation_keys(
+                observation_space=observation_space
+            )
+        )
+
+        assert camera_keys == ["left", "right"]
+        assert state_keys == ["proprio_robot_frame", "gripper_state_obs"]
+        assert has_language is True
+
+    def test_has_language_false_when_language_key_absent(
+        self,
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        observation_space = mock_observation_space_factory(
+            camera_keys=["left"],
+            state_keys=["proprio_robot_frame"],
+            has_language=False,
+        )
+
+        _, _, has_language = InferenceClient._bucket_observation_keys(
+            observation_space=observation_space
+        )
+
+        assert has_language is False
+
+    def test_empty_when_no_observations(
+        self,
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        observation_space = mock_observation_space_factory(
+            camera_keys=[],
+            state_keys=[],
+            has_language=False,
+        )
+
+        camera_keys, state_keys, has_language = (
+            InferenceClient._bucket_observation_keys(
+                observation_space=observation_space
+            )
+        )
+
+        assert camera_keys == []
+        assert state_keys == []
+        assert has_language is False
+
+    def test_raises_when_observation_has_no_dispatch(
+        self,
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        observation_space = mock_observation_space_factory(
+            camera_keys=["left"],
+            state_keys=["proprio_robot_frame"],
+            has_language=False,
+        )
+        unsupported_meta = MagicMock(spec=ObservationMetadata)
+        unsupported_meta.is_numerical = False
+        observation_space.observations_metadata["mystery_categorical"] = (
+            unsupported_meta
+        )
+
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "Observations ['mystery_categorical'] have no inference dispatch; "
+                "expected CameraMetadata, numerical ObservationMetadata, or the "
+                f"language key '{ObsKey.LANGUAGE.value}'."
+            ),
+        ):
+            InferenceClient._bucket_observation_keys(
+                observation_space=observation_space
+            )
+
+
+@pytest.mark.unit
 class TestCheckStatus:
     def test_finished_status_returns_finished(self):
         response = {
@@ -362,7 +449,7 @@ class TestHandleResetSignal:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=1,
         )
         state = client._create_environment_state()
@@ -387,7 +474,7 @@ class TestHandleResetSignal:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             temporal_aggregation=True,
             observation_horizon=1,
         )
@@ -407,7 +494,7 @@ class TestHandleResetSignal:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=1,
         )
         state_zero = client._create_environment_state()
@@ -449,7 +536,7 @@ class TestHandleResetSignal:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=1,
         )
         state = client._create_environment_state()
@@ -474,7 +561,7 @@ class TestUpdateEnvironmentStates:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
         )
 
         observations = {
@@ -495,7 +582,7 @@ class TestUpdateEnvironmentStates:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=2,
         )
         observations = {
@@ -519,7 +606,7 @@ class TestUpdateEnvironmentStates:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
         )
         observations = {
             "left": np.zeros((64, 64, 3), dtype=np.uint8),
@@ -586,13 +673,13 @@ class TestRemoveInactiveEnvironments:
 
 @pytest.mark.unit
 class TestCreateEnvironmentState:
-    def test_buffer_keys_include_cameras_and_proprioceptive(
+    def test_buffer_keys_include_cameras_and_state(
         self,
         inference_client_factory: Callable[..., InferenceClient],
     ):
         client = inference_client_factory(
             camera_keys=["left", "right"],
-            proprioceptive_keys=["proprio_robot_frame"],
+            state_keys=["proprio_robot_frame"],
         )
 
         state = client._create_environment_state()
@@ -688,7 +775,7 @@ class TestGetActionsForReadyEnvironments:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=3,
         )
         state = client._create_environment_state()
@@ -713,7 +800,7 @@ class TestGetActionsForReadyEnvironments:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
             observation_horizon=1,
@@ -754,7 +841,7 @@ class TestGetActionsForReadyEnvironments:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             has_language=True,
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
@@ -802,7 +889,7 @@ class TestGetActionsForReadyEnvironments:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             has_language=True,
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
@@ -1021,7 +1108,7 @@ class TestReset:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=1,
         )
         state = client._create_environment_state()
@@ -1131,7 +1218,7 @@ class TestStep:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=3,
         )
         response = {
@@ -1160,7 +1247,7 @@ class TestStep:
     ):
         client = inference_client_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=3,
         )
         response = {
@@ -1209,7 +1296,7 @@ class TestStepOrchestration:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
             observation_horizon=1,
@@ -1280,7 +1367,7 @@ class TestStepOrchestration:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
             observation_horizon=1,
@@ -1345,7 +1432,7 @@ class TestStepOrchestration:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
             observation_horizon=1,
@@ -1416,7 +1503,7 @@ class TestStepOrchestration:
         prediction_horizon = 4
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=prediction_horizon,
             observation_horizon=1,
@@ -1583,7 +1670,7 @@ class TestStepTimingLog:
     ) -> InferenceClient:
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
             observation_horizon=1,
@@ -1679,7 +1766,7 @@ class TestStepTimingLog:
         client = inference_client_factory(
             timing_log=False,
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=3,
         )
         mock_observation_transport.receive.return_value = {
@@ -1715,7 +1802,7 @@ class TestStepUpdateRateHz:
     ):
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
             prediction_horizon=4,
             observation_horizon=1,
@@ -1775,7 +1862,7 @@ class TestStepUpdateRateHz:
         client = inference_client_factory(
             update_rate_hz=None,
             camera_keys=["left"],
-            proprioceptive_keys=["proprio"],
+            state_keys=["proprio"],
             observation_horizon=3,
         )
         mock_observation_transport.receive.return_value = {

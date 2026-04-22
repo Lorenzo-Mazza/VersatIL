@@ -15,25 +15,24 @@ observations_metadata:
     frame: ${coordinate_system:UNKNOWN}
 
   ${proprio_key:PUSHT_BLOCK_POS}:
-    _target_: versatil.data.metadata.PositionObservationMetadata
+    _target_: versatil.data.metadata.ObservationMetadata
     raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 2
+    is_numerical: true
     needs_normalization: true
     slice_start: 2
     slice_end: 4
-    frame: ${coordinate_system:UNKNOWN}
 
   ${proprio_key:PUSHT_BLOCK_ANGLE}:
-    _target_: versatil.data.metadata.OrientationObservationMetadata
+    _target_: versatil.data.metadata.ObservationMetadata
     raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 1
+    is_numerical: true
     needs_normalization: true
     slice_start: 4
     slice_end: 5
-    frame: ${coordinate_system:UNKNOWN}
-    orientation_representation: ${orientation:ROLL}
 
   ${proprio_key:PUSHT_KEYPOINTS}:
     _target_: versatil.data.metadata.ObservationMetadata

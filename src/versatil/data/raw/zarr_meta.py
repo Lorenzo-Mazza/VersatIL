@@ -18,6 +18,7 @@ from versatil.data.metadata import (
     PositionActionMetadata,
     PositionObservationMetadata,
     PrecomputedActionMetadata,
+    ProprioceptiveObservationMetadata,
 )
 
 
@@ -111,24 +112,12 @@ class DatasetMetadata:
     @property
     def proprioceptive_observations(
         self,
-    ) -> dict[
-        str,
-        PositionObservationMetadata
-        | OrientationObservationMetadata
-        | GripperObservationMetadata,
-    ]:
+    ) -> dict[str, ProprioceptiveObservationMetadata]:
         """Get all proprioceptive observations (position, orientation, gripper)."""
         return {
             k: v
             for k, v in self.observations.items()
-            if isinstance(
-                v,
-                (
-                    PositionObservationMetadata,
-                    OrientationObservationMetadata,
-                    GripperObservationMetadata,
-                ),
-            )
+            if isinstance(v, ProprioceptiveObservationMetadata)
         }
 
     @property
