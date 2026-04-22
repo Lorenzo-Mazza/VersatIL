@@ -51,7 +51,7 @@ dependencies = [
   "transformers==5.2.0",
   "triton==3.6.0",
   "tso-robotics-sockets",
-  "versatil-constants",
+  "versatil-constants>=0.2.0",
   "pre-commit",
   "wandb==0.22.3",
   "zarr==3.1.3",
