@@ -538,6 +538,13 @@ def register_resolvers():
                 Path(os.environ.get("VERSATIL_PUSHT_LEROBOT_DIR", ".")) / subpath
             ),
         )
+    if not OmegaConf.has_resolver("kitchen_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "kitchen_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_KITCHEN_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("block_pushing_lerobot_dir"):
         OmegaConf.register_new_resolver(
             "block_pushing_lerobot_dir",

@@ -1,0 +1,8 @@
+defaults:
+  - lerobot
+  - zarr_meta/kitchen@metadata
+
+_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
+dataset_type: ${dataset_type:KITCHEN}
+dataset_path: ${kitchen_lerobot_dir:}
+zarr_path: ${zarr_dir:kitchen.zarr}

@@ -1,0 +1,25 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+observations_metadata:
+  ${proprio_key:KITCHEN_ARM_QPOS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 9
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 9
+
+  ${proprio_key:KITCHEN_OBJECT_QPOS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 21
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 9
+    slice_end: 30

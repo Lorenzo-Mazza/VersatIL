@@ -1,23 +1,23 @@
 # @package _global_
-# Flow Matching with DiT Cross-Attention Transformer - block pushing state obs,
-# absolute-action variant (dataset at block_pushing_lerobot_abs).
+# Flow Matching with DiT Cross-Attention Transformer - state observations only
+# Q-FAT relay_kitchen: 9-DoF Franka (relative velocity actions) + 21-DoF kitchen objects + 7-way onehot subtask goal
 _target_: versatil.configs.main.MainConfig
 
 defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: block_pushing_abs
-  - /task/dataloader: block_pushing_state
-  - /task/action_space: block_pushing_precomputed
-  - /task/observation_space: block_pushing_state
+  - /task/dataset_schema: kitchen
+  - /task/dataloader: kitchen_state
+  - /task/action_space: kitchen_precomputed
+  - /task/observation_space: kitchen_state
   - /training: ema
-  - /policy/encoding_pipeline: block_pushing_state
+  - /policy/encoding_pipeline: kitchen_state
   - /policy/decoder: dit_cross_attention_transformer
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_synthetic
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: block_pushing_2d
+  - override /policy/decoder/heads@policy.decoder.action_heads: kitchen_9d
   - _self_
 
 task:
@@ -28,10 +28,10 @@ task:
     preload_data_in_memory: true
 
 experiment:
-  checkpoint_folder: ${checkpoint_dir:block_pushing_abs}
+  checkpoint_folder: ${checkpoint_dir:kitchen}
 
 training:
-  num_epochs: 4000
+  num_epochs: 2000
   early_stopping_patience: 500
 
 policy:
@@ -46,13 +46,13 @@ policy:
     loss_modules:
       regression_loss:
         action_keys:
-          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:KITCHEN_ARM_ACTION}
         mse_weight: 1.0
         l1_weight: 0.0
         huber_weight: 0.0
       trajectory_length:
         weight: 0.0
-        action_key: ${proprio_key:EE_POS_ACTION}
+        action_key: ${proprio_key:KITCHEN_ARM_ACTION}
   decoder:
     input_keys:
       - robot_state_proprio

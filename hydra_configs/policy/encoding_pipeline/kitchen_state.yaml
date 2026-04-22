@@ -1,0 +1,12 @@
+defaults:
+  - encoder/proprio@encoders.robot_state
+  - _self_
+
+encoders:
+  robot_state:
+    input_keys:
+      - ${proprio_key:KITCHEN_ARM_QPOS}
+      - ${proprio_key:KITCHEN_OBJECT_QPOS}
+    output_dim: 128
+
+fusion_stages: []
