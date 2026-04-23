@@ -43,6 +43,6 @@ policy:
 hydra:
   sweeper:
     params:
-      policy.loss.loss_modules.denoising_prior.weight: 0.03,5, 0.1, 1.0
+      policy.loss.loss_modules.denoising_prior.weight: 0.03,0.1,1.0
       policy.algorithm.posterior_encoder.deterministic: true,false
       #experiment.seed: 42,43,44

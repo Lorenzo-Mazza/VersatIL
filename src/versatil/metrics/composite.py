@@ -1,18 +1,16 @@
 """Composite loss class that combine multiple loss components."""
 
+import warnings
+from typing import Any
+
 import torch
 import torch.nn as nn
 
-from versatil.metrics.base import BaseLoss, LossOutput
+from versatil.metrics.base import BaseLoss, LossOutput, WeightsDictionary
 
 
 class CompositeLoss(BaseLoss):
-    """Composite loss that combines multiple loss modules with weights.
-
-    This loss module orchestrates multiple sub-losses and combines them
-    with configurable weights. It's useful for complex training objectives
-    that involve multiple loss terms.
-    """
+    """Composite loss that sums multiple sub-loss modules."""
 
     def __init__(
         self,
@@ -22,12 +20,30 @@ class CompositeLoss(BaseLoss):
         """Initialize composite loss.
 
         Args:
-            loss_modules: Dictionary of loss module names to loss instances
-            weights: Optional dictionary of weights for each loss module
+            loss_modules: Dictionary of loss module names to loss instances.
+            weights: Deprecated legacy composite weights. Kept only for config
+                compatibility and ignored at runtime.
         """
         super().__init__()
         self.loss_modules = nn.ModuleDict(loss_modules)
-        self.weights = weights or dict.fromkeys(loss_modules.keys(), 1.0)
+        if weights is not None and any(weight != 1.0 for weight in weights.values()):
+            warnings.warn(
+                "CompositeLoss.weights is deprecated and ignored at runtime. "
+                "Move weights into the child loss configurations instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {name: child.weights for name, child in self.loss_modules.items()}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        for name, child in self.loss_modules.items():
+            child.set_weights(new_weights[name])
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys by recursively collecting from all sub-modules.
@@ -46,7 +62,7 @@ class CompositeLoss(BaseLoss):
         targets: dict[str, torch.Tensor],
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
-        """Compute weighted sum of all loss modules.
+        """Sum all sub-loss outputs (each sub-loss applies its own scalar weight).
 
         Args:
             predictions: Model output dictionary
@@ -54,21 +70,19 @@ class CompositeLoss(BaseLoss):
             is_pad: Optional padding mask
 
         Returns:
-            LossOutput with total weighted loss and all component losses
+            LossOutput with the summed total loss and all component losses
         """
         device = next(iter(predictions.values())).device
         total_loss = torch.tensor(0.0, device=device)
-        all_component_losses = {}
-        all_metadata = {}
+        all_component_losses: dict[str, torch.Tensor] = {}
+        all_metadata: dict[str, Any] = {}
 
         for name, loss_module in self.loss_modules.items():
             loss_output: LossOutput = loss_module(predictions, targets, is_pad)
-            weight = self.weights.get(name, 1.0)
-            total_loss = total_loss + weight * loss_output.total_loss
-            for comp_name, comp_value in loss_output.component_losses.items():
-                prefixed_name = f"{name}/{comp_name}"
-                all_component_losses[prefixed_name] = comp_value
-
+            total_loss = total_loss + loss_output.total_loss
+            for component_name, component_value in loss_output.component_losses.items():
+                prefixed_name = f"{name}/{component_name}"
+                all_component_losses[prefixed_name] = component_value
             all_metadata.update(loss_output.metadata)
 
         return LossOutput(

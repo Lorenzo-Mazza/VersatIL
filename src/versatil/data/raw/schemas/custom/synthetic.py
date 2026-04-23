@@ -16,7 +16,7 @@ from versatil.data.constants import (
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.synthetic.constants import SyntheticTaskName
-from versatil.training.synthetic_rollout_callback import SyntheticRolloutCallback
+from versatil.training.callbacks.synthetic_rollout import SyntheticRolloutCallback
 
 ALLOWED_CAMERAS = {Cameras.AGENTVIEW.value}
 ALLOWED_POSITION_KEYS = {ProprioKey.SYNTHETIC_POSITION.value}

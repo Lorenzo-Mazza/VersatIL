@@ -22,6 +22,7 @@ from versatil.models.decoding.constants import (
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 
 
@@ -245,6 +246,27 @@ class TestDiTPriorConfig:
     def test_ode_solver_default_is_euler_string(self):
         config = DiTPriorConfig(latent_dimension=32)
         assert config.ode_solver == ODESolver.EULER.value
+
+    def test_timestep_sampler_default_is_beta_string(self):
+        config = DiTPriorConfig(latent_dimension=32)
+        assert config.timestep_sampler == TimestepSampler.BETA.value
+
+    def test_stores_timestep_sampling_fields(self):
+        config = DiTPriorConfig(
+            latent_dimension=32,
+            timestep_sampler=TimestepSampler.LOGIT_NORMAL.value,
+            logit_mean=0.25,
+            logit_std=0.5,
+            beta_alpha=1.25,
+            beta_beta=0.75,
+            max_timestep=0.9,
+        )
+        assert config.timestep_sampler == TimestepSampler.LOGIT_NORMAL.value
+        assert config.logit_mean == 0.25
+        assert config.logit_std == 0.5
+        assert config.beta_alpha == 1.25
+        assert config.beta_beta == 0.75
+        assert config.max_timestep == 0.9
 
     def test_beta_schedule_default_is_squaredcos_string(self):
         config = DiTPriorConfig(latent_dimension=32)

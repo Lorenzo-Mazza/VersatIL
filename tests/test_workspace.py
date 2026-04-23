@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,17 +21,16 @@ from pytorch_lightning.strategies import DDPStrategy
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.training.callbacks import (
-    ConfusionMatrixCallback,
-    EMACallback,
-    ExpertUsageCallback,
-    GradientNormCallback,
-    LatentVisualizationCallback,
-    ProgressiveFreezingCallback,
-    ReduceLROnPlateauCallback,
-    ResumableEarlyStopping,
-)
+from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
+from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
+from versatil.training.callbacks.ema import EMACallback
+from versatil.training.callbacks.expert_usage import ExpertUsageCallback
+from versatil.training.callbacks.gradient_norm import GradientNormCallback
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
+from versatil.training.callbacks.reduce_lr_on_plateau import ReduceLROnPlateauCallback
+from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.lightning_policy import LightningPolicy
+from versatil.training.stage import TrainingStage
 from versatil.workspace import Workspace
 
 
@@ -97,7 +97,8 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         reduce_lr_on_plateau: bool = False,
         reduce_lr_patience: int = 10,
         reduce_lr_cooldown: int = 10,
-        progressive_freezing: list[dict[str, object]] | None = None,
+        stages: list[dict[str, Any]] | None = None,
+        lr_schedule: str | None = None,
         compile: bool = False,
         compile_mode: str = "default",
         lr: float = 1e-4,
@@ -117,7 +118,8 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         config.reduce_lr_on_plateau = reduce_lr_on_plateau
         config.reduce_lr_patience = reduce_lr_patience
         config.reduce_lr_cooldown = reduce_lr_cooldown
-        config.progressive_freezing = progressive_freezing or []
+        config.stages = stages or []
+        config.lr_schedule = lr_schedule
         config.compile = compile
         config.compile_mode = compile_mode
         config.optimizer = MagicMock(spec=AdamWConfig)
@@ -337,18 +339,19 @@ class TestWorkspaceInitialization:
 
 
 @pytest.mark.unit
-class TestSaveConfig:
-    def test_saves_resolved_yaml_to_output_directory(self, workspace_factory, tmp_path):
-        workspace = workspace_factory(
-            experiment_kwargs={"name": "save_cfg"},
-            config_name="base",
-        )
+def test_save_config_writes_resolved_yaml_to_output_directory(
+    workspace_factory, tmp_path
+):
+    workspace = workspace_factory(
+        experiment_kwargs={"name": "save_cfg"},
+        config_name="base",
+    )
 
-        config_path = workspace.output_dir / "config.yaml"
-        assert config_path.exists()
+    config_path = workspace.output_dir / "config.yaml"
+    assert config_path.exists()
 
-        loaded = OmegaConf.load(config_path)
-        assert "experiment" in loaded
+    loaded = OmegaConf.load(config_path)
+    assert "experiment" in loaded
 
 
 @pytest.mark.unit
@@ -741,7 +744,7 @@ class TestCreateCallbacks:
                 annealing_epochs=5,
             )
 
-    def test_progressive_freezing_callback_added_when_configured(
+    def test_training_stage_callback_added_when_configured(
         self,
         workspace_factory: Callable[..., Workspace],
         mock_workspace_policy_factory: Callable[..., MagicMock],
@@ -749,11 +752,12 @@ class TestCreateCallbacks:
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(
             training_kwargs={
-                "progressive_freezing": [
-                    {
-                        "epoch": 200,
-                        "trainable_patterns": [r"^algorithm\.prior\."],
-                    }
+                "stages": [
+                    TrainingStage(
+                        name="prior",
+                        start_epoch=0,
+                        trainable_groups=["prior"],
+                    )
                 ]
             },
             policy=policy,
@@ -763,10 +767,45 @@ class TestCreateCallbacks:
 
         callbacks = workspace._create_callbacks()
 
-        progressive_callbacks = [
-            cb for cb in callbacks if isinstance(cb, ProgressiveFreezingCallback)
+        stage_callbacks = [
+            cb for cb in callbacks if isinstance(cb, TrainingStageCallback)
         ]
-        assert len(progressive_callbacks) == 1
+        assert len(stage_callbacks) == 1
+
+    @pytest.mark.parametrize(
+        "lr_schedule, expected_active",
+        [(None, False), ("cosine", True)],
+    )
+    def test_training_stage_callback_wires_learning_rate_schedule_flag(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        mock_workspace_policy_factory: Callable[..., MagicMock],
+        lr_schedule: str | None,
+        expected_active: bool,
+    ) -> None:
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            training_kwargs={
+                "stages": [
+                    TrainingStage(
+                        name="prior",
+                        start_epoch=0,
+                        group_lrs={"prior": 1e-3},
+                    )
+                ],
+                "lr_schedule": lr_schedule,
+            },
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        stage_callback = next(
+            cb for cb in callbacks if isinstance(cb, TrainingStageCallback)
+        )
+        assert stage_callback.learning_rate_schedule_active is expected_active
 
     def test_decoder_callbacks_collected_via_protocol(
         self, workspace_factory, mock_workspace_policy_factory

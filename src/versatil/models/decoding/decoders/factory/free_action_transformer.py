@@ -30,7 +30,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.training.callbacks import LatentVisualizationCallback
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
 
 
 class FreeActionTransformer(ActionDecoder):

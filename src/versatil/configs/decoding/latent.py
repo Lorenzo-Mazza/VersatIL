@@ -14,6 +14,7 @@ from versatil.models.decoding.constants import (
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 
 
@@ -133,6 +134,12 @@ class DiTPriorConfig(PriorLatentEncoderConfig):
     algorithm_type: str = DenoisingAlgorithm.FLOW_MATCHING.value
     sigma: float = 0.0
     ode_solver: str = ODESolver.EULER.value
+    timestep_sampler: str = TimestepSampler.BETA.value
+    logit_mean: float = 0.0
+    logit_std: float = 1.0
+    beta_alpha: float = 1.5
+    beta_beta: float = 1.0
+    max_timestep: float = 0.999
     num_train_timesteps: int = 100
     num_inference_steps: int = 10
     beta_start: float = 0.0001

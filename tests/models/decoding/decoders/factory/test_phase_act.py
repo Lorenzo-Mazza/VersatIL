@@ -19,7 +19,7 @@ from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.training.callbacks import ConfusionMatrixCallback
+from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2

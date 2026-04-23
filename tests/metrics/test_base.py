@@ -4,7 +4,13 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
+from versatil.metrics.base import (
+    BaseLoss,
+    LossOutput,
+    ScalarWeightedLoss,
+    _merge_weights,
+    reduce_loss_with_padding,
+)
 from versatil.metrics.constants import MetricKey
 
 
@@ -111,41 +117,6 @@ class TestLossOutputAdd:
         combined.total_loss.backward()
         assert tensor_a.grad is not None
         assert tensor_b.grad is not None
-
-
-@pytest.mark.unit
-class TestLossOutputScale:
-    def test_scales_total_loss(self, loss_output_factory):
-        output = loss_output_factory(total_loss_value=4.0)
-        scaled = output.scale(0.5)
-        assert scaled.total_loss.item() == pytest.approx(2.0)
-
-    def test_scales_component_losses(self, loss_output_factory):
-        output = loss_output_factory(
-            total_loss_value=4.0,
-            component_losses={"mse": 2.0, "l1": 1.0},
-        )
-        scaled = output.scale(0.25)
-        assert scaled.component_losses["mse"].item() == pytest.approx(0.5)
-        assert scaled.component_losses["l1"].item() == pytest.approx(0.25)
-
-    def test_preserves_metadata_reference(self, loss_output_factory):
-        metadata = {"key": "value"}
-        output = loss_output_factory(
-            total_loss_value=1.0,
-            metadata=metadata,
-        )
-        scaled = output.scale(2.0)
-        assert scaled.metadata is metadata
-
-    def test_scale_by_zero_produces_zero_losses(self, loss_output_factory):
-        output = loss_output_factory(
-            total_loss_value=5.0,
-            component_losses={"mse": 3.0},
-        )
-        scaled = output.scale(0.0)
-        assert scaled.total_loss.item() == pytest.approx(0.0)
-        assert scaled.component_losses["mse"].item() == pytest.approx(0.0)
 
 
 @pytest.mark.unit
@@ -288,3 +259,132 @@ class TestBaseLossIsAbstract:
 
         with pytest.raises(TypeError):
             IncompleteLoss()
+
+
+@pytest.mark.unit
+class TestMergeWeights:
+    def test_flat_override_replaces_existing_values(self):
+        existing = {"weight": 1.0, "other_weight": 0.5}
+        override = {"weight": 0.2}
+        merged = _merge_weights(existing, override)
+        assert merged == {"weight": 0.2, "other_weight": 0.5}
+
+    def test_nested_override_deep_merges(self):
+        existing = {
+            "denoising_prior": {"weight": 0.03},
+            "regression_loss": {"mse_weight": 1.0, "l1_weight": 0.0},
+        }
+        override = {"regression_loss": {"mse_weight": 0.5}}
+        merged = _merge_weights(existing, override)
+        assert merged == {
+            "denoising_prior": {"weight": 0.03},
+            "regression_loss": {"mse_weight": 0.5, "l1_weight": 0.0},
+        }
+
+    def test_unknown_top_level_key_raises(self):
+        with pytest.raises(KeyError, match="Unknown weight key 'bogus'"):
+            _merge_weights({"weight": 1.0}, {"bogus": 0.1})
+
+    def test_unknown_nested_key_raises(self):
+        with pytest.raises(KeyError, match="Unknown weight key 'bogus_weight'"):
+            _merge_weights(
+                {"regression_loss": {"mse_weight": 1.0}},
+                {"regression_loss": {"bogus_weight": 0.5}},
+            )
+
+    def test_scalar_override_into_nested_raises_structure_mismatch(self):
+        existing = {"regression_loss": {"mse_weight": 1.0}}
+        override = {"regression_loss": 0.0}
+        with pytest.raises(
+            TypeError,
+            match=(
+                "Weight override for 'regression_loss' expects a dict subtree, "
+                "got float."
+            ),
+        ):
+            _merge_weights(existing, override)
+
+    def test_dict_override_into_scalar_raises_structure_mismatch(self):
+        existing = {"weight": 1.0}
+        override = {"weight": {"nested": 0.5}}
+        with pytest.raises(
+            TypeError,
+            match=(
+                "Weight override for 'weight' expects a scalar, got a dict subtree."
+            ),
+        ):
+            _merge_weights(existing, override)
+
+
+@pytest.mark.unit
+class TestBaseLossWeights:
+    class _LeafLoss(BaseLoss):
+        def forward(self, predictions, targets, is_pad=None):
+            return LossOutput(total_loss=torch.tensor(0.0))
+
+        def get_required_keys(self):
+            return set()
+
+    def test_weights_default_is_empty_dict(self):
+        loss = self._LeafLoss()
+        assert loss.weights == {}
+
+    def test_set_weights_empty_is_noop(self):
+        loss = self._LeafLoss()
+        loss.set_weights({})
+
+    def test_set_weights_with_content_raises_for_default_subclass(self):
+        loss = self._LeafLoss()
+        with pytest.raises(
+            KeyError,
+            match=r"_LeafLoss\.set_weights: missing=\[\], extra=\['weight'\]",
+        ):
+            loss.set_weights({"weight": 1.0})
+
+    def test_update_weights_empty_is_noop(self):
+        loss = self._LeafLoss()
+        loss.update_weights({})
+
+    def test_update_weights_unknown_key_raises(self):
+        loss = self._LeafLoss()
+        with pytest.raises(KeyError, match="Unknown weight key 'weight'"):
+            loss.update_weights({"weight": 1.0})
+
+
+@pytest.mark.unit
+class TestScalarWeightedLoss:
+    class _ScalarLeaf(ScalarWeightedLoss):
+        def __init__(self, weight: float = 1.0):
+            super().__init__()
+            self.weight = weight
+
+        def forward(self, predictions, targets, is_pad=None):
+            return LossOutput(total_loss=torch.tensor(self.weight))
+
+        def get_required_keys(self):
+            return set()
+
+    def test_weights_returns_single_weight_dict(self):
+        loss = self._ScalarLeaf(weight=0.7)
+        assert loss.weights == {"weight": 0.7}
+
+    def test_set_weights_replaces_weight(self):
+        loss = self._ScalarLeaf(weight=0.5)
+        loss.set_weights({"weight": 0.2})
+        assert loss.weight == pytest.approx(0.2)
+        assert loss.weights == {"weight": 0.2}
+
+    def test_update_weights_replaces_weight(self):
+        loss = self._ScalarLeaf(weight=0.5)
+        loss.update_weights({"weight": 0.9})
+        assert loss.weight == pytest.approx(0.9)
+
+    def test_set_weights_missing_required_key_raises(self):
+        loss = self._ScalarLeaf(weight=0.5)
+        with pytest.raises(KeyError):
+            loss.set_weights({})
+
+    def test_update_weights_rejects_unknown_key(self):
+        loss = self._ScalarLeaf(weight=0.5)
+        with pytest.raises(KeyError, match="Unknown weight key 'bogus'"):
+            loss.update_weights({"bogus": 0.1})

@@ -19,14 +19,20 @@ from versatil.data.metadata import (
     GripperObservationMetadata,
     OnTheFlyActionMetadata,
 )
-from versatil.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
+from versatil.metrics.base import (
+    BaseLoss,
+    LossOutput,
+    ScalarWeightedLoss,
+    WeightsDictionary,
+    reduce_loss_with_padding,
+)
 from versatil.metrics.constants import (
     MetadataKey,
     MetricKey,
 )
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-from versatil.training.callbacks import ExpertUsageCallback
+from versatil.training.callbacks.expert_usage import ExpertUsageCallback
 
 
 class RegressionLoss(BaseLoss):
@@ -61,6 +67,22 @@ class RegressionLoss(BaseLoss):
         self.huber_weight = huber_weight
         self.huber_delta = huber_delta
         self.per_key_weights = per_key_weights or {}
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "mse_weight": self.mse_weight,
+            "l1_weight": self.l1_weight,
+            "huber_weight": self.huber_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.mse_weight = new_weights["mse_weight"]
+        self.l1_weight = new_weights["l1_weight"]
+        self.huber_weight = new_weights["huber_weight"]
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys for regression loss.
@@ -180,6 +202,17 @@ class GripperLoss(BaseLoss):
     def requires_action_space_targets(self) -> bool:
         return self.bce_weight > 0
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"bce_weight": self.bce_weight, "mse_weight": self.mse_weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.bce_weight = new_weights["bce_weight"]
+        self.mse_weight = new_weights["mse_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required target keys for gripper loss.
 
@@ -269,6 +302,17 @@ class GaussianEntropyLoss(BaseLoss):
         self.logvar_max = logvar_max
         self.bound_weight = bound_weight
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight, "bound_weight": self.bound_weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.bound_weight = new_weights["bound_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys."""
         return {self.key}
@@ -342,6 +386,22 @@ class KLDivergenceLoss(BaseLoss):
         self.weight = weight
         self.prior_entropy_weight = prior_entropy_weight
         self.prior_regularization_weight = prior_regularization_weight
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "weight": self.weight,
+            "prior_entropy_weight": self.prior_entropy_weight,
+            "prior_regularization_weight": self.prior_regularization_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.prior_entropy_weight = new_weights["prior_entropy_weight"]
+        self.prior_regularization_weight = new_weights["prior_regularization_weight"]
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for KL divergence loss."""
@@ -483,6 +543,17 @@ class BinaryKLDivergenceLoss(BaseLoss):
         self.free_bits = free_bits
         self.latent_bits = latent_bits
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight, "entropy_weight": self.entropy_weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.entropy_weight = new_weights["entropy_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required keys for binary KL divergence loss.
 
@@ -583,6 +654,20 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
     Ref: [Info-VAE / MMD-VAE](https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
     """
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "weight": self.weight,
+            "prior_regularization_weight": self.prior_regularization_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.prior_regularization_weight = new_weights["prior_regularization_weight"]
 
     def __init__(
         self,
@@ -737,7 +822,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         )
 
 
-class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
+class BinaryMaximumMeanDiscrepancyLoss(ScalarWeightedLoss):
     """MMD loss for regularizing binary latent distributions toward a uniform prior.
 
     Encourages q(b|x) ≈ p(b) where p(b) = Bernoulli(0.5) independent for each bit.
@@ -820,7 +905,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         )
 
 
-class TrajectoryLengthLoss(BaseLoss):
+class TrajectoryLengthLoss(ScalarWeightedLoss):
     """Loss for trajectory length consistency.
 
     Penalizes differences between predicted and ground truth trajectory lengths.
@@ -892,7 +977,7 @@ class TrajectoryLengthLoss(BaseLoss):
         )
 
 
-class TrajectorySmoothness(BaseLoss):
+class TrajectorySmoothness(ScalarWeightedLoss):
     """Loss for trajectory smoothness (acceleration regularization)."""
 
     def __init__(self, action_key: str, weight: float = 0.001):
@@ -990,6 +1075,20 @@ class PhaseClassificationLoss(BaseLoss):
         self.entropy_weight = entropy_weight
         self.label_smoothing = label_smoothing
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "cross_entropy_weight": self.cross_entropy_weight,
+            "entropy_weight": self.entropy_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.cross_entropy_weight = new_weights["cross_entropy_weight"]
+        self.entropy_weight = new_weights["entropy_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required target keys for phase classification loss.
 
@@ -1065,19 +1164,22 @@ class PhaseClassificationLoss(BaseLoss):
         )
 
 
-class ActionTokenLoss(BaseLoss):
+class ActionTokenLoss(ScalarWeightedLoss):
     """Cross-entropy loss for tokenized actions."""
 
     def __init__(
         self,
+        weight: float = 1.0,
         label_smoothing: float = 0.2,
     ):
         """Initialize action token loss.
 
         Args:
+            weight: Scalar multiplier applied to the cross-entropy term.
             label_smoothing: Label smoothing factor [0, 1]
         """
         super().__init__()
+        self.weight = weight
         self.label_smoothing = label_smoothing
 
     def get_required_keys(self) -> set[str]:
@@ -1134,9 +1236,10 @@ class ActionTokenLoss(BaseLoss):
         accuracy = reduce_loss_with_padding(
             correct, is_pad, reduction="mean"
         )  # Scalar %
-        perplexity = torch.exp(ce_loss)  # Scalar
+        perplexity = torch.exp(ce_loss)
+        weighted_loss = ce_loss * self.weight
         return LossOutput(
-            total_loss=ce_loss,
+            total_loss=weighted_loss,
             component_losses={
                 MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss,
                 MetricKey.PERPLEXITY.value: perplexity,
@@ -1145,7 +1248,7 @@ class ActionTokenLoss(BaseLoss):
         )
 
 
-class PriorDenoisingLoss(BaseLoss):
+class PriorDenoisingLoss(ScalarWeightedLoss):
     """Denoising loss for learned diffusion prior.
 
     Computes MSE loss between predicted noise and target noise from the
@@ -1291,7 +1394,7 @@ def _aggregate_mixture_nll(
     return -log_step_mix.mean(dim=-1)  # (B,)
 
 
-class GaussianMixtureNLLoss(BaseLoss):
+class GaussianMixtureNLLoss(ScalarWeightedLoss):
     """Negative Log-Likelihood loss for Gaussian Mixture Model.
 
     Supports both learned variance (from logvar predictions) and fixed variance (sigma parameter).
@@ -1433,7 +1536,7 @@ class GaussianMixtureNLLoss(BaseLoss):
         return -0.5 * (difference**2).sum(-1) / (sigma**2)
 
 
-class GripperMixtureNLLoss(BaseLoss):
+class GripperMixtureNLLoss(ScalarWeightedLoss):
     """Negative Log-Likelihood loss for gripper with mixture distribution.
 
     Binary gripper: p(a|z) = Σ_k π_k(z) · Bernoulli(a | p_k(z))
@@ -1610,6 +1713,24 @@ class MoELoss(BaseLoss):
         self.base_loss = base_loss
         self.entropy_weight = entropy_weight
         self.load_balance_weight = load_balance_weight
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients,
+        plus the wrapped ``base_loss`` weight structure nested under ``base_loss``."""
+        return {
+            "entropy_weight": self.entropy_weight,
+            "load_balance_weight": self.load_balance_weight,
+            "base_loss": self.base_loss.weights,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients and delegates
+        ``base_loss`` to the wrapped loss."""
+        self._validate_weights(new_weights)
+        self.entropy_weight = new_weights["entropy_weight"]
+        self.load_balance_weight = new_weights["load_balance_weight"]
+        self.base_loss.set_weights(new_weights["base_loss"])
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
         """Provide expert usage monitoring callback."""
@@ -1800,6 +1921,20 @@ class VICLatentLoss(BaseLoss):
         self.variance_weight = variance_weight
         self.gamma = gamma
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "covariance_weight": self.covariance_weight,
+            "variance_weight": self.variance_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.covariance_weight = new_weights["covariance_weight"]
+        self.variance_weight = new_weights["variance_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required prediction keys."""
         return {self.key}
@@ -1847,7 +1982,7 @@ class VICLatentLoss(BaseLoss):
         )
 
 
-class VQCommitmentLoss(BaseLoss):
+class VQCommitmentLoss(ScalarWeightedLoss):
     """Commitment loss for vector-quantized latent variable models.
 
     Penalizes the distance between the continuous encoder output and
@@ -1958,7 +2093,7 @@ class VQCommitmentLoss(BaseLoss):
         )
 
 
-class VQPriorCrossEntropyLoss(BaseLoss):
+class VQPriorCrossEntropyLoss(ScalarWeightedLoss):
     """Cross-entropy loss training a learned categorical prior to predict
     the posterior's codebook index choices.
 

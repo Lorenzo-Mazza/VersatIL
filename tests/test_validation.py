@@ -6,6 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from versatil.configs.training import (
+    AdamWConfig,
+    ParameterGroupConfig,
+    TrainingConfig,
+)
 from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.metrics.base import BaseLoss
@@ -17,6 +22,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.encoders.base import EncoderInput, EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.training.stage import TrainingStage
 from versatil.validation import (
     ExperimentValidationError,
     ExperimentValidator,
@@ -228,6 +234,7 @@ def validator_factory(
         is_tokenized: bool = False,
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
+        training_config: TrainingConfig | None = None,
     ) -> ExperimentValidator:
         return ExperimentValidator(
             encoding_pipeline=encoding_pipeline or mock_encoding_pipeline_factory(),
@@ -239,6 +246,27 @@ def validator_factory(
             is_tokenized=is_tokenized,
             tokenized_obs_keys=tokenized_obs_keys,
             image_norm_type=image_norm_type,
+            training_config=training_config,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def training_config_with_groups() -> Callable[..., TrainingConfig]:
+    """Factory for ``TrainingConfig`` instances with named optimizer groups."""
+
+    def factory(
+        stages: list[TrainingStage] | None = None,
+        group_names: tuple[str, ...] = ("backbone", "prior"),
+    ) -> TrainingConfig:
+        return TrainingConfig(
+            optimizer=AdamWConfig(
+                param_groups=[
+                    ParameterGroupConfig(name=name, lr=1e-4) for name in group_names
+                ],
+            ),
+            stages=stages or [],
         )
 
     return factory
@@ -1136,7 +1164,6 @@ class TestValidateLossKeys:
 
 
 @pytest.mark.unit
-@pytest.mark.unit
 class TestValidateLossAlgorithmCompatibility:
     def test_passes_when_algorithm_predicts_in_action_space(
         self,
@@ -1330,3 +1357,381 @@ class TestValidateExperiment:
             mock_validator_instance.validate_all.assert_called_once_with(
                 validate_loss_keys=False
             )
+
+    def test_forwards_training_config_to_validator(self):
+        mock_config = MagicMock()
+        mock_config.task.observation_space = MagicMock()
+        mock_config.task.action_space = MagicMock()
+        mock_config.task.dataloader.tokenization.tokenize_observations = False
+        mock_config.task.dataloader.tokenization.observation_tokenizer = None
+        mock_config.task.dataloader.image_norm_type = None
+        mock_config.policy.encoding_pipeline = MagicMock(spec=EncodingPipeline)
+        mock_config.policy.encoding_pipeline.encoders = {}
+        mock_config.policy.algorithm = MagicMock(spec=DecodingAlgorithm)
+        mock_config.policy.decoder = MagicMock(spec=ActionDecoder)
+        mock_config.policy.decoder.decoder_input = DecoderInput(keys=[])
+        mock_config.policy.decoder.action_heads = {}
+        mock_config.policy.decoder.supports_tokenized_actions = False
+        mock_config.policy.decoder.__class__ = ActionDecoder
+        mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
+        mock_config.policy.loss_module.get_required_keys.return_value = set()
+        mock_config.experiment.validate_loss_keys = False
+
+        mock_config.task.observation_space.observations_metadata = {}
+        mock_config.policy.encoding_pipeline.get_features.return_value = {}
+
+        sentinel_training = MagicMock(spec=TrainingConfig)
+        mock_config.training = sentinel_training
+
+        with patch("versatil.validation.ExperimentValidator") as mock_validator_class:
+            mock_validator_class.return_value = MagicMock()
+            validate_experiment(config=mock_config)
+            assert (
+                mock_validator_class.call_args.kwargs["training_config"]
+                is sentinel_training
+            )
+
+
+@pytest.mark.unit
+class TestValidateStageOrdering:
+    def test_duplicate_stage_names_raise(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(name="vae", start_epoch=0),
+            TrainingStage(name="vae", start_epoch=1),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages)
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"Training stage names must be unique: \['vae'\]",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_non_increasing_start_epoch_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(name="first", start_epoch=5),
+            TrainingStage(name="second", start_epoch=5),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages)
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match="strictly increasing start_epoch order",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_overlapping_stage_intervals_raise(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(name="first", start_epoch=0, end_epoch=5),
+            TrainingStage(name="second", start_epoch=3),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages)
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match="intervals must not overlap",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+
+@pytest.mark.unit
+class TestValidateStageGroupReferences:
+    def test_unknown_group_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(name="typo", start_epoch=0, trainable_groups=["prioor"]),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=(
+                r"Training stage 'typo' references unknown optimizer groups "
+                r"\['prioor'\]"
+            ),
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_known_optimizer_group_passes(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(
+                name="freeze_backbone", start_epoch=0, frozen_groups=["backbone"]
+            ),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages),
+        )
+        validator.validate_stage_group_references()
+        assert validator.errors == []
+
+    def test_unmatched_group_is_always_available(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(
+                name="freeze_rest", start_epoch=0, frozen_groups=["unmatched"]
+            ),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages),
+        )
+        validator.validate_stage_group_references()
+        assert validator.errors == []
+
+
+@pytest.mark.unit
+class TestValidateStageLossPaths:
+    def test_empty_loss_module_with_loss_weights_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights={"denoising_prior": {"weight": 0.0}},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match="no tunable weights",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_unknown_loss_key_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {"denoising_prior": {"weight": 0.03}}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights={"denoising_proir": {"weight": 0.0}},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"'stage' loss_weights:.+Unknown weight key 'denoising_proir'",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_shape_mismatch_scalar_for_dict_subtree_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {"regression_loss": {"mse_weight": 1.0}}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights={"regression_loss": 0.5},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"expects a dict subtree",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_valid_stage_loss_weights_pass(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {"denoising_prior": {"weight": 0.03}}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights={"denoising_prior": {"weight": 0.0}},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        validator.validate_stage_loss_paths()
+        assert validator.errors == []
+
+    def test_shape_mismatch_dict_for_scalar_leaf_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {"denoising_prior": {"weight": 0.03}}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights={"denoising_prior": {"weight": {"nested": 0.0}}},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"expects a scalar",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_nested_unknown_key_raises(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {"regression_loss": {"mse_weight": 1.0, "l1_weight": 0.0}}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights={"regression_loss": {"bogus_weight": 0.0}},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"Unknown weight key 'bogus_weight'",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_stage_without_loss_weights_is_skipped(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {}
+        stages = [TrainingStage(name="stage", start_epoch=0)]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        validator.validate_stage_loss_paths()
+        assert validator.errors == []
+
+
+@pytest.mark.unit
+class TestValidateStageGroupReferencesSweep:
+    def test_group_lrs_reference_triggers_unknown_group_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                group_lrs={"missing_group": 1e-3},
+            ),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"references unknown optimizer groups \['missing_group'\]",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+    def test_group_weight_decays_reference_triggers_unknown_group_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                group_weight_decays={"missing_group": 1e-2},
+            ),
+        ]
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=stages),
+        )
+        with pytest.raises(
+            ExperimentValidationError,
+            match=r"references unknown optimizer groups \['missing_group'\]",
+        ):
+            validator.validate_all(validate_loss_keys=False)
+
+
+@pytest.mark.unit
+class TestStageValidationSkippedWithoutTrainingConfig:
+    def test_no_training_config_skips_stage_validation(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+    ) -> None:
+        validator = validator_factory(training_config=None)
+        validator.validate_all(validate_loss_keys=False)
+        assert validator.errors == []
+
+    def test_empty_stages_skips_stage_validation(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+    ) -> None:
+        validator = validator_factory(
+            training_config=training_config_with_groups(stages=[])
+        )
+        validator.validate_all(validate_loss_keys=False)
+        assert validator.errors == []

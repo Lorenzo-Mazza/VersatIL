@@ -8,7 +8,9 @@ import torch
 
 from versatil.models.layers.denoising.timestep_sampling import (
     TimestepSampler,
+    TimestepSamplingConfig,
     sample_timesteps,
+    sample_timesteps_from_config,
 )
 
 
@@ -23,6 +25,52 @@ class TestTimestepSampler:
     )
     def test_enum_values(self, member: TimestepSampler, expected_value: str):
         assert member.value == expected_value
+
+
+class TestTimestepSamplingConfig:
+    @pytest.mark.parametrize(
+        "sampler, expectation",
+        [
+            (TimestepSampler.UNIFORM.value, does_not_raise()),
+            (TimestepSampler.LOGIT_NORMAL.value, does_not_raise()),
+            (TimestepSampler.BETA.value, does_not_raise()),
+            (
+                "invalid_sampler",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Unknown timestep sampler: invalid_sampler. "
+                        f"Expected one of {[e.value for e in TimestepSampler]}"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_sampler_validation(self, sampler: str, expectation):
+        with expectation:
+            config = TimestepSamplingConfig(sampler=sampler)
+            assert config.sampler == sampler
+
+    def test_sample_timesteps_from_config_uses_configured_max_timestep(
+        self,
+        device: torch.device,
+    ):
+        max_timestep = 0.25
+        config = TimestepSamplingConfig(
+            sampler=TimestepSampler.BETA.value,
+            beta_alpha=1.5,
+            beta_beta=1.0,
+            max_timestep=max_timestep,
+        )
+
+        timesteps = sample_timesteps_from_config(
+            config=config,
+            batch_size=10000,
+            device=device,
+        )
+
+        assert timesteps.min() >= 0.0
+        assert timesteps.max() <= max_timestep
 
 
 class TestSampleTimestepsUniform:

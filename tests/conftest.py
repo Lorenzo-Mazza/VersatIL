@@ -34,6 +34,20 @@ from versatil.models.policy import Policy
 MINIMUM_VRAM_GB = 8.0
 
 
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip ``@pytest.mark.requires_gpu`` tests when CUDA is unavailable."""
+    if torch.cuda.is_available():
+        return
+    skip_requires_gpu = pytest.mark.skip(
+        reason="requires CUDA; unavailable in this environment"
+    )
+    for item in items:
+        if "requires_gpu" in item.keywords:
+            item.add_marker(skip_requires_gpu)
+
+
 def get_test_device() -> torch.device:
     """Return CUDA device if available with sufficient VRAM, else CPU."""
     if torch.cuda.is_available():

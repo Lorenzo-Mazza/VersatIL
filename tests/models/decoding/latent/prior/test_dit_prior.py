@@ -17,6 +17,7 @@ from versatil.models.decoding.constants import (
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.dit_prior import DiTPrior
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 
 LATENT_DIMENSION = 8
 EMBEDDING_DIMENSION = 16
@@ -40,6 +41,12 @@ def dit_prior_factory() -> Callable[..., DiTPrior]:
         device: str = "cpu",
         observation_horizon: int = 1,
         algorithm_type: str = DenoisingAlgorithm.FLOW_MATCHING.value,
+        timestep_sampler: str = TimestepSampler.BETA.value,
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        beta_alpha: float = 1.5,
+        beta_beta: float = 1.0,
+        max_timestep: float = 0.999,
         num_train_timesteps: int = NUM_TRAIN_TIMESTEPS,
         num_inference_steps: int = NUM_INFERENCE_STEPS,
         exclude_keys: list[str] | None = None,
@@ -54,6 +61,12 @@ def dit_prior_factory() -> Callable[..., DiTPrior]:
             device=device,
             observation_horizon=observation_horizon,
             algorithm_type=algorithm_type,
+            timestep_sampler=timestep_sampler,
+            logit_mean=logit_mean,
+            logit_std=logit_std,
+            beta_alpha=beta_alpha,
+            beta_beta=beta_beta,
+            max_timestep=max_timestep,
             num_train_timesteps=num_train_timesteps,
             num_inference_steps=num_inference_steps,
             exclude_keys=exclude_keys,
@@ -153,6 +166,55 @@ class TestDiTPriorInitialization:
             dit_prior_factory(algorithm_type="invalid_type")
 
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "timestep_sampler, expectation",
+        [
+            (TimestepSampler.BETA.value, does_not_raise()),
+            (TimestepSampler.UNIFORM.value, does_not_raise()),
+            (
+                "invalid_sampler",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Unknown timestep sampler: invalid_sampler. "
+                        f"Expected one of {[e.value for e in TimestepSampler]}"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_timestep_sampler_validation(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        timestep_sampler: str,
+        expectation: AbstractContextManager,
+    ):
+        with expectation:
+            prior = dit_prior_factory(timestep_sampler=timestep_sampler)
+            assert prior.timestep_sampler == timestep_sampler
+
+    @pytest.mark.unit
+    def test_stores_timestep_sampling_configuration(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory(
+            timestep_sampler=TimestepSampler.LOGIT_NORMAL.value,
+            logit_mean=0.25,
+            logit_std=0.5,
+            beta_alpha=1.25,
+            beta_beta=0.75,
+            max_timestep=0.9,
+        )
+
+        assert prior.timestep_sampler == TimestepSampler.LOGIT_NORMAL.value
+        assert prior.logit_mean == 0.25
+        assert prior.logit_std == 0.5
+        assert prior.beta_alpha == 1.25
+        assert prior.beta_beta == 0.75
+        assert prior.max_timestep == 0.9
+
+    @pytest.mark.unit
     def test_temporal_positional_encoding_created_for_multi_horizon(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -193,6 +255,34 @@ class TestDiTPriorInitialization:
         output_linear = prior.final_layer.output_linear
         assert torch.all(output_linear.weight == 0.0)
         assert torch.all(output_linear.bias == 0.0)
+
+    @pytest.mark.unit
+    def test_timestep_embedding_depends_on_discrete_timestep(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory(num_train_timesteps=100)
+
+        embeddings = prior._get_timestep_embedding(torch.tensor([0, 1, 50, 99]))
+
+        assert not torch.allclose(embeddings[0], embeddings[1])
+        assert not torch.allclose(embeddings[0], embeddings[2])
+        assert not torch.allclose(embeddings[0], embeddings[3])
+
+    @pytest.mark.unit
+    def test_timestep_embedding_depends_on_continuous_time(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory(num_train_timesteps=100)
+
+        embeddings = prior._get_timestep_embedding_continuous(
+            torch.tensor([0.0, 0.25, 0.5, 1.0])
+        )
+
+        assert not torch.allclose(embeddings[0], embeddings[1])
+        assert not torch.allclose(embeddings[0], embeddings[2])
+        assert not torch.allclose(embeddings[0], embeddings[3])
 
 
 class TestDiTPriorGetAuxiliaryOutputKeys:
@@ -338,6 +428,69 @@ class TestDiTPriorForwardFlowMatching:
         assert result[LatentKey.PRIOR_TARGET.value].shape == (
             batch_size,
             LATENT_DIMENSION,
+        )
+
+    @pytest.mark.unit
+    def test_samples_configured_flow_timestep(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 3
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.FLOW_MATCHING.value,
+            timestep_sampler=TimestepSampler.UNIFORM.value,
+        )
+        target_latents = latent_tensor_factory(batch_size=batch_size)
+        observations = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        sampled_time = torch.tensor([0.1, 0.3, 0.7])
+        interpolated_latent = torch.ones_like(target_latents)
+        target_velocity = torch.full_like(target_latents, fill_value=2.0)
+        predicted_velocity = torch.full_like(target_latents, fill_value=3.0)
+
+        with (
+            patch(
+                "versatil.models.decoding.latent.prior.dit_prior.sample_timesteps_from_config",
+                return_value=sampled_time,
+            ) as sample_timesteps_mock,
+            patch.object(
+                prior.flow_matcher,
+                "sample_location_and_conditional_flow",
+                return_value=(sampled_time, interpolated_latent, target_velocity),
+            ) as flow_matcher_mock,
+            patch.object(
+                prior,
+                "_predict_from_tokens",
+                return_value=predicted_velocity,
+            ),
+        ):
+            result = prior.forward(
+                target_latents=target_latents,
+                observations=observations,
+            )
+
+        sample_timesteps_mock.assert_called_once_with(
+            config=prior.timestep_sampling_config,
+            batch_size=batch_size,
+            device=target_latents.device,
+        )
+        flow_matcher_mock.assert_called_once()
+        torch.testing.assert_close(
+            flow_matcher_mock.call_args.kwargs["t"],
+            sampled_time,
+        )
+        torch.testing.assert_close(
+            result[LatentKey.PRIOR_PREDICTION.value],
+            predicted_velocity,
+        )
+        torch.testing.assert_close(
+            result[LatentKey.PRIOR_TARGET.value],
+            target_velocity,
         )
 
 

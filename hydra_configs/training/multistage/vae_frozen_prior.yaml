@@ -1,0 +1,29 @@
+# @package training.stages
+# Two-stage recipe: train the VAE components first (prior frozen, denoising-prior
+# loss zeroed), then freeze the VAE and train the prior only.
+- name: vae
+  start_epoch: 0
+  trainable_groups:
+    - backbone
+    - posterior
+    - decoder
+    - unmatched
+  frozen_groups:
+    - prior
+  loss_weights:
+    denoising_prior:
+      weight: 0.0
+  eval_frozen_modules: true
+- name: prior
+  start_epoch: 400
+  trainable_groups:
+    - prior
+  frozen_groups:
+    - backbone
+    - posterior
+    - decoder
+    - unmatched
+  loss_weights:
+    denoising_prior:
+      weight: 0.03
+  eval_frozen_modules: true

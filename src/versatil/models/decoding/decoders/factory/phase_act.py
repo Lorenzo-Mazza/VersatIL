@@ -16,7 +16,7 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.act import ACT
-from versatil.training.callbacks import ConfusionMatrixCallback
+from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
 
 
 class PhaseACT(ACT):

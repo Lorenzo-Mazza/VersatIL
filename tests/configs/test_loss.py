@@ -30,10 +30,9 @@ from versatil.metrics.kernels import KernelType
 
 
 @pytest.mark.unit
-class TestBaseLossConfig:
-    def test_target_defaults_to_missing(self):
-        config = BaseLossConfig()
-        assert config._target_ == MISSING
+def test_base_loss_config_target_defaults_to_missing():
+    config = BaseLossConfig()
+    assert config._target_ == MISSING
 
 
 @pytest.mark.unit
@@ -295,6 +294,15 @@ class TestActionTokenLossConfig:
     def test_stores_label_smoothing(self, label_smoothing):
         config = ActionTokenLossConfig(label_smoothing=label_smoothing)
         assert config.label_smoothing == label_smoothing
+
+    @pytest.mark.parametrize("weight", [0.5, 1.0, 2.0])
+    def test_stores_weight(self, weight):
+        config = ActionTokenLossConfig(weight=weight)
+        assert config.weight == weight
+
+    def test_weight_defaults_to_one(self):
+        config = ActionTokenLossConfig()
+        assert config.weight == 1.0
 
     def test_inherits_from_base_loss_config(self):
         config = ActionTokenLossConfig()

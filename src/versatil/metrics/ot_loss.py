@@ -5,7 +5,7 @@ IMPORTANT: geomloss is imported lazily to avoid PyKeOps JIT compilation overhead
 
 import torch
 
-from versatil.metrics.base import BaseLoss, LossOutput
+from versatil.metrics.base import LossOutput, ScalarWeightedLoss
 from versatil.metrics.constants import MetadataKey, MetricKey
 from versatil.models.decoding.constants import LatentKey
 
@@ -29,7 +29,7 @@ def _reference_scale(dim: int, expected_std: float) -> float:
     return (2.0 * dim) ** 0.5 * expected_std
 
 
-class OptimalTransportLoss(BaseLoss):
+class OptimalTransportLoss(ScalarWeightedLoss):
     """Debiased Sinkhorn divergence between predicted and target action chunks.
 
     Note:
@@ -205,7 +205,7 @@ class OptimalTransportLoss(BaseLoss):
         )
 
 
-class LatentOptimalTransportLoss(BaseLoss):
+class LatentOptimalTransportLoss(ScalarWeightedLoss):
     """Debiased Sinkhorn divergence between posterior and prior latent samples.
 
     Regularizes the aggregate posterior ``q(z) = E_x[q(z|x)]`` toward the

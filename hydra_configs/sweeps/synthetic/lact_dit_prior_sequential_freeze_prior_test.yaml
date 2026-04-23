@@ -1,10 +1,10 @@
 # @package _global_
-# Diagnostic: freeze the DiT prior during the early VAE stage, then freeze
-# encoder/posterior/decoder at the transition epoch and train only the prior.
+# Diagnostic: train the posterior+decoder first, then train only the DiT prior.
 
 defaults:
   - /end_to_end_training_runs/synthetic/lact_dit_prior
   - /task_bundle/synthetic: sequential
+  - /training/multistage: vae_frozen_prior
   - override /hydra/sweeper: basic
   - _self_
 
@@ -32,15 +32,6 @@ training:
       - name: decoder
         lr: 2.0e-4
         params_pattern: "^decoder\\."
-  progressive_freezing:
-    - epoch: 0
-      frozen_patterns:
-        - "^algorithm\\.prior\\."
-      eval_frozen_modules: true
-    - epoch: 400
-      trainable_patterns:
-        - "^algorithm\\.prior\\."
-      eval_frozen_modules: true
 
 policy:
   loss:

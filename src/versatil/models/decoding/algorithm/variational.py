@@ -22,7 +22,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.protocols import RequiresPosteriorWiring
-from versatil.training.callbacks import LatentVisualizationCallback
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
 
 
 class VariationalAlgorithm(DecodingAlgorithm):

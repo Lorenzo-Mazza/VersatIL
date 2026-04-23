@@ -18,7 +18,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
-from versatil.training.callbacks import LatentVisualizationCallback
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
 
 LATENT_DIMENSION = 32
 

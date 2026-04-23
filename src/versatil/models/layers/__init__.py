@@ -8,7 +8,9 @@ from versatil.models.layers.denoising.diffusion_process import (
 )
 from versatil.models.layers.denoising.timestep_sampling import (
     TimestepSampler,
+    TimestepSamplingConfig,
     sample_timesteps,
+    sample_timesteps_from_config,
 )
 from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.layers.modulation.conditional_modulation import (
@@ -43,5 +45,7 @@ __all__ = [
     "sample_random_timesteps",
     "setup_inference_timesteps",
     "TimestepSampler",
+    "TimestepSamplingConfig",
     "sample_timesteps",
+    "sample_timesteps_from_config",
 ]

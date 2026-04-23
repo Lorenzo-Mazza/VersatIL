@@ -8,6 +8,7 @@ References:
     https://arxiv.org/abs/2410.24164
 """
 
+from dataclasses import dataclass
 from enum import Enum
 
 import torch
@@ -19,6 +20,48 @@ class TimestepSampler(Enum):
     UNIFORM = "uniform"
     LOGIT_NORMAL = "logit_normal"
     BETA = "beta"
+
+
+@dataclass
+class TimestepSamplingConfig:
+    """Configuration for continuous timestep sampling."""
+
+    sampler: str = TimestepSampler.BETA.value
+    logit_mean: float = 0.0
+    logit_std: float = 1.0
+    beta_alpha: float = 1.5
+    beta_beta: float = 1.0
+    max_timestep: float = 0.999
+
+    def __post_init__(self) -> None:
+        validate_timestep_sampler(sampler=self.sampler)
+
+
+def validate_timestep_sampler(sampler: str) -> None:
+    """Validate a continuous timestep sampler name."""
+    valid_samplers = [member.value for member in TimestepSampler]
+    if sampler not in valid_samplers:
+        raise ValueError(
+            f"Unknown timestep sampler: {sampler}. Expected one of {valid_samplers}"
+        )
+
+
+def sample_timesteps_from_config(
+    config: TimestepSamplingConfig,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Sample continuous timesteps from a reusable sampling configuration."""
+    return sample_timesteps(
+        batch_size=batch_size,
+        device=device,
+        sampler=config.sampler,
+        logit_mean=config.logit_mean,
+        logit_std=config.logit_std,
+        beta_alpha=config.beta_alpha,
+        beta_beta=config.beta_beta,
+        max_timestep=config.max_timestep,
+    )
 
 
 def sample_timesteps(

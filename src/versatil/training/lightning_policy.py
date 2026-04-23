@@ -15,6 +15,7 @@ from versatil.configs.training import TrainingConfig
 from versatil.metrics.accumulators import MetricsAccumulator
 from versatil.metrics.base import LossOutput
 from versatil.models.policy import Policy
+from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
 class LightningPolicy(pl.LightningModule):
@@ -178,41 +179,93 @@ class LightningPolicy(pl.LightningModule):
         Returns:
             List of parameter group dictionaries
         """
+        base_weight_decay = float(getattr(optimizer_config, "weight_decay", 0.0))
         if not optimizer_config.param_groups:
-            return [{"params": self.policy.parameters()}]
-        param_groups_dict: dict[str, list[torch.nn.Parameter]] = {}
-        default_params: list[torch.nn.Parameter] = []
-        for group_config in optimizer_config.param_groups:
-            param_groups_dict[group_config.name] = []
-        for name, param in self.policy.named_parameters():
-            if not param.requires_grad:
-                continue
-
-            assigned = False
-            for group_config in optimizer_config.param_groups:
-                if group_config.params_pattern and re.search(
-                    group_config.params_pattern, name
-                ):
-                    param_groups_dict[group_config.name].append(param)
-                    assigned = True
-                    break
-
-            if not assigned:
-                default_params.append(param)
-
-        param_groups = []
-        if default_params:
-            param_groups.append({"params": default_params})
-
-        for group_config in optimizer_config.param_groups:
-            if param_groups_dict[group_config.name]:
-                group_dict = {
-                    "params": param_groups_dict[group_config.name],
-                    "lr": group_config.lr,
+            return [
+                {
+                    "name": OPTIMIZER_UNMATCHED_GROUPS_NAME,
+                    "params": list(self.policy.parameters()),
+                    "lr": optimizer_config.lr,
+                    "weight_decay": base_weight_decay,
                 }
-                if group_config.weight_decay is not None:
-                    group_dict["weight_decay"] = group_config.weight_decay
-                param_groups.append(group_dict)
+            ]
+
+        group_names = [group.name for group in optimizer_config.param_groups]
+        duplicate_names = {
+            group_name
+            for group_name in group_names
+            if group_names.count(group_name) > 1
+        }
+        if duplicate_names:
+            raise ValueError(
+                "Optimizer parameter group names must be unique: "
+                f"{sorted(duplicate_names)}."
+            )
+        if OPTIMIZER_UNMATCHED_GROUPS_NAME in group_names:
+            raise ValueError(
+                f"'{OPTIMIZER_UNMATCHED_GROUPS_NAME}' is reserved for unmatched "
+                "parameters."
+            )
+
+        param_groups_dict: dict[str, list[torch.nn.Parameter]] = {
+            group_config.name: [] for group_config in optimizer_config.param_groups
+        }
+        default_params: list[torch.nn.Parameter] = []
+        for parameter_name, parameter in list(self.policy.named_parameters()):
+            best_name: str | None = None
+            best_length = -1
+            best_order = -1
+            for yaml_order, group_config in enumerate(optimizer_config.param_groups):
+                pattern = group_config.params_pattern
+                if not pattern:
+                    continue
+                match = re.search(pattern, parameter_name)
+                if match is None:
+                    continue
+                match_length = match.end() - match.start()
+                if match_length > best_length or (
+                    match_length == best_length and yaml_order < best_order
+                ):
+                    best_length = match_length
+                    best_order = yaml_order
+                    best_name = group_config.name
+            if best_name is None:
+                default_params.append(parameter)
+            else:
+                param_groups_dict[best_name].append(parameter)
+
+        empty_groups = [
+            group_name
+            for group_name, parameters in param_groups_dict.items()
+            if not parameters
+        ]
+        if empty_groups:
+            raise ValueError(
+                "Configured optimizer parameter groups matched zero parameters: "
+                f"{empty_groups}."
+            )
+
+        param_groups = [
+            {
+                "name": OPTIMIZER_UNMATCHED_GROUPS_NAME,
+                "params": default_params,
+                "lr": optimizer_config.lr,
+                "weight_decay": base_weight_decay,
+            }
+        ]
+
+        for group_config in optimizer_config.param_groups:
+            group_dict = {
+                "name": group_config.name,
+                "params": param_groups_dict[group_config.name],
+                "lr": group_config.lr,
+                "weight_decay": (
+                    group_config.weight_decay
+                    if group_config.weight_decay is not None
+                    else base_weight_decay
+                ),
+            }
+            param_groups.append(group_dict)
 
         return param_groups
 

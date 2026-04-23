@@ -28,10 +28,16 @@ from versatil.models.layers.denoising.diffusion_process import (
     setup_inference_timesteps,
 )
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
+from versatil.models.layers.denoising.timestep_sampling import (
+    TimestepSampler,
+    TimestepSamplingConfig,
+    sample_timesteps_from_config,
+)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
 from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -92,6 +98,12 @@ class DiTPrior(PriorLatentEncoder):
         algorithm_type: str = DenoisingAlgorithm.FLOW_MATCHING.value,
         sigma: float = 0.0,
         ode_solver: str = ODESolver.EULER.value,
+        timestep_sampler: str = TimestepSampler.BETA.value,
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        beta_alpha: float = 1.5,
+        beta_beta: float = 1.0,
+        max_timestep: float = 0.999,
         num_train_timesteps: int = 100,
         num_inference_steps: int = 10,
         beta_start: float = 0.0001,
@@ -116,6 +128,14 @@ class DiTPrior(PriorLatentEncoder):
         self.num_train_timesteps = num_train_timesteps
         self.num_inference_steps = num_inference_steps
         self.exclude_keys = exclude_keys or []
+        self.timestep_sampling_config = TimestepSamplingConfig(
+            sampler=timestep_sampler,
+            logit_mean=logit_mean,
+            logit_std=logit_std,
+            beta_alpha=beta_alpha,
+            beta_beta=beta_beta,
+            max_timestep=max_timestep,
+        )
 
         if algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
             # Lazy import: torchcfm → ot → geomloss → pykeops triggers CUDA JIT at import time.
@@ -150,7 +170,8 @@ class DiTPrior(PriorLatentEncoder):
 
         self.timestep_embed = SinusoidalPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            maximum_length=num_train_timesteps,
+            position_source=PositionSource.SCALAR.value,
+            precompute_encodings=False,
         )
         self.timestep_mlp = nn.Sequential(
             nn.Linear(embedding_dimension, embedding_dimension),
@@ -209,6 +230,36 @@ class DiTPrior(PriorLatentEncoder):
         self.timestep_mlp.apply(_init_module)
         self.to(torch.device(device))
 
+    @property
+    def timestep_sampler(self) -> str:
+        """Configured flow-matching timestep sampler name."""
+        return self.timestep_sampling_config.sampler
+
+    @property
+    def logit_mean(self) -> float:
+        """Configured logit-normal sampler mean."""
+        return self.timestep_sampling_config.logit_mean
+
+    @property
+    def logit_std(self) -> float:
+        """Configured logit-normal sampler standard deviation."""
+        return self.timestep_sampling_config.logit_std
+
+    @property
+    def beta_alpha(self) -> float:
+        """Configured beta sampler alpha parameter."""
+        return self.timestep_sampling_config.beta_alpha
+
+    @property
+    def beta_beta(self) -> float:
+        """Configured beta sampler beta parameter."""
+        return self.timestep_sampling_config.beta_beta
+
+    @property
+    def max_timestep(self) -> float:
+        """Configured maximum sampled timestep."""
+        return self.timestep_sampling_config.max_timestep
+
     def _filter_observations(
         self, observations: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
@@ -219,13 +270,14 @@ class DiTPrior(PriorLatentEncoder):
         """Compute timestep embedding.
 
         Args:
-            timesteps: Timestep indices (B,).
+            timesteps: Timestep indices (B,) or (B,1).
 
         Returns:
             Timestep embeddings (B, D).
         """
-        timestep_embedding = self.timestep_embed(timesteps.unsqueeze(-1))  # (B, 1, D)
-        timestep_embedding = timestep_embedding.squeeze(1)  # (B, D)
+        if timesteps.dim() == 2 and timesteps.shape[-1] == 1:  # (B, 1)
+            timesteps = timesteps.squeeze(-1)
+        timestep_embedding = self.timestep_embed(timesteps.float())  # (B, D)
         return self.timestep_mlp(timestep_embedding)  # (B, D)
 
     def _get_timestep_embedding_continuous(
@@ -241,7 +293,7 @@ class DiTPrior(PriorLatentEncoder):
         """
         scaled_timesteps = (
             continuous_time * (self.num_train_timesteps - 1)
-        ).long()  # (B,)
+        ).float()  # (B,)
         return self._get_timestep_embedding(scaled_timesteps)  # (B, D)
 
     def _predict_from_tokens(
@@ -313,12 +365,17 @@ class DiTPrior(PriorLatentEncoder):
 
         if self.algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
             noise = torch.randn_like(target_latents)  # (B, latent_dim)
+            sampled_time = sample_timesteps_from_config(
+                config=self.timestep_sampling_config,
+                batch_size=batch_size,
+                device=device,
+            )  # (B,)
             (
                 time,
                 interpolated_latent,
                 target_velocity,
             ) = self.flow_matcher.sample_location_and_conditional_flow(
-                x0=noise, x1=target_latents
+                x0=noise, x1=target_latents, t=sampled_time
             )  # time: (B,), interpolated_latent: (B, latent_dim), target_velocity: (B, latent_dim)
             timestep_embedding = self._get_timestep_embedding_continuous(time)  # (B, D)
             predicted_velocity = self._predict_from_tokens(

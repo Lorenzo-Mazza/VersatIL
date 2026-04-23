@@ -3,7 +3,7 @@
 [![pipeline status](https://gitlab.com/nct_tso_public/versatil/badges/main/pipeline.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
 [![coverage report](https://gitlab.com/nct_tso_public/versatil/badges/main/coverage.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/versatil.svg)](https://pypi.org/project/versatil/)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://lorenzo-mazza.github.io/VersatIL)
@@ -57,7 +57,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
 
 ### 📋 Before Training
 
- 
+
 #### ⚙️ Configuration Management
 VersatIL uses **[Hydra](https://hydra.cc/)** and **[OmegaConf](https://omegaconf.readthedocs.io/)** for the management of experiment configurations.
 
@@ -75,7 +75,7 @@ Together, this means you can create new experiments by overriding only the param
 #### 🗄️ Dataset Schema (Ingestion)
 Raw data formats vary wildly (Rosbags, CSVs, HDF5). We don't force you to convert your raw files manually. \
 Instead, VersatIL handles this with a two-stage approach:
-1. **DatasetSchema (how your raw data is structured)**  
+1. **DatasetSchema (how your raw data is structured)**
    A pluggable class that maps any raw format to a standardized **Zarr** store.
 
    | Schema                                                | Class | Raw Format              |
@@ -84,7 +84,7 @@ Instead, VersatIL handles this with a two-stage approach:
    | HDF5                                                  | `Hdf5DatasetSchema` | HDF5 archive            |
    | CSV                                                   | `CsvDatasetSchema` | CSV + raw image folders |
    | Custom                                                | Subclass `DatasetSchema` | Any                     |
-   
+
 2. **Zarr Store Creation**
    Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.
    - Created **automatically** on first training run if missing — no separate preprocessing script needed.
@@ -125,9 +125,9 @@ A robot policy is built from four decoupled components, orchestrated by the `Pol
 into a unified representation.
 2.  🧮 **Algorithm:** The learning paradigm that defines how to train the policy. This can be:
 - Standard Behavioral Cloning (supervised learning of actions given observations)
-- Generative approaches through Denoising Score Matching such as Diffusion and Flow Matching. 
+- Generative approaches through Denoising Score Matching such as Diffusion and Flow Matching.
 - Variational approaches that add a learned latent variables to any base algorithm. The latent variable can be learned through different kinds of prior-posterior schemes,
- which will determine the nature of the latent space. 
+ which will determine the nature of the latent space.
 3) 🕹️ **Action Decoder:** The neural architecture that decodes the features into robot actions. This can be a Transformer-based architecture or a UNet-based architecture.
 We provide a set of standard decoders such as the Action Chunking Transformer (ACT) or the DiT-Block Policy from the literature. More information on the available decoders can be found below.
 We additionally support a Mixture-Of-Experts (MoE) wrapper, which can be used on top of any decoder to copy the architecture across multiple experts and learn a gating network to select which expert to use at inference time.
@@ -153,7 +153,7 @@ The built-in ZMQ implementation uses our two PyPI packages:
 - [**tso-robotics-sockets**](https://pypi.org/project/tso-robotics-sockets/): Generic ZMQ socket client/server with protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`).
 - [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`).
 
-Both libraries are server-agnostic — they define the message format, not the server implementation. Any server that speaks the protocol can be integrated by implementing the transport protocols. 
+Both libraries are server-agnostic — they define the message format, not the server implementation. Any server that speaks the protocol can be integrated by implementing the transport protocols.
 
 The built-in ZMQ transport works for both simulation and real hardware — the dataset format is fully decoupled from the transport layer. For custom setups, implement the `ObservationTransport` and `ActionTransport` protocols with any transport mechanism.
 
@@ -212,9 +212,8 @@ Compression targets can be specified globally (applied to the entire policy) or 
 ### Installation
 
 **Prerequisites:**
-- Python 3.13+
+- Python 3.14+
 - CUDA 12.8+ (required for training)
-- Git credentials for private repositories
 
 **Setup:**
 ###### Install Conda/Mamba from miniforge
@@ -257,6 +256,10 @@ VERSATIL_BOWEL_RETRACTION_DIR=/path/to/bowel_retraction
 VERSATIL_LIBERO_HDF5_DIR=/path/to/libero/datasets
 VERSATIL_LIBERO_LEROBOT_DIR=/path/to/libero_lerobot
 VERSATIL_METAWORLD_LEROBOT_DIR=/path/to/metaworld_lerobot
+VERSATIL_PUSHT_LEROBOT_DIR=/path/to/pusht_lerobot
+VERSATIL_BLOCK_PUSHING_LEROBOT_DIR=/path/to//block_pushing_lerobot_rel
+VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR=/path/to//block_pushing_lerobot_abs
+VERSATIL_KITCHEN_LEROBOT_DIR=/path/to/kitchen_lerobot
 
 # Weights & Biases (optional)
 WANDB_PROJECT=versatil
@@ -560,7 +563,7 @@ pytest -m "not slow"       # Skip slow tests
 
 - **Docstrings**: Google-style, concise (avoid LLM patterns like numbered lists or excessive words)
 - **Type hints**: Required for all function signatures
-- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, Python 3.13)
+- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, Python 3.14)
 - **No inline imports**: All imports at module top
 - **Minimal comments**: Only for tensor shapes or non-obvious logic
 - **Variables**: Use English words, avoid abbreviations

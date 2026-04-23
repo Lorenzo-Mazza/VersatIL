@@ -28,14 +28,12 @@ from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.models.policy import Policy
-from versatil.training.callback_provider import CallbackProvider
-from versatil.training.callbacks import (
-    EMACallback,
-    GradientNormCallback,
-    ProgressiveFreezingCallback,
-    ReduceLROnPlateauCallback,
-    ResumableEarlyStopping,
-)
+from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
+from versatil.training.callbacks.ema import EMACallback
+from versatil.training.callbacks.gradient_norm import GradientNormCallback
+from versatil.training.callbacks.provider import CallbackProvider
+from versatil.training.callbacks.reduce_lr_on_plateau import ReduceLROnPlateauCallback
+from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
@@ -218,7 +216,7 @@ class Workspace:
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
         self.policy.set_gripper_class_weights(self.gripper_class_weights)
-        # Calculate total training steps for LR scheduling
+        # Calculate total training steps for learning-rate scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs
         steps_per_epoch = (
@@ -386,18 +384,25 @@ class Workspace:
             )
             callbacks.append(swa_callback)
             logging.info(
-                f"Added SWA callback (lr={self.config.training.swa_lrs}, "
+                f"Added SWA callback (learning_rate={self.config.training.swa_lrs}, "
                 f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
             )
 
-        progressive_freezing = self.config.training.progressive_freezing
-        if progressive_freezing:
-            progressive_freezing_callback = ProgressiveFreezingCallback(
-                schedule=progressive_freezing
+        training_stages = self.config.training.stages
+        if training_stages and self.config.training.reduce_lr_on_plateau:
+            raise ValueError(
+                "training.stages does not support reduce_lr_on_plateau in v1."
             )
-            callbacks.append(progressive_freezing_callback)
+        if training_stages:
+            training_stage_callback = TrainingStageCallback(
+                stages=training_stages,
+                learning_rate_schedule_active=(
+                    self.config.training.lr_schedule is not None
+                ),
+            )
+            callbacks.append(training_stage_callback)
             logging.info(
-                f"Added ProgressiveFreezing callback ({len(progressive_freezing)} phases)"
+                f"Added TrainingStage callback ({len(training_stages)} stages)"
             )
 
         if self.config.training.reduce_lr_on_plateau:
@@ -573,11 +578,13 @@ class Workspace:
                 num_training=100,
             )
 
-            suggested_lr = lr_finder_results.suggestion()
-            logging.info(f"Suggested learning rate: {suggested_lr}")
-            self.config.training.optimizer.lr = suggested_lr
-            self.original_yaml_config.training.optimizer.lr = suggested_lr
-            logging.info(f"Updated config with learning rate: {suggested_lr}")
+            suggested_learning_rate = lr_finder_results.suggestion()
+            logging.info(f"Suggested learning rate: {suggested_learning_rate}")
+            self.config.training.optimizer.lr = suggested_learning_rate
+            self.original_yaml_config.training.optimizer.lr = suggested_learning_rate
+            logging.info(
+                f"Updated config with learning rate: {suggested_learning_rate}"
+            )
 
         self.trainer.callbacks = original_callbacks
         if self.config.training.tune_lr:

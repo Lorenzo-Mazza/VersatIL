@@ -156,9 +156,9 @@ from versatil.configs.training import (
     AdamWConfig,
     OptimizerConfig,
     ParameterGroupConfig,
-    ProgressiveFreezingConfig,
     SGDConfig,
     TrainingConfig,
+    TrainingStageConfig,
 )
 from versatil.data.constants import (
     BinaryGripperRange,
@@ -181,7 +181,6 @@ from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import (
-    DecoderOutputKey,
     DenoisingAlgorithm,
     DiTType,
     GMMInitStrategy,
@@ -222,7 +221,7 @@ __all__ = [
     "TrainingConfig",
     "OptimizerConfig",
     "ParameterGroupConfig",
-    "ProgressiveFreezingConfig",
+    "TrainingStageConfig",
     "TaskSpaceConfig",
     "PolicyConfig",
     "EncoderConfig",
@@ -676,11 +675,6 @@ def register_configs():
         group="training/optimizer/parameter_group",
         name="base",
         node=ParameterGroupConfig,
-    )
-    cs.store(
-        group="training/progressive_freezing",
-        name="base",
-        node=ProgressiveFreezingConfig,
     )
 
     cs.store(group="policy", name="base", node=PolicyConfig)

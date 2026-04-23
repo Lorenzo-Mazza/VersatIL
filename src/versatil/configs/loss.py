@@ -133,6 +133,7 @@ class ActionTokenLossConfig(BaseLossConfig):
     """Configuration for action token cross-entropy loss."""
 
     _target_: str = "versatil.metrics.components.ActionTokenLoss"
+    weight: float = 1.0
     label_smoothing: float = 0.2
 
 

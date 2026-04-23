@@ -10,7 +10,3 @@ loss_modules:
     label_smoothing: 0.0
   kl_divergence:
     weight: 10.0
-
-weights:
-  token_loss: 1.0
-  kl_divergence: 1.0

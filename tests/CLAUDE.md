@@ -33,7 +33,7 @@ Don't conflate the two. A test that calls a real `nn.Linear` forward pass is a b
 
 4. **One test module per source module.** Mirror `src/versatil/` structure under `tests/`.
 
-5. **Group tests in classes by component.** `TestAugmentationPipelineInitialization`, `TestApplyRGBAugmentations`.
+5. **Group tests in classes by component, but only when there are ≥2 tests.** `TestAugmentationPipelineInitialization`, `TestApplyRGBAugmentations`. A class with a single test method should be a module-level `test_*` function — classes exist for grouping, not as a default wrapper.
 
 6. **Shared fixtures go in conftest.** Package-level conftest for package-local fixtures, top-level `tests/conftest.py` for global.
 

@@ -161,6 +161,99 @@ Key fields in `TrainingConfig`:
 | `ema_power` | 0.75 | EMA decay power |
 | `early_stopping_patience` | 10 | Validation checks without improvement before stopping |
 | `gradient_accumulate_every` | 1 | Steps between gradient updates |
+| `stages` | [] | Ordered training regimes for freezing groups, optimizer overrides, and loss weights |
+
+### Training Stages
+
+`training.stages` defines ordered, epoch-indexed deltas over the base training
+regime. A stage may independently override:
+
+- parameter trainability, by optimizer group name
+- optimizer learning rate / weight decay, by optimizer group name
+- loss weights, as a nested patch matching `policy.loss_module.weights`
+- module mode handling for fully frozen submodules
+
+Stages must be listed in strictly increasing `start_epoch` order and may leave
+gaps. The base optimizer, trainability, and loss configuration applies before
+the first stage, between stage intervals, and after a stage with `end_epoch`
+has ended. Each stage is applied from the cached base configuration, not from
+the previous stage.
+
+Stage fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Human-readable stage name used in logs and validation errors |
+| `start_epoch` | yes | Inclusive epoch where the stage becomes active |
+| `end_epoch` | no | Exclusive epoch upper bound; if omitted, the stage runs until the next stage starts or forever if it is last |
+| `trainable_groups` | no | Optimizer groups forced to `requires_grad=True` |
+| `frozen_groups` | no | Optimizer groups forced to `requires_grad=False` |
+| `group_lrs` | no | Per-group learning-rate overrides |
+| `group_weight_decays` | no | Per-group weight-decay overrides |
+| `loss_weights` | no | Nested partial tree merged onto `policy.loss_module.weights` |
+| `eval_frozen_modules` | no | If `true`, fully frozen modules are put in eval mode |
+
+Validation runs before training starts and rejects:
+
+- duplicate stage names
+- non-increasing `start_epoch`
+- overlapping stage intervals
+- unknown optimizer group names
+- invalid `loss_weights` paths or dict/scalar shape mismatches
+
+Named optimizer groups come from `training.optimizer.param_groups`. Parameters
+that match no configured pattern are assigned to the implicit reserved group
+`unmatched`, which must not be used as a custom group name.
+
+`loss_weights` is not a flat scalar map anymore. It must match the public loss
+weight tree. For a scalar-weight leaf such as `PriorDenoisingLoss`, the patch
+shape is:
+
+```yaml
+loss_weights:
+  denoising_prior:
+    weight: 0.0
+```
+
+When `group_lrs` is used together with `lr_schedule`, the staged values are
+treated as new scheduler base learning rates. The current scheduler multiplier
+is preserved; stage transitions do not reset scheduler progress.
+
+`training.stages` is incompatible with `reduce_lr_on_plateau`.
+
+```yaml
+training:
+  optimizer:
+    lr: 5.0e-4
+    weight_decay: 2.0e-2
+    param_groups:
+      - name: prior
+        lr: 2.0e-4
+        params_pattern: "^algorithm\\.prior\\."
+      - name: decoder
+        lr: 2.0e-4
+        params_pattern: "^decoder\\."
+  stages:
+    - name: vae
+      start_epoch: 0
+      trainable_groups: ["decoder", "unmatched"]
+      frozen_groups: ["prior"]
+      loss_weights:
+        denoising_prior:
+          weight: 0.0
+    - name: prior
+      start_epoch: 500
+      end_epoch: 1000
+      trainable_groups: ["prior"]
+      frozen_groups: ["decoder", "unmatched"]
+      group_lrs:
+        prior: 2.0e-4
+      group_weight_decays:
+        prior: 1.0e-3
+      loss_weights:
+        denoising_prior:
+          weight: 0.03
+```
 
 ## Distributed Training
 
