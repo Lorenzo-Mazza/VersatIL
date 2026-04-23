@@ -29,10 +29,10 @@ task:
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:pusht}
-  checkpoint_every: 5
+  checkpoint_every: 20
 
 training:
-  num_epochs: 50
+  num_epochs: 500
   early_stopping_patience: null
 
 policy:
