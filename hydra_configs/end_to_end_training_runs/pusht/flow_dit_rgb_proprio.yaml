@@ -29,10 +29,11 @@ task:
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:pusht}
+  checkpoint_every: 5
 
 training:
-  num_epochs: 200
-  early_stopping_patience: 500
+  num_epochs: 50
+  early_stopping_patience: null
 
 policy:
   _target_: versatil.models.policy.Policy
