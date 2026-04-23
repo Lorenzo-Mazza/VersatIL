@@ -1,6 +1,5 @@
 """Callback for evaluating synthetic benchmark policies during training."""
 
-import io
 import logging
 
 import matplotlib.pyplot as plt
@@ -8,7 +7,6 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import wandb
-from PIL import Image
 from pytorch_lightning.callbacks import Callback
 
 from versatil.data.constants import SyntheticObsKey
@@ -17,6 +15,7 @@ from versatil.data.synthetic.task_layout import get_task_layout
 from versatil.data.synthetic.visualization import plot_trajectories_2d
 from versatil.inference.synthetic_rollout import evaluate_rollouts, run_rollouts
 from versatil.models.policy import Policy
+from versatil.training.callbacks.wandb_figure import figure_to_wandb_image
 
 
 class SyntheticRolloutCallback(Callback):
@@ -141,15 +140,17 @@ class SyntheticRolloutCallback(Callback):
             for mode_index, count in per_mode.items():
                 metrics[f"synthetic/mode_{mode_index}_count"] = count
 
-            metrics["synthetic/rollout_trajectories"] = _figure_to_wandb_image(
-                plot_trajectories_2d(
-                    trajectories=trajectories,
-                    task_name=self.task_name,
-                    num_modes=self.num_modes,
-                    num_styles=self.num_styles,
-                    noise_std=self.noise_std,
-                )
+            rollout_figure = plot_trajectories_2d(
+                trajectories=trajectories,
+                task_name=self.task_name,
+                num_modes=self.num_modes,
+                num_styles=self.num_styles,
+                noise_std=self.noise_std,
             )
+            metrics["synthetic/rollout_trajectories"] = figure_to_wandb_image(
+                rollout_figure, dpi=150
+            )
+            plt.close(rollout_figure)
 
             trainer.logger.log_metrics(metrics, step=epoch)
 
@@ -201,16 +202,7 @@ class SyntheticRolloutCallback(Callback):
             noise_std=self.noise_std,
         )
         trainer.logger.log_metrics(
-            {"synthetic/training_data": _figure_to_wandb_image(figure)},
+            {"synthetic/training_data": figure_to_wandb_image(figure, dpi=150)},
             step=0,
         )
-
-
-def _figure_to_wandb_image(figure: plt.Figure) -> wandb.Image:
-    """Convert a matplotlib figure to a wandb.Image and close it."""
-    buf = io.BytesIO()
-    figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    buf.seek(0)
-    image = wandb.Image(Image.open(buf))
-    plt.close(figure)
-    return image
+        plt.close(figure)

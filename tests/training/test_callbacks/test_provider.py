@@ -1,4 +1,4 @@
-"""Tests for versatil.training.callback_provider module."""
+"""Tests for versatil.training.callbacks.provider module."""
 
 from unittest.mock import MagicMock
 
@@ -10,7 +10,7 @@ from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.decoders.factory.free_action_transformer import (
     FreeActionTransformer,
 )
-from versatil.training.callback_provider import CallbackProvider
+from versatil.training.callbacks.provider import CallbackProvider
 
 
 class _ImplementsProtocol:
@@ -22,8 +22,6 @@ class _ImplementsProtocol:
 
 class _DoesNotImplementProtocol:
     """Class missing the get_callbacks method."""
-
-    pass
 
 
 class _WrongSignature:
