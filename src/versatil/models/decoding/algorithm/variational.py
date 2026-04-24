@@ -49,6 +49,9 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_encoder: Latent action encoder for posterior q_phi(z|a,s) (e.g., a Transformer Encoder)
         prior: Latent prior for p(z|s). If None, auto-creates GaussianPrior.
         sampling_from_prior_probability: Probability of sampling from prior during training.
+        posterior_decoder_noise_std: Fixed Gaussian jitter added to posterior
+            latents before decoder training. This is applied only when training
+            decodes from the posterior, not when decoding from prior samples.
     """
 
     def __init__(
@@ -57,12 +60,19 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_encoder: PosteriorLatentEncoder,
         prior: PriorLatentEncoder | None = None,
         sampling_from_prior_probability: float = 0.0,
+        posterior_decoder_noise_std: float = 0.0,
     ):
         """Initialize variational algorithm wrapper."""
         super().__init__()
+        if posterior_decoder_noise_std < 0.0:
+            raise ValueError(
+                "posterior_decoder_noise_std must be non-negative, "
+                f"got {posterior_decoder_noise_std}."
+            )
         self.base_algorithm = base_algorithm
         self.posterior_encoder = posterior_encoder
         self.p_prior = sampling_from_prior_probability
+        self.posterior_decoder_noise_std = posterior_decoder_noise_std
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
@@ -155,6 +165,23 @@ class VariationalAlgorithm(DecodingAlgorithm):
         )
         return latent_embedding
 
+    def _posterior_latent_for_decoder(
+        self,
+        posterior_output: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Return the posterior latent consumed by the action decoder.
+
+        Optional fixed jitter thickens the posterior support seen by the
+        decoder while leaving prior training targets untouched. Those targets
+        are built before this method is called.
+        """
+        latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
+        if self.training and self.posterior_decoder_noise_std > 0.0:
+            latent = latent + self.posterior_decoder_noise_std * torch.randn_like(
+                latent
+            )
+        return latent
+
     def forward(
         self,
         network: ActionDecoder,
@@ -205,8 +232,10 @@ class VariationalAlgorithm(DecodingAlgorithm):
                     batch_size=batch_size, observations=features
                 )
             latent = prior_output[LatentKey.PRIOR_LATENT.value]
+            posterior_decoder_latent = None
         else:
-            latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
+            latent = self._posterior_latent_for_decoder(posterior_output)
+            posterior_decoder_latent = latent
         features_with_latent = {
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent,
@@ -216,7 +245,15 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features_with_latent,
             actions=actions,
         )
-        predictions.update(posterior_output)
+        if posterior_decoder_latent is None:
+            predictions.update(posterior_output)
+        else:
+            predictions.update(
+                {
+                    **posterior_output,
+                    LatentKey.POSTERIOR_LATENT.value: posterior_decoder_latent,
+                }
+            )
         predictions.update(prior_output)
         return predictions
 

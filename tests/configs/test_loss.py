@@ -20,6 +20,7 @@ from versatil.configs.loss import (
     MoELossConfig,
     OptimalTransportLossConfig,
     PhaseClassificationLossConfig,
+    PosteriorGeometryLossConfig,
     PriorDenoisingLossConfig,
     RegressionLossConfig,
     TrajectoryLengthLossConfig,
@@ -246,6 +247,35 @@ class TestVICLatentLossConfig:
         )
         assert config.covariance_weight == covariance_weight
         assert config.variance_weight == variance_weight
+
+
+@pytest.mark.unit
+class TestPosteriorGeometryLossConfig:
+    def test_target_points_to_posterior_geometry_loss(self):
+        config = PosteriorGeometryLossConfig()
+        assert config._target_ == "versatil.metrics.components.PosteriorGeometryLoss"
+
+    @pytest.mark.parametrize("mean_weight", [0.0, 0.1])
+    @pytest.mark.parametrize("std_weight", [0.0, 0.2])
+    @pytest.mark.parametrize("max_std_weight", [0.0, 0.3])
+    @pytest.mark.parametrize("covariance_weight", [0.0, 0.4])
+    def test_stores_weights(
+        self,
+        mean_weight,
+        std_weight,
+        max_std_weight,
+        covariance_weight,
+    ):
+        config = PosteriorGeometryLossConfig(
+            mean_weight=mean_weight,
+            std_weight=std_weight,
+            max_std_weight=max_std_weight,
+            covariance_weight=covariance_weight,
+        )
+        assert config.mean_weight == mean_weight
+        assert config.std_weight == std_weight
+        assert config.max_std_weight == max_std_weight
+        assert config.covariance_weight == covariance_weight
 
 
 @pytest.mark.unit

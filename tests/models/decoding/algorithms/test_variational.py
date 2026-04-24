@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -123,6 +123,7 @@ def variational_factory(
         posterior_encoder: MagicMock | None = None,
         prior: MagicMock | None = None,
         sampling_from_prior_probability: float = 0.0,
+        posterior_decoder_noise_std: float = 0.0,
         latent_dimension: int = LATENT_DIMENSION,
     ) -> VariationalAlgorithm:
         if base_algorithm is None:
@@ -138,6 +139,7 @@ def variational_factory(
             posterior_encoder=posterior_encoder,
             prior=prior,
             sampling_from_prior_probability=sampling_from_prior_probability,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
         )
 
     return factory
@@ -152,12 +154,14 @@ class TestVariationalAlgorithmInitialization:
         assert isinstance(algo, DecodingAlgorithm)
 
     @pytest.mark.parametrize("sampling_from_prior_probability", [0.0, 0.5])
+    @pytest.mark.parametrize("posterior_decoder_noise_std", [0.0, 0.135])
     def test_stores_configuration(
         self,
         mock_base_algorithm_factory: Callable[..., MagicMock],
         mock_posterior_factory: Callable[..., MagicMock],
         mock_prior_factory: Callable[..., MagicMock],
         sampling_from_prior_probability: float,
+        posterior_decoder_noise_std: float,
     ):
         base = mock_base_algorithm_factory()
         posterior = mock_posterior_factory()
@@ -167,11 +171,34 @@ class TestVariationalAlgorithmInitialization:
             posterior_encoder=posterior,
             prior=prior,
             sampling_from_prior_probability=sampling_from_prior_probability,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
         )
         assert algo.p_prior == sampling_from_prior_probability
+        assert algo.posterior_decoder_noise_std == posterior_decoder_noise_std
         assert algo.base_algorithm is base
         assert algo.posterior_encoder is posterior
         assert algo.prior is prior
+
+    def test_negative_posterior_decoder_noise_raises(
+        self,
+        mock_base_algorithm_factory: Callable[..., MagicMock],
+        mock_posterior_factory: Callable[..., MagicMock],
+        mock_prior_factory: Callable[..., MagicMock],
+    ):
+        posterior_decoder_noise_std = -0.1
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "posterior_decoder_noise_std must be non-negative, "
+                f"got {posterior_decoder_noise_std}."
+            ),
+        ):
+            VariationalAlgorithm(
+                base_algorithm=mock_base_algorithm_factory(),
+                posterior_encoder=mock_posterior_factory(),
+                prior=mock_prior_factory(),
+                posterior_decoder_noise_std=posterior_decoder_noise_std,
+            )
 
     def test_auto_creates_gaussian_prior_when_none(
         self,
@@ -443,6 +470,80 @@ class TestVariationalAlgorithmForward:
             posterior_z,
         )
 
+    def test_training_mode_adds_fixed_noise_to_decoder_posterior_latent(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        posterior_decoder_noise_std = 0.25
+        algo = variational_factory(
+            sampling_from_prior_probability=0.0,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
+        )
+        algo.train()
+        posterior_latent = algo.posterior_encoder.encode.return_value[
+            LatentKey.POSTERIOR_LATENT.value
+        ]
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        with patch(
+            "versatil.models.decoding.algorithm.variational.torch.randn_like",
+            return_value=torch.ones_like(posterior_latent),
+        ):
+            result = algo.forward(network=network, features=features, actions=actions)
+
+        expected_latent = posterior_latent + posterior_decoder_noise_std
+        features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
+        assert torch.equal(
+            features_passed[LatentKey.POSTERIOR_LATENT.value],
+            expected_latent,
+        )
+        assert torch.equal(
+            result[LatentKey.POSTERIOR_LATENT.value],
+            expected_latent,
+        )
+
+    def test_posterior_decoder_noise_keeps_prior_target_clean(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory(
+            sampling_from_prior_probability=0.0,
+            posterior_decoder_noise_std=0.25,
+        )
+        algo.train()
+        posterior_latent = algo.posterior_encoder.encode.return_value[
+            LatentKey.POSTERIOR_LATENT.value
+        ]
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        with patch(
+            "versatil.models.decoding.algorithm.variational.torch.randn_like",
+            return_value=torch.ones_like(posterior_latent),
+        ):
+            algo.forward(network=network, features=features, actions=actions)
+
+        prior_call_kwargs = algo.prior.forward.call_args.kwargs
+        assert torch.equal(
+            prior_call_kwargs["target_latents"],
+            posterior_latent.detach(),
+        )
+
     def test_eval_mode_uses_prior_latent(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],
@@ -491,6 +592,32 @@ class TestVariationalAlgorithmForward:
             features_passed[LatentKey.POSTERIOR_LATENT.value],
             prior_z,
         )
+
+    def test_p_prior_one_skips_posterior_decoder_noise(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory(
+            sampling_from_prior_probability=1.0,
+            posterior_decoder_noise_std=0.25,
+        )
+        algo.train()
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        with patch(
+            "versatil.models.decoding.algorithm.variational.torch.randn_like",
+        ) as random_like:
+            algo.forward(network=network, features=features, actions=actions)
+
+        random_like.assert_not_called()
 
     def test_samples_prior_when_prior_latent_not_in_output(
         self,
