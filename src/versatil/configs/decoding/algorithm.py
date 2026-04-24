@@ -121,3 +121,4 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
     posterior_encoder: PosteriorLatentEncoderConfig = MISSING
     prior: PriorLatentEncoderConfig = MISSING
     sampling_from_prior_probability: float = 0.25
+    posterior_decoder_noise_std: float = 0.0

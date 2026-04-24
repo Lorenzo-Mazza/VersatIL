@@ -164,7 +164,12 @@ class TestVariationalAlgorithmConfig:
         assert config.prior == MISSING
 
     @pytest.mark.parametrize("sampling_probability", [0.0, 0.5, 1.0])
-    def test_stores_sampling_from_prior_probability(self, sampling_probability):
+    @pytest.mark.parametrize("posterior_decoder_noise_std", [0.0, 0.135])
+    def test_stores_variational_parameters(
+        self,
+        sampling_probability,
+        posterior_decoder_noise_std,
+    ):
         config = VariationalAlgorithmConfig(
             base_algorithm=BehavioralCloningConfig(),
             posterior_encoder=VAETransformerEncoderConfig(
@@ -172,8 +177,10 @@ class TestVariationalAlgorithmConfig:
             ),
             prior=GaussianPriorConfig(latent_dimension=32),
             sampling_from_prior_probability=sampling_probability,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
         )
         assert config.sampling_from_prior_probability == sampling_probability
+        assert config.posterior_decoder_noise_std == posterior_decoder_noise_std
 
     def test_inherits_from_decoding_algorithm_config(self):
         config = VariationalAlgorithmConfig()

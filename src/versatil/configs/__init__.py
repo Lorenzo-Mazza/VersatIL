@@ -125,6 +125,7 @@ from versatil.configs.loss import (
     MoELossConfig,
     OptimalTransportLossConfig,
     PhaseClassificationLossConfig,
+    PosteriorGeometryLossConfig,
     PriorDenoisingLossConfig,
     RegressionLossConfig,
     TrajectoryLengthLossConfig,
@@ -267,6 +268,7 @@ __all__ = [
     "SpatialFusionConfig",
     "CompositeLossConfig",
     "VICLatentLossConfig",
+    "PosteriorGeometryLossConfig",
     "RegressionLossConfig",
     "BaseLossConfig",
     "GripperLossConfig",
@@ -759,6 +761,11 @@ def register_configs():
     cs.store(group="policy/loss", name="entropy", node=GaussianEntropyLossConfig)
     cs.store(group="policy/loss", name="kl", node=KLDivergenceLossConfig)
     cs.store(group="policy/loss", name="vic_latent", node=VICLatentLossConfig)
+    cs.store(
+        group="policy/loss",
+        name="posterior_geometry",
+        node=PosteriorGeometryLossConfig,
+    )
     cs.store(group="policy/loss", name="vq_commitment", node=VQCommitmentLossConfig)
     cs.store(
         group="policy/loss",

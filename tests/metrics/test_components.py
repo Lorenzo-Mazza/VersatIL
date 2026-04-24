@@ -34,6 +34,7 @@ from versatil.metrics.components import (
     MetadataPassthrough,
     MoELoss,
     PhaseClassificationLoss,
+    PosteriorGeometryLoss,
     PriorDenoisingLoss,
     RegressionLoss,
     TrajectoryLengthLoss,
@@ -1882,6 +1883,176 @@ class TestVICLatentLossForward:
             loss({}, {})
 
 
+@pytest.mark.unit
+class TestPosteriorGeometryLossGetRequiredKeys:
+    def test_returns_key(self):
+        loss = PosteriorGeometryLoss(key=LatentKey.POSTERIOR_MU.value)
+        assert loss.get_required_keys() == {LatentKey.POSTERIOR_MU.value}
+
+
+@pytest.mark.unit
+class TestPosteriorGeometryLossInitialization:
+    @pytest.mark.parametrize(
+        "target_std, max_std, eps, expectation",
+        [
+            (1.0, 2.0, 1e-6, does_not_raise()),
+            (
+                0.0,
+                2.0,
+                1e-6,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("target_std must be positive, got 0.0."),
+                ),
+            ),
+            (
+                1.0,
+                0.0,
+                1e-6,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("max_std must be positive, got 0.0."),
+                ),
+            ),
+            (
+                1.0,
+                2.0,
+                0.0,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("eps must be positive, got 0.0."),
+                ),
+            ),
+        ],
+    )
+    def test_validates_positive_scale_configuration(
+        self,
+        target_std: float,
+        max_std: float,
+        eps: float,
+        expectation: AbstractContextManager,
+    ):
+        with expectation:
+            PosteriorGeometryLoss(
+                target_std=target_std,
+                max_std=max_std,
+                eps=eps,
+            )
+
+
+@pytest.mark.unit
+class TestPosteriorGeometryLossForward:
+    def test_centered_unit_std_independent_latents_have_low_loss(self):
+        latent = torch.tensor(
+            [
+                [-1.0, -1.0],
+                [-1.0, 1.0],
+                [1.0, -1.0],
+                [1.0, 1.0],
+            ]
+        )
+        predictions = {LatentKey.POSTERIOR_MU.value: latent}
+        loss = PosteriorGeometryLoss(
+            mean_weight=1.0,
+            std_weight=1.0,
+            target_std=1.0,
+            max_std_weight=1.0,
+            max_std=2.0,
+            covariance_weight=1.0,
+            eps=1e-6,
+        )
+        output = loss(predictions, {})
+        assert output.total_loss.item() == pytest.approx(0.0, abs=1e-5)
+
+    def test_nonzero_mean_produces_mean_loss(self):
+        latent = torch.ones(8, 2)
+        predictions = {LatentKey.POSTERIOR_MU.value: latent}
+        loss = PosteriorGeometryLoss(
+            mean_weight=1.0,
+            std_weight=0.0,
+            max_std_weight=0.0,
+            covariance_weight=0.0,
+        )
+        output = loss(predictions, {})
+        assert (
+            output.component_losses[MetricKey.POSTERIOR_GEOMETRY_MEAN_LOSS.value].item()
+            > 0.0
+        )
+
+    def test_large_std_produces_target_and_max_std_losses(self):
+        latent = torch.tensor(
+            [
+                [-3.0, -3.0],
+                [-3.0, 3.0],
+                [3.0, -3.0],
+                [3.0, 3.0],
+            ]
+        )
+        predictions = {LatentKey.POSTERIOR_MU.value: latent}
+        loss = PosteriorGeometryLoss(
+            mean_weight=0.0,
+            std_weight=1.0,
+            target_std=1.0,
+            max_std_weight=1.0,
+            max_std=2.0,
+            covariance_weight=0.0,
+        )
+        output = loss(predictions, {})
+        assert (
+            output.component_losses[MetricKey.POSTERIOR_GEOMETRY_STD_LOSS.value].item()
+            > 0.0
+        )
+        assert (
+            output.component_losses[
+                MetricKey.POSTERIOR_GEOMETRY_MAX_STD_LOSS.value
+            ].item()
+            > 0.0
+        )
+
+    def test_correlated_latents_produce_covariance_loss(self):
+        x = torch.linspace(-1.0, 1.0, 8).unsqueeze(1)
+        latent = torch.cat([x, x], dim=1)
+        predictions = {LatentKey.POSTERIOR_MU.value: latent}
+        loss = PosteriorGeometryLoss(
+            mean_weight=0.0,
+            std_weight=0.0,
+            max_std_weight=0.0,
+            covariance_weight=1.0,
+        )
+        output = loss(predictions, {})
+        assert (
+            output.component_losses[
+                MetricKey.POSTERIOR_GEOMETRY_COVARIANCE_LOSS.value
+            ].item()
+            > 0.0
+        )
+
+    def test_raises_on_missing_key(self):
+        loss = PosteriorGeometryLoss(key=LatentKey.POSTERIOR_MU.value)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Predictions must contain '{LatentKey.POSTERIOR_MU.value}' "
+                "for PosteriorGeometryLoss."
+            ),
+        ):
+            loss({}, {})
+
+    def test_raises_on_non_matrix_latents(self):
+        loss = PosteriorGeometryLoss(key=LatentKey.POSTERIOR_MU.value)
+        predictions = {
+            LatentKey.POSTERIOR_MU.value: torch.zeros(2, 3, 4),
+        }
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"PosteriorGeometryLoss expects '{LatentKey.POSTERIOR_MU.value}' "
+                "with shape (batch_size, latent_dimension), got (2, 3, 4)."
+            ),
+        ):
+            loss(predictions, {})
+
+
 class TestVQCommitmentLoss:
     @pytest.fixture
     def vq_predictions_factory(
@@ -2481,6 +2652,34 @@ def leaf_weight_spec_factory(
                         "variance_weight": 5.0,
                     },
                 }
+            case "posterior_geometry":
+                return {
+                    "loss": PosteriorGeometryLoss(
+                        mean_weight=0.1,
+                        std_weight=0.2,
+                        max_std_weight=0.3,
+                        covariance_weight=0.4,
+                    ),
+                    "initial_weights": {
+                        "mean_weight": 0.1,
+                        "std_weight": 0.2,
+                        "max_std_weight": 0.3,
+                        "covariance_weight": 0.4,
+                    },
+                    "set_to": {
+                        "mean_weight": 0.5,
+                        "std_weight": 0.6,
+                        "max_std_weight": 0.7,
+                        "covariance_weight": 0.8,
+                    },
+                    "partial_update": {"max_std_weight": 0.9},
+                    "expected_after_partial": {
+                        "mean_weight": 0.1,
+                        "std_weight": 0.2,
+                        "max_std_weight": 0.9,
+                        "covariance_weight": 0.4,
+                    },
+                }
             case "prior_denoising":
                 return {
                     "loss": PriorDenoisingLoss(weight=0.03),
@@ -2507,6 +2706,7 @@ class TestLossWeightsAPI:
             "maximum_mean_discrepancy",
             "phase_classification",
             "vic_latent",
+            "posterior_geometry",
             "prior_denoising",
         ],
     )
@@ -2529,6 +2729,7 @@ class TestLossWeightsAPI:
             "maximum_mean_discrepancy",
             "phase_classification",
             "vic_latent",
+            "posterior_geometry",
             "prior_denoising",
         ],
     )
@@ -2553,6 +2754,7 @@ class TestLossWeightsAPI:
             "maximum_mean_discrepancy",
             "phase_classification",
             "vic_latent",
+            "posterior_geometry",
             "prior_denoising",
         ],
     )
@@ -2646,6 +2848,7 @@ class TestLossWeightsAPI:
         "gaussian_entropy",
         "maximum_mean_discrepancy",
         "vic_latent",
+        "posterior_geometry",
     ]
 )
 def leaf_loss_case(
@@ -2701,6 +2904,16 @@ def leaf_loss_case(
             )
         case "vic_latent":
             return VICLatentLoss(), {"covariance_weight", "variance_weight"}
+        case "posterior_geometry":
+            return (
+                PosteriorGeometryLoss(),
+                {
+                    "mean_weight",
+                    "std_weight",
+                    "max_std_weight",
+                    "covariance_weight",
+                },
+            )
     raise ValueError(f"Unknown leaf_loss_case param: {request.param}")
 
 

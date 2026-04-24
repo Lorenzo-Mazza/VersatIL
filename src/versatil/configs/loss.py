@@ -213,6 +213,21 @@ class VICLatentLossConfig(BaseLossConfig):
 
 
 @dataclass
+class PosteriorGeometryLossConfig(BaseLossConfig):
+    """Configuration for posterior latent moment regularization."""
+
+    _target_: str = "versatil.metrics.components.PosteriorGeometryLoss"
+    key: str = "${latent_key:POSTERIOR_MU}"
+    mean_weight: float = 0.0
+    std_weight: float = 0.0
+    target_std: float = 1.0
+    max_std_weight: float = 0.0
+    max_std: float = 2.0
+    covariance_weight: float = 0.0
+    eps: float = 1e-6
+
+
+@dataclass
 class OptimalTransportLossConfig(BaseLossConfig):
     """Configuration for Optimal Transport loss using Sinkhorn divergence."""
 
