@@ -12,6 +12,7 @@ from omegaconf import ListConfig, OmegaConf
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
 from versatil.configs.training import TrainingConfig, TrainingStageConfig
+from versatil.data.constants import ImageNormalizationType
 from versatil.models.decoding.constants import LatentKey
 
 HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
@@ -83,6 +84,33 @@ DIT_PRIOR_ALGORITHM_CONFIGS = [
 ]
 
 DIT_PRIOR_STAGE_SPLIT_FRACTION = 0.4
+
+VLM_IMAGE_NORM_CONFIGS = [
+    pytest.param(
+        "end_to_end_training_runs/libero_plus/vision_sweep/clip_vitb32",
+        ImageNormalizationType.CLIP.value,
+        "clip",
+        id="clip-vlm",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_plus/vision_sweep/siglip2_base",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "siglip",
+        id="siglip-vlm",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/pi0",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "paligemma",
+        id="paligemma-pi0",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/smolvla",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "smolvlm",
+        id="smolvlm-smolvla",
+    ),
+]
 
 
 @pytest.mark.unit
@@ -180,6 +208,31 @@ class TestHydraComposition:
         assert prior.latent_standardization_eps == pytest.approx(1.0e-6)
         assert prior.latent_standardization_max_batches is None
         assert prior.require_fitted_latent_standardization is False
+
+    @pytest.mark.parametrize(
+        "config_name, expected_image_norm_type, expected_model_identifier",
+        VLM_IMAGE_NORM_CONFIGS,
+    )
+    def test_vlm_runs_use_matching_image_normalization(
+        self,
+        config_name: str,
+        expected_image_norm_type: str,
+        expected_model_identifier: str,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name=config_name)
+
+        assert config.task.dataloader.image_norm_type == expected_image_norm_type
+
+        model_identifiers = []
+        for encoder in config.policy.encoding_pipeline.encoders.values():
+            for field in ("model_name", "backbone_name"):
+                value = encoder.get(field)
+                if isinstance(value, str):
+                    model_identifiers.append(value.lower())
+        assert any(
+            expected_model_identifier in identifier for identifier in model_identifiers
+        )
 
     @pytest.mark.parametrize(
         "preset_name", ["vae_frozen_prior", "vae_frozen_prior_with_backbone"]

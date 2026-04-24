@@ -36,6 +36,12 @@ class VectorQuantize(nn.Module):
         kmeans_init: bool = True,
     ):
         super().__init__()
+        if input_dim <= 0:
+            raise ValueError(f"input_dim must be positive, got {input_dim}.")
+        if code_dim <= 0:
+            raise ValueError(f"code_dim must be positive, got {code_dim}.")
+        if num_codes <= 0:
+            raise ValueError(f"num_codes must be positive, got {num_codes}.")
         self.input_dim = input_dim
         self.code_dim = code_dim
         self.num_codes = num_codes

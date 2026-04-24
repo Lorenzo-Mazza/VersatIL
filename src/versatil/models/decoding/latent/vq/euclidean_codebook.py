@@ -7,6 +7,7 @@ batch and dead code replacement.
 """
 
 import torch
+import torch.distributed as torch_dist
 from torch import nn
 
 
@@ -33,6 +34,18 @@ class EuclideanCodebook(nn.Module):
         kmeans_init: bool = True,
     ):
         super().__init__()
+        if num_codes <= 0:
+            raise ValueError(f"num_codes must be positive, got {num_codes}.")
+        if code_dim <= 0:
+            raise ValueError(f"code_dim must be positive, got {code_dim}.")
+        if not 0.0 <= ema_decay < 1.0:
+            raise ValueError(
+                f"ema_decay must be in the interval [0.0, 1.0), got {ema_decay}."
+            )
+        if dead_code_threshold < 0.0:
+            raise ValueError(
+                f"dead_code_threshold must be non-negative, got {dead_code_threshold}."
+            )
         self.num_codes = num_codes
         self.code_dim = code_dim
         self.ema_decay = ema_decay
@@ -52,6 +65,15 @@ class EuclideanCodebook(nn.Module):
         self.register_buffer(
             "initialized", torch.tensor(not kmeans_init)
         )  # scalar bool
+
+    def _sync_buffers_from_primary_rank(self) -> None:
+        """Keep codebook buffers identical across distributed ranks."""
+        if not torch_dist.is_available() or not torch_dist.is_initialized():
+            return
+        torch_dist.broadcast(self.embed, src=0)
+        torch_dist.broadcast(self.embed_avg, src=0)
+        torch_dist.broadcast(self.cluster_size, src=0)
+        torch_dist.broadcast(self.initialized, src=0)
 
     def _initialize_from_data(self, data: torch.Tensor) -> None:
         """Initialize codebook from the first batch of encoder outputs.
@@ -76,16 +98,19 @@ class EuclideanCodebook(nn.Module):
         self.cluster_size.data.fill_(1.0)
         self.initialized.fill_(True)
 
-    def _replace_dead_codes(self, data: torch.Tensor) -> None:
+    def _replace_dead_codes(self, data: torch.Tensor) -> bool:
         """Replace codebook entries with low usage by random encoder outputs.
 
         Args:
             data: Encoder outputs from the current batch, shape (N, D).
+
+        Returns:
+            Whether any codebook entries were replaced.
         """
         dead_mask = self.cluster_size < self.dead_code_threshold  # (K,) bool
         num_dead = dead_mask.sum().item()
         if num_dead == 0:
-            return
+            return False
         num_samples = data.shape[0]
         replace_indices = torch.randint(
             0, num_samples, (num_dead,), device=data.device
@@ -93,6 +118,7 @@ class EuclideanCodebook(nn.Module):
         self.embed.data[dead_mask] = data[replace_indices].detach()  # (num_dead, D)
         self.embed_avg.data[dead_mask] = data[replace_indices].detach()  # (num_dead, D)
         self.cluster_size.data[dead_mask] = 1.0
+        return True
 
     def forward(self, z_e: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Quantize encoder outputs to nearest codebook entries.
@@ -109,6 +135,7 @@ class EuclideanCodebook(nn.Module):
         """
         if self.kmeans_init and not self.initialized:
             self._initialize_from_data(z_e.detach())
+            self._sync_buffers_from_primary_rank()
 
         # z_e: (B, D), self.embed: (K, D) -> dist: (B, K)
         dist = torch.cdist(z_e, self.embed)
@@ -125,6 +152,9 @@ class EuclideanCodebook(nn.Module):
             # Cluster statistics for EMA
             new_cluster_size = one_hot.sum(dim=0)  # (K,)
             new_embed_sum = one_hot.T @ z_e.detach()  # (K, B) @ (B, D) -> (K, D)
+            if torch_dist.is_available() and torch_dist.is_initialized():
+                torch_dist.all_reduce(new_cluster_size, op=torch_dist.ReduceOp.SUM)
+                torch_dist.all_reduce(new_embed_sum, op=torch_dist.ReduceOp.SUM)
 
             # EMA update: running_avg = decay * old + (1 - decay) * new
             self.cluster_size.data.mul_(self.ema_decay).add_(
@@ -143,6 +173,8 @@ class EuclideanCodebook(nn.Module):
                 / smoothed_cluster_size.unsqueeze(1)  # (K, 1) broadcast over D
             )  # (K, D)
 
-            self._replace_dead_codes(z_e.detach())
+            if self._replace_dead_codes(z_e.detach()):
+                # In case of distributed training, keep nodes in sync.
+                self._sync_buffers_from_primary_rank()
 
         return quantized, indices

@@ -11,6 +11,7 @@ import zarr
 import zarr.storage
 
 from versatil.data.constants import (
+    CLIP_RGB_MEAN,
     Cameras,
     ImageNormalizationType,
     KinematicsNormalizationType,
@@ -365,6 +366,37 @@ class TestSetupImageNormalizers:
         normalizer.__setitem__.assert_called_once()
         call_key = normalizer.__setitem__.call_args[0][0]
         assert call_key == Cameras.LEFT.value
+
+    @pytest.mark.parametrize(
+        ("image_norm_type", "mean"),
+        [
+            (ImageNormalizationType.CLIP.value, torch.tensor(CLIP_RGB_MEAN)),
+        ],
+    )
+    def test_sets_up_pretrained_rgb_normalizers(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        image_norm_type: str,
+        mean: torch.Tensor,
+    ):
+        builder = transform_builder_factory(image_norm_type=image_norm_type)
+        normalizer = LinearNormalizer()
+
+        builder._setup_rgb_normalizer(
+            normalizer=normalizer,
+            cam=Cameras.LEFT.value,
+            device=None,
+        )
+
+        normalized = normalizer.normalize({Cameras.LEFT.value: mean})[
+            Cameras.LEFT.value
+        ]
+        torch.testing.assert_close(
+            normalized,
+            torch.zeros_like(mean),
+            atol=1e-6,
+            rtol=1e-6,
+        )
 
     def test_sets_up_depth_normalizer_for_depth_camera(
         self,

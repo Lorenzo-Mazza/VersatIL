@@ -2195,6 +2195,77 @@ class TestVQPriorCrossEntropyLoss:
             loss.forward(predictions={}, targets={})
 
     @pytest.mark.unit
+    def test_raises_when_prior_logits_are_empty(self) -> None:
+        predictions = {
+            LatentKey.PRIOR_CODE_LOGITS.value: [],
+            LatentKey.VQ_INDICES.value: [],
+        }
+        with pytest.raises(
+            ValueError,
+            match=re.escape("VQPriorCrossEntropyLoss received no prior logits."),
+        ):
+            VQPriorCrossEntropyLoss(weight=1.0).forward(
+                predictions=predictions, targets={}
+            )
+
+    @pytest.mark.unit
+    def test_raises_on_layer_count_mismatch(self) -> None:
+        predictions = {
+            LatentKey.PRIOR_CODE_LOGITS.value: [torch.zeros(4, 8)],
+            LatentKey.VQ_INDICES.value: [
+                torch.zeros(4, dtype=torch.long),
+                torch.zeros(4, dtype=torch.long),
+            ],
+        }
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "VQPriorCrossEntropyLoss expected the same number of prior logit "
+                "layers and posterior index layers, got 1 and 2."
+            ),
+        ):
+            VQPriorCrossEntropyLoss(weight=1.0).forward(
+                predictions=predictions, targets={}
+            )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "prior_logits, posterior_indices, expected_message",
+        [
+            (
+                torch.zeros(4, 2, 8),
+                torch.zeros(4, dtype=torch.long),
+                "Prior logits for VQ layer 0 must have shape (B, K), got (4, 2, 8).",
+            ),
+            (
+                torch.zeros(4, 8),
+                torch.zeros(4, 1, dtype=torch.long),
+                "Posterior indices for VQ layer 0 must have shape (B,), got (4, 1).",
+            ),
+            (
+                torch.zeros(4, 8),
+                torch.zeros(3, dtype=torch.long),
+                "Prior logits and posterior indices for VQ layer 0 must have the "
+                "same batch size, got 4 and 3.",
+            ),
+        ],
+    )
+    def test_raises_on_invalid_layer_shapes(
+        self,
+        prior_logits: torch.Tensor,
+        posterior_indices: torch.Tensor,
+        expected_message: str,
+    ) -> None:
+        predictions = {
+            LatentKey.PRIOR_CODE_LOGITS.value: [prior_logits],
+            LatentKey.VQ_INDICES.value: [posterior_indices],
+        }
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            VQPriorCrossEntropyLoss(weight=1.0).forward(
+                predictions=predictions, targets={}
+            )
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("num_codes", [2, 4, 16])
     @pytest.mark.parametrize("num_layers", [1, 2])
     @pytest.mark.parametrize("batch_size", [1, 8])

@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.latent.vq.vector_quantize module."""
 
+import re
 from collections.abc import Callable
 
 import pytest
@@ -50,6 +51,29 @@ class TestVectorQuantizeInit:
         vq = vq_factory(input_dim=input_dim, code_dim=code_dim)
         has_projection = not isinstance(vq.project_in, torch.nn.Identity)
         assert has_projection == expect_projection
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "input_dim, code_dim, num_codes, expected_message",
+        [
+            (0, 8, 4, "input_dim must be positive, got 0."),
+            (8, 0, 4, "code_dim must be positive, got 0."),
+            (8, 8, 0, "num_codes must be positive, got 0."),
+        ],
+    )
+    def test_rejects_invalid_configuration(
+        self,
+        input_dim: int,
+        code_dim: int,
+        num_codes: int,
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            VectorQuantize(
+                input_dim=input_dim,
+                code_dim=code_dim,
+                num_codes=num_codes,
+            )
 
 
 class TestVectorQuantizeForward:

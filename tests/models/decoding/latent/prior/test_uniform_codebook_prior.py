@@ -54,6 +54,30 @@ class TestUniformCodebookPriorInit:
         assert prior.num_residual_layers == num_residual_layers
         assert prior.latent_dimension == latent_dimension
 
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "latent_dimension, num_codes, num_residual_layers, expected_message",
+        [
+            (0, 4, 1, "latent_dimension must be positive, got 0."),
+            (8, 0, 1, "num_codes must be positive, got 0."),
+            (8, 4, 0, "num_residual_layers must be positive, got 0."),
+        ],
+    )
+    def test_rejects_invalid_configuration(
+        self,
+        latent_dimension: int,
+        num_codes: int,
+        num_residual_layers: int,
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            UniformCodebookPrior(
+                latent_dimension=latent_dimension,
+                num_codes=num_codes,
+                num_residual_layers=num_residual_layers,
+                device="cpu",
+            )
+
 
 class TestUniformCodebookPriorGetAuxiliaryOutputKeys:
     @pytest.mark.unit
@@ -106,6 +130,40 @@ class TestUniformCodebookPriorWirePosterior:
             match=re.escape(
                 "ResidualVQ code_dim (16) does not match "
                 "UniformCodebookPrior code_dim (8)"
+            ),
+        ):
+            prior.wire_posterior(mock_posterior)
+
+    @pytest.mark.unit
+    def test_raises_on_num_codes_mismatch(
+        self,
+        uniform_prior_factory: Callable[..., UniformCodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+    ) -> None:
+        prior = uniform_prior_factory(latent_dimension=8, num_codes=4)
+        mock_posterior = mock_vq_posterior_factory(code_dim=8, num_codes=8)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "ResidualVQ num_codes (8) does not match "
+                "UniformCodebookPrior num_codes (4)"
+            ),
+        ):
+            prior.wire_posterior(mock_posterior)
+
+    @pytest.mark.unit
+    def test_raises_on_num_layers_mismatch(
+        self,
+        uniform_prior_factory: Callable[..., UniformCodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+    ) -> None:
+        prior = uniform_prior_factory(latent_dimension=8, num_residual_layers=2)
+        mock_posterior = mock_vq_posterior_factory(code_dim=8, num_layers=3)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "ResidualVQ num_layers (3) does not match "
+                "UniformCodebookPrior num_residual_layers (2)"
             ),
         ):
             prior.wire_posterior(mock_posterior)

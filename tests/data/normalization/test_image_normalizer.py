@@ -1,5 +1,6 @@
 """Tests for versatil.data.normalization.image_normalizer module."""
 
+import re
 from collections.abc import Callable
 
 import numpy as np
@@ -7,6 +8,8 @@ import pytest
 import torch
 
 from versatil.data.constants import (
+    CLIP_RGB_MEAN,
+    CLIP_RGB_STD,
     ImageNormalizationType,
 )
 from versatil.data.normalization.image_normalizer import (
@@ -23,6 +26,14 @@ from versatil.data.normalization.normalizer import (
 )
 
 ALL_IMAGE_NORM_TYPES = [member.value for member in ImageNormalizationType]
+RGB_ONLY_IMAGE_NORM_TYPES = [
+    ImageNormalizationType.CLIP.value,
+]
+DEPTH_IMAGE_NORM_TYPES = [
+    norm_type
+    for norm_type in ALL_IMAGE_NORM_TYPES
+    if norm_type not in RGB_ONLY_IMAGE_NORM_TYPES
+]
 
 
 @pytest.fixture
@@ -135,6 +146,21 @@ class TestGetRgbImageNormalizer:
 
         assert isinstance(normalizer, SingleFieldLinearNormalizer)
 
+    def test_clip_uses_clip_processor_statistics(self):
+        normalizer = get_rgb_image_normalizer(
+            norm_type=ImageNormalizationType.CLIP.value,
+        )
+        clip_mean = torch.tensor([[0.48145466, 0.4578275, 0.40821073]])
+
+        normalized = normalizer.normalize(clip_mean)
+
+        torch.testing.assert_close(
+            normalized,
+            torch.zeros_like(clip_mean),
+            atol=1e-6,
+            rtol=1e-6,
+        )
+
     @pytest.mark.parametrize("norm_type", ALL_IMAGE_NORM_TYPES)
     def test_unnormalize_inverts_normalize(
         self,
@@ -150,7 +176,7 @@ class TestGetRgbImageNormalizer:
 
 
 class TestGetDepthImageNormalizer:
-    @pytest.mark.parametrize("norm_type", ALL_IMAGE_NORM_TYPES)
+    @pytest.mark.parametrize("norm_type", DEPTH_IMAGE_NORM_TYPES)
     def test_returns_normalizer_for_all_types(
         self,
         norm_type: str,
@@ -164,6 +190,22 @@ class TestGetDepthImageNormalizer:
         assert isinstance(
             normalizer, (SingleFieldLinearNormalizer, SequentialNormalizer)
         )
+
+    @pytest.mark.parametrize("norm_type", RGB_ONLY_IMAGE_NORM_TYPES)
+    def test_rgb_only_normalization_types_raise_for_depth(
+        self,
+        norm_type: str,
+        depth_stats: dict[str, float],
+    ):
+        expected_error = (
+            f"Depth normalization type '{norm_type}' is RGB-only. "
+            "Use one of: ['zero_to_one', 'minus_one_to_one', 'imagenet']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_error)):
+            get_depth_image_normalizer(
+                **depth_stats,
+                norm_type=norm_type,
+            )
 
     def test_zero_to_one_maps_depth_range_to_unit(
         self,
@@ -198,7 +240,7 @@ class TestGetDepthImageNormalizer:
 
         assert isinstance(normalizer, SequentialNormalizer)
 
-    @pytest.mark.parametrize("norm_type", ALL_IMAGE_NORM_TYPES)
+    @pytest.mark.parametrize("norm_type", DEPTH_IMAGE_NORM_TYPES)
     def test_unnormalize_inverts_normalize(
         self,
         norm_type: str,
@@ -239,6 +281,58 @@ class TestCreateImageNormalizer:
         )
 
         assert isinstance(normalizer, SequentialNormalizer)
+
+    @pytest.mark.parametrize(
+        ("norm_type", "mean", "std"),
+        [
+            (
+                ImageNormalizationType.CLIP.value,
+                torch.tensor(CLIP_RGB_MEAN),
+                torch.tensor(CLIP_RGB_STD),
+            ),
+        ],
+    )
+    def test_rgb_only_pretrained_types_use_default_standardization(
+        self,
+        norm_type: str,
+        mean: torch.Tensor,
+        std: torch.Tensor,
+    ):
+        normalizer = create_image_normalizer(
+            input_min=0.0,
+            input_max=255.0,
+            input_mean=127.5,
+            input_std=np.sqrt((255.0**2) / 12.0),
+            norm_type=norm_type,
+        )
+
+        assert isinstance(normalizer, SequentialNormalizer)
+        torch.testing.assert_close(
+            normalizer.normalize(mean * 255.0),
+            torch.zeros_like(mean),
+            atol=1e-5,
+            rtol=1e-5,
+        )
+        torch.testing.assert_close(
+            normalizer.normalize(torch.zeros_like(mean)),
+            -mean / std,
+            atol=1e-5,
+            rtol=1e-5,
+        )
+
+    def test_requires_complete_standardization_stats(self):
+        with pytest.raises(
+            ValueError,
+            match="standardization_mean and standardization_std must be provided together",
+        ):
+            create_image_normalizer(
+                input_min=0.0,
+                input_max=255.0,
+                input_mean=127.5,
+                input_std=73.9,
+                norm_type=ImageNormalizationType.ZERO_TO_ONE.value,
+                standardization_mean=np.array([0.485], dtype=np.float32),
+            )
 
     def test_unsupported_norm_type_raises(self):
         with pytest.raises(ValueError, match="Unsupported normalization type"):

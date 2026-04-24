@@ -60,7 +60,8 @@ class ExperimentValidator:
             loss: The loss module for training.
             is_tokenized: Whether observations are tokenized.
             tokenized_obs_keys: Keys of observations that are tokenized.
-            image_norm_type: Image normalization type for DINOv3 validation.
+            image_norm_type: RGB image normalization type for pretrained vision
+                encoder validation.
             quantization_config: Optional quantization configuration to validate.
             training_config: Training configuration. When provided with
                 ``stages``, the validator also checks stage ordering, optimizer
@@ -108,6 +109,68 @@ class ExperimentValidator:
                 msg=f"Policy validation warnings ({len(self.warnings)}):\n{warning_msg}"
             )
 
+    @staticmethod
+    def _encoder_image_model_identifier(encoder: EncodingMixin) -> str:
+        """Return normalized model identifiers exposed by image encoders."""
+        identifiers = []
+        for attribute_name in ("backbone_name", "model_name"):
+            value = getattr(encoder, attribute_name, None)
+            if isinstance(value, str):
+                identifiers.append(value.lower())
+        return " ".join(identifiers)
+
+    def _validate_encoder_image_normalization(
+        self, encoder_name: str, encoder: EncodingMixin
+    ) -> None:
+        """Validate image normalization for pretrained vision-family identifiers."""
+        identifier = self._encoder_image_model_identifier(encoder)
+        if not identifier:
+            return
+        if "dinov3" in identifier:
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="DINOv3 backbone",
+                required_norm_types={ImageNormalizationType.IMAGENET.value},
+                requirement_description="ImageNet normalization",
+                suggestion="'imagenet'",
+            )
+        if "clip" in identifier and "siglip" not in identifier:
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="CLIP image backbone",
+                required_norm_types={ImageNormalizationType.CLIP.value},
+                requirement_description="CLIP normalization",
+                suggestion="'clip'",
+            )
+        if any(
+            model_family in identifier
+            for model_family in ("siglip", "paligemma", "smolvlm", "idefics")
+        ):
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="SigLIP image backbone",
+                required_norm_types={ImageNormalizationType.MINUS_ONE_TO_ONE.value},
+                requirement_description="minus-one-to-one normalization",
+                suggestion="'minus_one_to_one'",
+            )
+
+    def _require_image_norm_type(
+        self,
+        encoder_name: str,
+        model_description: str,
+        required_norm_types: set[str],
+        requirement_description: str,
+        suggestion: str,
+    ) -> None:
+        """Append an error when the configured image normalization is incompatible."""
+        if self.image_norm_type in required_norm_types:
+            return
+        self.errors.append(
+            f"Encoder '{encoder_name}' uses {model_description} which requires "
+            f"{requirement_description}, but image_norm_type is set to "
+            f"'{self.image_norm_type}'. Set it to {suggestion}."
+        )
+
     def validate_encoder_observation_consistency(self) -> None:
         """Validate that encoder inputs match available observations."""
         has_language = (
@@ -148,16 +211,10 @@ class ExperimentValidator:
         configured_encoder_inputs = set()
         for encoder_name, encoder in self.encoding_pipeline.encoders.items():
             encoder: EncodingMixin
-            if (
-                hasattr(encoder, "backbone_name")
-                and "dinov3" in encoder.backbone_name.lower()
-                and self.image_norm_type != ImageNormalizationType.IMAGENET.value
-            ):
-                self.errors.append(
-                    f"Encoder '{encoder_name}' uses DINOv3 backbone which requires "
-                    f"ImageNet normalization, but image_norm_type is set to "
-                    f"'{self.image_norm_type}'. Set it to 'imagenet'."
-                )
+            self._validate_encoder_image_normalization(
+                encoder_name=encoder_name,
+                encoder=encoder,
+            )
 
             input_keys = encoder.input_specification.keys
             if isinstance(input_keys, str):

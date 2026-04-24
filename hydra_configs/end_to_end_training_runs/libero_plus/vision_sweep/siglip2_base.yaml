@@ -22,6 +22,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 10
   dataloader:
+    image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
     tokenization:
       observation_tokenizer:
         tokenizer_model: ${vlm_model:SIGLIP_BASE_PATCH16}

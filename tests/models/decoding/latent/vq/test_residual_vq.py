@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.latent.vq.residual_vq module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -59,6 +60,32 @@ class TestResidualVQInit:
         assert rvq.input_dim == input_dim
         assert rvq.code_dim == code_dim
         assert rvq.num_codes == num_codes
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "input_dim, code_dim, num_codes, num_layers, expected_message",
+        [
+            (0, 8, 4, 1, "input_dim must be positive, got 0."),
+            (8, 0, 4, 1, "code_dim must be positive, got 0."),
+            (8, 8, 0, 1, "num_codes must be positive, got 0."),
+            (8, 8, 4, 0, "num_layers must be positive, got 0."),
+        ],
+    )
+    def test_rejects_invalid_configuration(
+        self,
+        input_dim: int,
+        code_dim: int,
+        num_codes: int,
+        num_layers: int,
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            ResidualVQ(
+                input_dim=input_dim,
+                code_dim=code_dim,
+                num_codes=num_codes,
+                num_layers=num_layers,
+            )
 
 
 class TestResidualVQForward:
@@ -210,14 +237,15 @@ class TestResidualVQForwardIntegration:
         assert torch.equal(indices_rvq[0], indices_vq)
 
     @pytest.mark.integration
-    def test_straight_through_gradient(
-        self, z_e_factory: Callable[..., torch.Tensor]
+    @pytest.mark.parametrize("num_layers", [1, 2, 3])
+    def test_straight_through_gradient_has_unit_scale(
+        self, z_e_factory: Callable[..., torch.Tensor], num_layers: int
     ) -> None:
         rvq = ResidualVQ(
             input_dim=8,
             code_dim=8,
             num_codes=4,
-            num_layers=2,
+            num_layers=num_layers,
             kmeans_init=False,
         )
         rvq.eval()
@@ -225,8 +253,7 @@ class TestResidualVQForwardIntegration:
         z_e.requires_grad_(True)
         z_q, _, _, _ = rvq(z_e)
         z_q.sum().backward()
-        assert z_e.grad is not None
-        assert not torch.all(z_e.grad == 0.0)
+        assert torch.allclose(z_e.grad, torch.ones_like(z_e), atol=1e-6)
 
     @pytest.mark.integration
     @pytest.mark.parametrize("num_layers", [1, 2, 3])

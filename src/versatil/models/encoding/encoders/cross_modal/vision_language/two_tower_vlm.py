@@ -75,6 +75,7 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self._setup_language_keys(output_modality=EncoderOutputKeys.LANGUAGE.value)
         self.pooling_method = pooling_method
+        self.model_name = model_name
         config = AutoConfig.from_pretrained(model_name)
         if pretrained:
             self.encoder = AutoModel.from_pretrained(

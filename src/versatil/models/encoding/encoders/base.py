@@ -114,6 +114,20 @@ class EncodingMixin(nn.Module, abc.ABC):
         """Freeze model weights."""
         for param in self.parameters():
             param.requires_grad = False
+        self.eval()
+
+    def train(self, mode: bool = True) -> "EncodingMixin":
+        """Set train/eval mode while keeping fully frozen encoders eval-locked."""
+        super().train(mode)
+        parameters = list(self.parameters())
+        if (
+            mode
+            and self.frozen
+            and parameters
+            and all(not parameter.requires_grad for parameter in parameters)
+        ):
+            super().train(False)
+        return self
 
     def _apply_model_dtype(self) -> None:
         """Cast the entire encoder module tree to a consistent dtype.

@@ -16,16 +16,14 @@ class TestDataLoaderConfig:
     @pytest.mark.parametrize("shuffle", [True])
     @pytest.mark.parametrize(
         "image_norm_type",
-        [
-            ImageNormalizationType.MINUS_ONE_TO_ONE.value,
-            ImageNormalizationType.ZERO_TO_ONE.value,
-        ],
+        [member.value for member in ImageNormalizationType],
     )
     @pytest.mark.parametrize(
         "depth_norm_type",
         [
             ImageNormalizationType.MINUS_ONE_TO_ONE.value,
             ImageNormalizationType.ZERO_TO_ONE.value,
+            ImageNormalizationType.IMAGENET.value,
         ],
     )
     @pytest.mark.parametrize(

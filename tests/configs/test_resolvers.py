@@ -76,6 +76,7 @@ ENUM_RESOLVER_CASES = [
     ("tokenizer_type", "FAST", TokenizerType.FAST.value),
     ("kinematics_norm_type", "MIN_MAX", KinematicsNormalizationType.MIN_MAX.value),
     ("image_norm_type", "ZERO_TO_ONE", ImageNormalizationType.ZERO_TO_ONE.value),
+    ("image_norm_type", "CLIP", ImageNormalizationType.CLIP.value),
     ("obs_key", "LANGUAGE", ObsKey.LANGUAGE.value),
     ("moe_routing_type", "SOFT", MoERoutingType.SOFT.value),
     ("coordinate_system", "ROBOT_BASE", CoordinateSystem.ROBOT_BASE.value),

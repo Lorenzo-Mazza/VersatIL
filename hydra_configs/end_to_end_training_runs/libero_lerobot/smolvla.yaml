@@ -25,6 +25,7 @@ task:
       ${proprio_key:GRIPPER_STATE}:
         needs_normalization: true
   dataloader:
+    image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
     kinematics_norm_type: ${kinematics_norm_type:GAUSSIAN}
     tokenization:
       tokenize_observations: true

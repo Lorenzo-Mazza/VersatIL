@@ -76,6 +76,35 @@ class TestCodebookPriorInit:
         assert prior.latent_dimension == latent_dimension
         assert len(prior.code_heads) == num_residual_layers
 
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "latent_dimension, num_codes, num_residual_layers, temperature, expected_message",
+        [
+            (0, 4, 1, 1.0, "latent_dimension must be positive, got 0."),
+            (8, 0, 1, 1.0, "num_codes must be positive, got 0."),
+            (8, 4, 0, 1.0, "num_residual_layers must be positive, got 0."),
+            (8, 4, 1, 0.0, "temperature must be positive, got 0.0."),
+        ],
+    )
+    def test_rejects_invalid_configuration(
+        self,
+        latent_dimension: int,
+        num_codes: int,
+        num_residual_layers: int,
+        temperature: float,
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            CodebookPrior(
+                latent_dimension=latent_dimension,
+                num_codes=num_codes,
+                num_residual_layers=num_residual_layers,
+                embedding_dimension=16,
+                observation_horizon=1,
+                device="cpu",
+                temperature=temperature,
+            )
+
     @pytest.mark.parametrize("positional_encoding_type", [None, "rope"])
     def test_positional_encoding_type_forwarded_to_transformer(
         self,
@@ -130,6 +159,55 @@ class TestCodebookPriorWirePosterior:
         ):
             prior.wire_posterior(mock_posterior)
 
+    @pytest.mark.unit
+    def test_raises_on_num_codes_mismatch(
+        self,
+        codebook_prior_factory: Callable[..., CodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+    ) -> None:
+        prior = codebook_prior_factory(latent_dimension=8, num_codes=4)
+        mock_posterior = mock_vq_posterior_factory(code_dim=8, num_codes=8)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "ResidualVQ num_codes (8) does not match CodebookPrior num_codes (4)"
+            ),
+        ):
+            prior.wire_posterior(mock_posterior)
+
+    @pytest.mark.unit
+    def test_raises_on_num_layers_mismatch(
+        self,
+        codebook_prior_factory: Callable[..., CodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+    ) -> None:
+        prior = codebook_prior_factory(latent_dimension=8, num_residual_layers=2)
+        mock_posterior = mock_vq_posterior_factory(code_dim=8, num_layers=3)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "ResidualVQ num_layers (3) does not match "
+                "CodebookPrior num_residual_layers (2)"
+            ),
+        ):
+            prior.wire_posterior(mock_posterior)
+
+    @pytest.mark.unit
+    def test_raises_on_missing_residual_vq_attribute(
+        self,
+        codebook_prior_factory: Callable[..., CodebookPrior],
+    ) -> None:
+        prior = codebook_prior_factory(latent_dimension=8)
+        mock_posterior = MagicMock(spec=[])
+        with pytest.raises(
+            AttributeError,
+            match=re.escape(
+                "Posterior MagicMock does not expose a "
+                "residual_vq attribute required by CodebookPrior."
+            ),
+        ):
+            prior.wire_posterior(mock_posterior)
+
 
 class TestCodebookPriorGetAuxiliaryOutputKeys:
     @pytest.mark.unit
@@ -173,7 +251,7 @@ class TestCodebookPriorForward:
             RuntimeError,
             match=re.escape(
                 "CodebookPrior.residual_vq is not set. "
-                "Call set_residual_vq() before forward()."
+                "Call wire_posterior() before forward()."
             ),
         ):
             prior.forward(target_latents=target_latents, observations=observations)

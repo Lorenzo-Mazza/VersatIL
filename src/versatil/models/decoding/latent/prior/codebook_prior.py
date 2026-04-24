@@ -4,7 +4,7 @@ Predicts a categorical distribution over codebook entries conditioned on
 observations. At inference, samples codebook indices and returns the
 corresponding quantized embedding for the decoder. Shares the codebook
 with the VQ posterior encoder — the codebook is set after construction
-via set_residual_vq().
+via wire_posterior().
 """
 
 import torch
@@ -37,7 +37,7 @@ class CodebookPrior(PriorLatentEncoder):
     to a quantized embedding via the shared codebook.
 
     The codebook is owned by the VQ posterior encoder and shared via
-    set_residual_vq(). This must be called before the first forward pass.
+    wire_posterior(). This must be called before the first forward pass.
 
     Args:
         latent_dimension: Dimension of each codebook vector. Must match
@@ -82,6 +82,18 @@ class CodebookPrior(PriorLatentEncoder):
             latent_dimension=latent_dimension,
             device=device,
         )
+        if latent_dimension <= 0:
+            raise ValueError(
+                f"latent_dimension must be positive, got {latent_dimension}."
+            )
+        if num_codes <= 0:
+            raise ValueError(f"num_codes must be positive, got {num_codes}.")
+        if num_residual_layers <= 0:
+            raise ValueError(
+                f"num_residual_layers must be positive, got {num_residual_layers}."
+            )
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be positive, got {temperature}.")
         self.code_dim = latent_dimension
         self.num_codes = num_codes
         self.num_residual_layers = num_residual_layers
@@ -152,15 +164,32 @@ class CodebookPrior(PriorLatentEncoder):
             posterior: VQ posterior encoder with a residual_vq attribute.
 
         Raises:
-            ValueError: If the posterior's code_dim does not match this
-                prior's code_dim.
+            AttributeError: If the posterior does not expose ResidualVQ state.
+            ValueError: If the posterior's VQ configuration does not match
+                this prior's configuration.
         """
-        if posterior.residual_vq.code_dim != self.code_dim:
+        residual_vq = getattr(posterior, "residual_vq", None)
+        if residual_vq is None:
+            raise AttributeError(
+                f"Posterior {type(posterior).__name__} does not expose a "
+                f"residual_vq attribute required by CodebookPrior."
+            )
+        if residual_vq.code_dim != self.code_dim:
             raise ValueError(
-                f"ResidualVQ code_dim ({posterior.residual_vq.code_dim}) does not match "
+                f"ResidualVQ code_dim ({residual_vq.code_dim}) does not match "
                 f"CodebookPrior code_dim ({self.code_dim})"
             )
-        self.residual_vq = posterior.residual_vq
+        if residual_vq.num_codes != self.num_codes:
+            raise ValueError(
+                f"ResidualVQ num_codes ({residual_vq.num_codes}) does not match "
+                f"CodebookPrior num_codes ({self.num_codes})"
+            )
+        if residual_vq.num_layers != self.num_residual_layers:
+            raise ValueError(
+                f"ResidualVQ num_layers ({residual_vq.num_layers}) does not match "
+                f"CodebookPrior num_residual_layers ({self.num_residual_layers})"
+            )
+        self.residual_vq = residual_vq
 
     def forward(
         self,
@@ -187,7 +216,7 @@ class CodebookPrior(PriorLatentEncoder):
         if self.residual_vq is None:
             raise RuntimeError(
                 "CodebookPrior.residual_vq is not set. "
-                "Call set_residual_vq() before forward()."
+                "Call wire_posterior() before forward()."
             )
 
         input_observations = {

@@ -147,6 +147,7 @@ class ImageNormalizationType(enum.StrEnum):
     MINUS_ONE_TO_ONE = "minus_one_to_one"
     ZERO_TO_ONE = "zero_to_one"
     IMAGENET = "imagenet"
+    CLIP = "clip"
 
 
 class KinematicsNormalizationType(enum.StrEnum):
@@ -238,8 +239,13 @@ DEPTH_CAMERAS = [
     Cameras.DEPTH.value,
 ]
 
-# ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
+# Ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
 IMAGENET_RGB_MEAN: list[float] = [0.485, 0.456, 0.406]
 IMAGENET_RGB_STD: list[float] = [0.229, 0.224, 0.225]
+# Ref. OpenAI CLIP preprocess and HF CLIP preprocessor_config.
+# https://github.com/openai/CLIP/blob/main/clip/clip.py
+# https://huggingface.co/openai/clip-vit-base-patch32/blob/main/preprocessor_config.json
+CLIP_RGB_MEAN: list[float] = [0.48145466, 0.4578275, 0.40821073]
+CLIP_RGB_STD: list[float] = [0.26862954, 0.26130258, 0.27577711]
 IMAGENET_DEPTH_MEAN: float = 0.48
 IMAGENET_DEPTH_STD: float = 0.28

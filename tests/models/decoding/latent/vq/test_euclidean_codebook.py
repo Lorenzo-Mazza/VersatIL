@@ -1,6 +1,8 @@
 """Tests for versatil.models.decoding.latent.vq.euclidean_codebook module."""
 
+import re
 from collections.abc import Callable
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -47,6 +49,51 @@ class TestEuclideanCodebookInit:
         assert codebook.embed.shape == (num_codes, code_dim)
         assert codebook.cluster_size.shape == (num_codes,)
         assert codebook.embed_avg.shape == (num_codes, code_dim)
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "num_codes, code_dim, ema_decay, dead_code_threshold, expected_message",
+        [
+            (0, 8, 0.99, 1.0, "num_codes must be positive, got 0."),
+            (4, 0, 0.99, 1.0, "code_dim must be positive, got 0."),
+            (
+                4,
+                8,
+                1.0,
+                1.0,
+                "ema_decay must be in the interval [0.0, 1.0), got 1.0.",
+            ),
+            (
+                4,
+                8,
+                -0.1,
+                1.0,
+                "ema_decay must be in the interval [0.0, 1.0), got -0.1.",
+            ),
+            (
+                4,
+                8,
+                0.99,
+                -1.0,
+                "dead_code_threshold must be non-negative, got -1.0.",
+            ),
+        ],
+    )
+    def test_rejects_invalid_configuration(
+        self,
+        num_codes: int,
+        code_dim: int,
+        ema_decay: float,
+        dead_code_threshold: float,
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            EuclideanCodebook(
+                num_codes=num_codes,
+                code_dim=code_dim,
+                ema_decay=ema_decay,
+                dead_code_threshold=dead_code_threshold,
+            )
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -203,6 +250,105 @@ class TestEuclideanCodebookEMAUpdate:
         codebook(z_e)
         assert torch.allclose(codebook.embed, embed_before)
 
+    @pytest.mark.unit
+    def test_training_update_all_reduces_cluster_statistics_across_distributed_ranks(
+        self,
+        codebook_factory: Callable[..., EuclideanCodebook],
+        z_e_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        codebook = codebook_factory(
+            num_codes=4,
+            code_dim=8,
+            ema_decay=0.5,
+            dead_code_threshold=0.0,
+        )
+        codebook.train()
+        z_e = z_e_factory(batch_size=16, dim=8)
+
+        with (
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.is_available",
+                return_value=True,
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.is_initialized",
+                return_value=True,
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.all_reduce"
+            ) as all_reduce,
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.broadcast"
+            ) as broadcast,
+        ):
+            codebook(z_e)
+
+        assert all_reduce.call_count == 2
+        assert all_reduce.call_args_list[0].args[0].shape == (4,)
+        assert all_reduce.call_args_list[1].args[0].shape == (4, 8)
+        assert broadcast.call_count == 0
+
+    @pytest.mark.unit
+    def test_kmeans_initialization_broadcasts_codebook_buffers_across_distributed_ranks(
+        self,
+        codebook_factory: Callable[..., EuclideanCodebook],
+        z_e_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        codebook = codebook_factory(num_codes=4, code_dim=8, kmeans_init=True)
+        codebook.eval()
+        z_e = z_e_factory(batch_size=16, dim=8)
+
+        with (
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.is_available",
+                return_value=True,
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.is_initialized",
+                return_value=True,
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.broadcast"
+            ) as broadcast,
+        ):
+            codebook(z_e)
+
+        assert broadcast.call_count == 4
+
+    @pytest.mark.unit
+    def test_dead_code_replacement_broadcasts_codebook_buffers_across_distributed_ranks(
+        self,
+        codebook_factory: Callable[..., EuclideanCodebook],
+        z_e_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        codebook = codebook_factory(
+            num_codes=4,
+            code_dim=8,
+            dead_code_threshold=10.0,
+        )
+        codebook.train()
+        z_e = z_e_factory(batch_size=16, dim=8)
+
+        with (
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.is_available",
+                return_value=True,
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.is_initialized",
+                return_value=True,
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.all_reduce"
+            ),
+            patch(
+                "versatil.models.decoding.latent.vq.euclidean_codebook.torch_dist.broadcast"
+            ) as broadcast,
+        ):
+            codebook(z_e)
+
+        assert broadcast.call_count == 4
+
 
 class TestEuclideanCodebookReplaceDeadCodes:
     @pytest.mark.unit
@@ -218,7 +364,8 @@ class TestEuclideanCodebookReplaceDeadCodes:
         )
         codebook.cluster_size.data.fill_(0.0)
         data = z_e_factory(batch_size=16, dim=8)
-        codebook._replace_dead_codes(data)
+        replaced_codes = codebook._replace_dead_codes(data)
+        assert replaced_codes
         assert torch.all(codebook.cluster_size == 1.0)
 
     @pytest.mark.unit
@@ -231,7 +378,8 @@ class TestEuclideanCodebookReplaceDeadCodes:
         codebook.cluster_size.data.fill_(10.0)
         embed_before = codebook.embed.clone()
         data = z_e_factory(batch_size=16, dim=8)
-        codebook._replace_dead_codes(data)
+        replaced_codes = codebook._replace_dead_codes(data)
+        assert not replaced_codes
         assert torch.allclose(codebook.embed, embed_before)
 
     @pytest.mark.unit
@@ -245,6 +393,7 @@ class TestEuclideanCodebookReplaceDeadCodes:
         embed_before = codebook.embed.clone()
         cluster_size_before = codebook.cluster_size.clone()
         data = z_e_factory(batch_size=16, dim=8)
-        codebook._replace_dead_codes(data)
+        replaced_codes = codebook._replace_dead_codes(data)
+        assert not replaced_codes
         assert torch.allclose(codebook.embed, embed_before)
         assert torch.allclose(codebook.cluster_size, cluster_size_before)

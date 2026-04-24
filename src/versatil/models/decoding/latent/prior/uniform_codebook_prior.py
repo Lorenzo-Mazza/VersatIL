@@ -37,6 +37,16 @@ class UniformCodebookPrior(PriorLatentEncoder):
         device: str,
     ):
         super().__init__(latent_dimension=latent_dimension, device=device)
+        if latent_dimension <= 0:
+            raise ValueError(
+                f"latent_dimension must be positive, got {latent_dimension}."
+            )
+        if num_codes <= 0:
+            raise ValueError(f"num_codes must be positive, got {num_codes}.")
+        if num_residual_layers <= 0:
+            raise ValueError(
+                f"num_residual_layers must be positive, got {num_residual_layers}."
+            )
         self.code_dim = latent_dimension
         self.num_codes = num_codes
         self.num_residual_layers = num_residual_layers
@@ -58,7 +68,8 @@ class UniformCodebookPrior(PriorLatentEncoder):
             posterior: VQ posterior encoder with a residual_vq attribute.
 
         Raises:
-            ValueError: If the posterior's code_dim does not match.
+            AttributeError: If the posterior does not expose ResidualVQ state.
+            ValueError: If the posterior's VQ configuration does not match.
         """
         residual_vq = getattr(posterior, "residual_vq", None)
         if residual_vq is None:
@@ -70,6 +81,16 @@ class UniformCodebookPrior(PriorLatentEncoder):
             raise ValueError(
                 f"ResidualVQ code_dim ({residual_vq.code_dim}) does not match "
                 f"UniformCodebookPrior code_dim ({self.code_dim})"
+            )
+        if residual_vq.num_codes != self.num_codes:
+            raise ValueError(
+                f"ResidualVQ num_codes ({residual_vq.num_codes}) does not match "
+                f"UniformCodebookPrior num_codes ({self.num_codes})"
+            )
+        if residual_vq.num_layers != self.num_residual_layers:
+            raise ValueError(
+                f"ResidualVQ num_layers ({residual_vq.num_layers}) does not match "
+                f"UniformCodebookPrior num_residual_layers ({self.num_residual_layers})"
             )
         self.residual_vq = residual_vq
 

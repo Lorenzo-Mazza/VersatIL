@@ -2174,10 +2174,36 @@ class VQPriorCrossEntropyLoss(ScalarWeightedLoss):
 
         posterior_indices = predictions[LatentKey.VQ_INDICES.value]
         prior_logits = predictions[LatentKey.PRIOR_CODE_LOGITS.value]
+        if len(prior_logits) == 0:
+            raise ValueError("VQPriorCrossEntropyLoss received no prior logits.")
+        if len(prior_logits) != len(posterior_indices):
+            raise ValueError(
+                f"VQPriorCrossEntropyLoss expected the same number of prior logit "
+                f"layers and posterior index layers, got {len(prior_logits)} "
+                f"and {len(posterior_indices)}."
+            )
 
         total_ce = torch.tensor(0.0, device=prior_logits[0].device)
-        for layer_logits, layer_indices in zip(prior_logits, posterior_indices):
+        for layer_index, (layer_logits, layer_indices) in enumerate(
+            zip(prior_logits, posterior_indices, strict=True)
+        ):
             # layer_logits: (B, K), layer_indices: (B,)
+            if layer_logits.ndim != 2:
+                raise ValueError(
+                    f"Prior logits for VQ layer {layer_index} must have shape "
+                    f"(B, K), got {tuple(layer_logits.shape)}."
+                )
+            if layer_indices.ndim != 1:
+                raise ValueError(
+                    f"Posterior indices for VQ layer {layer_index} must have shape "
+                    f"(B,), got {tuple(layer_indices.shape)}."
+                )
+            if layer_logits.shape[0] != layer_indices.shape[0]:
+                raise ValueError(
+                    f"Prior logits and posterior indices for VQ layer {layer_index} "
+                    f"must have the same batch size, got {layer_logits.shape[0]} "
+                    f"and {layer_indices.shape[0]}."
+                )
             total_ce = total_ce + F.cross_entropy(
                 layer_logits, layer_indices.long()
             )  # scalar, averaged over batch

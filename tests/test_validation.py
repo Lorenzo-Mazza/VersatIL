@@ -50,6 +50,7 @@ def mock_encoder_factory() -> Callable[..., MagicMock]:
     def factory(
         input_keys: str | list[str] = "left",
         backbone_name: str | None = None,
+        model_name: str | None = None,
     ) -> MagicMock:
         encoder = MagicMock(spec=EncodingMixin)
         if isinstance(input_keys, str):
@@ -60,6 +61,10 @@ def mock_encoder_factory() -> Callable[..., MagicMock]:
             encoder.backbone_name = backbone_name
         else:
             del encoder.backbone_name
+        if model_name is not None:
+            encoder.model_name = model_name
+        else:
+            del encoder.model_name
         return encoder
 
     return factory
@@ -661,6 +666,115 @@ class TestValidateEncoderObservationConsistency:
             encoding_pipeline=pipeline,
             observation_space=observation_space,
             image_norm_type=ImageNormalizationType.IMAGENET.value,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 0
+
+    def test_clip_backbone_with_wrong_normalization_produces_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            model_name="openai/clip-vit-base-patch32",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"clip_encoder": encoder})
+        camera_meta = MagicMock(spec=CameraMetadata)
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.IMAGENET.value,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 1
+        expected_error = (
+            "Encoder 'clip_encoder' uses CLIP image backbone which requires "
+            "CLIP normalization, but image_norm_type is set to "
+            f"'{ImageNormalizationType.IMAGENET.value}'. Set it to 'clip'."
+        )
+        assert validator.errors[0] == expected_error
+
+    def test_clip_backbone_with_clip_normalization_passes(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            backbone_name="vit_base_patch16_clip_224.laion2b_ft_in12k_in1k",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"clip_encoder": encoder})
+        camera_meta = MagicMock(spec=CameraMetadata)
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.CLIP.value,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 0
+
+    def test_siglip_backbone_with_wrong_normalization_produces_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            model_name="google/siglip2-base-patch16-naflex",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"siglip_encoder": encoder})
+        camera_meta = MagicMock(spec=CameraMetadata)
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.ZERO_TO_ONE.value,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 1
+        expected_error = (
+            "Encoder 'siglip_encoder' uses SigLIP image backbone which requires "
+            "minus-one-to-one normalization, but image_norm_type is set to "
+            f"'{ImageNormalizationType.ZERO_TO_ONE.value}'. Set it to "
+            "'minus_one_to_one'."
+        )
+        assert validator.errors[0] == expected_error
+
+    def test_siglip_backbone_with_minus_one_to_one_normalization_passes(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            model_name="HuggingFaceTB/SmolVLM-256M-Instruct",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"smolvlm": encoder})
+        camera_meta = MagicMock(spec=CameraMetadata)
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.MINUS_ONE_TO_ONE.value,
         )
         validator.validate_encoder_observation_consistency()
         assert len(validator.errors) == 0

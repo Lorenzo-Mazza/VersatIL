@@ -335,6 +335,31 @@ class TestEncodingMixinFreezeWeights:
         for parameter in encoder.parameters():
             assert parameter.requires_grad is False
 
+    def test_fully_frozen_encoder_stays_in_eval_mode_when_train_called(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+    ):
+        encoder = concrete_encoder_factory(frozen=True)
+        encoder._freeze_weights()
+
+        encoder.train()
+
+        assert encoder.training is False
+        assert encoder.linear.training is False
+
+    def test_partially_unfrozen_encoder_can_enter_train_mode(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+    ):
+        encoder = concrete_encoder_factory(frozen=True)
+        encoder._freeze_weights()
+        next(encoder.parameters()).requires_grad_(True)
+
+        encoder.train()
+
+        assert encoder.training is True
+        assert encoder.linear.training is True
+
 
 class TestEncodingMixinGetVocabSize:
     def test_returns_none_by_default(

@@ -39,6 +39,14 @@ class ResidualVQ(nn.Module):
         kmeans_init: bool = True,
     ):
         super().__init__()
+        if input_dim <= 0:
+            raise ValueError(f"input_dim must be positive, got {input_dim}.")
+        if code_dim <= 0:
+            raise ValueError(f"code_dim must be positive, got {code_dim}.")
+        if num_codes <= 0:
+            raise ValueError(f"num_codes must be positive, got {num_codes}.")
+        if num_layers <= 0:
+            raise ValueError(f"num_layers must be positive, got {num_layers}.")
         self.input_dim = input_dim
         self.code_dim = code_dim
         self.num_codes = num_codes
@@ -79,7 +87,8 @@ class ResidualVQ(nn.Module):
                     commitment loss.
         """
         residual = z_e  # (B, input_dim)
-        z_q_total = torch.zeros_like(z_e)  # (B, input_dim)
+        z_q_hard_total = torch.zeros_like(z_e)  # (B, input_dim)
+        z_q_straight_through_total = torch.zeros_like(z_e)  # (B, input_dim)
         all_indices = []
         all_z_e_projected = []
         all_z_q_code = []
@@ -91,13 +100,24 @@ class ResidualVQ(nn.Module):
             residual = (
                 residual - z_q_layer.detach()
             )  # (B, input_dim) — detach to stop gradient across layers
-            z_q_total = z_q_total + z_q_layer  # (B, input_dim)
+            z_q_hard_total = z_q_hard_total + z_q_layer.detach()  # (B, input_dim)
+            z_q_straight_through_total = (
+                z_q_straight_through_total + z_q_layer
+            )  # (B, input_dim)
             all_indices.append(indices)
             all_z_e_projected.append(z_e_projected)
             all_z_q_code.append(z_q_code)
 
         z_e_per_layer = torch.stack(all_z_e_projected, dim=0)  # (L, B, code_dim)
         z_q_per_layer = torch.stack(all_z_q_code, dim=0)  # (L, B, code_dim)
+        # Keep the hard RVQ sum in the forward pass, but average the per-layer
+        # straight-through paths so an L-layer RVQ does not multiply encoder
+        # gradients by L when the projections are identities.
+        z_q_total = (
+            z_q_hard_total
+            + (z_q_straight_through_total - z_q_straight_through_total.detach())
+            / self.num_layers
+        )
 
         return z_q_total, all_indices, z_e_per_layer, z_q_per_layer
 

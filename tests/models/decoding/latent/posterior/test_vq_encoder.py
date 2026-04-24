@@ -11,6 +11,7 @@ import torch
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent.posterior.vq_encoder import VQPosteriorEncoder
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
 @pytest.fixture
@@ -264,6 +265,45 @@ class TestVQPosteriorEncoderEncode:
         assert (
             "No padding key found in actions; assuming no padding." not in caplog.text
         )
+
+    @pytest.mark.unit
+    def test_adds_padding_mask_for_action_key_without_action_substring(
+        self,
+        vq_encoder_factory: Callable[..., VQPosteriorEncoder],
+        mock_residual_vq_factory: Callable[..., MagicMock],
+    ) -> None:
+        latent_dimension = 8
+        batch_size = 4
+        prediction_horizon = 4
+        encoder = vq_encoder_factory(latent_dimension=latent_dimension)
+        encoder.residual_vq = mock_residual_vq_factory(
+            batch_size=batch_size, latent_dimension=latent_dimension
+        )
+        action_key = "proprio_robot_frame"
+        padding_mask = torch.tensor(
+            [
+                [False, False, True, True],
+                [False, True, True, True],
+                [False, False, False, True],
+                [False, False, False, False],
+            ]
+        )
+        actions = {
+            action_key: torch.ones(batch_size, prediction_horizon, 2),
+            SampleKey.IS_PAD_ACTION.value: padding_mask,
+        }
+
+        with patch.object(
+            encoder.input_sequence_builder,
+            "forward",
+            wraps=encoder.input_sequence_builder.forward,
+        ) as input_sequence_builder:
+            encoder.encode(actions)
+
+        builder_features = input_sequence_builder.call_args.args[0]
+        action_padding_key = f"{action_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        assert action_padding_key in builder_features
+        assert torch.equal(builder_features[action_padding_key], padding_mask)
 
 
 class TestVQPosteriorEncoderEncodeIntegration:
