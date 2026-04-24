@@ -7,17 +7,27 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 
-from versatil.data.constants import Cameras, SampleKey
+from versatil.configs import register_resolvers
+from versatil.data.constants import (
+    Cameras,
+    MetadataPassthroughSource,
+    SampleKey,
+    SyntheticObsKey,
+)
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
+from versatil.metrics.constants import MetadataKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.policy import Policy
+
+register_resolvers()
 
 
 class TestPolicyInitialization:
@@ -338,7 +348,7 @@ class TestForward:
         self,
         policy_factory: Callable[..., Policy],
         batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
-    ):
+    ) -> None:
         policy = policy_factory()
         batch = batch_dictionary_factory()
         policy.forward(batch=batch)
@@ -348,13 +358,63 @@ class TestForward:
         for key in expected_obs:
             assert torch.equal(actual_obs[key], expected_obs[key])
 
+    def test_strips_metadata_passthrough_observations_before_pipeline(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        policy = policy_factory(
+            metadata_passthrough={
+                MetadataPassthroughSource.OBSERVATION.value: {
+                    SyntheticObsKey.MODE_ID.value: MetadataKey.LATENT_COLOR_LABEL.value
+                }
+            },
+        )
+        batch = batch_dictionary_factory()
+        mode_id = torch.tensor([[[0]], [[1]]], dtype=torch.long)
+        batch[SampleKey.OBSERVATION.value][SyntheticObsKey.MODE_ID.value] = mode_id
+
+        policy.forward(batch=batch)
+
+        actual_obs = policy.encoding_pipeline.call_args.args[0]
+        assert SyntheticObsKey.MODE_ID.value not in actual_obs
+        assert SyntheticObsKey.MODE_ID.value in batch[SampleKey.OBSERVATION.value]
+
+    def test_preserves_metadata_passthrough_observations_used_by_encoder(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        encoder = MagicMock()
+        encoder.input_specification.keys = [SyntheticObsKey.MODE_ID.value]
+        pipeline = encoding_pipeline_factory(encoders={"mode": encoder})
+        pipeline.return_value = feature_dictionary_factory()
+        policy = policy_factory(
+            encoding_pipeline=pipeline,
+            metadata_passthrough={
+                MetadataPassthroughSource.OBSERVATION.value: {
+                    SyntheticObsKey.MODE_ID.value: MetadataKey.LATENT_COLOR_LABEL.value
+                }
+            },
+        )
+        batch = batch_dictionary_factory()
+        mode_id = torch.tensor([[[0]], [[1]]], dtype=torch.long)
+        batch[SampleKey.OBSERVATION.value][SyntheticObsKey.MODE_ID.value] = mode_id
+
+        policy.forward(batch=batch)
+
+        actual_obs = policy.encoding_pipeline.call_args.args[0]
+        assert torch.equal(actual_obs[SyntheticObsKey.MODE_ID.value], mode_id)
+
     def test_passes_features_and_actions_to_algorithm(
         self,
         policy_factory: Callable[..., Policy],
         batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
         feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
         encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
+    ) -> None:
         features = feature_dictionary_factory()
         pipeline = encoding_pipeline_factory()
         pipeline.return_value = features
@@ -371,7 +431,7 @@ class TestForward:
         self,
         policy_factory: Callable[..., Policy],
         batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
-    ):
+    ) -> None:
         expected_output = {"prediction": torch.zeros(2, 4, 7)}
         policy = policy_factory(algorithm_forward_return=expected_output)
         batch = batch_dictionary_factory()
@@ -382,7 +442,7 @@ class TestForward:
         self,
         policy_factory: Callable[..., Policy],
         observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
+    ) -> None:
         policy = policy_factory()
         batch = {SampleKey.OBSERVATION.value: observation_dictionary_factory()}
         policy.forward(batch=batch)
@@ -448,6 +508,105 @@ class TestComputeLoss:
         call_kwargs = loss_module.call_args.kwargs
         assert torch.equal(call_kwargs["is_pad"], is_pad)
 
+    def test_adds_configured_observation_metadata_to_loss_output(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        loss_output = LossOutput(total_loss=torch.tensor(0.1))
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = loss_output
+        policy = policy_factory(
+            loss=loss_module,
+            metadata_passthrough={
+                MetadataPassthroughSource.OBSERVATION.value: {
+                    SyntheticObsKey.MODE_ID.value: MetadataKey.LATENT_COLOR_LABEL.value
+                }
+            },
+        )
+        batch = batch_dictionary_factory()
+        mode_id = torch.tensor([[[0]], [[1]]], dtype=torch.long)
+        batch[SampleKey.OBSERVATION.value][SyntheticObsKey.MODE_ID.value] = mode_id
+
+        result = policy.compute_loss(batch=batch)
+
+        assert torch.equal(
+            result.metadata[MetadataKey.LATENT_COLOR_LABEL.value], mode_id
+        )
+
+    def test_adds_hydra_configured_observation_metadata_to_loss_output(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        loss_output = LossOutput(total_loss=torch.tensor(0.1))
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = loss_output
+        policy = policy_factory(
+            loss=loss_module,
+            metadata_passthrough=OmegaConf.create(
+                {
+                    "${metadata_passthrough_source:OBSERVATION}": {
+                        "${synthetic_obs_key:MODE_ID}": (
+                            MetadataKey.LATENT_COLOR_LABEL.value
+                        )
+                    }
+                }
+            ),
+        )
+        batch = batch_dictionary_factory()
+        mode_id = torch.tensor([[[0]], [[1]]], dtype=torch.long)
+        batch[SampleKey.OBSERVATION.value][SyntheticObsKey.MODE_ID.value] = mode_id
+
+        result = policy.compute_loss(batch=batch)
+
+        assert torch.equal(
+            result.metadata[MetadataKey.LATENT_COLOR_LABEL.value], mode_id
+        )
+
+    def test_adds_configured_prediction_metadata_to_loss_output(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        prediction_metadata = torch.tensor([0, 1])
+        forward_output = {
+            "prediction": torch.zeros(2, 4, 7),
+            "predicted_label": prediction_metadata,
+        }
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = LossOutput(total_loss=torch.tensor(0.1))
+        policy = policy_factory(
+            loss=loss_module,
+            algorithm_forward_return=forward_output,
+            metadata_passthrough={
+                MetadataPassthroughSource.PREDICTION.value: {
+                    "predicted_label": MetadataKey.LATENT_COLOR_LABEL.value
+                }
+            },
+        )
+        batch = batch_dictionary_factory()
+
+        result = policy.compute_loss(batch=batch)
+
+        assert torch.equal(
+            result.metadata[MetadataKey.LATENT_COLOR_LABEL.value],
+            prediction_metadata,
+        )
+
+    def test_rejects_unknown_metadata_passthrough_source(
+        self,
+        policy_factory: Callable[..., Policy],
+    ) -> None:
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Unknown metadata passthrough source 'targets'. "
+                "Valid sources: ['action', 'observation', 'prediction']."
+            ),
+        ):
+            policy_factory(metadata_passthrough={"targets": {"x": "y"}})
+
 
 class TestPredictAction:
     @patch("versatil.models.policy.unnormalize_actions")
@@ -489,6 +648,40 @@ class TestPredictAction:
         )
         mock_unnormalize.assert_called_once()
         assert result is unnormalized
+
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_strips_metadata_passthrough_observations_before_predict_pipeline(
+        self,
+        mock_to_device: MagicMock,
+        mock_normalize: MagicMock,
+        mock_unnormalize: MagicMock,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        observation = observation_dictionary_factory()
+        normalized_observation = observation_dictionary_factory()
+        normalized_observation[SyntheticObsKey.MODE_ID.value] = torch.tensor(
+            [[[0]], [[1]]], dtype=torch.long
+        )
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = normalized_observation
+        mock_unnormalize.return_value = {}
+        policy = policy_factory(
+            metadata_passthrough={
+                MetadataPassthroughSource.OBSERVATION.value: {
+                    SyntheticObsKey.MODE_ID.value: MetadataKey.LATENT_COLOR_LABEL.value
+                }
+            },
+        )
+        policy.algorithm.predict.return_value = {}
+
+        policy.predict_action(obs_dict=observation)
+
+        actual_obs = policy.encoding_pipeline.call_args.args[0]
+        assert SyntheticObsKey.MODE_ID.value not in actual_obs
+        assert SyntheticObsKey.MODE_ID.value in normalized_observation
 
     @patch("versatil.models.policy.unnormalize_actions")
     @patch("versatil.models.policy.tokenize_observation")

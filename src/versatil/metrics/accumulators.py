@@ -30,6 +30,15 @@ def to_scalar(value: Any) -> float:
 
 
 @dataclass
+class LatentVisualizationData:
+    """Latent arrays and optional categorical labels for plotting."""
+
+    posterior: np.ndarray | None
+    prior: np.ndarray | None
+    labels: dict[str, np.ndarray] = field(default_factory=dict)
+
+
+@dataclass
 class MetricsAccumulator:
     """Generic metrics accumulator for tracking losses and computing metrics across batches.
 
@@ -167,51 +176,53 @@ class MetricsAccumulator:
 
     def compute_latent_visualization_data(
         self,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None] | None:
-        """Compute latent visualization data with aligned phase labels.
+        label_keys: list[str] | None = None,
+    ) -> LatentVisualizationData:
+        """Compute latent visualization data with aligned categorical labels.
 
         Handles the shape mismatch between:
         - Latent z: (B, latent_dim) - one per sample
-        - Phase labels: (B, prediction_horizon) - multiple per sample
+        - Labels: (B, T) or (B, T, 1) - multiple labels per sample
 
-        Reduces phase labels to one per sample using mode (most frequent phase
-        in each action chunk), which represents the dominant phase for that latent.
+        Reduces sequence labels to one per sample using the mode.
 
         Returns:
-            Tuple of (z, z_prior, phase_per_sample) where:
-                - z: (N, latent_dim) latent posterior samples, or None if unavailable
-                - z_prior: (N, latent_dim) latent prior samples, or None if unavailable
-                - phase_per_sample: (N,) dominant phase per sample, or None if unavailable
-            Returns None if no latent data available.
+            LatentVisualizationData with posterior/prior arrays and optional labels.
         """
-        z, z_prior, phase_per_sample = None, None, None
-        if MetadataKey.PHASE_LABEL.value in self.metadata:
-            all_phases = torch.cat(self.metadata[MetadataKey.PHASE_LABEL.value], dim=0)
-            # Squeeze trailing dim if present: (B, horizon, 1) -> (B, horizon)
-            if all_phases.ndim == 3 and all_phases.shape[-1] == 1:
-                all_phases = all_phases.squeeze(-1)
-            # Reduce (B, prediction_horizon) -> (N,) using mode
-            phase_per_sample = torch.mode(all_phases, dim=1).values.numpy()
+        labels = {}
+        for label_key in label_keys or []:
+            if label_key in self.metadata:
+                labels[label_key] = self._compute_label_per_sample(
+                    metadata_key=label_key
+                )
+        return LatentVisualizationData(
+            posterior=self._compute_latent_array(
+                metadata_key=MetadataKey.POSTERIOR_Z.value
+            ),
+            prior=self._compute_latent_array(metadata_key=MetadataKey.PRIOR_Z.value),
+            labels=labels,
+        )
 
-        if MetadataKey.POSTERIOR_Z.value in self.metadata:
-            # Concatenate latent variables
-            all_z = torch.cat(self.metadata[MetadataKey.POSTERIOR_Z.value], dim=0)
-            # Handle 3D latents (B, T, H) from Free Transformer by flattening
-            if all_z.ndim == 3:
-                all_z = all_z.view(all_z.shape[0], -1)  # (N, T, H) -> (N, T*H)
-            z = all_z.float().numpy()
+    def _compute_latent_array(self, metadata_key: str) -> np.ndarray | None:
+        """Concatenate and flatten latent metadata for visualization."""
+        if metadata_key not in self.metadata:
+            return None
+        latent = torch.cat(self.metadata[metadata_key], dim=0)
+        if latent.ndim == 3:
+            latent = latent.view(latent.shape[0], -1)
+        return latent.float().numpy()
 
-        if MetadataKey.PRIOR_Z.value in self.metadata:
-            # Concatenate latent variables
-            all_prior_z = torch.cat(self.metadata[MetadataKey.PRIOR_Z.value], dim=0)
-            # Handle 3D latents (B, T, H) from Free Transformer by flattening
-            if all_prior_z.ndim == 3:
-                all_prior_z = all_prior_z.view(
-                    all_prior_z.shape[0], -1
-                )  # (N, T, H) -> (N, T*H)
-            z_prior = all_prior_z.float().numpy()
-
-        return z, z_prior, phase_per_sample
+    def _compute_label_per_sample(self, metadata_key: str) -> np.ndarray:
+        """Reduce sequence labels to one categorical value per sample."""
+        labels = torch.cat(self.metadata[metadata_key], dim=0)
+        if labels.ndim == 3 and labels.shape[-1] == 1:
+            labels = labels.squeeze(-1)
+        if labels.ndim == 2 and labels.shape[1] == 1:
+            labels = labels.squeeze(-1)
+        elif labels.ndim >= 2:
+            labels = labels.view(labels.shape[0], -1)
+            labels = torch.mode(labels, dim=1).values
+        return labels.numpy()
 
     def compute_latent_statistics(self) -> dict[str, float]:
         """Compute scalar statistics from latent distribution metadata.

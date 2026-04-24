@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from omegaconf import MISSING
@@ -22,6 +22,7 @@ class PolicyConfig:
     observation_horizon: int = "${task.observation_horizon}"
     device: str = "${experiment.device}"
     loss: CompositeLossConfig = MISSING
+    metadata_passthrough: dict[str, dict[str, str]] = field(default_factory=dict)
     validate_loss_keys: bool = (
         True  # Whether to validate loss keys against action space
     )

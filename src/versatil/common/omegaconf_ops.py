@@ -1,9 +1,12 @@
 """OmegaConf utility operations."""
 
+from collections.abc import Mapping
+from typing import Any
+
 from omegaconf import OmegaConf
 
 
-def resolve_dict_keys(d: dict) -> dict:
+def resolve_dict_keys(d: Mapping[Any, Any]) -> dict[Any, Any]:
     """Resolve any OmegaConf interpolations in dictionary keys recursively.
 
     OmegaConf doesn't resolve interpolations in dict keys by default.
@@ -23,7 +26,8 @@ def resolve_dict_keys(d: dict) -> dict:
             resolved_key = OmegaConf.select(temp_cfg, "_key")
         else:
             resolved_key = key
-        # Recurse on value if it's a dict
-        resolved_value = resolve_dict_keys(value) if isinstance(value, dict) else value
+        resolved_value = (
+            resolve_dict_keys(value) if isinstance(value, Mapping) else value
+        )
         resolved[resolved_key] = resolved_value
     return resolved

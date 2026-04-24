@@ -677,6 +677,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         bandwidth_multipliers: list[float] | None = None,
         use_median_heuristic: bool = True,
         use_fixed_gaussian_as_prior: bool = False,
+        prior_target_key: str = LatentKey.POSTERIOR_LATENT.value,
     ):
         """Initialize MMD loss.
 
@@ -692,10 +693,13 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             use_median_heuristic: Adaptive bandwidth via median heuristic
                 (True) or fixed absolute bandwidths (False).
             use_fixed_gaussian_as_prior: If True, always use standard Gaussian as prior.
+            prior_target_key: Posterior output key used as aggregate prior-matching samples.
+                Use ``LatentKey.POSTERIOR_MU`` for deterministic WAE-style matching.
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
+        self.prior_target_key = prior_target_key
         self.kernel = KernelType(kernel_type).to_kernel(
             bandwidth_multipliers=bandwidth_multipliers,
             use_median_heuristic=use_median_heuristic,
@@ -704,7 +708,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
-        keys = {LatentKey.POSTERIOR_LATENT.value}
+        keys = {self.prior_target_key}
         if not self.use_fixed_gaussian_as_prior:
             keys.add(LatentKey.PRIOR_LATENT.value)
         return keys
@@ -729,7 +733,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
                 f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss."
             )
 
-        z_posterior = predictions[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
+        z_posterior = predictions[self.prior_target_key]  # (B, latent_dim)
         original_z_prior = predictions.get(
             LatentKey.PRIOR_LATENT.value
         )  # (B, latent_dim) or None
@@ -797,7 +801,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             )
             total_loss = total_loss + self.prior_regularization_weight * prior_mmd_sq
 
-        metadata = {MetadataKey.POSTERIOR_Z.value: z_posterior}
+        metadata = {}
+        posterior_latent = predictions.get(LatentKey.POSTERIOR_LATENT.value)
+        if posterior_latent is not None:
+            metadata[MetadataKey.POSTERIOR_Z.value] = posterior_latent
         posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
         if posterior_mu is not None:
             metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu

@@ -19,3 +19,11 @@ observations_metadata:
     dimension: 2
     needs_normalization: true
     frame: ${coordinate_system:UNKNOWN}
+
+  ${synthetic_obs_key:MODE_ID}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [mode]
+    dtype: uint8
+    dimension: 1
+    is_numerical: true
+    needs_normalization: false

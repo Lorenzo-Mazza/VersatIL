@@ -89,6 +89,7 @@ class TargetKey(StrEnum):
 class MetadataKey(StrEnum):
     """Keys for metadata stored in LossOutput."""
 
+    LATENT_COLOR_LABEL = "latent_color_label"
     PHASE_LOGITS = "phase_logits"
     PHASE_LABEL = "phase_label"
     EXPERT_USAGE = "expert_usage"

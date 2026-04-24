@@ -29,6 +29,9 @@ experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}
 
 policy:
+  metadata_passthrough:
+    ${metadata_passthrough_source:OBSERVATION}:
+      ${synthetic_obs_key:MODE_ID}: ${metadata_key:LATENT_COLOR_LABEL}
   _target_: versatil.models.policy.Policy
   observation_space: ${task.observation_space}
   action_space: ${task.action_space}

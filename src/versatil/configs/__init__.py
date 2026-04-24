@@ -169,6 +169,7 @@ from versatil.data.constants import (
     GripperType,
     ImageNormalizationType,
     KinematicsNormalizationType,
+    MetadataPassthroughSource,
     ObsKey,
     OrientationRepresentation,
     ProprioKey,
@@ -441,6 +442,11 @@ def register_resolvers():
     if not OmegaConf.has_resolver("metadata_key"):
         OmegaConf.register_new_resolver(
             "metadata_key", lambda name: MetadataKey[name].value
+        )
+    if not OmegaConf.has_resolver("metadata_passthrough_source"):
+        OmegaConf.register_new_resolver(
+            "metadata_passthrough_source",
+            lambda name: MetadataPassthroughSource[name].value,
         )
     if not OmegaConf.has_resolver("dit_type"):
         OmegaConf.register_new_resolver("dit_type", lambda name: DiTType[name].value)

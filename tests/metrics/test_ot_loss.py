@@ -326,9 +326,23 @@ class TestLatentOptimalTransportLossGetRequiredKeys:
     )
     def test_returns_posterior_and_prior_keys(self, mock_init):
         instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
         required = instance.get_required_keys()
         assert required == {
             LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.PRIOR_LATENT.value,
+        }
+
+    @patch(
+        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_returns_configured_prior_target_key(self, mock_init):
+        instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
+        instance.prior_target_key = LatentKey.POSTERIOR_MU.value
+        required = instance.get_required_keys()
+        assert required == {
+            LatentKey.POSTERIOR_MU.value,
             LatentKey.PRIOR_LATENT.value,
         }
 
@@ -342,6 +356,7 @@ class TestLatentOptimalTransportLossForward:
     def test_raises_on_missing_keys(self, mock_init, latent_predictions_factory):
         instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
         instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
         instance.ot = MagicMock()
 
         full_predictions = latent_predictions_factory(batch_size=4, latent_dimension=8)
@@ -361,6 +376,7 @@ class TestLatentOptimalTransportLossForward:
     def test_computes_sinkhorn_loss(self, mock_init, latent_predictions_factory):
         instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
         instance.weight = 0.5
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
 
         ot_value = 1.0
         mock_ot = MagicMock()
@@ -380,9 +396,40 @@ class TestLatentOptimalTransportLossForward:
         "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
+    def test_uses_configured_prior_target_key_for_matching(
+        self, mock_init, latent_predictions_factory
+    ):
+        instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
+        instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_MU.value
+
+        mock_ot = MagicMock()
+        mock_ot.return_value = torch.tensor([0.1, 0.1, 0.1, 0.1])
+        instance.ot = mock_ot
+
+        predictions = latent_predictions_factory(
+            batch_size=4,
+            latent_dimension=8,
+            include_mu=True,
+        )
+
+        result = instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+        posterior_arg, _ = mock_ot.call_args.args
+        assert torch.equal(posterior_arg, predictions[LatentKey.POSTERIOR_MU.value])
+        assert torch.equal(
+            result.metadata[MetadataKey.POSTERIOR_Z.value],
+            predictions[LatentKey.POSTERIOR_LATENT.value],
+        )
+
+    @patch(
+        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_includes_latent_metadata(self, mock_init, latent_predictions_factory):
         instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
         instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
 
         mock_ot = MagicMock()
         mock_ot.return_value = torch.tensor([0.1, 0.1, 0.1, 0.1])
@@ -404,6 +451,7 @@ class TestLatentOptimalTransportLossForward:
     ):
         instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
         instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
 
         mock_ot = MagicMock()
         mock_ot.return_value = torch.tensor([0.1, 0.1, 0.1, 0.1])
@@ -432,6 +480,7 @@ class TestLatentOptimalTransportLossForward:
     ):
         instance = LatentOptimalTransportLoss.__new__(LatentOptimalTransportLoss)
         instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
 
         mock_ot = MagicMock()
         mock_ot.return_value = torch.tensor([0.1, 0.1, 0.1, 0.1])

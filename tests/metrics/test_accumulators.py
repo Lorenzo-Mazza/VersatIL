@@ -1,5 +1,7 @@
 """Tests for versatil.metrics.accumulators module."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 import torch
@@ -10,7 +12,9 @@ from versatil.metrics.constants import MetadataKey, MetricKey
 
 
 @pytest.fixture
-def phase_loss_output_factory(rng):
+def phase_loss_output_factory(
+    rng: np.random.Generator,
+) -> Callable[..., LossOutput]:
     def factory(
         total_loss: float = 1.0,
         batch_size: int = 4,
@@ -35,7 +39,9 @@ def phase_loss_output_factory(rng):
 
 
 @pytest.fixture
-def latent_loss_output_factory(rng):
+def latent_loss_output_factory(
+    rng: np.random.Generator,
+) -> Callable[..., LossOutput]:
     def factory(
         total_loss: float = 1.0,
         batch_size: int = 4,
@@ -270,15 +276,17 @@ class TestMetricsAccumulatorExpertUsage:
 
 @pytest.mark.unit
 class TestMetricsAccumulatorLatentVisualization:
-    def test_returns_nones_when_no_latent_data(self):
+    def test_returns_nones_when_no_latent_data(self) -> None:
         accumulator = MetricsAccumulator()
         result = accumulator.compute_latent_visualization_data()
-        z, z_prior, phase = result
-        assert z is None
-        assert z_prior is None
-        assert phase is None
+        assert result.posterior is None
+        assert result.prior is None
+        assert result.labels == {}
 
-    def test_returns_posterior_z_as_numpy(self, latent_loss_output_factory):
+    def test_returns_posterior_z_as_numpy(
+        self,
+        latent_loss_output_factory: Callable[..., LossOutput],
+    ) -> None:
         accumulator = MetricsAccumulator()
         batch_size, latent_dimension = 4, 8
         accumulator.add_loss_output(
@@ -286,12 +294,15 @@ class TestMetricsAccumulatorLatentVisualization:
                 batch_size=batch_size, latent_dimension=latent_dimension
             )
         )
-        z, z_prior, phase = accumulator.compute_latent_visualization_data()
-        assert z.shape == (batch_size, latent_dimension)
-        assert z_prior is None
-        assert phase is None
+        result = accumulator.compute_latent_visualization_data()
+        assert result.posterior.shape == (batch_size, latent_dimension)
+        assert result.prior is None
+        assert result.labels == {}
 
-    def test_returns_prior_z_when_available(self, latent_loss_output_factory):
+    def test_returns_prior_z_when_available(
+        self,
+        latent_loss_output_factory: Callable[..., LossOutput],
+    ) -> None:
         accumulator = MetricsAccumulator()
         batch_size, latent_dimension = 4, 8
         accumulator.add_loss_output(
@@ -301,11 +312,14 @@ class TestMetricsAccumulatorLatentVisualization:
                 include_prior=True,
             )
         )
-        z, z_prior, phase = accumulator.compute_latent_visualization_data()
-        assert z.shape == (batch_size, latent_dimension)
-        assert z_prior.shape == (batch_size, latent_dimension)
+        result = accumulator.compute_latent_visualization_data()
+        assert result.posterior.shape == (batch_size, latent_dimension)
+        assert result.prior.shape == (batch_size, latent_dimension)
 
-    def test_reduces_phase_labels_to_mode_per_sample(self, rng):
+    def test_reduces_configured_sequence_labels_to_mode_per_sample(
+        self,
+        rng: np.random.Generator,
+    ) -> None:
         accumulator = MetricsAccumulator()
         batch_size, horizon = 4, 5
         labels = torch.zeros(batch_size, horizon, dtype=torch.long)
@@ -321,20 +335,26 @@ class TestMetricsAccumulatorLatentVisualization:
         output = LossOutput(
             total_loss=torch.tensor(1.0),
             metadata={
-                MetadataKey.PHASE_LABEL.value: labels,
+                MetadataKey.LATENT_COLOR_LABEL.value: labels,
                 MetadataKey.POSTERIOR_Z.value: z_data,
             },
         )
         accumulator.add_loss_output(output)
-        z, z_prior, phase = accumulator.compute_latent_visualization_data()
-        assert phase[0] == 0
-        assert phase[1] == 1
-        assert phase[2] == 2
-        assert phase[3] == 0
+        result = accumulator.compute_latent_visualization_data(
+            label_keys=[MetadataKey.LATENT_COLOR_LABEL.value]
+        )
+        label = result.labels[MetadataKey.LATENT_COLOR_LABEL.value]
+        assert label[0] == 0
+        assert label[1] == 1
+        assert label[2] == 2
+        assert label[3] == 0
 
-    def test_squeezes_trailing_dim_from_phase_labels(self, rng):
+    def test_returns_phase_labels_when_requested(
+        self,
+        rng: np.random.Generator,
+    ) -> None:
         accumulator = MetricsAccumulator()
-        labels = torch.zeros(2, 3, 1, dtype=torch.long)
+        labels = torch.tensor([[0, 0, 1], [2, 2, 1]], dtype=torch.long)
         z_data = torch.from_numpy(rng.standard_normal((2, 4)).astype(np.float32))
         output = LossOutput(
             total_loss=torch.tensor(1.0),
@@ -344,10 +364,57 @@ class TestMetricsAccumulatorLatentVisualization:
             },
         )
         accumulator.add_loss_output(output)
-        z, z_prior, phase = accumulator.compute_latent_visualization_data()
-        assert phase.shape == (2,)
 
-    def test_flattens_3d_latents(self, rng):
+        result = accumulator.compute_latent_visualization_data(
+            label_keys=[MetadataKey.PHASE_LABEL.value]
+        )
+
+        label = result.labels[MetadataKey.PHASE_LABEL.value]
+        np.testing.assert_array_equal(label, np.array([0, 2]))
+
+    def test_squeezes_trailing_dim_from_configured_labels(
+        self,
+        rng: np.random.Generator,
+    ) -> None:
+        accumulator = MetricsAccumulator()
+        labels = torch.zeros(2, 3, 1, dtype=torch.long)
+        z_data = torch.from_numpy(rng.standard_normal((2, 4)).astype(np.float32))
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.LATENT_COLOR_LABEL.value: labels,
+                MetadataKey.POSTERIOR_Z.value: z_data,
+            },
+        )
+        accumulator.add_loss_output(output)
+        result = accumulator.compute_latent_visualization_data(
+            label_keys=[MetadataKey.LATENT_COLOR_LABEL.value]
+        )
+        label = result.labels[MetadataKey.LATENT_COLOR_LABEL.value]
+        assert label.shape == (2,)
+
+    def test_omits_unrequested_labels_from_visualization_data(
+        self,
+        rng: np.random.Generator,
+    ) -> None:
+        accumulator = MetricsAccumulator()
+        labels = torch.zeros(2, 1, dtype=torch.long)
+        z_data = torch.from_numpy(rng.standard_normal((2, 4)).astype(np.float32))
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.LATENT_COLOR_LABEL.value: labels,
+                MetadataKey.POSTERIOR_Z.value: z_data,
+            },
+        )
+        accumulator.add_loss_output(output)
+        result = accumulator.compute_latent_visualization_data(label_keys=[])
+        assert result.labels == {}
+
+    def test_flattens_3d_latents(
+        self,
+        rng: np.random.Generator,
+    ) -> None:
         accumulator = MetricsAccumulator()
         batch_size, temporal, hidden = 4, 3, 8
         z_3d_data = rng.standard_normal((batch_size, temporal, hidden)).astype(
@@ -359,8 +426,8 @@ class TestMetricsAccumulatorLatentVisualization:
             metadata={MetadataKey.POSTERIOR_Z.value: z_3d},
         )
         accumulator.add_loss_output(output)
-        z, _, _ = accumulator.compute_latent_visualization_data()
-        assert z.shape == (batch_size, temporal * hidden)
+        result = accumulator.compute_latent_visualization_data()
+        assert result.posterior.shape == (batch_size, temporal * hidden)
 
 
 @pytest.mark.unit

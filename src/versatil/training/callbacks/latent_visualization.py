@@ -1,36 +1,54 @@
 """Latent-space visualization callback for variational policies."""
 
+import re
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import seaborn as sns
 import torch
-import wandb
 from pytorch_lightning.callbacks import Callback
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
+import wandb
+from versatil.metrics.accumulators import MetricsAccumulator
 from versatil.metrics.constants import MetadataKey
 from versatil.training.callbacks.wandb_figure import figure_to_wandb_image
 
 
 class LatentVisualizationCallback(Callback):
-    """Visualize VAE latent space with phase coloring.
+    """Visualize latent spaces with optional metadata coloring.
 
-    Creates t-SNE projections of the latent space colored by dominant phase
-    to show whether different action modes are disentangled.
+    Creates t-SNE/PCA projections of latent spaces. Label metadata is
+    configured explicitly so synthetic modes, phase labels, task ids, or other
+    categorical annotations can be used without task-specific callback logic.
     """
 
-    def __init__(self, log_every_n_epochs: int = 5, max_samples: int = 5000):
+    def __init__(
+        self,
+        log_every_n_epochs: int = 5,
+        max_samples: int = 5000,
+        label_keys: list[str] | None = None,
+    ) -> None:
         """Initialize latent visualization callback.
 
         Args:
             log_every_n_epochs: Log visualization every N epochs.
             max_samples: Maximum samples for t-SNE (subsamples if exceeded).
+            label_keys: Metadata keys to use as categorical color labels.
         """
         super().__init__()
         self.log_every_n_epochs = log_every_n_epochs
         self.max_samples = max_samples
+        self.label_keys = (
+            label_keys
+            if label_keys is not None
+            else [
+                MetadataKey.LATENT_COLOR_LABEL.value,
+                MetadataKey.PHASE_LABEL.value,
+            ]
+        )
 
     def on_train_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
@@ -55,7 +73,7 @@ class LatentVisualizationCallback(Callback):
     def _log_latent(
         self,
         trainer: pl.Trainer,
-        metrics_accumulator,
+        metrics_accumulator: MetricsAccumulator,
         split: str,
     ) -> None:
         """Compute and log latent-space visualizations for the given metrics accumulator.
@@ -68,28 +86,27 @@ class LatentVisualizationCallback(Callback):
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
-        latent_data = metrics_accumulator.compute_latent_visualization_data()
-        if latent_data is None:
-            return
-        z, z_prior, phase_per_sample = latent_data
-        if z is None and z_prior is None:
+        latent_data = metrics_accumulator.compute_latent_visualization_data(
+            label_keys=self.label_keys
+        )
+        if latent_data.posterior is None and latent_data.prior is None:
             return
 
         figures = {}
-        if z is not None:
+        if latent_data.posterior is not None:
             figures.update(
                 self._build_latent_figures(
-                    z=z,
-                    phases=phase_per_sample,
+                    z=latent_data.posterior,
+                    labels_by_key=latent_data.labels,
                     prefix=f"{split}_posterior",
                     title=f"{split.title()} posterior latent space",
                 )
             )
-        if z_prior is not None:
+        if latent_data.prior is not None:
             figures.update(
                 self._build_latent_figures(
-                    z=z_prior,
-                    phases=phase_per_sample,
+                    z=latent_data.prior,
+                    labels_by_key=latent_data.labels,
                     prefix=f"{split}_prior",
                     title=f"{split.title()} prior latent space",
                 )
@@ -111,7 +128,7 @@ class LatentVisualizationCallback(Callback):
     def _build_latent_figures(
         self,
         z: np.ndarray,
-        phases: np.ndarray | None,
+        labels_by_key: dict[str, np.ndarray],
         prefix: str,
         title: str,
     ) -> dict[str, plt.Figure]:
@@ -119,44 +136,61 @@ class LatentVisualizationCallback(Callback):
 
         Args:
             z: Latent samples (N, latent_dim) or (N,).
-            phases: Dominant phase per sample (N,), or None.
+            labels_by_key: Mapping from metadata key to per-sample labels.
             prefix: Metric-key prefix (e.g. "posterior" or "prior").
             title: Human-readable figure title.
 
         Returns:
             Mapping from metric key to matplotlib figure.
         """
+        labels_for_plots: dict[str, np.ndarray | None] = (
+            labels_by_key if labels_by_key else {"": None}
+        )
         latent_dim = z.shape[1] if z.ndim > 1 else 1
-        if latent_dim == 1:
-            return {
-                f"{prefix}_latent_space_histogram": self._create_histogram_figure(
-                    z=z, phases=phases, title=title
+        figures = {}
+        for label_key, labels in labels_for_plots.items():
+            metric_suffix = self._metric_suffix(label_key=label_key)
+            label_name = self._label_display_name(label_key=label_key)
+            if latent_dim == 1:
+                figures[f"{prefix}_latent_space_histogram{metric_suffix}"] = (
+                    self._create_histogram_figure(
+                        z=z, labels=labels, label_name=label_name, title=title
+                    )
                 )
-            }
-        return {
-            f"{prefix}_latent_space_tsne": self._create_latent_figure(
-                z=z, phases=phases, title=title
-            ),
-            f"{prefix}_latent_space_pca": self._create_pca_figure(
-                z=z, phases=phases, title=title
-            ),
-            f"{prefix}_pca_explained_variance": self._create_pca_variance_figure(
-                z=z, title=title
-            ),
-        }
+                continue
+            figures[f"{prefix}_latent_space_tsne{metric_suffix}"] = (
+                self._create_latent_figure(
+                    z=z, labels=labels, label_name=label_name, title=title
+                )
+            )
+            figures[f"{prefix}_latent_space_pca{metric_suffix}"] = (
+                self._create_pca_figure(
+                    z=z, labels=labels, label_name=label_name, title=title
+                )
+            )
+        if latent_dim > 1:
+            figures[f"{prefix}_pca_explained_variance"] = (
+                self._create_pca_variance_figure(z=z, title=title)
+            )
+        return figures
 
     def _create_histogram_figure(
-        self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
+        self,
+        z: np.ndarray,
+        labels: np.ndarray | None,
+        label_name: str,
+        title: str = "",
     ) -> plt.Figure:
         """Create a histogram of a 1D latent distribution.
 
-        When per-sample phase labels are provided, plots one translucent
-        histogram per phase sharing the same bin edges so their shapes are
+        When per-sample labels are provided, plots one translucent
+        histogram per label sharing the same bin edges so their shapes are
         directly comparable. Otherwise, plots a single histogram.
 
         Args:
             z: Latent samples (N, 1) or (N,).
-            phases: Dominant phase per sample (N,), or None.
+            labels: Categorical label per sample (N,), or None.
+            label_name: Human-readable label name.
             title: Title for the plot.
 
         Returns:
@@ -166,17 +200,18 @@ class LatentVisualizationCallback(Callback):
         if z.shape[0] > self.max_samples:
             idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
-            if phases is not None:
-                phases = phases[idx]
+            if labels is not None:
+                labels = labels[idx]
 
         values = z.reshape(-1)
         num_bins = min(50, max(10, int(np.sqrt(values.shape[0]))))
+        encoded_labels, label_values = self._encode_labels(labels=labels)
 
         fig, axis = plt.subplots(figsize=(10, 5))
         sns.histplot(
             x=values,
-            hue=phases.astype(int) if phases is not None else None,
-            palette="tab10" if phases is not None else None,
+            hue=encoded_labels,
+            palette="tab10" if encoded_labels is not None else None,
             bins=num_bins,
             stat="density",
             common_bins=True,
@@ -185,21 +220,28 @@ class LatentVisualizationCallback(Callback):
             alpha=0.5,
             ax=axis,
         )
-        phase_suffix = " (per phase)" if phases is not None else ""
-        axis.set_title(f"{title} histogram{phase_suffix}")
+        if label_values is not None:
+            axis.legend(title=label_name, labels=label_values)
+        label_suffix = f" (colored by {label_name})" if labels is not None else ""
+        axis.set_title(f"{title} histogram{label_suffix}")
         axis.set_xlabel("Latent value")
         axis.set_ylabel("Density")
         plt.tight_layout()
         return fig
 
     def _create_latent_figure(
-        self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
+        self,
+        z: np.ndarray,
+        labels: np.ndarray | None,
+        label_name: str,
+        title: str = "",
     ) -> plt.Figure:
         """Create t-SNE visualization of latent space.
 
         Args:
             z: Latent samples (N, latent_dim).
-            phases: Dominant phase per sample (N,), or None.
+            labels: Categorical label per sample (N,), or None.
+            label_name: Human-readable label name.
             title: Title for the plot.
 
         Returns:
@@ -209,8 +251,8 @@ class LatentVisualizationCallback(Callback):
         if z.shape[0] > self.max_samples:
             idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
-            if phases is not None:
-                phases = phases[idx]
+            if labels is not None:
+                labels = labels[idx]
 
         latent_dim = z.shape[1] if z.ndim > 1 else 1
         n_tsne_components = min(2, latent_dim)
@@ -223,21 +265,25 @@ class LatentVisualizationCallback(Callback):
         fig, ax = plt.subplots(figsize=(10, 8))
 
         y_vals = z_2d[:, 1] if z_2d.shape[1] > 1 else np.zeros(z_2d.shape[0])
-        if phases is not None:
-            n_phases = int(phases.max()) + 1
-            cmap = plt.cm.get_cmap("tab10", n_phases)
+        encoded_labels, label_values = self._encode_labels(labels=labels)
+        if encoded_labels is not None and label_values is not None:
+            n_labels = len(label_values)
+            cmap = plt.get_cmap("tab10", n_labels)
             scatter = ax.scatter(
                 z_2d[:, 0],
                 y_vals,
-                c=phases,
+                c=encoded_labels,
                 cmap=cmap,
                 alpha=0.6,
                 s=10,
                 vmin=-0.5,
-                vmax=n_phases - 0.5,
+                vmax=n_labels - 0.5,
             )
-            plt.colorbar(scatter, ax=ax, label="Phase", ticks=range(n_phases))
-            ax.set_title(f"{title} t-SNE (colored by phase mode)")
+            colorbar = plt.colorbar(
+                scatter, ax=ax, label=label_name, ticks=range(n_labels)
+            )
+            colorbar.ax.set_yticklabels(label_values)
+            ax.set_title(f"{title} t-SNE (colored by {label_name})")
         else:
             ax.scatter(z_2d[:, 0], y_vals, alpha=0.6, s=10)
             ax.set_title(f"{title}  t-SNE")
@@ -248,13 +294,18 @@ class LatentVisualizationCallback(Callback):
         return fig
 
     def _create_pca_figure(
-        self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
+        self,
+        z: np.ndarray,
+        labels: np.ndarray | None,
+        label_name: str,
+        title: str = "",
     ) -> plt.Figure:
         """Create PCA 2D projection of latent space.
 
         Args:
             z: Latent samples (N, latent_dim).
-            phases: Dominant phase per sample (N,), or None.
+            labels: Categorical label per sample (N,), or None.
+            label_name: Human-readable label name.
             title: Title for the plot.
 
         Returns:
@@ -264,8 +315,8 @@ class LatentVisualizationCallback(Callback):
         if z.shape[0] > self.max_samples:
             idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
-            if phases is not None:
-                phases = phases[idx]
+            if labels is not None:
+                labels = labels[idx]
 
         latent_dim = z.shape[1] if z.ndim > 1 else 1
         n_pca_components = min(2, latent_dim)
@@ -276,18 +327,23 @@ class LatentVisualizationCallback(Callback):
         y_vals = (
             projected[:, 1] if projected.shape[1] > 1 else np.zeros(projected.shape[0])
         )
-        if phases is not None:
+        encoded_labels, label_values = self._encode_labels(labels=labels)
+        if encoded_labels is not None:
             sns.scatterplot(
                 x=projected[:, 0],
                 y=y_vals,
-                hue=phases.astype(int),
+                hue=encoded_labels,
                 palette="tab10",
                 alpha=0.6,
                 s=10,
                 legend="full",
                 ax=axis,
             )
-            axis.set_title(f"{title} PCA (colored by phase mode)")
+            if axis.get_legend() is not None and label_values is not None:
+                axis.get_legend().set_title(label_name)
+                for text, value in zip(axis.get_legend().texts, label_values):
+                    text.set_text(value)
+            axis.set_title(f"{title} PCA (colored by {label_name})")
         else:
             sns.scatterplot(
                 x=projected[:, 0],
@@ -303,6 +359,33 @@ class LatentVisualizationCallback(Callback):
         )
         plt.tight_layout()
         return fig
+
+    @staticmethod
+    def _encode_labels(
+        labels: np.ndarray | None,
+    ) -> tuple[np.ndarray | None, list[str] | None]:
+        """Encode categorical labels as integers for plotting."""
+        if labels is None:
+            return None, None
+        flattened_labels = labels.reshape(-1)
+        unique_values, encoded_labels = np.unique(flattened_labels, return_inverse=True)
+        label_values = [str(value) for value in unique_values.tolist()]
+        return encoded_labels, label_values
+
+    @staticmethod
+    def _metric_suffix(label_key: str) -> str:
+        """Create a metric-key suffix for a label metadata key."""
+        if not label_key:
+            return ""
+        safe_key = re.sub(r"[^0-9a-zA-Z_]+", "_", label_key).strip("_")
+        return f"_by_{safe_key}"
+
+    @staticmethod
+    def _label_display_name(label_key: str) -> str:
+        """Create a readable label name for plot titles."""
+        if not label_key:
+            return "label"
+        return label_key.replace("_", " ")
 
     def _create_pca_variance_figure(self, z: np.ndarray, title: str = "") -> plt.Figure:
         """Create PCA explained variance histogram per latent dimension.

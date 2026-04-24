@@ -1,7 +1,8 @@
 # @package _global_
 # Sweep: LACT variational Gaussian prior with MMD objective.
-# 5 tasks × 2 weights × 3 seeds = 30 runs.
-# WAE recipe: IMQ kernel, use_median_heuristic=false, bandwidth=2*latent_dim.
+# 5 tasks × 3 weights × 3 seeds = 45 runs.
+# Deterministic WAE recipe: match posterior mu to Gaussian samples, and train
+# the decoder on a jittered tube around posterior mu.
 
 defaults:
   - /end_to_end_training_runs/synthetic/lact_mmd_gaussian
@@ -10,17 +11,32 @@ defaults:
   - _self_
 
 policy:
+  algorithm:
+    posterior_decoder_noise_std: 0.135
+    posterior_encoder:
+      latent_dimension: 2
+      deterministic: true
+    prior:
+      latent_dimension: 2
   loss:
     loss_modules:
       maximum_mean_discrepancy:
+        prior_target_key: ${latent_key:POSTERIOR_MU}
         kernel_type: ${kernel_type:IMQ}
         use_median_heuristic: false
         bandwidth_multipliers:
-          - ${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}
+          - ${mul:0.5,${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}}
+          - ${mul:1.0,${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}}
+          - ${mul:2.0,${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}}
+          - ${mul:4.0,${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}}
+
+task:
+  dataloader:
+    val_ratio: 0.05
 
 hydra:
   sweeper:
     params:
       task_bundle/synthetic: circle,sequential,corridor_k8,corridor_k16,radial_k16
-      policy.loss.loss_modules.maximum_mean_discrepancy.weight: 1,10
+      policy.loss.loss_modules.maximum_mean_discrepancy.weight: 0.1,1,10
       experiment.seed: 42,43,44

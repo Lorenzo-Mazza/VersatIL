@@ -6,6 +6,9 @@ defaults:
   - override /policy/encoding_pipeline: mono_rgb_context
 
 policy:
+  metadata_passthrough:
+    ${metadata_passthrough_source:OBSERVATION}:
+      ${synthetic_obs_key:MODE_ID}: ${metadata_key:LATENT_COLOR_LABEL}
   algorithm:
     posterior_encoder:
       latent_dimension: 1

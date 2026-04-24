@@ -225,6 +225,7 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
         p: int = 2,
         blur_fraction: float = 0.1,
         reach_multiplier: float | None = None,
+        prior_target_key: str = LatentKey.POSTERIOR_LATENT.value,
     ):
         """Initialize latent OT loss.
 
@@ -236,6 +237,8 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
                 fraction of the reference pairwise scale sqrt(2 * dim).
             reach_multiplier: Unbalanced OT scale, as a multiple of the
                 reference pairwise scale. ``None`` keeps balanced OT.
+            prior_target_key: Posterior output key used as aggregate prior-matching samples.
+                Use ``LatentKey.POSTERIOR_MU`` for deterministic WAE-style matching.
 
         Raises:
             ImportError: If geomloss is not installed.
@@ -245,6 +248,7 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
         self.p = p
         self.blur_fraction = blur_fraction
         self.reach_multiplier = reach_multiplier
+        self.prior_target_key = prior_target_key
         try:
             from geomloss import SamplesLoss  # noqa: PLC0415
         except ImportError as e:
@@ -273,7 +277,7 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
 
     def get_required_keys(self) -> set[str]:
         """Get required prediction keys."""
-        return {LatentKey.POSTERIOR_LATENT.value, LatentKey.PRIOR_LATENT.value}
+        return {self.prior_target_key, LatentKey.PRIOR_LATENT.value}
 
     def forward(
         self,
@@ -297,7 +301,7 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
             raise ValueError(
                 f"Predictions must contain {required} for LatentOptimalTransportLoss."
             )
-        z_posterior = predictions[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
+        z_posterior = predictions[self.prior_target_key]  # (B, latent_dim)
         z_prior = predictions[LatentKey.PRIOR_LATENT.value]  # (B, latent_dim)
 
         if self.ot is None:
@@ -305,10 +309,10 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
 
         ot_loss = self.ot(z_posterior, z_prior).mean()
 
-        metadata: dict[str, torch.Tensor] = {
-            MetadataKey.POSTERIOR_Z.value: z_posterior,
-            MetadataKey.PRIOR_Z.value: z_prior,
-        }
+        metadata: dict[str, torch.Tensor] = {MetadataKey.PRIOR_Z.value: z_prior}
+        posterior_latent = predictions.get(LatentKey.POSTERIOR_LATENT.value)
+        if posterior_latent is not None:
+            metadata[MetadataKey.POSTERIOR_Z.value] = posterior_latent
         posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
         if posterior_mu is not None:
             metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu

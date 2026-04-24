@@ -124,14 +124,17 @@ class TestMaximumMeanDiscrepancyLossConfig:
         use_median_heuristic: bool,
     ):
         bandwidth_multipliers = [1.0, 2.0]
+        prior_target_key = "mu"
         config = MaximumMeanDiscrepancyLossConfig(
             kernel_type=kernel_type,
             bandwidth_multipliers=bandwidth_multipliers,
             use_median_heuristic=use_median_heuristic,
+            prior_target_key=prior_target_key,
         )
         assert config.kernel_type == kernel_type
         assert config.bandwidth_multipliers == bandwidth_multipliers
         assert config.use_median_heuristic is use_median_heuristic
+        assert config.prior_target_key == prior_target_key
 
 
 @pytest.mark.unit
@@ -295,6 +298,11 @@ class TestLatentOptimalTransportLossConfig:
     def test_target_points_to_latent_ot_loss(self):
         config = LatentOptimalTransportLossConfig()
         assert config._target_ == "versatil.metrics.ot_loss.LatentOptimalTransportLoss"
+
+    def test_stores_prior_target_key(self):
+        prior_target_key = "mu"
+        config = LatentOptimalTransportLossConfig(prior_target_key=prior_target_key)
+        assert config.prior_target_key == prior_target_key
 
 
 @pytest.mark.unit

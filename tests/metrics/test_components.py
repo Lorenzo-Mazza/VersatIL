@@ -667,6 +667,11 @@ class TestMaximumMeanDiscrepancyLossGetRequiredKeys:
         loss = MaximumMeanDiscrepancyLoss()
         assert LatentKey.POSTERIOR_LATENT.value in loss.get_required_keys()
 
+    def test_uses_configured_prior_target_key(self):
+        loss = MaximumMeanDiscrepancyLoss(prior_target_key=LatentKey.POSTERIOR_MU.value)
+        assert LatentKey.POSTERIOR_MU.value in loss.get_required_keys()
+        assert LatentKey.POSTERIOR_LATENT.value not in loss.get_required_keys()
+
     def test_includes_prior_when_not_fixed_gaussian(self):
         loss = MaximumMeanDiscrepancyLoss(use_fixed_gaussian_as_prior=False)
         assert LatentKey.PRIOR_LATENT.value in loss.get_required_keys()
@@ -700,6 +705,31 @@ class TestMaximumMeanDiscrepancyLossForward:
         loss = MaximumMeanDiscrepancyLoss(weight=1.0)
         output = loss(predictions, {})
         assert output.total_loss.item() > 0.01
+
+    def test_uses_configured_prior_target_key_for_matching(self, rng):
+        posterior_latent = (
+            torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32)) + 5.0
+        )
+        posterior_mu = torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32))
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: posterior_latent,
+            LatentKey.POSTERIOR_MU.value: posterior_mu,
+            LatentKey.PRIOR_LATENT.value: posterior_mu.clone(),
+        }
+        loss = MaximumMeanDiscrepancyLoss(
+            weight=1.0,
+            prior_target_key=LatentKey.POSTERIOR_MU.value,
+        )
+        output = loss(predictions, {})
+        assert output.total_loss.item() == pytest.approx(0.0, abs=0.01)
+        torch.testing.assert_close(
+            output.metadata[MetadataKey.POSTERIOR_Z.value],
+            posterior_latent,
+        )
+        torch.testing.assert_close(
+            output.metadata[MetadataKey.POSTERIOR_MU.value],
+            posterior_mu,
+        )
 
     def test_prior_regularization_penalizes_non_standard_prior(self, rng):
         z_posterior = torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32))

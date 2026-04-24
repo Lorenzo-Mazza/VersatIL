@@ -76,6 +76,7 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     _target_: str = "versatil.metrics.components.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
     prior_regularization_weight: float = 0.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
     kernel_type: str = KernelType.RBF.value
     bandwidth_multipliers: list[float] | None = field(
         default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
@@ -247,6 +248,7 @@ class LatentOptimalTransportLossConfig(BaseLossConfig):
 
     _target_: str = "versatil.metrics.ot_loss.LatentOptimalTransportLoss"
     weight: float = 1.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
     p: int = 2
     blur_fraction: float = 0.1
     reach_multiplier: float | None = None

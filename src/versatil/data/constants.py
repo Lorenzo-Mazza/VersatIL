@@ -225,6 +225,14 @@ class SampleKey(enum.StrEnum):
     TOKENIZED_ACTIONS = "tokenized_actions"
 
 
+class MetadataPassthroughSource(enum.StrEnum):
+    """Source dictionaries that can be copied into training metadata."""
+
+    OBSERVATION = SampleKey.OBSERVATION.value
+    ACTION = SampleKey.ACTION.value
+    PREDICTION = "prediction"
+
+
 VALID_CAMERAS = [cam.value for cam in Cameras]
 VALID_RAW_CAMERA_KEYS = [key.value for key in RawCameraKey]
 
