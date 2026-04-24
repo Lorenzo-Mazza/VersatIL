@@ -1,6 +1,7 @@
 """Tests for versatil.training.stage module."""
 
 import pytest
+from omegaconf import OmegaConf
 
 from versatil.training.stage import TrainingStage
 
@@ -38,6 +39,18 @@ class TestTrainingStageInit:
         assert stage.group_weight_decays == {}
         assert stage.loss_weights == {}
         assert stage.eval_frozen_modules is True
+
+    def test_hydra_loss_weights_become_plain_nested_dicts(self) -> None:
+        loss_weights = OmegaConf.create({"denoising_prior": {"weight": 0.0}})
+
+        stage = TrainingStage(
+            name="vae",
+            start_epoch=0,
+            loss_weights=loss_weights,
+        )
+
+        stage.loss_weights["denoising_prior"]["weight"] = 0.1
+        assert stage.loss_weights == {"denoising_prior": {"weight": 0.1}}
 
     def test_end_epoch_equal_to_start_epoch_raises(self) -> None:
         with pytest.raises(

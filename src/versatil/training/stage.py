@@ -1,6 +1,9 @@
 """Runtime training-stage object instantiated from ``TrainingStageConfig``."""
 
+from collections.abc import Mapping
 from typing import Any
+
+from omegaconf import DictConfig, OmegaConf
 
 
 class TrainingStage:
@@ -30,9 +33,9 @@ class TrainingStage:
         self.end_epoch = end_epoch
         self.trainable_groups = list(trainable_groups or [])
         self.frozen_groups = list(frozen_groups or [])
-        self.group_lrs = dict(group_lrs or {})
-        self.group_weight_decays = dict(group_weight_decays or {})
-        self.loss_weights = dict(loss_weights or {})
+        self.group_lrs = _plain_mapping(group_lrs)
+        self.group_weight_decays = _plain_mapping(group_weight_decays)
+        self.loss_weights = _plain_mapping(loss_weights)
         self.eval_frozen_modules = eval_frozen_modules
         if self.end_epoch is not None and self.end_epoch <= self.start_epoch:
             raise ValueError(
@@ -69,3 +72,35 @@ class TrainingStage:
             else (next_stage.start_epoch if next_stage is not None else None)
         )
         return effective_end_epoch is None or current_epoch < effective_end_epoch
+
+
+def _plain_mapping(mapping: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Convert Hydra mappings to recursive plain dictionaries.
+
+    Args:
+        mapping: Optional mapping provided directly or by Hydra.
+
+    Returns:
+        Recursive plain dictionary with resolved OmegaConf values.
+
+    Raises:
+        TypeError: If OmegaConf conversion does not produce a mapping.
+    """
+    if mapping is None:
+        return {}
+    if isinstance(mapping, DictConfig):
+        container = OmegaConf.to_container(mapping, resolve=True)
+    else:
+        container = mapping
+    if not isinstance(container, Mapping):
+        raise TypeError(
+            "TrainingStage mapping fields must be dictionaries; "
+            f"got {type(container).__name__}."
+        )
+    plain: dict[str, Any] = {}
+    for key, value in container.items():
+        if isinstance(value, (DictConfig, Mapping)):
+            plain[key] = _plain_mapping(value)
+        else:
+            plain[key] = value
+    return plain

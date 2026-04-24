@@ -5,6 +5,7 @@ from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
+from omegaconf import OmegaConf
 
 from versatil.configs.training import (
     AdamWConfig,
@@ -1594,6 +1595,28 @@ class TestValidateStageLossPaths:
                 name="stage",
                 start_epoch=0,
                 loss_weights={"denoising_prior": {"weight": 0.0}},
+            )
+        ]
+        validator = validator_factory(
+            loss=loss,
+            training_config=training_config_with_groups(stages=stages),
+        )
+        validator.validate_stage_loss_paths()
+        assert validator.errors == []
+
+    def test_hydra_stage_loss_weights_pass(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        training_config_with_groups: Callable[..., TrainingConfig],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        loss = mock_loss_factory()
+        loss.weights = {"denoising_prior": {"weight": 0.03}}
+        stages = [
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights=OmegaConf.create({"denoising_prior": {"weight": 0.0}}),
             )
         ]
         validator = validator_factory(
