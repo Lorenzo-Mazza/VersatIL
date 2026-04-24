@@ -115,7 +115,7 @@ class PrecomputedDualStreamLayer(nn.Module):
             conditioning: Conditioning vector for adaptive normalization (B, C).
             attention_mask: Pre-built joint mask (B, 1, S+T, S+T).
             precomputed_rope: Pre-computed (cos, sin) rotary positional encodings
-             for primary stream positions.
+                for primary stream positions.
 
         Returns:
             Processed primary stream output (B, T, D).
@@ -148,7 +148,7 @@ class PrecomputedDualStreamLayer(nn.Module):
             conditioning: Conditioning vector for adaptive normalization (B, C).
             joint_attention_mask: Pre-built joint mask (B, 1, S+T, S+T).
             precomputed_primary_rope: Pre-computed (cos, sin) rotary positional encodings
-             for primary stream positions.
+                for primary stream positions.
 
         Returns:
             Tuple of (`processed_primary_output` (B, T, D_s),

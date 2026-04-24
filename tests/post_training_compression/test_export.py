@@ -243,7 +243,7 @@ class TestBuildExampleInputs:
         }
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 class TestExportWithDynamicBatch:
     def test_exported_model_produces_valid_output(
         self, simple_exportable_model, flat_input_factory

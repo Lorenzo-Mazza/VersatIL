@@ -4,7 +4,7 @@
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
-| Python | 3.13+ | Required |
+| Python | 3.14 | Reference environment and CI version. `pyproject.toml` allows 3.13+. |
 | CUDA | 12.8+ | Required for training |
 | Git | Latest | Credentials for private repositories if applicable |
 
@@ -25,7 +25,7 @@ mamba env create -f environment.yml
 mamba activate versatil
 ```
 
-The `environment.yml` creates a minimal conda environment with Python 3.13 and uv.
+The `environment.yml` creates a minimal conda environment with Python 3.14 and uv.
 
 ### 3. Install Dependencies
 
@@ -89,6 +89,10 @@ VERSATIL_LIBERO_HDF5_DIR=/path/to/libero/datasets
 VERSATIL_LIBERO_LEROBOT_DIR=/path/to/libero_lerobot
 VERSATIL_LIBERO_PLUS_LEROBOT_DIR=/path/to/libero_plus_lerobot
 VERSATIL_METAWORLD_LEROBOT_DIR=/path/to/metaworld_lerobot
+VERSATIL_PUSHT_LEROBOT_DIR=/path/to/pusht_lerobot
+VERSATIL_BLOCK_PUSHING_LEROBOT_DIR=/path/to/block_pushing_lerobot_rel
+VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR=/path/to/block_pushing_lerobot_abs
+VERSATIL_KITCHEN_LEROBOT_DIR=/path/to/kitchen_lerobot
 ```
 
 ### WandB Variables (Optional)
@@ -103,7 +107,8 @@ WANDB_ENTITY=your-team
 
 ## Verifying the Installation
 
-Activate the environment and run the unit tests:
+Activate the environment and run the default local test selection. This excludes
+slow, integration, and GPU-only tests via `pyproject.toml`:
 
 ```bash
 mamba activate versatil

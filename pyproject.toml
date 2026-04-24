@@ -80,7 +80,7 @@ torchvision = { index = "pytorch" }
 [tool.pytest.ini_options]
 markers = [
     "unit: Fast unit tests with mocked dependencies (deselect with '-m \"not unit\"')",
-    "integration: Slower integration tests with real model downloads (deselect with '-m \"not integration\"')",
+    "integration: Slower tests with real component, endpoint, or compression workflows (deselect with '-m \"not integration\"')",
     "slow: Very slow tests (deselect with '-m \"not slow\"')",
     "requires_gpu: Tests that require GPU (deselect with '-m \"not requires_gpu\"')",
 ]
@@ -88,7 +88,7 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
-    "-m", "not slow",
+    "-m", "not slow and not integration and not requires_gpu",
 ]
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",

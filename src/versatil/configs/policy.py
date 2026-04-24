@@ -10,6 +10,8 @@ from versatil.configs.loss import CompositeLossConfig
 
 @dataclass
 class PolicyConfig:
+    """Hydra config for constructing a policy from encoding, algorithm, decoder, and loss configs."""
+
     _target_: str = "versatil.models.policy.Policy"
     encoding_pipeline: EncodingPipelineConfig = MISSING
     algorithm: Any = MISSING

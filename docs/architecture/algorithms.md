@@ -2,7 +2,7 @@
 
 Algorithms define the **learning paradigm** -- how the policy is trained and how it generates actions at inference time. They are decoupled from the decoder architecture: the algorithm orchestrates the decoder without knowing its internals. Certain pairings are naturally constrained by their mathematical formulation (e.g., timestep-conditioned decoders require a generative algorithm that provides timesteps).
 
-All algorithms inherit from `DecodingAlgorithm` and implement these methods:
+All algorithms inherit from [`DecodingAlgorithm`][versatil.models.decoding.algorithm.base.DecodingAlgorithm] and implement these methods:
 
 | Method | Purpose | Actions required? |
 |--------|---------|-------------------|
@@ -52,17 +52,17 @@ Different algorithms predict different quantities. The loss module must compare 
 
 | Algorithm | `get_targets()` returns | `predicts_in_action_space` |
 |---|---|---|
-| `BehavioralCloning` | Ground-truth actions | `True` |
-| `FlowMatching` | Velocity field | `False` |
-| `Diffusion` (epsilon) | Noise | `False` |
-| `Diffusion` (sample) | Denoised sample | `True` |
-| `Diffusion` (velocity) | Velocity | `False` |
+| [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning] | Ground-truth actions | `True` |
+| [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching] | Velocity field | `False` |
+| [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] (epsilon) | Noise | `False` |
+| [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] (sample) | Denoised sample | `True` |
+| [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] (velocity) | Velocity | `False` |
 
-The `predicts_in_action_space` property enables loss-algorithm compatibility validation. Classification losses (e.g., BCE for gripper) require action-space predictions -- pairing them with Flow Matching (which predicts velocity fields) is caught at initialization by `ExperimentValidator`.
+The `predicts_in_action_space` property enables loss-algorithm compatibility validation. Classification losses (e.g., BCE for gripper) require action-space predictions -- pairing them with Flow Matching (which predicts velocity fields) is caught at initialization by [`ExperimentValidator`][versatil.validation.ExperimentValidator].
 
 ---
 
-## BehavioralCloning
+## [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning]
 
 The simplest algorithm. Directly predicts actions from observations via supervised learning. Both `forward()` and `predict()` delegate to the decoder network without modification.
 
@@ -79,7 +79,7 @@ class BehavioralCloning(DecodingAlgorithm):
 
 ---
 
-## Diffusion
+## [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion]
 
 Generative modeling via Denoising Score Matching. Trains the network to denoise actions at various noise levels, then generates actions through iterative denoising at inference.
 
@@ -107,11 +107,11 @@ Generative modeling via Denoising Score Matching. Trains the network to denoise 
 | `prediction_type` | `"epsilon"` | Network prediction target (`"epsilon"`, `"sample"`, `"velocity"`) |
 
 !!! note "Encoder caching"
-    When used with `DiTBlockActionTransformer`, the diffusion algorithm automatically enables encoder caching during inference. The observation encoder runs once and its output is reused across all denoising steps.
+    When used with [`DiTBlockActionTransformer`][versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer], the diffusion algorithm automatically enables encoder caching during inference. The observation encoder runs once and its output is reused across all denoising steps.
 
 ---
 
-## FlowMatching
+## [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching]
 
 Generative modeling via Continuous Normalizing Flows. Trains the network to predict velocity fields that transport samples from noise to actions.
 
@@ -145,7 +145,7 @@ Generative modeling via Continuous Normalizing Flows. Trains the network to pred
 
 ---
 
-## VariationalAlgorithm
+## [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm]
 
 A compositional wrapper that adds variational inference to **any** base algorithm. Instead of predicting actions directly from observations, it introduces a latent variable `z` that captures multi-modal action distributions:
 
@@ -226,28 +226,32 @@ During validation, the prior sample is always used for action decoding (matching
 
 ### Posterior Encoder
 
-All posterior encoders inherit from `PosteriorLatentEncoder`, which defines the `encode(actions, observations)` interface. Custom posterior encoders can be created by subclassing it.
+All posterior encoders inherit from [`PosteriorLatentEncoder`][versatil.models.decoding.latent.posterior.base_posterior.PosteriorLatentEncoder], which defines the `encode(actions, observations)` interface. Custom posterior encoders can be created by subclassing it.
 
-**`VAETransformerEncoder`** -- the built-in posterior encoder. A transformer encoder that processes action chunks and observation tokens, using a learnable CLS token to predict the mean and log-variance of a conditional Gaussian posterior. The latent `z` is sampled via the reparameterization trick.
+**[`VAETransformerEncoder`][versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder]** -- Gaussian posterior encoder. A transformer encoder that processes action chunks and observation tokens, using a learnable CLS token to predict the mean and log-variance of a conditional Gaussian posterior. The latent `z` is sampled via the reparameterization trick.
 
 Supports a `deterministic` mode (no reparameterization) for use with non-KL regularizers such as MMD or Optimal Transport losses.
 
+**[`VQPosteriorEncoder`][versatil.models.decoding.latent.posterior.vq_encoder.VQPosteriorEncoder]** -- discrete posterior encoder. It maps actions and observations through a transformer encoder, quantizes the latent with residual vector quantization, and exposes codebook indices plus continuous/quantized latents for VQ commitment and prior losses.
+
 ### Prior Types
 
-All priors inherit from `PriorLatentEncoder`, which defines `forward(target_latents, observations)` for training and `sample_prior(batch_size, observations)` for inference. Custom priors can be created by subclassing it — any learned network that maps observations to a latent distribution can serve as a prior, enabling probabilistic student-teacher schemes where the prior learns to approximate the posterior without access to actions.
+All priors inherit from [`PriorLatentEncoder`][versatil.models.decoding.latent.prior.base_prior.PriorLatentEncoder], which defines `forward(target_latents, observations)` for training and `sample_prior(batch_size, observations)` for inference. Custom priors can be created by subclassing it — any learned network that maps observations to a latent distribution can serve as a prior, enabling probabilistic student-teacher schemes where the prior learns to approximate the posterior without access to actions.
 
 | Prior | Type | Description |
 |-------|------|-------------|
-| `GaussianPrior` | Fixed | Standard `N(0, I)`. No trainable parameters. Default when `prior=None`. |
-| `PriorTransformerEncoder` | Learned | Transformer encoder conditioned on observations. Predicts `mu` and `logvar` of a conditional Gaussian `p(z\|s)`. |
-| `DiTPrior` | Learned | DiT-style transformer trained via diffusion or flow matching to denoise latent samples. Supports both `"diffusion"` and `"flow_matching"` algorithm types. |
-| `VampPrior` | Learned | Variational Mixture of Posteriors. Defines `K` learnable pseudo-inputs passed through the posterior encoder to form a mixture-of-Gaussians prior. |
+| [`GaussianPrior`][versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior] | Fixed | Standard `N(0, I)`. No trainable parameters. Default when `prior=None`. |
+| [`PriorTransformerEncoder`][versatil.models.decoding.latent.prior.transformer_encoder.PriorTransformerEncoder] | Learned | Transformer encoder conditioned on observations. Predicts `mu` and `logvar` of a conditional Gaussian `p(z\|s)`. |
+| [`DiTPrior`][versatil.models.decoding.latent.prior.dit_prior.DiTPrior] | Learned | DiT-style transformer trained via diffusion or flow matching to denoise latent samples. Supports both `"diffusion"` and `"flow_matching"` algorithm types. |
+| [`VampPrior`][versatil.models.decoding.latent.prior.vamp_prior.VampPrior] | Learned | Variational Mixture of Posteriors. Defines `K` learnable pseudo-inputs passed through the posterior encoder to form a mixture-of-Gaussians prior. |
+| [`UniformCodebookPrior`][versatil.models.decoding.latent.prior.uniform_codebook_prior.UniformCodebookPrior] | Fixed | Samples residual VQ code indices uniformly and decodes them through the posterior-owned codebook. |
+| [`CodebookPrior`][versatil.models.decoding.latent.prior.codebook_prior.CodebookPrior] | Learned | Predicts categorical logits over each residual VQ codebook layer from observations, then decodes sampled indices through the shared codebook. |
 
-!!! info "GaussianPrior auto-creation"
-    If `prior=None` is passed, a `GaussianPrior` is automatically created with the same `latent_dimension` as the posterior encoder.
+!!! info "[`GaussianPrior`][versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior] auto-creation"
+    If `prior=None` is passed, a [`GaussianPrior`][versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior] is automatically created with the same `latent_dimension` as the posterior encoder.
 
-!!! warning "VampPrior initialization"
-    `VampPrior` requires access to the posterior encoder to compute mixture components. The `VariationalAlgorithm` automatically calls `prior.set_encoder(posterior_encoder)` during initialization.
+!!! warning "[`VampPrior`][versatil.models.decoding.latent.prior.vamp_prior.VampPrior] initialization"
+    [`VampPrior`][versatil.models.decoding.latent.prior.vamp_prior.VampPrior] and VQ codebook priors require access to posterior-owned state. The [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm] automatically calls `prior.wire_posterior(posterior_encoder)` during initialization for priors that implement that protocol.
 
 ### Example Combinations
 
@@ -281,7 +285,7 @@ VariationalAlgorithm(
 )
 ```
 
-**Diffusion + VampPrior:**
+**[`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] + [`VampPrior`][versatil.models.decoding.latent.prior.vamp_prior.VampPrior]:**
 
 ```python
 VariationalAlgorithm(
@@ -295,13 +299,16 @@ VariationalAlgorithm(
 
 | Component | Path |
 |-----------|------|
-| `DecodingAlgorithm` | `src/versatil/models/decoding/algorithm/base.py` |
-| `BehavioralCloning` | `src/versatil/models/decoding/algorithm/behavior_cloning.py` |
-| `Diffusion` | `src/versatil/models/decoding/algorithm/diffusion.py` |
-| `FlowMatching` | `src/versatil/models/decoding/algorithm/flow_matching.py` |
-| `VariationalAlgorithm` | `src/versatil/models/decoding/algorithm/variational.py` |
-| `VAETransformerEncoder` | `src/versatil/models/decoding/latent/posterior/transformer_encoder.py` |
-| `GaussianPrior` | `src/versatil/models/decoding/latent/prior/gaussian_prior.py` |
-| `PriorTransformerEncoder` | `src/versatil/models/decoding/latent/prior/transformer_encoder.py` |
-| `DiTPrior` | `src/versatil/models/decoding/latent/prior/dit_prior.py` |
-| `VampPrior` | `src/versatil/models/decoding/latent/prior/vamp_prior.py` |
+| [`DecodingAlgorithm`][versatil.models.decoding.algorithm.base.DecodingAlgorithm] | `src/versatil/models/decoding/algorithm/base.py` |
+| [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning] | `src/versatil/models/decoding/algorithm/behavior_cloning.py` |
+| [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] | `src/versatil/models/decoding/algorithm/diffusion.py` |
+| [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching] | `src/versatil/models/decoding/algorithm/flow_matching.py` |
+| [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm] | `src/versatil/models/decoding/algorithm/variational.py` |
+| [`VAETransformerEncoder`][versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder] | `src/versatil/models/decoding/latent/posterior/transformer_encoder.py` |
+| [`VQPosteriorEncoder`][versatil.models.decoding.latent.posterior.vq_encoder.VQPosteriorEncoder] | `src/versatil/models/decoding/latent/posterior/vq_encoder.py` |
+| [`GaussianPrior`][versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior] | `src/versatil/models/decoding/latent/prior/gaussian_prior.py` |
+| [`PriorTransformerEncoder`][versatil.models.decoding.latent.prior.transformer_encoder.PriorTransformerEncoder] | `src/versatil/models/decoding/latent/prior/transformer_encoder.py` |
+| [`DiTPrior`][versatil.models.decoding.latent.prior.dit_prior.DiTPrior] | `src/versatil/models/decoding/latent/prior/dit_prior.py` |
+| [`VampPrior`][versatil.models.decoding.latent.prior.vamp_prior.VampPrior] | `src/versatil/models/decoding/latent/prior/vamp_prior.py` |
+| [`UniformCodebookPrior`][versatil.models.decoding.latent.prior.uniform_codebook_prior.UniformCodebookPrior] | `src/versatil/models/decoding/latent/prior/uniform_codebook_prior.py` |
+| [`CodebookPrior`][versatil.models.decoding.latent.prior.codebook_prior.CodebookPrior] | `src/versatil/models/decoding/latent/prior/codebook_prior.py` |

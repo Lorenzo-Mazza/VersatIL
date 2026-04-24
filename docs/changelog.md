@@ -35,15 +35,15 @@ Initial release of VersatIL — a modular Imitation Learning framework for robot
 ### Added
 
 #### Core Architecture
-- **Policy = EncodingPipeline + Algorithm + Action Decoder + Loss** — composable, config-driven policy design
-- **EncodingPipeline** with hierarchical multi-modal observation encoding and fusion
+- **[`Policy`][versatil.models.policy.Policy] = [`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline] + Algorithm + Action Decoder + Loss** — composable, config-driven policy design
+- **[`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline]** with hierarchical multi-modal observation encoding and fusion
 - **Algorithm/Architecture/Loss separation** — algorithms compose flexibly with action decoder architectures and loss functions
 
 #### Algorithms
-- Behavioral Cloning
-- Diffusion-based action prediction
-- Flow Matching
-- VariationalAlgorithm — compositional variational inference wrapping any base algorithm with posterior encoders and learned/Gaussian priors
+- [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning]
+- [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion]-based action prediction
+- [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching]
+- [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm] — compositional variational inference wrapping any base algorithm with posterior encoders and learned/Gaussian priors
 
 #### Encoders
 - RGB: Any kind of vision encoder from `timm` library, Custom Conditional CNN (FiLM conditioning)
@@ -56,7 +56,7 @@ Initial release of VersatIL — a modular Imitation Learning framework for robot
 - Concatenation, MLP, and Attention fusion modules for custom feature fusion
 
 #### Decoder Factories
-- ACT, Action Transformer, Conditional Action U-Net, Diffusion Action Transformer (Cross-Attention and MultiModal variants), Discrete-DETR Action Transformer, DiT-Block Action Transformer, Free Action Transformer, GPT Action Transformer, Latent Action Transformer (LACT), Mixture-Of-Density Action Transformer (MoDE-ACT), MoE Decoder, MoE Free Action Transformer, Phase-ACT
+- [`ACT`][versatil.models.decoding.decoders.factory.act.ACT], [`ActionTransformer`][versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer], [`ConditionalActionUNet`][versatil.models.decoding.decoders.factory.conditional_action_unet.ConditionalActionUNet], [`DiffusionActionTransformer`][versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer] (Cross-Attention and MultiModal variants), [`DiscreteDETRActionTransformer`][versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer], [`DiTBlockActionTransformer`][versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer], [`FreeActionTransformer`][versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer], [`GPTActionTransformer`][versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer], Latent Action Transformer ([`LACT`][versatil.models.decoding.decoders.factory.lact.LACT]), Mixture-Of-Density Action Transformer ([`MoDE-ACT`][versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer]), [`MoEDecoder`][versatil.models.decoding.decoders.moe.MoEDecoder], [`MoEFreeActionTransformer`][versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer], [`PhaseACT`][versatil.models.decoding.decoders.factory.phase_act.PhaseACT]
 
 #### Action Heads
 - Single-Output head, Gaussian head (mean and log-variance), Mixture of Experts (MoE) head

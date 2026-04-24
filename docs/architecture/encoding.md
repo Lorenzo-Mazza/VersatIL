@@ -1,6 +1,6 @@
 # Encoding Pipeline
 
-The `EncodingPipeline` orchestrates multi-modal observation encoding. It manages a collection of encoders, runs them in sequence, and optionally fuses their outputs before passing features to the decoder.
+The [`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline] orchestrates multi-modal observation encoding. It manages a collection of encoders, runs them in sequence, and optionally fuses their outputs before passing features to the decoder.
 
 ```
 Observations --> [Encoder 1] --> features_A
@@ -13,29 +13,29 @@ All encoder and fusion outputs persist in the output dictionary.
 
 ## Encoder Types
 
-All encoders subclass `Encoder` (unconditional) or `ConditionalEncoder` (conditional). Both inherit from the internal `EncodingMixin` abstract base. Encoders implement two core methods:
+All encoders subclass [`Encoder`][versatil.models.encoding.encoders.unconditional.Encoder] (unconditional) or [`ConditionalEncoder`][versatil.models.encoding.encoders.conditional.ConditionalEncoder] (conditional). Both inherit from the internal [`EncodingMixin`][versatil.models.encoding.encoders.base.EncodingMixin] abstract base. Encoders implement two core methods:
 
 - `get_output_specification()` -- returns a `list[FeatureMetadata]` declaring feature keys, types, and dimensions
 - `forward(inputs)` -- processes observation tensors and returns a feature dictionary
 
 Modality mix-ins provide shared functionality:
 
-- **`ImageEncoderMixin`** -- abstract base class with `_output_modality` and `_camera_group` abstract properties. Handles multi-camera encoding with automatic feature naming (`modality:camera_key` e.g. `rgb:left`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Per-camera image sizes are set from `CameraMetadata` via `set_image_size()`, not hardcoded in encoder configs. Three concrete subclasses:
-    - **`RGBEncoderMixin(ImageEncoderMixin)`** -- for RGB camera encoders
-    - **`DepthEncoderMixin(ImageEncoderMixin)`** -- for depth camera encoders
-    - **`RGBDEncoderMixin(ImageEncoderMixin)`** -- for RGB+depth cross-modal encoders (DFormer, GeometricRGBD)
-- **`LanguageEncoderMixin`** -- tokenized text extraction, padding/truncation, attention mask construction, and output padding mask generation.
+- **[`ImageEncoderMixin`][versatil.models.encoding.encoders.image_mixin.ImageEncoderMixin]** -- abstract base class with `_output_modality` and `_camera_group` abstract properties. Handles multi-camera encoding with automatic feature naming (`modality:camera_key` e.g. `rgb:left`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Per-camera image sizes are set from [`CameraMetadata`][versatil.data.metadata.CameraMetadata] via `set_image_size()`, not hardcoded in encoder configs. Three concrete subclasses:
+    - **[`RGBEncoderMixin`][versatil.models.encoding.encoders.image_mixin.RGBEncoderMixin]** -- for RGB camera encoders
+    - **[`DepthEncoderMixin`][versatil.models.encoding.encoders.image_mixin.DepthEncoderMixin]** -- for depth camera encoders
+    - **[`RGBDEncoderMixin`][versatil.models.encoding.encoders.image_mixin.RGBDEncoderMixin]** -- for RGB+depth cross-modal encoders (DFormer, GeometricRGBD)
+- **[`LanguageEncoderMixin`][versatil.models.encoding.encoders.language_mixin.LanguageEncoderMixin]** -- tokenized text extraction, padding/truncation, attention mask construction, and output padding mask generation.
 
 Encoders are split into two categories:
 
-- **Unconditional** (`Encoder`) -- standard encoders that process inputs independently
-- **Conditional** (`ConditionalEncoder`) -- encoders that accept a conditioning tensor from another encoder's output (e.g., FiLM conditioning from language features)
+- **Unconditional** ([`Encoder`][versatil.models.encoding.encoders.unconditional.Encoder]) -- standard encoders that process inputs independently
+- **Conditional** ([`ConditionalEncoder`][versatil.models.encoding.encoders.conditional.ConditionalEncoder]) -- encoders that accept a conditioning tensor from another encoder's output (e.g., FiLM conditioning from language features)
 
 Conditional encoders always run after unconditional encoders in the pipeline.
 
-## FeatureMetadata
+## [`FeatureMetadata`][versatil.models.feature_meta.FeatureMetadata]
 
-Encoders declare their outputs via `FeatureMetadata`, a frozen dataclass that travels from encoder through fusion to decoder validation:
+Encoders declare their outputs via [`FeatureMetadata`][versatil.models.feature_meta.FeatureMetadata], a frozen dataclass that travels from encoder through fusion to decoder validation:
 
 ```python
 @dataclass(frozen=True)
@@ -45,19 +45,19 @@ class FeatureMetadata:
     dimension: tuple[int, ...] 
 ```
 
-Feature types are classified by `FeatureType` enum values:
+Feature types are classified by [`FeatureType`][versatil.models.feature_meta.FeatureType] enum values:
 
 | Type | Value | Dimension | Produced When |
 |---|---|---|---|
-| **SPATIAL** | `"spatial"` | `(C, H, W)` | `pooling_method="none"` on SpatialRGBEncoder / SpatialDepthEncoder |
-| **SEQUENTIAL** | `"sequential"` | `(S, D)` | `pooling_method="none"` on FlatRGBEncoder, or generative VLM output |
+| **SPATIAL** | `"spatial"` | `(C, H, W)` | `pooling_method="none"` on [`SpatialRGBEncoder`][versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder] / [`SpatialDepthEncoder`][versatil.models.encoding.encoders.depth.spatial.SpatialDepthEncoder] |
+| **SEQUENTIAL** | `"sequential"` | `(S, D)` | `pooling_method="none"` on [`FlatRGBEncoder`][versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder], or generative VLM output |
 | **FLAT** | `"flat"` | `(D,)` | Any pooling method that produces a flat feature vector |
 
-The decoder's `DecoderInput` validates feature types at initialization via `required_types` and `raises_for_types`, catching configuration errors before training starts.
+The decoder's [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] validates feature types at initialization via `required_types` and `raises_for_types`, catching configuration errors before training starts.
 
 ## Multi-Camera Encoding
 
-`ImageEncoderMixin` (via its subclasses `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`) automatically detects multi-camera setups from `input_keys` and generates output features with `modality:camera_key` naming:
+[`ImageEncoderMixin`][versatil.models.encoding.encoders.image_mixin.ImageEncoderMixin] (via its subclasses [`RGBEncoderMixin`][versatil.models.encoding.encoders.image_mixin.RGBEncoderMixin], [`DepthEncoderMixin`][versatil.models.encoding.encoders.image_mixin.DepthEncoderMixin], [`RGBDEncoderMixin`][versatil.models.encoding.encoders.image_mixin.RGBDEncoderMixin]) automatically detects multi-camera setups from `input_keys` and generates output features with `modality:camera_key` naming:
 
 | Setup | Input Keys | Output Keys |
 |---|---|---|
@@ -67,7 +67,7 @@ The decoder's `DecoderInput` validates feature types at initialization via `requ
 
 ## RGB Encoders
 
-### SpatialRGBEncoder
+### [`SpatialRGBEncoder`][versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder]
 
 Any timm backbone that outputs `(B, C, H, W)` spatial feature maps. Covers CNNs (ResNet, EfficientNet, ConvNeXt, ConvNeXtV2, EdgeNeXt, MobileNetV4), Swin Transformers, TinyViT, and other spatial-output architectures. Handles both NCHW and NHWC output layouts transparently, and strict input size backbones.
 
@@ -89,7 +89,7 @@ SpatialRGBEncoder(
 !!! info "BatchNorm handling"
     BatchNorm is problematic with temporal data: reshaping `(B, T, C, H, W)` to `(B*T, C, H, W)` causes batch statistics to mix frames across time. Options: `frozen` (preserves pretrained stats), `groupnorm` (per-sample stats), or `default` (keep as-is).
 
-### FlatRGBEncoder
+### [`FlatRGBEncoder`][versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder]
 
 Backbones that output `(B, S, D)` flat token sequences (ViT, DINOv2, DINOv3, DeiT, CLIP ViT). Uses timm `forward_features()`.
 
@@ -108,7 +108,7 @@ FlatRGBEncoder(
 )
 ```
 
-### ConditionalCNNEncoder
+### [`ConditionalCNNEncoder`][versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder]
 
 ResNet with FiLM (Feature-wise Linear Modulation) conditioning. Each residual block receives a conditioning vector that modulates feature maps via learned affine transformations.
 
@@ -130,9 +130,9 @@ ConditionalCNNEncoder(
 
 ## Depth Encoders
 
-### SpatialDepthEncoder
+### [`SpatialDepthEncoder`][versatil.models.encoding.encoders.depth.spatial.SpatialDepthEncoder]
 
-Adapts timm spatial backbones for single-channel depth images by setting `in_chans=1`. Same architecture support as `SpatialRGBEncoder`.
+Adapts timm spatial backbones for single-channel depth images by setting `in_chans=1`. Same architecture support as [`SpatialRGBEncoder`][versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder].
 
 - **Input:** Depth image `(B, 1, H, W)`
 - **Output key:** `depth`
@@ -148,7 +148,7 @@ SpatialDepthEncoder(
 
 ## Proprioceptive Encoder
 
-### ProprioceptiveEncoder
+### [`ProprioceptiveEncoder`][versatil.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder]
 
 MLP-based encoder for robot state vectors (joint positions, velocities, gripper state, etc.).
 
@@ -169,7 +169,7 @@ ProprioceptiveEncoder(
 
 ## Language Encoder
 
-### LanguageEncoder
+### [`LanguageEncoder`][versatil.models.encoding.encoders.language.language.LanguageEncoder]
 
 Text encoder using HuggingFace Transformers models. Requires tokenized input from the data pipeline.
 
@@ -190,7 +190,7 @@ LanguageEncoder(
 
 ## RGBD Encoders
 
-#### DFormerEncoder
+#### [`DFormerEncoder`][versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.DFormerEncoder]
 
 Geometry-aware RGB+Depth encoder using geometric self-attention. Based on [DFormerV2](https://arxiv.org/abs/2504.04701).
 
@@ -201,7 +201,7 @@ Geometry-aware RGB+Depth encoder using geometric self-attention. Based on [DForm
 
 Processes RGB and depth through parallel patch embedding streams and fuses them via geometric attention blocks that use depth-derived spatial relationships.
 
-#### GeometricRGBDEncoder
+#### [`GeometricRGBDEncoder`][versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder]
 
 Single-layer geometry-aware RGBD encoder. A lightweight alternative to DFormerV2 with a single geometric attention block.
 
@@ -220,7 +220,7 @@ GeometricRGBDEncoder(
 
 ### Vision-Language Encoders
 
-#### TwoTowerVLMEncoder
+#### [`TwoTowerVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder]
 
 CLIP-style dual-tower encoder with separate vision and language pathways. Produces independent features for each modality.
 
@@ -230,7 +230,7 @@ CLIP-style dual-tower encoder with separate vision and language pathways. Produc
 
 ```python
 TwoTowerVLMEncoder(
-    input_keys=["left", "tokenized_observations"],
+    input_keys=["left"],
     pretrained=True,
     frozen=True,
     model_name="openai/clip-vit-base-patch32",
@@ -238,9 +238,13 @@ TwoTowerVLMEncoder(
 )
 ```
 
-Since two-tower VLMs always produce multiple outputs, fusion and decoder configs use dot notation to select features: `vlm_encoder.rgb`, `vlm_encoder.language`.
+VLM encoder configs list only vision keys. The observation tokenizer routes
+language automatically through the internal `tokenized_observations` key.
+Since two-tower VLMs produce multiple outputs, fusion and decoder configs
+select the pipeline-prefixed feature names, e.g. `left_rgb` and
+`left_language`.
 
-#### GenerativeVLMEncoder
+#### [`GenerativeVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.GenerativeVLMEncoder]
 
 Abstract base for single-stream generative VLMs that fuse vision and language in a single language model pass. The common flow: embed images, embed text, concatenate, run LM. Subclasses only implement model-specific image embedding.
 
@@ -250,13 +254,13 @@ Abstract base for single-stream generative VLMs that fuse vision and language in
 
 Two concrete subclasses:
 
-##### PaliGemmaEncoder
+##### [`PaliGemmaEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder]
 
 PaliGemma2 models (Gemma2-based). Processes cameras individually.
 
 ```python
 PaliGemmaEncoder(
-    input_keys=["left", "tokenized_observations"],
+    input_keys=["left"],
     pretrained=True,
     frozen=True,
     model_name="google/paligemma2-3b-pt-224",
@@ -264,13 +268,13 @@ PaliGemmaEncoder(
 )
 ```
 
-##### SmolVLMEncoder
+##### [`SmolVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder]
 
 SmolVLM models (Llama-based). Stacks all camera images along the `num_images` dimension for joint processing.
 
 ```python
 SmolVLMEncoder(
-    input_keys=["left", "right", "tokenized_observations"],
+    input_keys=["left", "right"],
     pretrained=True,
     frozen=True,
     model_name="HuggingFaceTB/SmolVLM-256M-Instruct",
@@ -283,7 +287,7 @@ SmolVLMEncoder(
 
 ## Available Backbones
 
-### Spatial Backbones (`SpatialBackboneType`)
+### Spatial Backbones ([`SpatialBackboneType`][versatil.models.encoding.encoders.constants.SpatialBackboneType])
 
 | Enum | Model ID |
 |---|---|
@@ -304,9 +308,9 @@ SmolVLMEncoder(
 | `TINYVIT_21M` | `tiny_vit_21m_224.dist_in22k_ft_in1k` |
 | `SWIN_TINY` | `swin_tiny_patch4_window7_224.ms_in22k_ft_in1k` |
 | `SWIN_BASE` | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
-| `DINOV3_CONVNEXT_SMALL` | `convnext_small_dinov3.lvd1689m` |
+| `DINOV3_CONVNEXT_SMALL` | `convnext_small.dinov3_lvd1689m` |
 
-### Flat Backbones (`FlatBackboneType`)
+### Flat Backbones ([`FlatBackboneType`][versatil.models.encoding.encoders.constants.FlatBackboneType])
 
 | Enum | Model ID |
 |---|---|
@@ -321,24 +325,37 @@ SmolVLMEncoder(
 | `DEIT_SMALL` | `deit_small_patch16_224.fb_in1k` |
 | `DEIT_BASE` | `deit_base_patch16_224.fb_in1k` |
 
-### Language Models (`LanguageEncoderType`)
+### Language Models ([`LanguageEncoderType`][versatil.models.encoding.encoders.constants.LanguageEncoderType])
 
 | Enum | Model ID |
 |---|---|
 | `BERT_BASE` | `bert-base-uncased` |
 | `DISTILBERT_BASE` | `distilbert-base-uncased` |
 | `MINI_LM_L6` | `sentence-transformers/all-MiniLM-L6-v2` |
+| `MINI_LM_L12` | `sentence-transformers/all-MiniLM-L12-v2` |
 | `GEMMA_2B` | `google/gemma-2b` |
 | `QWEN_2_0_5B` | `Qwen/Qwen2-0.5B` |
 | `QWEN_2_1_5B` | `Qwen/Qwen2-1.5B` |
+| `QWEN_2_5_0_5B` | `Qwen/Qwen2.5-0.5B` |
+| `QWEN_3_0_6B` | `Qwen/Qwen3-0.6B` |
+| `QWEN_3_5_0_8B` | `Qwen/Qwen3.5-0.8B` |
+| `EMBEDDINGGEMMA_300M` | `google/embeddinggemma-300m` |
+| `QWEN_3_EMBEDDING_0_6B` | `Qwen/Qwen3-Embedding-0.6B` |
+| `BGE_BASE_EN_V1_5` | `BAAI/bge-base-en-v1.5` |
+| `LLAMA_EMBED_NEMOTRON_8B` | `nvidia/llama-embed-nemotron-8b` |
+| `LLAMA_NEMOTRON_EMBED_1B_V2` | `nvidia/llama-nemotron-embed-1b-v2` |
+| `GTE_QWEN2_1_5B_INSTRUCT` | `Alibaba-NLP/gte-Qwen2-1.5B-instruct` |
+| `JINA_EMBEDDINGS_V3` | `jinaai/jina-embeddings-v3` |
+| `E5_BASE` | `intfloat/e5-base` |
 | `ALBERT_BASE` | `albert-base-v2` |
 | `ROBERTA_BASE` | `roberta-base` |
 | `GPT2` | `gpt2` |
 | `DEBERTA_V3_BASE` | `microsoft/deberta-v3-base` |
+| `DISTIL_ROBERTA_BASE` | `distilbert/distilroberta-base` |
 | `PHI_2` | `microsoft/phi-2` |
 | `LLAMA_3_2_1B` | `meta-llama/Llama-3.2-1B` |
 
-### Two-Tower VLMs (`ImageTextModelType`)
+### Two-Tower VLMs ([`ImageTextModelType`][versatil.models.encoding.encoders.constants.ImageTextModelType])
 
 | Enum | Model ID |
 |---|---|
@@ -350,7 +367,7 @@ SmolVLMEncoder(
 
 ### Generative VLMs
 
-**PaliGemma (`PaliGemmaModelType`):**
+**PaliGemma ([`PaliGemmaModelType`][versatil.models.encoding.encoders.constants.PaliGemmaModelType]):**
 
 | Enum | Model ID |
 |---|---|
@@ -358,7 +375,7 @@ SmolVLMEncoder(
 | `PALIGEMMA2_3B_448` | `google/paligemma2-3b-pt-448` |
 | `PALIGEMMA2_3B_896` | `google/paligemma2-3b-pt-896` |
 
-**SmolVLM (`SmolVLMModelType`):**
+**SmolVLM ([`SmolVLMModelType`][versatil.models.encoding.encoders.constants.SmolVLMModelType]):**
 
 | Enum | Model ID |
 |---|---|
@@ -370,11 +387,11 @@ Backbones are extended by adding new enum values in `src/versatil/models/encodin
 
 ## Pooling Methods
 
-All vision and language encoders support configurable pooling via `PoolingMethod`:
+All vision and language encoders support configurable pooling via [`PoolingMethod`][versatil.models.encoding.encoders.constants.PoolingMethod]:
 
 | Method | Enum Value | Description |
 |---|---|---|
-| Default | `default` | CLS token (FlatRGBEncoder), max pooling (SpatialRGBEncoder), pooled output (VLM) |
+| Default | `default` | CLS token ([`FlatRGBEncoder`][versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder]), max pooling ([`SpatialRGBEncoder`][versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder]), pooled output (VLM) |
 | Average | `average_pooling` | Global Average Pooling (spatial encoders) or mean pooling (flat/sequential encoders) |
 | Max | `max_pooling` | Global Max Pooling for spatial feature maps |
 | Spatial Softmax | `spatial_softmax` | Spatial Softmax pooling for spatial feature maps |
@@ -385,9 +402,9 @@ Setting pooling to `none` preserves spatial or sequential structure, producing S
 
 ## Fusion Modules
 
-Fusion modules combine features from multiple encoders into a single representation. All fusion modules inherit from `FusionModule` and are set up lazily -- their layers are built after encoder output dimensions are known.
+Fusion modules combine features from multiple encoders into a single representation. All fusion modules inherit from [`FusionModule`][versatil.models.encoding.fusion.base.FusionModule] and are set up lazily -- their layers are built after encoder output dimensions are known.
 
-### ConcatFusion
+### [`ConcatFusion`][versatil.models.encoding.fusion.concat.ConcatFusion]
 
 Projects each input feature to a shared `hidden_dim`, then concatenates along the last dimension.
 
@@ -403,7 +420,7 @@ ConcatFusion(
 # Output dim: 256 * 2 = 512
 ```
 
-### MLPFusion
+### [`MLPFusion`][versatil.models.encoding.fusion.mlp.MLPFusion]
 
 Projects, concatenates, then applies an MLP for non-linear fusion.
 
@@ -422,7 +439,7 @@ MLPFusion(
 # Output dim: 256
 ```
 
-### AttentionFusion
+### [`AttentionFusion`][versatil.models.encoding.fusion.attention.AttentionFusion]
 
 Projects features to a shared dimension and applies multi-head cross-attention. One feature serves as the query, the rest as key-value pairs.
 
@@ -448,17 +465,17 @@ If `input_feature_query` is not specified, the first feature in the list is used
 
 ### Encoder Output Keys
 
-Each encoder type uses a specific output key from `EncoderOutputKeys`:
+Each encoder type uses a specific output key from [`EncoderOutputKeys`][versatil.models.encoding.encoders.constants.EncoderOutputKeys]:
 
 | Output Key | Value | Used By |
 |---|---|---|
-| `RGB` | `rgb` | SpatialRGBEncoder, FlatRGBEncoder, ConditionalCNNEncoder, TwoTowerVLMEncoder |
-| `DEPTH` | `depth` | SpatialDepthEncoder |
-| `RGBD` | `rgbd` | DFormerEncoder, GeometricRGBDEncoder |
-| `PROPRIOCEPTIVE` | `proprio` | ProprioceptiveEncoder |
-| `LANGUAGE` | `language` | LanguageEncoder, TwoTowerVLMEncoder |
-| `FUSED_RGB_LANGUAGE` | `fused_rgb_language` | PaliGemmaEncoder, SmolVLMEncoder |
-| `PADDING_MASK` | `padding_mask` | LanguageEncoder, TwoTowerVLMEncoder, PaliGemmaEncoder, SmolVLMEncoder |
+| `RGB` | `rgb` | [`SpatialRGBEncoder`][versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder], [`FlatRGBEncoder`][versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder], [`ConditionalCNNEncoder`][versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder], [`TwoTowerVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder] |
+| `DEPTH` | `depth` | [`SpatialDepthEncoder`][versatil.models.encoding.encoders.depth.spatial.SpatialDepthEncoder] |
+| `RGBD` | `rgbd` | [`DFormerEncoder`][versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.DFormerEncoder], [`GeometricRGBDEncoder`][versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder] |
+| `PROPRIOCEPTIVE` | `proprio` | [`ProprioceptiveEncoder`][versatil.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder] |
+| `LANGUAGE` | `language` | [`LanguageEncoder`][versatil.models.encoding.encoders.language.language.LanguageEncoder], [`TwoTowerVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder] |
+| `FUSED_RGB_LANGUAGE` | `fused_rgb_language` | [`PaliGemmaEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder], [`SmolVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder] |
+| `PADDING_MASK` | `padding_mask` | [`LanguageEncoder`][versatil.models.encoding.encoders.language.language.LanguageEncoder], [`TwoTowerVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder], [`PaliGemmaEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder], [`SmolVLMEncoder`][versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder] |
 
 !!! note "Multi-camera naming"
     For multi-camera encoders, output keys use the format `modality:camera_key`.
@@ -529,4 +546,4 @@ class MyEncoder(Encoder):
 - Add a YAML config in `hydra_configs/policy/encoding_pipeline/`
 - Write tests in `tests/models/encoding/`
 
-For conditional encoders, subclass `ConditionalEncoder` instead and implement `encode(inputs, conditioning)`. The base `forward()` handles temporal flattening/unflattening and delegates to `encode()`.
+For conditional encoders, subclass [`ConditionalEncoder`][versatil.models.encoding.encoders.conditional.ConditionalEncoder] instead and implement `encode(inputs, conditioning)`. The base `forward()` handles temporal flattening/unflattening and delegates to `encode()`.

@@ -89,7 +89,7 @@ checkpoints/experiment_name/latest-epoch=XX.ckpt
 checkpoints/experiment_name/last.ckpt
 ```
 
-### Relevant ExperimentConfig Fields
+### Relevant [`ExperimentConfig`][versatil.configs.experiment.ExperimentConfig] Fields
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -146,22 +146,26 @@ python -m versatil.endpoints.train \
 
 ## Training Configuration Reference
 
-Key fields in `TrainingConfig`:
+Key fields in the default training config (`hydra_configs/training/default.yaml`):
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `num_epochs` | 100 | Total training epochs |
 | `optimizer` | AdamW | Optimizer config (AdamW, Adam, SGD) |
-| `optimizer.lr` | 1e-4 | Base learning rate |
+| `optimizer.lr` | 5e-5 | Base learning rate |
 | `clip_gradient_norm` | false | Enable gradient clipping |
-| `clip_max_norm` | 0.1 | Max gradient norm (when clipping enabled) |
+| `clip_max_norm` | 1.0 | Max gradient norm (when clipping enabled) |
 | `lr_schedule` | None | LR schedule: `"cosine"`, `"linear"`, or None |
-| `lr_warmup_steps` | 5000 | Warmup steps for LR schedule |
-| `use_ema` | true | Exponential Moving Average of weights |
+| `lr_warmup_steps` | 1000 | Warmup steps for LR schedule |
+| `use_ema` | false | Exponential Moving Average of weights |
 | `ema_power` | 0.75 | EMA decay power |
-| `early_stopping_patience` | 10 | Validation checks without improvement before stopping |
+| `early_stopping_patience` | 200 | Validation checks without improvement before stopping |
 | `gradient_accumulate_every` | 1 | Steps between gradient updates |
 | `stages` | [] | Ordered training regimes for freezing groups, optimizer overrides, and loss weights |
+
+The dataclass schema in `src/versatil/configs/training.py` has fallback values,
+but normal Hydra training runs compose the YAML defaults above unless an
+end-to-end config overrides them.
 
 ### Training Stages
 
@@ -206,7 +210,7 @@ that match no configured pattern are assigned to the implicit reserved group
 `unmatched`, which must not be used as a custom group name.
 
 `loss_weights` is not a flat scalar map anymore. It must match the public loss
-weight tree. For a scalar-weight leaf such as `PriorDenoisingLoss`, the patch
+weight tree. For a scalar-weight leaf such as [`PriorDenoisingLoss`][versatil.metrics.components.PriorDenoisingLoss], the patch
 shape is:
 
 ```yaml

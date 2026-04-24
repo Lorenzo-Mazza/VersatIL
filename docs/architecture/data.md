@@ -3,7 +3,7 @@
 The VersatIL data pipeline transforms raw demonstration data into normalized, batched training samples. The full flow is:
 
 ```
-Raw Episodes (CSV / HDF5 / LeRobot)
+Raw Episodes (CSV / HDF5 / LeRobot / synthetic)
   -> DatasetSchema.extract_episode()
   -> Zarr Store (.zarr)
   -> EpisodicDataset.__getitem__()
@@ -14,7 +14,7 @@ Raw Episodes (CSV / HDF5 / LeRobot)
 
 ## Dataset Schema (Ingestion)
 
-A `DatasetSchema` defines the structure of a raw dataset -- what observations, actions, and cameras exist -- and how to extract episodes into a standardized Zarr store. Schemas define *storage structure*, not runtime behavior.
+A [`DatasetSchema`][versatil.data.raw.schemas.base.DatasetSchema] defines the structure of a raw dataset -- what observations, actions, and cameras exist -- and how to extract episodes into a standardized Zarr store. Schemas define *storage structure*, not runtime behavior.
 
 ```python
 class DatasetSchema(abc.ABC):
@@ -30,11 +30,12 @@ class DatasetSchema(abc.ABC):
 
 | Format | Schema Class | Source |
 |--------|-------------|--------|
-| CSV + image folders | `CsvDatasetSchema` | TSO Lab format |
-| HDF5 | `Hdf5DatasetSchema` | LIBERO / robomimic |
-| HuggingFace LeRobot | `LeRobotDatasetSchemaV30` | LeRobot datasets |
+| CSV + image folders | [`CsvDatasetSchema`][versatil.data.raw.schemas.csv.CsvDatasetSchema] | TSO Lab format |
+| HDF5 | [`Hdf5DatasetSchema`][versatil.data.raw.schemas.hdf5.Hdf5DatasetSchema] | LIBERO / robomimic |
+| HuggingFace LeRobot | [`LeRobotDatasetSchemaV30`][versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30] | LeRobot datasets |
+| Synthetic generator | [`SyntheticSchema`][versatil.data.raw.schemas.custom.synthetic.SyntheticSchema] | Generated benchmark episodes |
 
-New formats are supported by subclassing `DatasetSchema` and implementing `extract_episode()`.
+New formats are supported by subclassing [`DatasetSchema`][versatil.data.raw.schemas.base.DatasetSchema] and implementing `extract_episode()`.
 
 ### Available Datasets
 
@@ -47,6 +48,10 @@ Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_r
 | [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot)       | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format, OpenVLA filtered demonstrations, 256x256 images. |
 | [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot)   | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                         |
 | [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                             |
+| PushT                                                                    | `pusht/` | Local/LeRobot-compatible data | 2D pushing benchmark configs.                                    |
+| Block Pushing                                                            | `block_pushing/` | Local/LeRobot-compatible data | Relative and absolute action-space variants.                     |
+| Kitchen                                                                  | `kitchen/` | Local/LeRobot-compatible data | Q-FAT relay kitchen configs.                                     |
+| Synthetic                                                                | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs.              |
 
 ### Zarr Store Creation
 
@@ -59,14 +64,16 @@ elif isinstance(schema, CsvDatasetSchema):
     create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
 elif isinstance(schema, LeRobotDatasetSchemaV30):
     create_replay_buffer_from_lerobot(schema=schema)
+elif isinstance(schema, SyntheticSchema):
+    create_replay_buffer_from_synthetic(schema=schema)
 ```
 
 !!! info "Raw Key Remapping"
-    Raw data formats use their own naming conventions (e.g., LIBERO uses `observation.images.image`, original HDF5 uses `agentview_image`). During Zarr creation, raw camera keys (`RawCameraKey`) are remapped to standardized pipeline camera keys (`Cameras`) via `RAW_TO_CAMERA_MAPPING`. After Zarr creation, only pipeline keys exist -- training and inference never see raw format keys.
+    Raw data formats use their own naming conventions (e.g., LIBERO uses `observation.images.image`, original HDF5 uses `agentview_image`). During Zarr creation, raw camera keys ([`RawCameraKey`][versatil.data.constants.RawCameraKey]) are remapped to standardized pipeline camera keys ([`Cameras`][versatil.data.constants.Cameras]) via `RAW_TO_CAMERA_MAPPING`. After Zarr creation, only pipeline keys exist -- training and inference never see raw format keys.
 
 ## Task Definition
 
-`TaskSpace` combines an `ActionSpace`, `ObservationSpace`, and `DatasetSchema` to define what data an experiment uses at runtime. The same Zarr store can power different tasks (vision-only, state-only, vision-language) without data duplication.
+[`TaskSpace`][versatil.data.task.TaskSpace] combines an [`ActionSpace`][versatil.data.task.ActionSpace], [`ObservationSpace`][versatil.data.task.ObservationSpace], and [`DatasetSchema`][versatil.data.raw.schemas.base.DatasetSchema] to define what data an experiment uses at runtime. The same Zarr store can power different tasks (vision-only, state-only, vision-language) without data duplication.
 
 ### Storage Metadata vs Task Metadata
 
@@ -78,12 +85,12 @@ Two separate metadata layers serve different purposes:
 ```
 zarr_meta/bowel_retraction.yaml     → left, right, depth, proprio, language, phase (everything)
 observation_space/stereo_rgb.yaml   → left, right only (subset)
-action_space/deltas_cf_pos.yaml     → position deltas + gripper (computed from proprio)
+action_space/deltas_cf_pos_gripper_phase.yaml → position deltas + gripper + phase
 ```
 
 This separation means adding a new task to an existing dataset requires only new observation/action space configs — no re-ingestion, no Zarr changes.
 
-### ObservationSpace
+### [`ObservationSpace`][versatil.data.task.ObservationSpace]
 
 Defines which observations the policy receives as input.
 
@@ -103,7 +110,7 @@ Provides typed access to observation subsets:
 
 The `get_required_zarr_keys()` method returns the list of Zarr keys this space requires.
 
-### ActionSpace
+### [`ActionSpace`][versatil.data.task.ActionSpace]
 
 Defines what actions the policy predicts and how they are computed.
 
@@ -120,8 +127,8 @@ class ActionSpace:
 
 Actions can be:
 
-- **Precomputed** (`PrecomputedActionMetadata`) -- loaded directly from the Zarr store
-- **On-the-fly** (`OnTheFlyActionMetadata`) -- computed per-sample during data loading from consecutive observations
+- **Precomputed** ([`PrecomputedActionMetadata`][versatil.data.metadata.PrecomputedActionMetadata]) -- loaded directly from the Zarr store
+- **On-the-fly** ([`OnTheFlyActionMetadata`][versatil.data.metadata.OnTheFlyActionMetadata]) -- computed per-sample during data loading from consecutive observations
 
 Action types include position, orientation, and gripper, each with configurable computation methods:
 
@@ -135,7 +142,7 @@ Action types include position, orientation, and gripper, each with configurable 
 
 ### Temporal Horizons
 
-Configured in `TaskSpace`:
+Configured in [`TaskSpace`][versatil.data.task.TaskSpace]:
 
 - **`observation_horizon`** -- Number of historical timesteps loaded as input (minimum 1)
 - **`prediction_horizon`** -- Number of future action timesteps to predict (the chunk size)
@@ -146,14 +153,14 @@ Configured in `TaskSpace`:
 
 - All requested observation and action keys exist in the dataset schema
 - Metadata is consistent between the schema and task requirements
-- Camera keys are valid members of the `Cameras` enum
+- Camera keys are valid members of the [`Cameras`][versatil.data.constants.Cameras] enum
 - Temporal horizons are positive integers
 
 ## Data Loading Pipeline
 
-### EpisodicDataset
+### [`EpisodicDataset`][versatil.data.episodic_dataset.EpisodicDataset]
 
-`EpisodicDataset` is the core PyTorch `Dataset` that loads temporal windows from a Zarr store.
+[`EpisodicDataset`][versatil.data.episodic_dataset.EpisodicDataset] is the core PyTorch `Dataset` that loads temporal windows from a Zarr store.
 
 ```python
 class EpisodicDataset(data.Dataset):
@@ -172,21 +179,21 @@ class EpisodicDataset(data.Dataset):
 
 Key responsibilities:
 
-1. **Replay buffer loading** -- Loads the Zarr store via `ReplayBuffer`, optionally preloading into memory
+1. **Replay buffer loading** -- Loads the Zarr store via [`ReplayBuffer`][versatil.data.preprocessing.replay_buffer.ReplayBuffer], optionally preloading into memory
 2. **Episode splitting** -- Creates train/val splits using configurable `val_ratio` and `total_ratio`
-3. **Sequence sampling** -- Uses `SequenceSampler` to extract overlapping temporal windows with padding
+3. **Sequence sampling** -- Uses [`SequenceSampler`][versatil.data.preprocessing.sampler.SequenceSampler] to extract overlapping temporal windows with padding
 4. **Downsampling** -- Optionally subsamples episodes by taking every n-th step
 5. **Key validation** -- Raises `KeyError` if required Zarr keys are missing
 
 Each `__getitem__` call:
 
-1. Samples a padded sequence from the replay buffer via `SequenceSampler`
-2. Computes actions via `ActionProcessor`
-3. Builds the training sample via `SampleBuilder`
+1. Samples a padded sequence from the replay buffer via [`SequenceSampler`][versatil.data.preprocessing.sampler.SequenceSampler]
+2. Computes actions via [`ActionProcessor`][versatil.data.processing.action_processor.ActionProcessor]
+3. Builds the training sample via [`SampleBuilder`][versatil.data.sample_builder.SampleBuilder]
 
-### ActionProcessor
+### [`ActionProcessor`][versatil.data.processing.action_processor.ActionProcessor]
 
-`ActionProcessor` computes actions from observations, supporting both precomputed and on-the-fly computation.
+[`ActionProcessor`][versatil.data.processing.action_processor.ActionProcessor] computes actions from observations, supporting both precomputed and on-the-fly computation.
 
 For on-the-fly actions, the processor:
 
@@ -208,9 +215,9 @@ class ActionProcessor:
 !!! note "Action Denoising"
     Denoising thresholds are computed from the training data by examining the distribution of observation delta magnitudes. Movements below the configured percentile (default 15th) are zeroed, reducing noise from sensor jitter. Thresholds are stored in the checkpoint and reapplied during inference.
 
-### SampleBuilder
+### [`SampleBuilder`][versatil.data.sample_builder.SampleBuilder]
 
-`SampleBuilder` assembles the final training sample from raw episode data.
+[`SampleBuilder`][versatil.data.sample_builder.SampleBuilder] assembles the final training sample from raw episode data.
 
 ```python
 class SampleBuilder:
@@ -264,10 +271,10 @@ def get_dataloaders(config: DictConfig) -> tuple[
 
 Steps:
 
-1. Validates the `DataLoaderConfig`
+1. Validates the [`DataLoaderConfig`][versatil.configs.data.dataloader.DataLoaderConfig]
 2. Ensures the Zarr store exists (creates it from raw data if needed)
-3. Creates `EpisodicDataset` for training
-4. Fits a `LinearNormalizer` and optional `Tokenizer` on training data
+3. Creates [`EpisodicDataset`][versatil.data.episodic_dataset.EpisodicDataset] for training
+4. Fits a [`LinearNormalizer`][versatil.data.normalization.normalizer.LinearNormalizer] and optional [`Tokenizer`][versatil.data.tokenization.tokenizer.Tokenizer] on training data
 5. Sets normalizer and tokenizer on the training dataset
 6. Creates the training `DataLoader` with pinned memory and persistent workers
 7. Optionally creates a validation dataset and `DataLoader` (skipped when `val_ratio=0`)
@@ -275,7 +282,7 @@ Steps:
 
 ## Normalization
 
-`LinearNormalizer` stores per-key normalization parameters and supports three modes:
+[`LinearNormalizer`][versatil.data.normalization.normalizer.LinearNormalizer] stores per-key normalization parameters and supports three modes:
 
 | Mode | Description |
 |------|-------------|
@@ -283,11 +290,15 @@ Steps:
 | `gaussian` | Z-score normalization (zero mean, unit variance) |
 | `demean` | Subtracts mean only |
 
-The `TransformBuilder` fits separate normalizers for:
+The [`TransformBuilder`][versatil.data.processing.transform_builder.TransformBuilder] fits separate normalizers for:
 
 - **Kinematics** (proprioceptive data and actions) -- configurable mode, optional winsorization
-- **RGB images** -- configurable via `image_norm_type` (scale to `[0, 1]`, `[-1, 1]`, or ImageNet normalization)
+- **RGB images** -- configurable via `image_norm_type` (scale to `[0, 1]`, `[-1, 1]`, ImageNet normalization, or CLIP normalization)
 - **Depth images** -- fitted from depth statistics, with optional winsorization to clip outlier depth values
+
+CLIP encoders should use `image_norm_type: clip`. SigLIP-family and
+generative VLM image towers use `image_norm_type: minus_one_to_one`; the
+experiment validator checks these model-family requirements before training.
 
 !!! info "Normalization Exclusions"
     Binary gripper actions and language instructions are not normalized. The normalizer is stored in the checkpoint and loaded at inference time.
@@ -314,13 +325,13 @@ Two independent [Albumentations](https://albumentations.ai/) pipelines are suppo
 - **Color augmentation** -- Photometric transforms (brightness, contrast, hue, etc.)
 - **Spatial augmentation** -- Geometric transforms (rotation, flips, etc.)
 
-Image sizes come from per-camera `CameraMetadata` in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
+Image sizes come from per-camera [`CameraMetadata`][versatil.data.metadata.CameraMetadata] in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
 
 ## Tokenization
 
-The `Tokenizer` wraps two optional sub-tokenizers:
+The [`Tokenizer`][versatil.data.tokenization.tokenizer.Tokenizer] wraps two optional sub-tokenizers:
 
-- **`ObservationTokenizer`** -- Tokenizes language instructions and proprioceptive data
-- **`ActionTokenizer`** -- Tokenizes continuous actions into discrete tokens (FAST-style)
+- **[`ObservationTokenizer`][versatil.data.tokenization.observation_tokenizer.ObservationTokenizer]** -- Tokenizes language instructions and proprioceptive data
+- **[`ActionTokenizer`][versatil.data.tokenization.action_tokenizer.ActionTokenizer]** -- Tokenizes continuous actions into discrete tokens (FAST-style)
 
-Tokenization is applied after normalization in `SampleBuilder.normalize_and_tokenize_sample()`. The tokenizer is saved alongside the checkpoint and loaded during inference via `PolicyLoader`.
+Tokenization is applied after normalization in `SampleBuilder.normalize_and_tokenize_sample()`. The tokenizer is saved alongside the checkpoint and loaded during inference via [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader].

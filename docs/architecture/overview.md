@@ -2,15 +2,15 @@
 
 ## Policy Composition
 
-A VersatIL policy is built from four decoupled components, orchestrated by the `Policy` class:
+A VersatIL policy is built from four decoupled components, orchestrated by the [`Policy`][versatil.models.policy.Policy] class:
 
-**Policy = EncodingPipeline + Algorithm + ActionDecoder + Loss**
+**[`Policy`][versatil.models.policy.Policy] = [`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline] + Algorithm + [`ActionDecoder`][versatil.models.decoding.decoders.base.ActionDecoder] + Loss**
 
 | Component | Responsibility |
 |---|---|
-| **EncodingPipeline** | Multi-modal observation encoding with optional fusion |
+| **[`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline]** | Multi-modal observation encoding with optional fusion |
 | **Algorithm** | Learning paradigm (how to train and predict) |
-| **ActionDecoder** | Neural network architecture (how to process features) |
+| **[`ActionDecoder`][versatil.models.decoding.decoders.base.ActionDecoder]** | Neural network architecture (how to process features) |
 | **Loss** | Composable objective function |
 
 ```python
@@ -36,7 +36,7 @@ The `Policy.forward()` method executes encoding and decoding. `Policy.compute_lo
 
 At inference time, `Policy.predict_action()` normalizes raw observations, encodes them, calls `algorithm.predict()` (which does not require ground-truth actions), and unnormalizes the output.
 
-For the full API, see the [Policy reference](../reference/versatil/models/policy.md).
+For the full API, see [`Policy`][versatil.models.policy.Policy].
 
 ## Algorithm vs Architecture Separation
 
@@ -44,12 +44,12 @@ VersatIL decouples the learning paradigm from the neural network structure. The 
 
 **Algorithm** defines *how* to train and predict:
 
-- `BehavioralCloning` -- direct supervised learning of expert actions
-- `Diffusion` -- iterative denoising via Denoising Score Matching
-- `FlowMatching` -- continuous normalizing flows
-- `VariationalAlgorithm` -- wraps any base algorithm with VAE-style latent variables
+- [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning] -- direct supervised learning of expert actions
+- [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] -- iterative denoising via Denoising Score Matching
+- [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching] -- continuous normalizing flows
+- [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm] -- wraps any base algorithm with VAE-style latent variables
 
-**ActionDecoder** defines *what* neural network processes features:
+**[`ActionDecoder`][versatil.models.decoding.decoders.base.ActionDecoder]** defines *what* neural network processes features:
 
 - Transformer-based (ACT, DiT, GPT, DETR, Free Transformer, etc.)
 - UNet-based (Conditional Action UNet for Diffusion Policy)
@@ -66,7 +66,7 @@ Policy(encoding_pipeline=..., algorithm=FlowMatching(...), decoder=DiTBlockDecod
 Policy(encoding_pipeline=..., algorithm=FlowMatching(...), decoder=GPTActionDecoder(...), loss=...)
 ```
 
-The `DecodingAlgorithm` base class defines two abstract methods:
+The [`DecodingAlgorithm`][versatil.models.decoding.algorithm.base.DecodingAlgorithm] base class defines two abstract methods:
 - `forward(network, features, actions)` -- training pass (with ground-truth actions)
 - `predict(network, features)` -- inference pass (without actions)
 
@@ -75,7 +75,7 @@ The algorithm receives the decoder as a `network` parameter and orchestrates its
 
 ## VLM Backbone Wiring
 
-For VLA decoders (Pi0, SmolVLA), the `Policy` automatically wires the VLM encoder's pretrained layers to the decoder at initialization:
+For VLA decoders (Pi0, SmolVLA), the [`Policy`][versatil.models.policy.Policy] automatically wires the VLM encoder's pretrained layers to the decoder at initialization:
 
 ```python
 def _wire_vlm_backbone(self):
@@ -88,7 +88,7 @@ def _wire_vlm_backbone(self):
     )
 ```
 
-This is triggered when the decoder's `DecoderInput` has `requires_vlm_backbone=True`. The VLM encoder uses `use_embeddings_only=True` so its LM layers are available for the decoder to borrow, rather than being used during encoding.
+This is triggered when the decoder's [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] has `requires_vlm_backbone=True`. The VLM encoder uses `use_embeddings_only=True` so its LM layers are available for the decoder to borrow, rather than being used during encoding.
 
 ## Composable Loss
 
@@ -161,7 +161,7 @@ On `EncodingPipeline.__init__()`:
 
 ### 2. Decoder Input Validation
 
-During experiment validation (`ExperimentValidator.validate_decoder_encoder_compatibility()` in `validation.py`), the decoder's `DecoderInput` is validated against the encoding pipeline's final features:
+During experiment validation (`ExperimentValidator.validate_decoder_encoder_compatibility()` in `validation.py`), the decoder's [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] is validated against the encoding pipeline's final features:
 
 ```python
 available_features = encoding_pipeline.get_final_features_to_dimensions()
@@ -182,7 +182,7 @@ On `TaskSpace.__init__()`:
 
 - Action space keys exist in the dataset schema
 - Observation space keys exist in the dataset schema
-- Camera keys are valid `Cameras` enum values
+- Camera keys are valid [`Cameras`][versatil.data.constants.Cameras] enum values
 - On-the-fly action metadata matches schema observation metadata
 
 !!! warning "Feature type mismatches"
@@ -190,24 +190,24 @@ On `TaskSpace.__init__()`:
 
 ## Observation and Action Spaces
 
-**ObservationSpace** defines what data the policy receives:
+**[`ObservationSpace`][versatil.data.task.ObservationSpace]** defines what data the policy receives:
 
-- Camera observations (RGB, depth) via `CameraMetadata`
+- Camera observations (RGB, depth) via [`CameraMetadata`][versatil.data.metadata.CameraMetadata]
 - Proprioceptive state (position, orientation, gripper) via typed metadata classes
 - Language instructions via tokenized observations
 
-**ActionSpace** defines what the policy predicts:
+**[`ActionSpace`][versatil.data.task.ActionSpace]** defines what the policy predicts:
 
 - Position actions (with configurable coordinate frame)
 - Orientation actions (roll, euler, quaternion representations)
 - Gripper actions (binary or continuous)
 - Actions can be precomputed (stored in Zarr) or computed on-the-fly (e.g., deltas from consecutive states)
 
-Both spaces expose `get_required_zarr_keys()` to declare which keys must exist in the dataset. `TaskSpace` validates these keys against the dataset schema at initialization.
+Both spaces expose `get_required_zarr_keys()` to declare which keys must exist in the dataset. [`TaskSpace`][versatil.data.task.TaskSpace] validates these keys against the dataset schema at initialization.
 
 ## From Training to Deployment
 
-After training, a policy checkpoint can be deployed directly via `PolicyLoader` (float inference with `torch.compile`) or compressed first for edge deployment:
+After training, a policy checkpoint can be deployed directly via [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] (float inference with `torch.compile`) or compressed first for edge deployment:
 
 ```
 Training checkpoint (.ckpt)
@@ -218,4 +218,4 @@ Training checkpoint (.ckpt)
       → InferenceClient (ZMQ transport to robot/simulation)
 ```
 
-Both `PolicyLoader` and `CompressedPolicyLoader` implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the `InferenceClient` works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.
+Both [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] and [`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.

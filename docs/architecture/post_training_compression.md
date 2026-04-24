@@ -6,8 +6,8 @@ VersatIL's post-training compression (PTC) pipeline reduces trained policy model
 
 The PTC pipeline spans two packages:
 
-- **`post_training_compression/`**: Pipeline orchestration, model preparation, pruning, export, serialization, and reporting.
-- **`quantization/`**: Bridge to [torchao](https://github.com/pytorch/ao) — quantization strategies, calibration, hardware backends, and patches for torch/torchao compatibility.
+- **`src/versatil/post_training_compression/`**: Pipeline orchestration, model preparation, pruning, export, serialization, and reporting.
+- **`src/versatil/quantization/`**: Bridge to [torchao](https://github.com/pytorch/ao) — quantization strategies, calibration, hardware backends, and patches for torch/torchao compatibility.
 
 ### Pipeline Flow
 
@@ -39,14 +39,14 @@ PostTrainingCompressor.compress()
 
 | Class | Module | Role |
 |-------|--------|------|
-| `PostTrainingCompressor` | `compressor.py` | Pipeline orchestrator. Owns `compress()` and all phase methods. |
-| `CompressionTarget` | `compression_target.py` | Per-module config: module_path + preparation + pruning list + quantization strategy. |
-| `PT2EStrategy` | `quantization/strategies.py` | Wraps a `BasePT2EBackend` for graph-based quantization. |
-| `QuantizeApiStrategy` | `quantization/strategies.py` | Wraps a torchao quantization config for eager-mode quantization. |
-| `X86InductorBackend` | `quantization/backends/x86_inductor.py` | Creates X86InductorQuantizer, manages inductor env vars, provides lowering. |
-| `CalibrationDataProvider` | `quantization/calibration.py` | Yields observation tuples from the training dataloader for static calibration. |
-| `ExportablePolicy` | `models/exportable_policy.py` | Wraps Policy with positional tensor I/O for torch.export compatibility. |
-| `CompressedPolicyLoader` | `inference/policy_loading/compressed_loader.py` | Loads .pt2 archives, applies torch.compile, runs compiled inference. |
+| [`PostTrainingCompressor`][versatil.post_training_compression.compressor.PostTrainingCompressor] | `src/versatil/post_training_compression/compressor.py` | Pipeline orchestrator. Owns `compress()` and all phase methods. |
+| [`CompressionTarget`][versatil.post_training_compression.compression_target.CompressionTarget] | `src/versatil/post_training_compression/compression_target.py` | Per-module config: module_path + preparation + pruning list + quantization strategy. |
+| [`PT2EStrategy`][versatil.quantization.strategies.PT2EStrategy] | `src/versatil/quantization/strategies.py` | Wraps a [`BasePT2EBackend`][versatil.quantization.backends.base.BasePT2EBackend] for graph-based quantization. |
+| [`QuantizeApiStrategy`][versatil.quantization.strategies.QuantizeApiStrategy] | `src/versatil/quantization/strategies.py` | Wraps a torchao quantization config for eager-mode quantization. |
+| [`X86InductorBackend`][versatil.quantization.backends.x86_inductor.X86InductorBackend] | `src/versatil/quantization/backends/x86_inductor.py` | Creates X86InductorQuantizer, manages inductor env vars, provides lowering. |
+| [`CalibrationDataProvider`][versatil.quantization.calibration.CalibrationDataProvider] | `src/versatil/quantization/calibration.py` | Yields observation tuples from the training dataloader for static calibration. |
+| [`ExportablePolicy`][versatil.models.exportable_policy.ExportablePolicy] | `src/versatil/models/exportable_policy.py` | Wraps Policy with positional tensor I/O for torch.export compatibility. |
+| [`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] | `src/versatil/inference/policy_loading/compressed_loader.py` | Loads .pt2 archives, applies torch.compile, runs compiled inference. |
 
 ### Quantization Paths
 
@@ -73,10 +73,10 @@ Simpler but less granular than PT2E. Only supports `nn.Linear` layers. The two p
 
 ### Pruning
 
-Pruning is specified as a list of `BasePruner` instances, applied sequentially. This allows composing different strategies:
+Pruning is specified as a list of [`BasePruner`][versatil.post_training_compression.pruning.base.BasePruner] instances, applied sequentially. This allows composing different strategies:
 
-- **`UnstructuredPruner`**: Global L1 magnitude pruning. Zeros the lowest-magnitude weights across all targeted layers. Targets modules where `weight` is an `nn.Parameter` (not just `hasattr`).
-- **`StructuredPruner`**: Per-layer Lp-norm channel pruning along a specified dimension. Defaults to targeting Conv1d, Conv2d, and Linear layers.
+- **[`UnstructuredPruner`][versatil.post_training_compression.pruning.unstructured.UnstructuredPruner]**: Global L1 magnitude pruning. Zeros the lowest-magnitude weights across all targeted layers. Targets modules where `weight` is an `nn.Parameter` (not just `hasattr`).
+- **[`StructuredPruner`][versatil.post_training_compression.pruning.structured.StructuredPruner]**: Per-layer Lp-norm channel pruning along a specified dimension. Defaults to targeting Conv1d, Conv2d, and Linear layers.
 
 Both pruners remove the pruning reparametrization after application (weights become permanent zeros).
 
@@ -84,7 +84,7 @@ Both pruners remove the pruning reparametrization after application (weights bec
 
 Pre-quantization model surgery to make the model quantization-friendly:
 
-- **`prepare_batchnorms_for_quantization()`**: Replaces non-standard BatchNorm variants (FrozenBatchNorm2d, etc.) with standard `nn.BatchNorm2d` in eval mode with tracking disabled. Creates replacement modules on the same device as the original.
+- **`prepare_batchnorms_for_quantization()`**: Replaces non-standard BatchNorm variants ([`FrozenBatchNorm2d`][versatil.models.layers.frozen_batchnorm.FrozenBatchNorm2d], etc.) with standard `nn.BatchNorm2d` in eval mode with tracking disabled. Creates replacement modules on the same device as the original.
 - **`fuse_all_conv_batchnorm_pairs()`**: Folds consecutive Conv2d + BatchNorm2d pairs into a single Conv2d with adjusted weights and bias. Creates the fused Conv2d on the same device as the input Conv2d. Replaces the BatchNorm with `nn.Identity` (or preserves a fused activation like ReLU).
 
 ### Compressed Checkpoints
@@ -101,7 +101,7 @@ compressed/<timestamp>/
 └── tokenizer/                     # Tokenizer files (copied from source)
 ```
 
-`CompressedPolicyLoader` reads the metadata to determine the quantization strategy, loads the backend, and applies `torch.compile` with the backend's environment (e.g., `TORCHINDUCTOR_FREEZING=1`, `cpp_wrapper=True` for x86). The environment is activated permanently because `torch.compile` is lazy — actual kernel compilation happens on the first forward pass.
+[`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] reads the metadata to determine the quantization strategy, loads the backend, and applies `torch.compile` with the backend's environment (e.g., `TORCHINDUCTOR_FREEZING=1`, `cpp_wrapper=True` for x86). The environment is activated permanently because `torch.compile` is lazy — actual kernel compilation happens on the first forward pass.
 
 ### Device Constraints
 
@@ -142,9 +142,9 @@ When `modules` is non-empty, each entry targets a specific submodule and can ove
 **PT2E backends** are hardware-specific quantizer configurations for the graph-based quantization path. Each backend provides a quantizer factory, environment setup, and operator lowering.
 
 Currently supported:
-- **X86InductorBackend**: Targets x86 CPUs via `X86InductorQuantizer` with Inductor operator fusion and lowering. Supports static, dynamic, and QAT quantization modes.
+- **[`X86InductorBackend`][versatil.quantization.backends.x86_inductor.X86InductorBackend]**: Targets x86 CPUs via `X86InductorQuantizer` with Inductor operator fusion and lowering. Supports static, dynamic, and QAT quantization modes.
 
-Additional torchao-supported backends (e.g., ARM, XNNPack, CUDA) can be added by implementing `BasePT2EBackend`. Each backend needs:
+Additional torchao-supported backends (e.g., ARM, XNNPack, CUDA) can be added by implementing [`BasePT2EBackend`][versatil.quantization.backends.base.BasePT2EBackend]. Each backend needs:
 - `create_quantizer()`: Returns a hardware-specific torchao `Quantizer`.
 - `environment_context()` / `activate_environment()`: Backend-specific env vars and config (e.g., `TORCHINDUCTOR_FREEZING`, `cpp_wrapper`).
 - `lower()`: Backend-specific operator fusion and lowering pass.

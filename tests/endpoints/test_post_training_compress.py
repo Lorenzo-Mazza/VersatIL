@@ -340,6 +340,7 @@ def _prune_backbones(policy: torch.nn.Module) -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "config_name",
     PTQ_TEST_CONFIGS,
@@ -393,6 +394,7 @@ class TestGlobalPT2EQuantization:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestPerModulePT2EWithPruning:
     @pytest.mark.parametrize("apply_pruning", [False, True])
     def test_pt2e_backbones_with_optional_pruning(
@@ -444,6 +446,7 @@ class TestPerModulePT2EWithPruning:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestGlobalQuantizeApiDynamic:
     @pytest.mark.parametrize(
         "embedding_dimension, expect_divergence",
@@ -511,6 +514,7 @@ class TestGlobalQuantizeApiDynamic:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestCompiledTraining:
     def test_training_with_torch_compile(self, trained_checkpoint, caplog):
         with caplog.at_level(logging.INFO):
@@ -526,6 +530,7 @@ class TestCompiledTraining:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestBuildExampleInputsFallback:
     def test_build_example_inputs_with_real_policy(self, compression_pipeline):
         policy_loader, _, exportable = compression_pipeline()
@@ -543,6 +548,7 @@ class TestBuildExampleInputsFallback:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestGlobalFallbackPipeline:
     def test_prepare_prune_export_on_full_policy(self, tmp_path, compression_pipeline):
         policy_loader, calibration, exportable = compression_pipeline()
@@ -584,6 +590,7 @@ class TestGlobalFallbackPipeline:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestCompressorEndToEnd:
     def test_compress_full_pipeline_with_pt2e(self, tmp_path, trained_checkpoint):
         output_dir = trained_checkpoint()

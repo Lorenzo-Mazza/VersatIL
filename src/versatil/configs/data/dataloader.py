@@ -10,6 +10,8 @@ from versatil.data.constants import (
 
 @dataclass
 class DataLoaderConfig:
+    """Hydra config for dataset loading, normalization, augmentation, and sampling behavior."""
+
     preload_data_in_memory: bool = False  # Whether to preload the entire zarr into RAM, speeds up training considerably but works only for small datasets.
     # Batching
     batch_size: int = 64

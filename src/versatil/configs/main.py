@@ -12,6 +12,8 @@ from versatil.configs.training import TrainingConfig
 
 @dataclass
 class MainConfig:
+    """Root Hydra config composed from experiment, task, training, policy, and inference configs."""
+
     defaults: list[Any] = field(
         default_factory=lambda: [
             {"experiment": ExperimentConfig},
