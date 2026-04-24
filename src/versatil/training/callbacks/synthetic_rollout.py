@@ -110,6 +110,8 @@ class SyntheticRolloutCallback(Callback):
         epoch = trainer.current_epoch
         mode_coverage = results["mode_coverage"]
         entropy_ratio = results["mode_entropy_ratio"]
+        valid_mode_coverage = results["valid_mode_coverage"]
+        valid_entropy_ratio = results["valid_mode_entropy_ratio"]
         per_mode = results["per_mode_count"]
         success_rate = results["success_rate"]
         collision_rate = results["collision_rate"]
@@ -122,8 +124,10 @@ class SyntheticRolloutCallback(Callback):
             f"collision={collision_rate:.2f}",
             f"endpoint_reach={endpoint_reach_rate:.2f}",
             f"path_length={path_length_rate:.2f}",
-            f"mode_coverage={mode_coverage:.2f}",
-            f"entropy={entropy_ratio:.2f}",
+            f"valid_mode_coverage={valid_mode_coverage:.2f}",
+            f"valid_entropy={valid_entropy_ratio:.2f}",
+            f"raw_mode_coverage={mode_coverage:.2f}",
+            f"raw_entropy={entropy_ratio:.2f}",
             f"per_mode={per_mode}",
         ]
         logging.info(f"Synthetic rollout: {', '.join(log_parts)}")
@@ -134,6 +138,8 @@ class SyntheticRolloutCallback(Callback):
                 "synthetic/collision_rate": collision_rate,
                 "synthetic/endpoint_reach_rate": endpoint_reach_rate,
                 "synthetic/path_length_rate": path_length_rate,
+                "synthetic/valid_mode_coverage": valid_mode_coverage,
+                "synthetic/valid_mode_entropy_ratio": valid_entropy_ratio,
                 "synthetic/mode_coverage": mode_coverage,
                 "synthetic/mode_entropy_ratio": entropy_ratio,
             }

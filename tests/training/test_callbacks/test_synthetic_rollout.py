@@ -57,6 +57,8 @@ def fake_results_factory() -> Callable[..., dict]:
     def factory(
         mode_coverage: float = 0.67,
         entropy_ratio: float = 0.85,
+        valid_mode_coverage: float = 0.5,
+        valid_entropy_ratio: float = 0.75,
         per_mode_count: dict[int, int] | None = None,
         success_rate: float = 0.75,
         collision_rate: float = 0.1,
@@ -66,6 +68,8 @@ def fake_results_factory() -> Callable[..., dict]:
         return {
             "mode_coverage": mode_coverage,
             "mode_entropy_ratio": entropy_ratio,
+            "valid_mode_coverage": valid_mode_coverage,
+            "valid_mode_entropy_ratio": valid_entropy_ratio,
             "per_mode_count": per_mode_count
             if per_mode_count is not None
             else {0: 4, 1: 3, 2: 3},
@@ -305,10 +309,16 @@ def test_calls_evaluate_rollouts_with_correct_args(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "mode_coverage, entropy_ratio, per_mode_count",
+    (
+        "mode_coverage",
+        "entropy_ratio",
+        "valid_mode_coverage",
+        "valid_entropy_ratio",
+        "per_mode_count",
+    ),
     [
-        (1.0, 1.0, {0: 5, 1: 5, 2: 5}),
-        (0.33, 0.0, {0: 10, 1: 0, 2: 0}),
+        (1.0, 1.0, 0.67, 0.95, {0: 5, 1: 5, 2: 5}),
+        (0.33, 0.0, 0.0, 0.0, {0: 10, 1: 0, 2: 0}),
     ],
 )
 def test_logs_coverage_metrics_to_wandb(
@@ -318,6 +328,8 @@ def test_logs_coverage_metrics_to_wandb(
     fake_trajectories_factory: Callable[..., np.ndarray],
     mode_coverage: float,
     entropy_ratio: float,
+    valid_mode_coverage: float,
+    valid_entropy_ratio: float,
     per_mode_count: dict[int, int],
 ):
     callback = callback_factory()
@@ -327,6 +339,8 @@ def test_logs_coverage_metrics_to_wandb(
     fake_results = {
         "mode_coverage": mode_coverage,
         "mode_entropy_ratio": entropy_ratio,
+        "valid_mode_coverage": valid_mode_coverage,
+        "valid_mode_entropy_ratio": valid_entropy_ratio,
         "per_mode_count": per_mode_count,
         "success_rate": 0.5,
         "collision_rate": 0.1,
@@ -343,6 +357,8 @@ def test_logs_coverage_metrics_to_wandb(
     logged = trainer.logger.log_metrics.call_args.args[0]
     assert logged["synthetic/mode_coverage"] == mode_coverage
     assert logged["synthetic/mode_entropy_ratio"] == entropy_ratio
+    assert logged["synthetic/valid_mode_coverage"] == valid_mode_coverage
+    assert logged["synthetic/valid_mode_entropy_ratio"] == valid_entropy_ratio
     for mode_index, count in per_mode_count.items():
         assert logged[f"synthetic/mode_{mode_index}_count"] == count
     assert trainer.logger.log_metrics.call_args.kwargs["step"] == 5

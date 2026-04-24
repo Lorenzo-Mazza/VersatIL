@@ -131,7 +131,42 @@ def compute_success_rate(
             "endpoint_reach_rate": fraction that reached any endpoint.
             "path_length_rate": fraction with path length >= min_path_length.
     """
-    num_trajectories = generated_trajectories.shape[0]
+    success_masks = compute_success_masks(
+        generated_trajectories=generated_trajectories,
+        obstacles=obstacles,
+        mode_endpoints=mode_endpoints,
+        goal_threshold=goal_threshold,
+        min_path_length=min_path_length,
+    )
+    return compute_success_rates_from_masks(success_masks=success_masks)
+
+
+def compute_success_masks(
+    generated_trajectories: np.ndarray,
+    obstacles: list[tuple[float, float, float, float]],
+    mode_endpoints: np.ndarray,
+    goal_threshold: float = 0.1,
+    min_path_length: float = 0.0,
+) -> dict[str, np.ndarray]:
+    """Compute per-rollout masks for synthetic success conditions.
+
+    Args:
+        generated_trajectories: Predicted Cartesian trajectories (x, y).
+            Shape (num_rollouts, num_timesteps, 2).
+        obstacles: List of (x_min, y_min, x_max, y_max) rectangles. Empty
+            list disables the collision check.
+        mode_endpoints: Expert endpoint per mode, shape (num_modes, 2).
+        goal_threshold: Euclidean distance threshold for reaching an endpoint.
+        min_path_length: Minimum cumulative path length a trajectory must
+            travel to count as a real attempt. 0.0 disables the check.
+
+    Returns:
+        Dictionary with:
+            "collision_mask": True where the rollout enters an obstacle.
+            "endpoint_reach_mask": True where the rollout reaches any endpoint.
+            "path_length_mask": True where path length >= min_path_length.
+            "success_mask": True where all success conditions hold.
+    """
     collision_mask = collides_with_obstacles(
         trajectories=generated_trajectories, obstacles=obstacles
     )
@@ -146,6 +181,34 @@ def compute_success_rate(
     path_lengths = step_lengths.sum(axis=-1)  # (num_rollouts,)
     path_length_mask = path_lengths >= min_path_length
     success_mask = reach_mask & ~collision_mask & path_length_mask
+    return {
+        "collision_mask": collision_mask,
+        "endpoint_reach_mask": reach_mask,
+        "path_length_mask": path_length_mask,
+        "success_mask": success_mask,
+    }
+
+
+def compute_success_rates_from_masks(
+    success_masks: dict[str, np.ndarray],
+) -> dict[str, float]:
+    """Aggregate synthetic success-condition masks into rollout rates.
+
+    Args:
+        success_masks: Dictionary produced by ``compute_success_masks``.
+
+    Returns:
+        Dictionary with:
+            "success_rate": overall fraction satisfying all conditions.
+            "collision_rate": fraction that collided with an obstacle.
+            "endpoint_reach_rate": fraction that reached any endpoint.
+            "path_length_rate": fraction with path length >= min_path_length.
+    """
+    success_mask = success_masks["success_mask"]
+    collision_mask = success_masks["collision_mask"]
+    reach_mask = success_masks["endpoint_reach_mask"]
+    path_length_mask = success_masks["path_length_mask"]
+    num_trajectories = success_mask.shape[0]
     collision_rate = float(np.mean(collision_mask)) if num_trajectories else 0.0
     reach_rate = float(np.mean(reach_mask)) if num_trajectories else 0.0
     path_length_rate = float(np.mean(path_length_mask)) if num_trajectories else 0.0

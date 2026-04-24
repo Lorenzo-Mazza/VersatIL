@@ -33,10 +33,10 @@ from versatil.data.synthetic.visualization import (
     save_rollouts_gif,
 )
 from versatil.metrics.synthetic_metrics import (
-    collides_with_obstacles,
     compute_mode_coverage,
     compute_mode_endpoints,
-    compute_success_rate,
+    compute_success_masks,
+    compute_success_rates_from_masks,
 )
 from versatil.models.policy import Policy
 from versatil.training.lightning_policy import LightningPolicy
@@ -272,9 +272,9 @@ def evaluate_rollouts(
 
     Generates expert data with the given parameters, then computes
     mode coverage and obstacle-aware success rate. The "reach" threshold
-    used by ``compute_success_rate`` is derived from the expert endpoint
-    spread (3-sigma of distances from the per-mode endpoint mean), so it
-    scales with the task's intrinsic noise.
+    used by the synthetic success metrics is derived from the expert endpoint
+    spread (mean plus five standard deviations of distances from the per-mode
+    endpoint mean), so it scales with the task's intrinsic noise.
 
     Args:
         rollout_trajectories: Generated position trajectories.
@@ -289,8 +289,8 @@ def evaluate_rollouts(
         image_size: Image size for expert generation.
 
     Returns:
-        Dict with mode_coverage, mode_entropy_ratio, per_mode_count,
-        success_rate, collision_rate, endpoint_reach_rate.
+        Dict with raw mode coverage metrics, valid mode coverage metrics,
+        success_rate, collision_rate, endpoint_reach_rate, and path_length_rate.
     """
     expert_episodes = generate_task_episodes(
         task_name=task_name,
@@ -316,18 +316,8 @@ def evaluate_rollouts(
     rollout_length = rollout_trajectories.shape[1]
     expert_length = expert_trajectories.shape[1]
     comparison_length = min(rollout_length, expert_length)
-    collided = collides_with_obstacles(
-        trajectories=rollout_trajectories, obstacles=layout.obstacles
-    )
-    valid_mask = ~collided
-    coverage_results = compute_mode_coverage(
-        generated_trajectories=rollout_trajectories[:, :comparison_length, :],
-        expert_trajectories=expert_trajectories[:, :comparison_length, :],
-        expert_mode_ids=expert_mode_ids,
-        num_modes=layout.num_modes,
-        valid_mask=valid_mask,
-    )
-    results = dict(coverage_results)
+    rollout_comparison_trajectories = rollout_trajectories[:, :comparison_length, :]
+    expert_comparison_trajectories = expert_trajectories[:, :comparison_length, :]
     mode_endpoints = compute_mode_endpoints(
         expert_trajectories=expert_trajectories,
         expert_mode_ids=expert_mode_ids,
@@ -341,13 +331,32 @@ def evaluate_rollouts(
     min_path_length = 0.5 * _expert_mean_path_length(
         expert_trajectories=expert_trajectories
     )
-    success_stats = compute_success_rate(
+    success_masks = compute_success_masks(
         generated_trajectories=rollout_trajectories,
         obstacles=layout.obstacles,
         mode_endpoints=mode_endpoints,
         goal_threshold=reach_threshold,
         min_path_length=min_path_length,
     )
+    collision_free_mask = ~success_masks["collision_mask"]
+    coverage_results = compute_mode_coverage(
+        generated_trajectories=rollout_comparison_trajectories,
+        expert_trajectories=expert_comparison_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        num_modes=layout.num_modes,
+        valid_mask=collision_free_mask,
+    )
+    valid_coverage_results = compute_mode_coverage(
+        generated_trajectories=rollout_comparison_trajectories,
+        expert_trajectories=expert_comparison_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        num_modes=layout.num_modes,
+        valid_mask=success_masks["success_mask"],
+    )
+    success_stats = compute_success_rates_from_masks(success_masks=success_masks)
+    results = dict(coverage_results)
+    results["valid_mode_coverage"] = valid_coverage_results["mode_coverage"]
+    results["valid_mode_entropy_ratio"] = valid_coverage_results["mode_entropy_ratio"]
     results.update(success_stats)
     return results
 

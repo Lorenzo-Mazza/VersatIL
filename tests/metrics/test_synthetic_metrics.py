@@ -12,7 +12,9 @@ from versatil.metrics.synthetic_metrics import (
     compute_goal_success_rate,
     compute_mode_coverage,
     compute_mode_endpoints,
+    compute_success_masks,
     compute_success_rate,
+    compute_success_rates_from_masks,
 )
 
 NUM_TIMESTEPS = 10
@@ -375,6 +377,78 @@ def test_collides_with_obstacles_no_obstacles_returns_all_false(
     collided = collides_with_obstacles(trajectories=trajectories, obstacles=[])
 
     assert collided.tolist() == [False, False, False]
+
+
+@pytest.mark.unit
+def test_compute_success_masks_returns_condition_masks(
+    position_factory: Callable[..., np.ndarray],
+):
+    trajectories = np.array(
+        [
+            [[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]],
+            [[0.0, 0.0], [0.5, 0.5], [1.0, 0.0]],
+            [[0.0, 0.0], [0.1, 0.0], [0.2, 0.0]],
+            [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]],
+        ],
+        dtype=np.float32,
+    )
+    endpoint = position_factory(x=1.0, y=0.0)
+    mode_endpoints = np.array([endpoint], dtype=np.float32)
+
+    masks = compute_success_masks(
+        generated_trajectories=trajectories,
+        obstacles=[(0.4, 0.4, 0.6, 0.6)],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.05,
+        min_path_length=0.1,
+    )
+
+    np.testing.assert_array_equal(
+        masks["collision_mask"], np.array([False, True, False, False])
+    )
+    np.testing.assert_array_equal(
+        masks["endpoint_reach_mask"], np.array([True, True, False, True])
+    )
+    np.testing.assert_array_equal(
+        masks["path_length_mask"], np.array([True, True, True, False])
+    )
+    np.testing.assert_array_equal(
+        masks["success_mask"], np.array([True, False, False, False])
+    )
+
+
+@pytest.mark.unit
+def test_compute_success_rates_from_masks_aggregates_means():
+    success_masks = {
+        "collision_mask": np.array([False, True, False, False]),
+        "endpoint_reach_mask": np.array([True, True, False, True]),
+        "path_length_mask": np.array([True, True, True, False]),
+        "success_mask": np.array([True, False, False, False]),
+    }
+
+    stats = compute_success_rates_from_masks(success_masks=success_masks)
+
+    assert stats["success_rate"] == pytest.approx(0.25)
+    assert stats["collision_rate"] == pytest.approx(0.25)
+    assert stats["endpoint_reach_rate"] == pytest.approx(0.75)
+    assert stats["path_length_rate"] == pytest.approx(0.75)
+
+
+@pytest.mark.unit
+def test_compute_success_rates_from_masks_handles_empty_masks():
+    success_masks = {
+        "collision_mask": np.array([], dtype=bool),
+        "endpoint_reach_mask": np.array([], dtype=bool),
+        "path_length_mask": np.array([], dtype=bool),
+        "success_mask": np.array([], dtype=bool),
+    }
+
+    stats = compute_success_rates_from_masks(success_masks=success_masks)
+
+    assert stats["success_rate"] == pytest.approx(0.0)
+    assert stats["collision_rate"] == pytest.approx(0.0)
+    assert stats["endpoint_reach_rate"] == pytest.approx(0.0)
+    assert stats["path_length_rate"] == pytest.approx(0.0)
 
 
 @pytest.mark.unit

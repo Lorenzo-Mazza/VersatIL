@@ -94,6 +94,15 @@ def mock_expert_episodes_factory(
     return factory
 
 
+def _all_false_success_masks(num_rollouts: int) -> dict[str, np.ndarray]:
+    return {
+        "collision_mask": np.zeros(num_rollouts, dtype=bool),
+        "endpoint_reach_mask": np.zeros(num_rollouts, dtype=bool),
+        "path_length_mask": np.zeros(num_rollouts, dtype=bool),
+        "success_mask": np.zeros(num_rollouts, dtype=bool),
+    }
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize("obs_horizon", [1, 3])
 @pytest.mark.parametrize(
@@ -311,11 +320,22 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         "mode_entropy_ratio": 0.7,
         "per_mode_count": {0: 1, 1: 1, 2: 1},
     }
+    valid_coverage_metrics = {
+        "mode_coverage": 2.0 / 3.0,
+        "mode_entropy_ratio": 0.5,
+        "per_mode_count": {0: 1, 1: 1, 2: 0},
+    }
+    success_masks = {
+        "collision_mask": np.array([False, True, False]),
+        "endpoint_reach_mask": np.array([True, True, False]),
+        "path_length_mask": np.array([True, True, True]),
+        "success_mask": np.array([True, False, False]),
+    }
     success_stats = {
-        "success_rate": 0.7,
-        "collision_rate": 0.1,
-        "endpoint_reach_rate": 0.8,
-        "path_length_rate": 0.9,
+        "success_rate": 1.0 / 3.0,
+        "collision_rate": 1.0 / 3.0,
+        "endpoint_reach_rate": 2.0 / 3.0,
+        "path_length_rate": 1.0,
     }
     mode_endpoints = np.zeros((num_modes, 2), dtype=np.float32)
 
@@ -330,16 +350,20 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         ) as mock_get_layout,
         patch(
             "versatil.inference.synthetic_rollout.compute_mode_coverage",
-            return_value=coverage_metrics,
+            side_effect=[coverage_metrics, valid_coverage_metrics],
         ) as mock_mode_coverage,
         patch(
             "versatil.inference.synthetic_rollout.compute_mode_endpoints",
             return_value=mode_endpoints,
         ),
         patch(
-            "versatil.inference.synthetic_rollout.compute_success_rate",
+            "versatil.inference.synthetic_rollout.compute_success_masks",
+            return_value=success_masks,
+        ) as mock_success_masks,
+        patch(
+            "versatil.inference.synthetic_rollout.compute_success_rates_from_masks",
             return_value=success_stats,
-        ) as mock_success,
+        ) as mock_success_rates,
     ):
         results = evaluate_rollouts(
             rollout_trajectories=rollout_trajectories,
@@ -367,8 +391,8 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         task_name=task_name, num_modes=num_modes, num_styles=4, noise_std=0.02
     )
 
-    mock_mode_coverage.assert_called_once()
-    coverage_kwargs = mock_mode_coverage.call_args.kwargs
+    assert mock_mode_coverage.call_count == 2
+    coverage_kwargs = mock_mode_coverage.call_args_list[0].kwargs
     assert coverage_kwargs["num_modes"] == num_modes
     assert coverage_kwargs["generated_trajectories"].shape == (
         num_rollouts,
@@ -381,9 +405,15 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         2,
     )
     assert coverage_kwargs["expert_mode_ids"].shape == (num_expert_episodes,)
-    # valid_mask has one entry per rollout and excludes collided trajectories
     assert coverage_kwargs["valid_mask"].shape == (num_rollouts,)
     assert coverage_kwargs["valid_mask"].dtype == bool
+    np.testing.assert_array_equal(
+        coverage_kwargs["valid_mask"], np.array([True, False, True])
+    )
+    valid_coverage_kwargs = mock_mode_coverage.call_args_list[1].kwargs
+    np.testing.assert_array_equal(
+        valid_coverage_kwargs["valid_mask"], success_masks["success_mask"]
+    )
     np.testing.assert_array_equal(
         coverage_kwargs["expert_mode_ids"],
         np.array(
@@ -395,9 +425,21 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
     for metric_key, metric_value in coverage_metrics.items():
         assert results[metric_key] == metric_value
 
+    assert results["valid_mode_coverage"] == valid_coverage_metrics["mode_coverage"]
+    assert (
+        results["valid_mode_entropy_ratio"]
+        == valid_coverage_metrics["mode_entropy_ratio"]
+    )
     assert "goal_success_rate" not in results
 
-    mock_success.assert_called_once()
+    mock_success_masks.assert_called_once()
+    success_mask_kwargs = mock_success_masks.call_args.kwargs
+    np.testing.assert_array_equal(
+        success_mask_kwargs["generated_trajectories"], rollout_trajectories
+    )
+    assert success_mask_kwargs["obstacles"] == layout.obstacles
+    np.testing.assert_array_equal(success_mask_kwargs["mode_endpoints"], mode_endpoints)
+    mock_success_rates.assert_called_once_with(success_masks=success_masks)
     for stat_key, stat_value in success_stats.items():
         assert results[stat_key] == stat_value
 
@@ -448,14 +490,18 @@ def test_evaluate_rollouts_forwards_half_expert_mean_path_length(
             return_value=np.zeros((1, 2), dtype=np.float32),
         ),
         patch(
-            "versatil.inference.synthetic_rollout.compute_success_rate",
+            "versatil.inference.synthetic_rollout.compute_success_masks",
+            return_value=_all_false_success_masks(num_rollouts=3),
+        ) as mock_success_masks,
+        patch(
+            "versatil.inference.synthetic_rollout.compute_success_rates_from_masks",
             return_value={
                 "success_rate": 0.0,
                 "collision_rate": 0.0,
                 "endpoint_reach_rate": 0.0,
                 "path_length_rate": 0.0,
             },
-        ) as mock_success,
+        ),
     ):
         evaluate_rollouts(
             rollout_trajectories=rollout_trajectories,
@@ -464,8 +510,7 @@ def test_evaluate_rollouts_forwards_half_expert_mean_path_length(
             num_modes=1,
         )
 
-    forwarded = mock_success.call_args.kwargs["min_path_length"]
-    # Expert mean path length = 1.0 → threshold must be 0.5 * 1.0
+    forwarded = mock_success_masks.call_args.kwargs["min_path_length"]
     assert forwarded == pytest.approx(0.5, abs=1e-6)
 
 
@@ -581,14 +626,18 @@ def test_evaluate_rollouts_forwards_expert_mean_plus_five_std_endpoint_threshold
             return_value=mode_endpoints,
         ),
         patch(
-            "versatil.inference.synthetic_rollout.compute_success_rate",
+            "versatil.inference.synthetic_rollout.compute_success_masks",
+            return_value=_all_false_success_masks(num_rollouts=2),
+        ) as mock_success_masks,
+        patch(
+            "versatil.inference.synthetic_rollout.compute_success_rates_from_masks",
             return_value={
                 "success_rate": 0.0,
                 "collision_rate": 0.0,
                 "endpoint_reach_rate": 0.0,
                 "path_length_rate": 0.0,
             },
-        ) as mock_success,
+        ),
     ):
         evaluate_rollouts(
             rollout_trajectories=rollout_trajectories,
@@ -597,7 +646,7 @@ def test_evaluate_rollouts_forwards_expert_mean_plus_five_std_endpoint_threshold
             num_modes=1,
         )
 
-    forwarded = mock_success.call_args.kwargs["goal_threshold"]
+    forwarded = mock_success_masks.call_args.kwargs["goal_threshold"]
     distances = np.array(distance_values, dtype=np.float64)
     expected = float(distances.mean() + 5.0 * distances.std())
     assert forwarded == pytest.approx(expected, abs=1e-6)
