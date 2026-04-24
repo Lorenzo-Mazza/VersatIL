@@ -98,6 +98,15 @@ class TestDynamicFeatureEmbeddingForward:
         assert "embeddings.test" in named_params
         assert named_params["embeddings.test"].requires_grad is True
 
+    def test_created_embedding_uses_parent_dtype(
+        self,
+        dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
+    ):
+        module = dynamic_feature_embedding_factory().to(dtype=torch.float64)
+        output = module(name="test", device=torch.device("cpu"))
+        assert output.dtype == torch.float64
+        assert module.embeddings["test"].dtype == torch.float64
+
 
 class TestDynamicFeatureEmbeddingLoadFromStateDict:
     def test_load_state_dict_creates_embeddings_from_checkpoint(
@@ -133,3 +142,15 @@ class TestDynamicFeatureEmbeddingLoadFromStateDict:
             target.embeddings["test_feat"],
             source.embeddings["test_feat"],
         )
+
+    def test_load_state_dict_creates_embeddings_with_parent_dtype(
+        self,
+        dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
+    ):
+        source = dynamic_feature_embedding_factory(embedding_dim=32)
+        source(name="test_feat", device=torch.device("cpu"))
+        target = dynamic_feature_embedding_factory(embedding_dim=32).to(
+            dtype=torch.float64
+        )
+        target.load_state_dict(source.state_dict())
+        assert target.embeddings["test_feat"].dtype == torch.float64

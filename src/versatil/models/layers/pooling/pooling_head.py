@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 
 from versatil.models.encoding.encoders.constants import PoolingMethod
-from versatil.models.layers import LearnedAggregation, SpatialSoftmax
+from versatil.models.layers.pooling.attention_pooling import LearnedAggregation
+from versatil.models.layers.pooling.spatial_softmax import SpatialSoftmax
 
 
 class PoolingHead(nn.Module, ABC):

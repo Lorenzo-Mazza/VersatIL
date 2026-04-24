@@ -148,7 +148,7 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
     ) -> ConditioningCache:
         """Precompute conditioning K/V for all layers for forward pass reuse."""
         return precompute_conditioning(
-            layers=self.layers,  # type: ignore[arg-type]
+            layers=self.layers,
             encoded_features=encoded_features,
         )
 

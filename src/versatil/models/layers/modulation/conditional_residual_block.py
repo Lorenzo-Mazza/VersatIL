@@ -3,9 +3,11 @@
 import torch
 from torch import nn
 
-from versatil.models.layers import ConditionalModulation
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.convolution.conv1d import Conv1dBlock
+from versatil.models.layers.modulation.conditional_modulation import (
+    ConditionalModulation,
+)
 
 
 class ConditionalResidualBlock1D(nn.Module):

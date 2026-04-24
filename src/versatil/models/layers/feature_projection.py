@@ -101,12 +101,13 @@ class FeatureProjection(nn.Module):
                         spatial_features[feature_name] = {}
                     spatial_features[feature_name][param_name] = value
         device = self._device_tracker.device
+        dtype = self._device_tracker.dtype
         for feature_name, params in linear_features.items():
             if feature_name not in self.linear_projections and "weight" in params:
                 weight = params["weight"]
                 out_features, in_features = weight.shape
                 self.linear_projections[feature_name] = nn.Linear(
-                    in_features, out_features, device=device
+                    in_features, out_features, device=device, dtype=dtype
                 )
 
         for feature_name, params in spatial_features.items():
@@ -114,7 +115,7 @@ class FeatureProjection(nn.Module):
                 weight = params["weight"]
                 out_channels, in_channels, _, _ = weight.shape
                 self.spatial_projections[feature_name] = nn.Conv2d(
-                    in_channels, out_channels, kernel_size=1, device=device
+                    in_channels, out_channels, kernel_size=1, device=device, dtype=dtype
                 )
 
         # Now parent can load weights into the newly created layers
@@ -138,7 +139,9 @@ class FeatureProjection(nn.Module):
             if channel_dim == self.embedding_dim:
                 return nn.Identity()
             layer: nn.Module = nn.Linear(channel_dim, self.embedding_dim)
-            return layer.to(self._device_tracker.device)
+            return layer.to(
+                device=self._device_tracker.device, dtype=self._device_tracker.dtype
+            )
         else:
             if len(feature.shape) == 4:  # spatial (B, C, H, W)
                 channel_dim = feature.shape[1]
@@ -147,7 +150,9 @@ class FeatureProjection(nn.Module):
             if channel_dim == self.embedding_dim:
                 return nn.Identity()
             layer = nn.Conv2d(channel_dim, self.embedding_dim, kernel_size=1)
-            return layer.to(self._device_tracker.device)
+            return layer.to(
+                device=self._device_tracker.device, dtype=self._device_tracker.dtype
+            )
 
     def forward(
         self,

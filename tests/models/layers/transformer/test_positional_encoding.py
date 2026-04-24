@@ -107,7 +107,7 @@ class TestCreatePositionalEncoding:
             ValueError,
             match=re.escape(
                 "Unsupported positional encoding type: invalid_type. "
-                f"Must be one of {[e.value for e in PositionalEncodingType if e.value in ('sinusoidal', 'rope')]}."
+                f"Must be one of {[e.value for e in PositionalEncodingType]}."
             ),
         ):
             create_positional_encoding(

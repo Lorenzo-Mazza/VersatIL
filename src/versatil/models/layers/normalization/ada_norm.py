@@ -3,8 +3,10 @@ from typing import Literal
 import torch
 from torch import nn
 
-from versatil.models.layers import ConditionalModulation
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.modulation.conditional_modulation import (
+    ConditionalModulation,
+)
 
 
 class AdaNorm(nn.Module):
