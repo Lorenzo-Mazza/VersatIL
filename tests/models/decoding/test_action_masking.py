@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.action_masking module."""
 
+import re
 from collections.abc import Callable
 
 import numpy as np
@@ -127,6 +128,61 @@ class TestMakeAttentionMask:
         assert key_mask[:, 2].all()
         assert not key_mask[:, 0].any()
 
+    def test_feature_token_mask_converted_to_bool(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        batch_size = 2
+        prefix_len = 4
+        action_len = 4
+        feature_tokens = token_factory(
+            batch_size=batch_size,
+            sequence_length=prefix_len,
+        )
+        action_tokens = token_factory(
+            batch_size=batch_size,
+            sequence_length=action_len,
+        )
+        feature_mask = torch.zeros(batch_size, prefix_len, dtype=torch.float32)
+        feature_mask[:, 1] = 1.0
+        _, key_mask = make_attention_mask(
+            action_tokens=action_tokens,
+            feature_tokens=feature_tokens,
+            feature_token_mask=feature_mask,
+        )
+        assert key_mask.dtype == torch.bool
+        assert key_mask[:, 1].all()
+        assert not key_mask[:, 0].any()
+
+    def test_feature_token_mask_shape_mismatch_raises(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        batch_size = 2
+        prefix_len = 4
+        wrong_prefix_len = 5
+        feature_tokens = token_factory(
+            batch_size=batch_size,
+            sequence_length=prefix_len,
+        )
+        action_tokens = token_factory(
+            batch_size=batch_size,
+            sequence_length=4,
+        )
+        feature_mask = torch.zeros(batch_size, wrong_prefix_len, dtype=torch.bool)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"feature_token_mask must have shape {(batch_size, prefix_len)}, "
+                f"got {feature_mask.shape}."
+            ),
+        ):
+            make_attention_mask(
+                action_tokens=action_tokens,
+                feature_tokens=feature_tokens,
+                feature_token_mask=feature_mask,
+            )
+
     def test_bidirectional_actions_when_causal_disabled(
         self,
         token_factory: Callable[..., torch.Tensor],
@@ -182,3 +238,104 @@ class TestMakeAttentionMask:
         total_len = prefix_len + action_len
         assert full_mask.shape == (2, 1, total_len, total_len)
         assert key_mask.shape == (2, total_len)
+
+    def test_feature_tokens_must_be_three_dimensional(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        feature_tokens = torch.zeros(2, 32)
+        action_tokens = token_factory(sequence_length=4)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"feature_tokens must have shape (B, P, D), got {feature_tokens.shape}."
+            ),
+        ):
+            make_attention_mask(
+                action_tokens=action_tokens,
+                feature_tokens=feature_tokens,
+            )
+
+    def test_action_tokens_must_be_three_dimensional(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        feature_tokens = token_factory(sequence_length=4)
+        action_tokens = torch.zeros(2, 32)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"action_tokens must have shape (B, A, D), got {action_tokens.shape}."
+            ),
+        ):
+            make_attention_mask(
+                action_tokens=action_tokens,
+                feature_tokens=feature_tokens,
+            )
+
+    def test_token_batch_size_mismatch_raises(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        feature_batch_size = 2
+        action_batch_size = 3
+        feature_tokens = token_factory(
+            batch_size=feature_batch_size,
+            sequence_length=4,
+        )
+        action_tokens = token_factory(
+            batch_size=action_batch_size,
+            sequence_length=4,
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "feature_tokens and action_tokens must have matching batch size, "
+                f"got {feature_batch_size} and {action_batch_size}."
+            ),
+        ):
+            make_attention_mask(
+                action_tokens=action_tokens,
+                feature_tokens=feature_tokens,
+            )
+
+    @pytest.mark.parametrize("causal_prefix_suffix_length", [-1, 5])
+    def test_causal_prefix_suffix_length_out_of_range_raises(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+        causal_prefix_suffix_length: int,
+    ):
+        prefix_len = 4
+        feature_tokens = token_factory(sequence_length=prefix_len)
+        action_tokens = token_factory(sequence_length=4)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "causal_prefix_suffix_length must be between 0 and prefix length "
+                f"{prefix_len}, got {causal_prefix_suffix_length}."
+            ),
+        ):
+            make_attention_mask(
+                action_tokens=action_tokens,
+                feature_tokens=feature_tokens,
+                causal_prefix_suffix_length=causal_prefix_suffix_length,
+            )
+
+    def test_causal_prefix_suffix_blocks_earlier_prefix_queries(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        prefix_len = 4
+        causal_prefix_suffix_length = 1
+        feature_tokens = token_factory(sequence_length=prefix_len)
+        action_tokens = token_factory(sequence_length=4)
+        full_mask, _ = make_attention_mask(
+            action_tokens=action_tokens,
+            feature_tokens=feature_tokens,
+            causal_prefix_suffix_length=causal_prefix_suffix_length,
+        )
+        causal_start = prefix_len - causal_prefix_suffix_length
+        blocked = full_mask[:, :, :causal_start, causal_start:prefix_len]
+        suffix_to_prefix = full_mask[:, :, causal_start:prefix_len, :causal_start]
+        assert blocked.all()
+        assert not suffix_to_prefix.any()

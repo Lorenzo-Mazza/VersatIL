@@ -34,15 +34,72 @@ class TimestepSamplingConfig:
     max_timestep: float = 0.999
 
     def __post_init__(self) -> None:
+        """Validate timestep sampling configuration values.
+
+        Raises:
+            ValueError: If any sampling parameter is outside its valid range.
+        """
         validate_timestep_sampler(sampler=self.sampler)
+        validate_timestep_sampling_parameters(
+            sampler=self.sampler,
+            batch_size=0,
+            logit_std=self.logit_std,
+            beta_alpha=self.beta_alpha,
+            beta_beta=self.beta_beta,
+            max_timestep=self.max_timestep,
+        )
 
 
 def validate_timestep_sampler(sampler: str) -> None:
-    """Validate a continuous timestep sampler name."""
+    """Validate a continuous timestep sampler name.
+
+    Args:
+        sampler: Sampling strategy name.
+
+    Raises:
+        ValueError: If sampler is not recognized.
+    """
     valid_samplers = [member.value for member in TimestepSampler]
     if sampler not in valid_samplers:
         raise ValueError(
             f"Unknown timestep sampler: {sampler}. Expected one of {valid_samplers}"
+        )
+
+
+def validate_timestep_sampling_parameters(
+    sampler: str,
+    batch_size: int,
+    logit_std: float,
+    beta_alpha: float,
+    beta_beta: float,
+    max_timestep: float,
+) -> None:
+    """Validate shared continuous timestep sampling parameters.
+
+    Args:
+        sampler: Sampling strategy name.
+        batch_size: Number of samples to draw.
+        logit_std: Standard deviation for logit-normal sampling.
+        beta_alpha: First Beta concentration parameter.
+        beta_beta: Second Beta concentration parameter.
+        max_timestep: Upper timestep bound for Beta sampling.
+
+    Raises:
+        ValueError: If any parameter is outside its valid range.
+    """
+    if batch_size < 0:
+        raise ValueError(f"batch_size must be non-negative, got {batch_size}.")
+    if sampler == TimestepSampler.LOGIT_NORMAL.value and logit_std < 0.0:
+        raise ValueError(f"logit_std must be non-negative, got {logit_std}.")
+    if sampler != TimestepSampler.BETA.value:
+        return
+    if beta_alpha <= 0.0:
+        raise ValueError(f"beta_alpha must be positive, got {beta_alpha}.")
+    if beta_beta <= 0.0:
+        raise ValueError(f"beta_beta must be positive, got {beta_beta}.")
+    if not 0.0 < max_timestep <= 1.0:
+        raise ValueError(
+            f"max_timestep must be in the interval (0, 1], got {max_timestep}."
         )
 
 
@@ -51,7 +108,16 @@ def sample_timesteps_from_config(
     batch_size: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Sample continuous timesteps from a reusable sampling configuration."""
+    """Sample continuous timesteps from a reusable sampling configuration.
+
+    Args:
+        config: Sampling configuration.
+        batch_size: Number of samples to draw.
+        device: Target device.
+
+    Returns:
+        Tensor of shape (batch_size,) with sampled timesteps.
+    """
     return sample_timesteps(
         batch_size=batch_size,
         device=device,
@@ -91,8 +157,16 @@ def sample_timesteps(
         Tensor of shape (batch_size,) with values in [0, 1].
 
     Raises:
-        ValueError: If sampler is not a recognized strategy.
+        ValueError: If sampler is not recognized or parameters are invalid.
     """
+    validate_timestep_sampling_parameters(
+        sampler=sampler,
+        batch_size=batch_size,
+        logit_std=logit_std,
+        beta_alpha=beta_alpha,
+        beta_beta=beta_beta,
+        max_timestep=max_timestep,
+    )
     match sampler:
         case TimestepSampler.UNIFORM.value:
             return torch.rand(batch_size, device=device)
@@ -104,12 +178,14 @@ def sample_timesteps(
             return torch.sigmoid(normal_samples)
 
         case TimestepSampler.BETA.value:
+            concentration1 = torch.tensor(beta_alpha, device=device)
+            concentration0 = torch.tensor(beta_beta, device=device)
             beta_distribution = torch.distributions.Beta(
-                concentration1=beta_alpha,
-                concentration0=beta_beta,
+                concentration1=concentration1,
+                concentration0=concentration0,
             )
             # u ~ Beta(alpha, beta), then t = s * (1 - u) emphasizes low timesteps
-            u = beta_distribution.sample((batch_size,)).to(device)
+            u = beta_distribution.sample((batch_size,))
             return max_timestep * (1.0 - u)
 
         case _:

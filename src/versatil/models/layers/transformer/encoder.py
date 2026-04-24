@@ -63,13 +63,14 @@ class TransformerEncoder(TransformerMixin, nn.Module):
         self.maximum_sequence_length = maximum_sequence_length
         self.initializer_range = initializer_range
         self.number_of_residual_blocks = 2  # Self-Attention + Feedforward
-        if attention_type == AttentionType.GROUPED_QUERY.value:
-            if number_of_key_value_heads is None:
-                raise ValueError("number_of_key_value_heads required for GQA")
-            self.number_of_key_value_heads = number_of_key_value_heads
-        else:
-            self.number_of_key_value_heads = number_of_heads
-        self.head_dimension = embedding_dimension // number_of_heads
+        self.number_of_key_value_heads, self.head_dimension = (
+            self._resolve_attention_dimensions(
+                embedding_dimension=embedding_dimension,
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                attention_type=attention_type,
+            )
+        )
         self._setup_positional_encoding(
             positional_encoding_type=positional_encoding_type,
             embedding_dimension=embedding_dimension,

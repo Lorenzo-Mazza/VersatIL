@@ -31,8 +31,27 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
+        """Initialize a 1D sinusoidal positional encoding module.
+
+        Args:
+            embedding_dimension: Output embedding dimension.
+            denominator_mode: Frequency denominator convention.
+            ordering_mode: Sine/cosine channel ordering convention.
+            learnable_frequencies: Whether frequency bands are trainable.
+            temperature: Base temperature for geometric frequency spacing.
+            position_source: Source used to derive positions.
+            precompute_encodings: Whether to cache tensor-index encodings.
+            maximum_length: Maximum length for cached tensor-index encodings.
+            mlp_hidden_dimensions: Optional post-encoding MLP dimensions.
+            mlp_activation: Optional post-encoding MLP activation.
+
+        Raises:
+            ValueError: If dimensions or frequency settings are invalid.
+        """
         if embedding_dimension % 2 != 0:
             raise ValueError("embedding_dimension must be even")
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be positive, got {temperature}.")
 
         self.ordering_mode = ordering_mode
         self.temperature = temperature
@@ -44,11 +63,18 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
             denominator = half_dimension - 1
         else:
             raise ValueError(f"Invalid denominator_mode: {denominator_mode}")
+        if denominator <= 0:
+            raise ValueError(
+                f"denominator must be positive for embedding_dimension "
+                f"{embedding_dimension} and denominator_mode {denominator_mode}."
+            )
 
         log_scale = math.log(self.temperature) / denominator
         frequencies = torch.exp(torch.arange(half_dimension) * -log_scale).float()
         self._temp_frequencies = frequencies
         self._learnable_frequencies = learnable_frequencies
+        if learnable_frequencies and precompute_encodings:
+            precompute_encodings = False
         super().__init__(
             embedding_dimension=embedding_dimension,
             position_source=position_source,
@@ -150,8 +176,30 @@ class PeriodInterpolationPositionalEncoding1D(PositionalEncoding1D):
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
+        """Initialize scalar sinusoidal encoding with interpolated periods.
+
+        Args:
+            embedding_dimension: Output embedding dimension.
+            min_period: Smallest encoded period.
+            max_period: Largest encoded period.
+            position_source: Source used to derive positions.
+            mlp_hidden_dimensions: Optional post-encoding MLP dimensions.
+            mlp_activation: Optional post-encoding MLP activation.
+
+        Raises:
+            ValueError: If dimensions or periods are invalid.
+        """
         if embedding_dimension % 2 != 0:
             raise ValueError("embedding_dimension must be even")
+        if min_period <= 0.0:
+            raise ValueError(f"min_period must be positive, got {min_period}.")
+        if max_period <= 0.0:
+            raise ValueError(f"max_period must be positive, got {max_period}.")
+        if max_period < min_period:
+            raise ValueError(
+                f"max_period must be greater than or equal to min_period, "
+                f"got max_period={max_period} and min_period={min_period}."
+            )
 
         self.min_period = min_period
         self.max_period = max_period
@@ -196,8 +244,25 @@ class SinusoidalPositionalEncoding2D(PositionalEncoding2D):
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
+        """Initialize a 2D sinusoidal positional encoding module.
+
+        Args:
+            embedding_dimension: Output channel dimension.
+            temperature: Base temperature for frequency spacing.
+            normalize: Whether to normalize coordinates to ``scale``.
+            scale: Coordinate scale used when ``normalize`` is true.
+            mlp_hidden_dimensions: Optional post-encoding MLP dimensions.
+            mlp_activation: Optional post-encoding MLP activation.
+
+        Raises:
+            ValueError: If dimensions or frequency settings are invalid.
+        """
         if embedding_dimension % 2 != 0:
             raise ValueError("embedding_dimension must be even")
+        if embedding_dimension % 4 != 0:
+            raise ValueError("embedding_dimension must be divisible by 4")
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be positive, got {temperature}.")
 
         self.temperature = temperature
         self.normalize = normalize

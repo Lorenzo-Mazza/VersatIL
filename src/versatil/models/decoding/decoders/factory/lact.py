@@ -115,7 +115,7 @@ class LACT(ActionDecoder):
         self._build_components()
         self.to(self.device)
 
-    def _build_components(self):
+    def _build_components(self) -> None:
         """Build LACT components."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
             embedding_dimension=self.embedding_dimension, normalize=True
@@ -173,6 +173,47 @@ class LACT(ActionDecoder):
             predictions[action_key] = head(action_embeddings)
         return predictions
 
+    def _validate_latent(
+        self,
+        latent: torch.Tensor,
+        batch_size: int,
+        observation_device: torch.device,
+    ) -> torch.Tensor:
+        """Validate latent conditioning tensor before decoding.
+
+        Args:
+            latent: Latent conditioning tensor from the variational algorithm.
+            batch_size: Batch size inferred from observation tokens.
+            observation_device: Device used by observation tokens.
+
+        Returns:
+            Valid latent tensor.
+
+        Raises:
+            ValueError: If rank, batch size, latent dimension, or device is inconsistent.
+        """
+        if latent.ndim != 2:
+            raise ValueError(
+                f"LACT latent '{LatentKey.POSTERIOR_LATENT.value}' must have "
+                f"shape (B, latent_dimension), got {latent.shape}."
+            )
+        if latent.shape[0] != batch_size:
+            raise ValueError(
+                f"LACT latent batch size must match observation batch size "
+                f"{batch_size}, got {latent.shape[0]}."
+            )
+        if latent.shape[1] != self.latent_dimension:
+            raise ValueError(
+                f"LACT latent dimension must be {self.latent_dimension}, "
+                f"got {latent.shape[1]}."
+            )
+        if latent.device != observation_device:
+            raise ValueError(
+                f"LACT latent must be on the same device as observation tokens, "
+                f"got {latent.device} and {observation_device}."
+            )
+        return latent
+
     def forward(
         self,
         features: dict[str, torch.Tensor],
@@ -204,6 +245,11 @@ class LACT(ActionDecoder):
         if obs_pos_encodings is not None:
             obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]
+        latent = self._validate_latent(
+            latent=latent,
+            batch_size=batch_size,
+            observation_device=obs_tokens.device,
+        )
         query = self.learnable_query.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, pred_horizon, embedding_dim)

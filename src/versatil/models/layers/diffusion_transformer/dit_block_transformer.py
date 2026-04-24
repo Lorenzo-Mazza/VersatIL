@@ -212,9 +212,17 @@ class DiTBlock(nn.Module):
             hidden_states=hidden_states,
             padding_mask=padding_mask,
         )
-        encoder_output_mean = encoder_output.mean(
-            dim=1
-        )  # Mean over sequence length, shape (B, D)
+        if padding_mask is None:
+            encoder_output_mean = encoder_output.mean(dim=1)
+        else:
+            valid_mask = ~padding_mask
+            valid_counts = valid_mask.sum(dim=1, keepdim=True).clamp_min(1)
+            encoder_output = encoder_output * valid_mask.unsqueeze(-1).to(
+                encoder_output.dtype
+            )
+            encoder_output_mean = encoder_output.sum(dim=1) / valid_counts.to(
+                encoder_output.dtype
+            )
         return encoder_output_mean
 
     def forward_decoder(

@@ -307,6 +307,55 @@ class TestGPTActionTransformerSetTokenizer:
 
 
 class TestGPTActionTransformerForward:
+    @pytest.mark.parametrize("actions_provided", [True, False])
+    def test_raises_when_tokenizer_not_set(
+        self,
+        gpt_transformer_factory: Callable[..., GPTActionTransformer],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
+        actions_provided: bool,
+    ):
+        decoder = gpt_transformer_factory()
+        features = flat_feature_factory(
+            batch_size=BATCH_SIZE,
+            feature_dim=EMBEDDING_DIMENSION,
+        )
+        actions = (
+            tokenized_actions_factory(batch_size=BATCH_SIZE)
+            if actions_provided
+            else None
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "GPTActionTransformer requires set_tokenizer() to be called before forward."
+            ),
+        ):
+            decoder(features=features, actions=actions)
+
+    def test_raises_when_training_actions_are_not_tokenized(
+        self,
+        gpt_transformer_factory: Callable[..., GPTActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = gpt_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory())
+        features = flat_feature_factory(
+            batch_size=BATCH_SIZE,
+            feature_dim=EMBEDDING_DIMENSION,
+        )
+        actions = noisy_actions_factory(batch_size=BATCH_SIZE)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"GPTActionTransformer training requires "
+                f"'{SampleKey.TOKENIZED_ACTIONS.value}' in actions."
+            ),
+        ):
+            decoder(features=features, actions=actions)
+
     def test_training_output_keys(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -517,6 +566,31 @@ class TestGPTActionTransformerForward:
             ),
         ):
             decoder(features=features, actions=actions)
+
+    def test_inference_raises_if_prefix_fills_sequence(
+        self,
+        gpt_transformer_factory: Callable[..., GPTActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        small_max_seq_len = SPATIAL_HEIGHT * SPATIAL_WIDTH
+        decoder = gpt_transformer_factory(max_seq_len=small_max_seq_len)
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory())
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Input prefix token length {small_max_seq_len} >= max_seq_len "
+                f"{small_max_seq_len}. No room for generated action tokens. "
+                "Consider increasing max_seq_len or reducing feature token count."
+            ),
+        ):
+            decoder(features=features, actions=None)
 
     def test_training_does_not_use_generation_cache(
         self,

@@ -359,6 +359,32 @@ class TestSampleRandomTimesteps:
         assert timesteps.min() == 0
         assert timesteps.max() == num_train_timesteps - 1
 
+    def test_negative_batch_size_raises(self, device: torch.device):
+        batch_size = -1
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"batch_size must be non-negative, got {batch_size}."),
+        ):
+            sample_random_timesteps(
+                batch_size=batch_size,
+                num_train_timesteps=100,
+                device=device,
+            )
+
+    def test_non_positive_num_train_timesteps_raises(self, device: torch.device):
+        num_train_timesteps = 0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"num_train_timesteps must be positive, got {num_train_timesteps}."
+            ),
+        ):
+            sample_random_timesteps(
+                batch_size=4,
+                num_train_timesteps=num_train_timesteps,
+                device=device,
+            )
+
 
 class TestSetupInferenceTimesteps:
     @pytest.mark.parametrize("num_inference_steps", [5, 20])

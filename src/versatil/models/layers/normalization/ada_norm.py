@@ -10,7 +10,7 @@ from versatil.models.layers.modulation.conditional_modulation import (
 
 
 class AdaNorm(nn.Module):
-    """Adaptive normalization layer"""
+    """Adaptive normalization layer with conditional affine modulation."""
 
     def __init__(
         self,
@@ -21,6 +21,16 @@ class AdaNorm(nn.Module):
         activation: str = ActivationFunction.SILU.value,
         init_strategy: Literal["zero", "xavier"] = "zero",
     ):
+        """Initialize adaptive normalization.
+
+        Args:
+            base_norm: Normalization module applied before modulation.
+            condition_dim: Dimension of the conditioning vector.
+            feature_dim: Feature dimension to modulate.
+            use_gate: Whether to return a learned residual gate.
+            activation: Activation used inside the modulation projection.
+            init_strategy: Initialization strategy for modulation weights.
+        """
         super().__init__()
         self.norm = base_norm
         self.condition_dim = condition_dim
@@ -31,7 +41,7 @@ class AdaNorm(nn.Module):
             feature_dim=feature_dim,
             use_shift=True,
             use_gate=use_gate,
-            activation=ActivationFunction.SILU.value,
+            activation=activation,
             init_strategy=init_strategy,
         )
 
@@ -39,6 +49,10 @@ class AdaNorm(nn.Module):
         self, x: torch.Tensor, condition: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass with conditioning.
+
+        Args:
+            x: Input tensor to normalize and modulate.
+            condition: Conditioning tensor of shape ``(batch_size, condition_dim)``.
 
         Returns:
             Tuple of (normalized+modulated x, gate). Gate is a learned

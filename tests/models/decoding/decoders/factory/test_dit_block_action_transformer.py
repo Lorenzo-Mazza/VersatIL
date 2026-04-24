@@ -263,14 +263,28 @@ class TestDiTBlockActionTransformerForward:
     ):
         decoder = dit_decoder_factory()
         features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        # Replace timestep with (B, 1) shape
         features[DecoderOutputKey.TIMESTEP.value] = features[
             DecoderOutputKey.TIMESTEP.value
         ].unsqueeze(-1)
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
-        # Should not raise and produce valid output
         assert all(tensor.shape[0] == BATCH_SIZE for tensor in outputs.values())
+
+    def test_forward_does_not_mutate_features(
+        self,
+        dit_decoder_factory: Callable[..., DiTBlockActionTransformer],
+        flat_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = dit_decoder_factory()
+        decoder.eval()
+        features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
+        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)
+        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
 
     def test_adaln_zero_init_makes_output_timestep_independent(
         self,
@@ -364,7 +378,6 @@ class TestDiTBlockActionTransformerCaching:
         decoder = dit_decoder_factory()
         decoder.eval()
         actions = noisy_actions_factory()
-        # Forward pops timestep from features, so clone for each call
         base_features = flat_features_with_timestep_factory(
             feature_dim=FEATURE_DIMENSION
         )

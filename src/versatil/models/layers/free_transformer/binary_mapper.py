@@ -38,10 +38,19 @@ class BinaryMapper(nn.Module):
         Args:
             latent_bits: Number of bits for the latent code (default: 16, giving 2^16 = 65536 codes)
             embedding_dimension: Dimension of input features
+
+        Raises:
+            ValueError: If dimensions are not positive.
         """
         super().__init__()
+        if latent_bits <= 0:
+            raise ValueError(f"latent_bits must be positive, got {latent_bits}.")
+        if embedding_dimension <= 0:
+            raise ValueError(
+                f"embedding_dimension must be positive, got {embedding_dimension}."
+            )
         self.latent_bits = latent_bits
-        self.latent_dim = 2**latent_bits  # 2^H dimensional one-hot vectors
+        self.latent_dim = 1 << latent_bits  # 2^H dimensional one-hot vectors
         self.embedding_dimension = embedding_dimension
         self.logit_projection = nn.Linear(embedding_dimension, latent_bits)
 
@@ -77,10 +86,9 @@ class BinaryMapper(nn.Module):
             (1 - probs).clamp(min=1e-8)
         )  # log (1-σ(L_h)) (..., H)
         # Expand dimensions for broadcasting and vectorized computation in parallel
-        *batch_dims, H = logits.shape  # (B*T, H)
-        bit_patterns_expanded = self.bit_patterns.unsqueeze(0).expand(
-            *batch_dims, self.latent_dim, H
-        )  # (..., 2^H, H)
+        bit_patterns_expanded = self.bit_patterns.reshape(
+            *([1] * len(batch_dims)), self.latent_dim, H
+        ).expand(*batch_dims, self.latent_dim, H)  # (..., 2^H, H)
         # Compute probability for each code d
         # For each bit h: σ(L_h)^{b_h} · (1-σ(L_h))^{1-b_h}
         # = σ(L_h) if b_h=1, else (1-σ(L_h))
@@ -96,10 +104,7 @@ class BinaryMapper(nn.Module):
         # Product over bits = sum of log probabilities
         log_soft_dist = log_probs_per_code.sum(dim=-1)  # (..., 2^H)
         # Numerical stability: softmax over log (prevents underflow/overflow)
-        soft_dist = torch.exp(log_soft_dist)  # (..., 2^H)
-        soft_dist = soft_dist / soft_dist.sum(dim=-1, keepdim=True).clamp(
-            min=1e-8
-        )  # Normalize; clamp avoids div0 (rare)
+        soft_dist = torch.softmax(log_soft_dist, dim=-1)  # (..., 2^H)
         return soft_dist
 
     def forward(
@@ -133,13 +138,16 @@ class BinaryMapper(nn.Module):
         powers_of_two = 2 ** torch.arange(
             self.latent_bits, dtype=torch.long, device=bits.device
         )
-        hard_indices = (
-            (bits * powers_of_two).sum(dim=-1, keepdim=True).long()
+        hard_indices = (bits.to(torch.long) * powers_of_two).sum(
+            dim=-1, keepdim=True
         )  # (..., 1)
 
         # Create hard one-hot Y_t
         y_hard = torch.zeros(
-            *hard_indices.shape[:-1], self.latent_dim, device=features.device
+            *hard_indices.shape[:-1],
+            self.latent_dim,
+            device=features.device,
+            dtype=logits.dtype,
         )
         y_hard.scatter_(-1, hard_indices, 1.0)  # (..., 2^H)
 

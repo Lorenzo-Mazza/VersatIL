@@ -97,8 +97,59 @@ class TestRotaryPositionalEncoding:
             match=re.escape("head_dimension must be even for rotary encoding"),
         ):
             RotaryPositionalEncoding1D(
+                embedding_dimension=60,
+                num_heads=4,
+            )
+
+    def test_zero_heads_raise_value_error(self):
+        num_heads = 0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"num_heads must be positive, got {num_heads}."),
+        ):
+            RotaryPositionalEncoding1D(
                 embedding_dimension=48,
-                num_heads=5,
+                num_heads=num_heads,
+            )
+
+    def test_non_divisible_embedding_dimension_raises_value_error(self):
+        embedding_dimension = 50
+        num_heads = 8
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"embedding_dimension ({embedding_dimension}) must be divisible "
+                f"by num_heads ({num_heads})."
+            ),
+        ):
+            RotaryPositionalEncoding1D(
+                embedding_dimension=embedding_dimension,
+                num_heads=num_heads,
+            )
+
+    def test_non_positive_embedding_dimension_raises_value_error(self):
+        embedding_dimension = 0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"embedding_dimension must be positive, got {embedding_dimension}."
+            ),
+        ):
+            RotaryPositionalEncoding1D(
+                embedding_dimension=embedding_dimension,
+                num_heads=4,
+            )
+
+    def test_non_positive_base_frequency_raises_value_error(self):
+        base_frequency = 0.0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"base_frequency must be positive, got {base_frequency}."),
+        ):
+            RotaryPositionalEncoding1D(
+                embedding_dimension=48,
+                num_heads=4,
+                base_frequency=base_frequency,
             )
 
     @pytest.mark.parametrize(

@@ -56,9 +56,14 @@ class PrecomputedPrimaryJointAttention(JointAttentionBase):
             bias: Whether to use bias in projections.
         """
         number_of_key_value_heads = number_of_key_value_heads or number_of_heads
-        head_dimension = (
-            head_dimension or secondary_embedding_dimension // number_of_heads
-        )
+        if head_dimension is None:
+            if secondary_embedding_dimension % number_of_heads != 0:
+                raise ValueError(
+                    f"secondary_embedding_dimension ({secondary_embedding_dimension}) "
+                    "must be divisible by number_of_heads "
+                    f"({number_of_heads}) when head_dimension is not provided."
+                )
+            head_dimension = secondary_embedding_dimension // number_of_heads
         super().__init__(
             number_of_heads=number_of_heads,
             number_of_key_value_heads=number_of_key_value_heads,
@@ -108,7 +113,7 @@ class PrecomputedPrimaryJointAttention(JointAttentionBase):
                 each shaped (B, H/KV_H, S, D_head).
             attention_mask_primary: Padding mask (B, T), True = masked.
             attention_mask_secondary: Padding mask (B, S), True = masked.
-            joint_attention_mask: Pre-built joint mask (B, T+S, T+S).
+            joint_attention_mask: Pre-built joint mask (B, 1, T+S, T+S).
             positional_encoding_primary: Optional RoPE layer for primary stream.
             precomputed_primary_rope: Pre-computed (cos, sin) for the primary
                 stream. Applied via half-rotation instead of RoPE module.
@@ -126,6 +131,11 @@ class PrecomputedPrimaryJointAttention(JointAttentionBase):
         value_primary = self._reshape_for_key_value(
             self.value_projection_primary(hidden_states_primary)
         )  # (B, KV_H, T, D_head)
+        if conditioning_cache.queries is None:
+            raise ValueError(
+                "conditioning_cache.queries must be provided for precomputed "
+                "joint attention."
+            )
         query_secondary = conditioning_cache.queries
         key_secondary = conditioning_cache.keys
         value_secondary = conditioning_cache.values

@@ -7,6 +7,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.modulation.conditional_modulation import (
     ConditionalModulation,
 )
@@ -166,6 +167,7 @@ def ada_norm_factory() -> Callable[..., AdaNorm]:
         use_gate: bool = False,
         base_norm: nn.Module | None = None,
         init_strategy: str = "zero",
+        activation: str = ActivationFunction.SILU.value,
     ) -> AdaNorm:
         if base_norm is None:
             base_norm = nn.LayerNorm(feature_dim, elementwise_affine=False)
@@ -175,6 +177,7 @@ def ada_norm_factory() -> Callable[..., AdaNorm]:
             feature_dim=feature_dim,
             use_gate=use_gate,
             init_strategy=init_strategy,
+            activation=activation,
         )
 
     return factory

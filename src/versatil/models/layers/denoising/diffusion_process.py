@@ -148,7 +148,16 @@ def sample_random_timesteps(
 
     Returns:
         Tensor of shape (batch_size,) with sampled timesteps
+
+    Raises:
+        ValueError: If batch_size is negative or num_train_timesteps is not positive.
     """
+    if batch_size < 0:
+        raise ValueError(f"batch_size must be non-negative, got {batch_size}.")
+    if num_train_timesteps <= 0:
+        raise ValueError(
+            f"num_train_timesteps must be positive, got {num_train_timesteps}."
+        )
     timesteps = torch.randint(
         0,
         num_train_timesteps,

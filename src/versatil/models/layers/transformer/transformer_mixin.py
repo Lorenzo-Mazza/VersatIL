@@ -5,6 +5,7 @@ import math
 import torch
 import torch.nn as nn
 
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.learned import (
@@ -32,6 +33,68 @@ class TransformerMixin:
     initializer_range: float
     number_of_residual_blocks: int
     positional_encoding: nn.Module | None
+
+    @staticmethod
+    def _resolve_attention_dimensions(
+        embedding_dimension: int,
+        number_of_heads: int,
+        number_of_key_value_heads: int | None,
+        attention_type: str,
+    ) -> tuple[int, int]:
+        """Validate attention configuration and derive key/value heads.
+
+        Args:
+            embedding_dimension: Model embedding dimension.
+            number_of_heads: Number of query attention heads.
+            number_of_key_value_heads: Number of key/value heads for grouped
+                query attention.
+            attention_type: Attention type from ``AttentionType``.
+
+        Returns:
+            Tuple of resolved key/value heads and per-head dimension.
+
+        Raises:
+            ValueError: If the attention configuration is invalid.
+        """
+        if number_of_heads <= 0:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
+        if embedding_dimension % number_of_heads != 0:
+            raise ValueError(
+                f"embedding_dimension ({embedding_dimension}) must be divisible "
+                f"by number_of_heads ({number_of_heads})."
+            )
+        head_dimension = embedding_dimension // number_of_heads
+        if attention_type == AttentionType.GROUPED_QUERY.value:
+            if number_of_key_value_heads is None:
+                raise ValueError("number_of_key_value_heads required for GQA")
+            if number_of_key_value_heads <= 0:
+                raise ValueError(
+                    "number_of_key_value_heads must be positive, "
+                    f"got {number_of_key_value_heads}."
+                )
+            if number_of_heads % number_of_key_value_heads != 0:
+                raise ValueError(
+                    f"number_of_heads ({number_of_heads}) must be divisible by "
+                    f"number_of_key_value_heads ({number_of_key_value_heads})."
+                )
+            return number_of_key_value_heads, head_dimension
+        if attention_type == AttentionType.MULTI_HEAD.value:
+            if (
+                number_of_key_value_heads is not None
+                and number_of_key_value_heads != number_of_heads
+            ):
+                raise ValueError(
+                    "number_of_key_value_heads must be None or equal to "
+                    "number_of_heads for multi-head attention, got "
+                    f"{number_of_key_value_heads}."
+                )
+            return number_of_heads, head_dimension
+        raise ValueError(
+            f"Unsupported attention type: {attention_type}. "
+            f"Must be one of {[e.value for e in AttentionType]}."
+        )
 
     @property
     def _total_residual_streams(self) -> int:

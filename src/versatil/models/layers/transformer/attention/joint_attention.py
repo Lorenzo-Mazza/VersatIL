@@ -52,9 +52,14 @@ class JointAttention(JointAttentionBase):
             secondary_embedding_dimension or primary_embedding_dimension
         )
         number_of_key_value_heads = number_of_key_value_heads or number_of_heads
-        head_dimension = (
-            head_dimension or primary_embedding_dimension // number_of_heads
-        )
+        if head_dimension is None:
+            if primary_embedding_dimension % number_of_heads != 0:
+                raise ValueError(
+                    f"primary_embedding_dimension ({primary_embedding_dimension}) "
+                    "must be divisible by number_of_heads "
+                    f"({number_of_heads}) when head_dimension is not provided."
+                )
+            head_dimension = primary_embedding_dimension // number_of_heads
         super().__init__(
             number_of_heads=number_of_heads,
             number_of_key_value_heads=number_of_key_value_heads,

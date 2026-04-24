@@ -30,21 +30,34 @@ class ConditionalModulation(nn.Module):
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
         init_strategy: Literal["zero", "xavier"] = "zero",
+        feature_axis: int = -1,
     ):
-        """
+        """Initialize conditional modulation.
+
         Args:
-            condition_dim: Dimension of conditioning vector
-            feature_dim: Dimension of features to modulate
-            use_shift: Whether to include shift (beta) or just scale (gamma)
-            use_gate: Whether to include gate output
+            condition_dim: Dimension of conditioning vector.
+            feature_dim: Dimension of features to modulate.
+            use_shift: Whether to include shift (beta) or just scale (gamma).
+            use_gate: Whether to include gate output.
             activation: Activation function to apply to condition before modulation.
-            init_strategy: Weight initialization strategy
+            init_strategy: Weight initialization strategy.
+            feature_axis: Feature axis for 3D tensors. Use ``-1`` for
+                transformer layout ``(B, S, D)``, and ``1`` for Conv1D
+                layout ``(B, C, T)``.
+
+        Raises:
+            ValueError: If ``feature_axis`` is not supported.
         """
         super().__init__()
+        if feature_axis not in {-1, 1}:
+            raise ValueError(
+                f"feature_axis must be one of [-1, 1], got {feature_axis}."
+            )
         self.use_shift = use_shift
         self.use_gate = use_gate
         self.init_strategy = init_strategy
         self.feature_dim = feature_dim
+        self.feature_axis = feature_axis
         self.output_dim = feature_dim
         if use_shift:
             self.output_dim += feature_dim
@@ -62,8 +75,12 @@ class ConditionalModulation(nn.Module):
             )
         self.init_parameters()
 
-    def init_parameters(self):
-        """Initialize weights based on strategy."""
+    def init_parameters(self) -> None:
+        """Initialize projection weights from the configured strategy.
+
+        Raises:
+            ValueError: If ``init_strategy`` is not supported.
+        """
         linear_layers = [
             m for m in self.projection.modules() if isinstance(m, nn.Linear)
         ]
@@ -85,12 +102,14 @@ class ConditionalModulation(nn.Module):
     def forward(
         self, x: torch.Tensor, condition: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
+        """Apply conditional modulation.
+
         Args:
-            x: Features to modulate
+            x: Features to modulate.
                 - CNN: (B, C, H, W)
-                - Transformer: (S, B, D) or (B, S, D)
-            condition: Conditioning vector (B, condition_dim)
+                - Transformer: (B, S, D)
+                - Conv1D: (B, C, T) when ``feature_axis=1``
+            condition: Conditioning vector (B, condition_dim).
 
         Returns:
             Tuple of (modulated features, gate). Gate is a learned tensor
@@ -115,32 +134,34 @@ class ConditionalModulation(nn.Module):
             if self.use_gate:
                 gate = gate.view(x.size(0), x.size(1), 1, 1)
         elif x.dim() == 3:
-            if x.size(0) == condition.size(0):  # Batch size in dim 0
-                if (
-                    x.size(1) == self.feature_dim
-                ):  # Conv1D format: (B, C, T) - channels in dim 1
-                    gamma = gamma.unsqueeze(2)  # (B, C) -> (B, C, 1)
-                    if beta is not None:
-                        beta = beta.unsqueeze(2)
-                    if self.use_gate:
-                        gate = gate.unsqueeze(2)
-                else:  # Transformer format: (B, S, D) - features in dim 2
-                    gamma = gamma.unsqueeze(1)  # (B, D) -> (B, 1, D)
-                    if beta is not None:
-                        beta = beta.unsqueeze(1)
-                    if self.use_gate:
-                        gate = gate.unsqueeze(1)
-            elif x.size(1) == condition.size(0):
-                gamma = gamma.unsqueeze(0)
-                if beta is not None:
-                    beta = beta.unsqueeze(0)
-                if self.use_gate:
-                    gate = gate.unsqueeze(0)
-            else:
+            if x.size(0) != condition.size(0):
                 raise ValueError(
-                    f"Cannot match batch dimension: x.shape={x.shape}, condition.shape={condition.shape}. "
-                    f"Expected x.size(0) or x.size(1) to equal condition.size(0)={condition.size(0)}"
+                    f"Cannot match batch dimension: x.shape={x.shape}, "
+                    f"condition.shape={condition.shape}. Expected x.size(0) "
+                    f"to equal condition.size(0)={condition.size(0)}."
                 )
+            if self.feature_axis == 1:
+                if x.size(1) != self.feature_dim:
+                    raise ValueError(
+                        f"Expected x.size(1) to equal feature_dim={self.feature_dim}, "
+                        f"got x.shape={x.shape}."
+                    )
+                gamma = gamma.unsqueeze(2)  # (B, C) -> (B, C, 1)
+                if beta is not None:
+                    beta = beta.unsqueeze(2)
+                if self.use_gate:
+                    gate = gate.unsqueeze(2)
+            else:
+                if x.size(2) != self.feature_dim:
+                    raise ValueError(
+                        f"Expected x.size(2) to equal feature_dim={self.feature_dim}, "
+                        f"got x.shape={x.shape}."
+                    )
+                gamma = gamma.unsqueeze(1)  # (B, D) -> (B, 1, D)
+                if beta is not None:
+                    beta = beta.unsqueeze(1)
+                if self.use_gate:
+                    gate = gate.unsqueeze(1)
         else:
             raise ValueError(f"Unsupported input shape: {x.shape}")
         result = x * (1 + gamma)

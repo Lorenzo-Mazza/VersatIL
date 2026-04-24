@@ -37,6 +37,20 @@ class JointAttentionBase(nn.Module):
         dropout: float = 0.0,
     ):
         super().__init__()
+        if number_of_heads <= 0:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
+        if number_of_key_value_heads <= 0:
+            raise ValueError(
+                "number_of_key_value_heads must be positive, "
+                f"got {number_of_key_value_heads}."
+            )
+        if number_of_heads % number_of_key_value_heads != 0:
+            raise ValueError(
+                f"number_of_heads ({number_of_heads}) must be divisible by "
+                f"number_of_key_value_heads ({number_of_key_value_heads})."
+            )
         self.number_of_heads = number_of_heads
         self.number_of_key_value_heads = number_of_key_value_heads
         self.head_dimension = head_dimension

@@ -154,15 +154,14 @@ class ACT(ActionDecoder):
             batch_size, 1, 1
         )  # (B, pred_horizon, emb)
         target = torch.zeros_like(query_positional_encoding)
-        return self.action_decoder(
+        decoder_outputs = self.action_decoder(
             source=input_tokens,
             target=target,
             source_positional_encoding=positional_encodings,
             source_key_padding_mask=padding_mask,
             target_positional_encoding=query_positional_encoding,
-        )[
-            -1
-        ]  # taking last layer output, (B, pred_horizon, embedding_dimension)  type: ignore[no-any-return]
+        )
+        return decoder_outputs[-1]
 
     def _apply_action_heads(
         self, action_embeddings: torch.Tensor

@@ -244,6 +244,40 @@ class TestLACTForward:
                 expected_dim,
             )
 
+    @pytest.mark.parametrize(
+        "latent_shape, expected_message",
+        [
+            (
+                (BATCH_SIZE, LATENT_DIMENSION, 1),
+                f"LACT latent '{LatentKey.POSTERIOR_LATENT.value}' must have "
+                "shape (B, latent_dimension), got "
+                f"torch.Size([{BATCH_SIZE}, {LATENT_DIMENSION}, 1]).",
+            ),
+            (
+                (BATCH_SIZE + 1, LATENT_DIMENSION),
+                "LACT latent batch size must match observation batch size "
+                f"{BATCH_SIZE}, got {BATCH_SIZE + 1}.",
+            ),
+            (
+                (BATCH_SIZE, LATENT_DIMENSION + 1),
+                f"LACT latent dimension must be {LATENT_DIMENSION}, "
+                f"got {LATENT_DIMENSION + 1}.",
+            ),
+        ],
+    )
+    def test_raises_for_invalid_latent_shape(
+        self,
+        lact_decoder_factory: Callable[..., LACT],
+        spatial_features_with_latent_factory: Callable[..., dict[str, torch.Tensor]],
+        latent_shape: tuple[int, ...],
+        expected_message: str,
+    ):
+        decoder = lact_decoder_factory()
+        features = spatial_features_with_latent_factory()
+        features[LatentKey.POSTERIOR_LATENT.value] = torch.zeros(latent_shape)
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            decoder(features=features)
+
     def test_with_multiple_action_heads(
         self,
         lact_decoder_factory: Callable[..., LACT],

@@ -110,7 +110,12 @@ def integrate_ode(
 
     Returns:
         Final state tensor (B, D) after integration from t=0 to t=1
+
+    Raises:
+        ValueError: If num_steps is not positive or solver is not recognized.
     """
+    if num_steps <= 0:
+        raise ValueError(f"num_steps must be positive, got {num_steps}.")
     dt = 1.0 / num_steps
     z = z_init
     batch_size = z.shape[0]

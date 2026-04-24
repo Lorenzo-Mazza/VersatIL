@@ -87,6 +87,26 @@ class TestBinaryMapperInitialization:
         loss.backward()
         assert torch.equal(mapper.bit_patterns, bit_patterns_before)
 
+    @pytest.mark.parametrize(
+        "latent_bits, embedding_dimension, error_message",
+        [
+            (0, 32, "latent_bits must be positive, got 0."),
+            (4, 0, "embedding_dimension must be positive, got 0."),
+        ],
+        ids=["zero_latent_bits", "zero_embedding_dimension"],
+    )
+    def test_invalid_dimensions_raise(
+        self,
+        latent_bits: int,
+        embedding_dimension: int,
+        error_message: str,
+    ):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            BinaryMapper(
+                latent_bits=latent_bits,
+                embedding_dimension=embedding_dimension,
+            )
+
 
 class TestBinaryMapperForward:
     @pytest.mark.parametrize(
@@ -140,6 +160,21 @@ class TestBinaryMapperForward:
         one_hot, logits = mapper(features=features)
         assert one_hot.shape == (batch_size, 2**latent_bits)
         assert logits.shape == (batch_size, latent_bits)
+
+    def test_outputs_preserve_projection_dtype(
+        self,
+        binary_mapper_factory: Callable[..., BinaryMapper],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        mapper = binary_mapper_factory(latent_bits=4, embedding_dimension=32).double()
+        features = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=32,
+        ).double()
+        one_hot, logits = mapper(features=features, deterministic=True)
+        assert one_hot.dtype == torch.float64
+        assert logits.dtype == torch.float64
 
     def test_one_hot_output_sums_to_one_in_forward_pass(
         self,
@@ -278,6 +313,17 @@ class TestBinaryMapperSoftDistribution:
         )
         soft_distribution = mapper._compute_soft_distribution(logits)
         assert soft_distribution.shape == (2, 4, 2**latent_bits)
+
+    def test_soft_distribution_accepts_unbatched_logits(
+        self,
+        binary_mapper_factory: Callable[..., BinaryMapper],
+    ):
+        latent_bits = 4
+        mapper = binary_mapper_factory(latent_bits=latent_bits, embedding_dimension=32)
+        logits = torch.zeros(latent_bits)
+        soft_distribution = mapper._compute_soft_distribution(logits)
+        assert soft_distribution.shape == (2**latent_bits,)
+        assert torch.allclose(soft_distribution.sum(), torch.ones(()))
 
     def test_soft_distribution_all_non_negative(
         self,

@@ -19,8 +19,12 @@ from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.factory import pi0 as pi0_module
 from versatil.models.decoding.decoders.factory.pi0 import Pi0Decoder
-from versatil.models.encoding.encoders.constants import PaliGemmaModelType
+from versatil.models.encoding.encoders.constants import (
+    EncoderOutputKeys,
+    PaliGemmaModelType,
+)
 from versatil.models.encoding.encoders.cross_modal.vision_language.paligemma import (
     PaliGemmaEncoder,
 )
@@ -40,6 +44,7 @@ BATCH_SIZE = 2
 PREFIX_SEQUENCE_LENGTH = 8
 POSITION_DIM = 3
 FEATURE_KEY = "vlm_fused_rgb_language"
+PADDING_MASK_KEY = f"{FEATURE_KEY}_{EncoderOutputKeys.PADDING_MASK.value}"
 PROPRIO_KEY = "robot_state_proprio"
 PROPRIO_DIM = 8
 
@@ -195,6 +200,7 @@ def prefix_features_factory(
         hidden_dimension: int = VLM_HIDDEN_DIMENSION,
         include_timestep: bool = True,
         include_proprioceptive: bool = False,
+        include_padding_mask: bool = False,
         proprioceptive_dimension: int = PROPRIO_DIM,
     ) -> dict[str, torch.Tensor]:
         features = {
@@ -214,6 +220,10 @@ def prefix_features_factory(
                     np.float32
                 )
             )
+        if include_padding_mask:
+            mask = torch.zeros(batch_size, sequence_length, dtype=torch.bool)
+            mask[:, -2:] = True
+            features[PADDING_MASK_KEY] = mask
         return features
 
     return factory
@@ -661,6 +671,55 @@ class TestPi0DecoderBehavior:
         assert not mask[0, 0, :action_len, action_len:].any()
         # Prefix queries cannot attend to action columns (:action_len) — all masked
         assert mask[0, 0, action_len:, :action_len].all()
+
+    def test_prefix_padding_mask_is_forwarded_to_attention_builder(
+        self,
+        initialized_decoder_factory: Callable[..., Pi0Decoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory(include_padding_mask=True)
+        actions = noisy_actions_factory()
+        with patch.object(
+            pi0_module,
+            "make_attention_mask",
+            wraps=pi0_module.make_attention_mask,
+        ) as spy:
+            decoder(features=features, actions=actions)
+        received_mask = spy.call_args.kwargs["feature_token_mask"]
+        assert torch.equal(received_mask, features[PADDING_MASK_KEY])
+
+    def test_cached_prefix_uses_additive_padding_mask(
+        self,
+        initialized_decoder_factory: Callable[..., Pi0Decoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = prefix_features_factory(include_padding_mask=True)
+        actions = noisy_actions_factory()
+        with (
+            patch.object(
+                decoder,
+                "_fill_prefix_cache",
+                wraps=decoder._fill_prefix_cache,
+            ) as spy,
+            torch.no_grad(),
+        ):
+            decoder(features=features, actions=actions)
+        prefix_attention_mask = spy.call_args.kwargs["prefix_attention_mask"]
+        assert prefix_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_SEQUENCE_LENGTH,
+            PREFIX_SEQUENCE_LENGTH,
+        )
+        expected_masked_value = torch.finfo(features[FEATURE_KEY].dtype).min
+        assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
+        assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
 
 
 @pytest.mark.integration

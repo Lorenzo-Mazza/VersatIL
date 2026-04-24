@@ -11,14 +11,18 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.timestep_conditioning import (
+    extract_timestep_conditioning,
+    filter_timestep_feature,
+    validate_noisy_action_tensors,
+)
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.feature_meta import FeatureType
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.diffusion_transformer import DiTBlock
+from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
@@ -134,7 +138,7 @@ class DiTBlockActionTransformer(ActionDecoder):
         )
         self._build_transformer_components()
 
-    def _build_transformer_components(self):
+    def _build_transformer_components(self) -> None:
         """Build DiTBlock transformer and input processing layers."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
             embedding_dimension=self.embedding_dimension, normalize=True
@@ -210,7 +214,7 @@ class DiTBlockActionTransformer(ActionDecoder):
             )
         return observation_tokens, positional_encodings, observation_padding_mask
 
-    def enable_encoder_cache(self):
+    def enable_encoder_cache(self) -> None:
         """Enable encoder caching for multi-step inference loops.
 
         Called by algorithms at the start of predict() to enable caching
@@ -219,7 +223,7 @@ class DiTBlockActionTransformer(ActionDecoder):
         self._encoder_cache = None
         self._caching_enabled = True
 
-    def disable_encoder_cache(self):
+    def disable_encoder_cache(self) -> None:
         """Disable encoder caching and clear cached values."""
         self._encoder_cache = None
         self._caching_enabled = False
@@ -246,19 +250,23 @@ class DiTBlockActionTransformer(ActionDecoder):
                 "DiTBlockActionTransformer requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
-        if DecoderOutputKey.TIMESTEP.value not in features:
-            raise ValueError(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
-                "The algorithm should inject timesteps into features."
-            )
-        timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)
-        if len(timesteps.shape) == 2:
-            timesteps = timesteps.squeeze(-1)  # (B, 1) -> (B,)
+        batch_size, action_device = validate_noisy_action_tensors(
+            actions=actions,
+            action_heads=self.action_heads,
+            prediction_horizon=self.prediction_horizon,
+            decoder_name=self.__class__.__name__,
+        )
+        timesteps = extract_timestep_conditioning(
+            features=features,
+            batch_size=batch_size,
+            action_device=action_device,
+        )
+        observation_features = filter_timestep_feature(features=features)
         (
             observation_tokens,
             observation_positional_encodings,
             observation_padding_mask,
-        ) = self._prepare_observation_tokens(features)
+        ) = self._prepare_observation_tokens(observation_features)
         if observation_positional_encodings is not None:
             observation_tokens = observation_tokens + observation_positional_encodings
         action_tensors = []

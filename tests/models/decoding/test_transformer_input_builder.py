@@ -329,6 +329,26 @@ class TestTransformerInputBuilderFeatureFiltering:
         assert isinstance(tokens, torch.Tensor)
         assert tokens.shape == (2, height * width, embedding_dim)
 
+    def test_no_features_after_filtering_raises(
+        self,
+        transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
+    ):
+        builder = transformer_input_builder_factory(
+            embedding_dim=64,
+            use_camera_embeddings=False,
+        )
+        builder.projection.forward = lambda features: features
+        features = {
+            SampleKey.IS_PAD_ACTION.value: torch.zeros(2, 4, dtype=torch.bool),
+        }
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "TransformerInputBuilder received no features to build tokens from."
+            ),
+        ):
+            builder(features)
+
 
 class TestTransformerInputBuilderFeatureShapes:
     def test_2d_flat_feature_produces_single_token(
@@ -626,9 +646,104 @@ class TestTransformerInputBuilderPaddingMask:
         )
         with pytest.raises(
             ValueError,
-            match=f"Padding masks not supported for spatial features, got {mask_ndim} for {feature_name}",
+            match=re.escape(
+                f"Padding masks not supported for spatial features, "
+                f"got {mask_ndim} for {feature_name}"
+            ),
         ):
             builder(features)
+
+    def test_padding_mask_sequence_length_mismatch_raises(
+        self,
+        transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        embedding_dim = 64
+        batch_size = 2
+        builder = transformer_input_builder_factory(
+            embedding_dim=embedding_dim,
+            use_camera_embeddings=False,
+        )
+        builder.projection.forward = lambda features: features
+        feature_name = "flat_feature"
+        features = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=embedding_dim,
+            feature_keys=[feature_name],
+        )
+        input_mask = torch.zeros(batch_size, 2, dtype=torch.bool)
+        features[f"{feature_name}_padding_mask"] = input_mask
+        expected_shape = (batch_size, 1)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Padding mask for feature '{feature_name}' must have shape "
+                f"{expected_shape} after flattening, got {input_mask.shape}."
+            ),
+        ):
+            builder(features)
+
+    def test_padding_mask_batch_size_mismatch_raises(
+        self,
+        transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        embedding_dim = 64
+        batch_size = 2
+        wrong_batch_size = 3
+        builder = transformer_input_builder_factory(
+            embedding_dim=embedding_dim,
+            use_camera_embeddings=False,
+        )
+        builder.projection.forward = lambda features: features
+        feature_name = "flat_feature"
+        features = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=embedding_dim,
+            feature_keys=[feature_name],
+        )
+        input_mask = torch.zeros(wrong_batch_size, dtype=torch.bool)
+        features[f"{feature_name}_padding_mask"] = input_mask
+        reshaped_shape = (wrong_batch_size, 1)
+        expected_shape = (batch_size, 1)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Padding mask for feature '{feature_name}' must have shape "
+                f"{expected_shape} after flattening, got torch.Size({list(reshaped_shape)})."
+            ),
+        ):
+            builder(features)
+
+    def test_padding_mask_converted_to_bool(
+        self,
+        transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
+        sequential_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        embedding_dim = 64
+        batch_size = 2
+        sequence_length = 4
+        builder = transformer_input_builder_factory(
+            embedding_dim=embedding_dim,
+            has_time_dim=False,
+            use_camera_embeddings=False,
+        )
+        builder.projection.forward = lambda features: features
+        feature_name = "seq_feature"
+        features = sequential_feature_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            feature_dimension=embedding_dim,
+            feature_keys=[feature_name],
+        )
+        input_mask = torch.zeros(batch_size, sequence_length, dtype=torch.float32)
+        input_mask[:, 1] = 1.0
+        features[f"{feature_name}_padding_mask"] = input_mask
+        _, _, padding_mask = builder(features)
+        assert isinstance(padding_mask, torch.Tensor)
+        assert padding_mask.dtype == torch.bool
+        assert padding_mask[:, 1].all()
+        assert not padding_mask[:, 0].any()
 
     def test_action_padding_mask_fallback(
         self,

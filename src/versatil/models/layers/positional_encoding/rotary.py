@@ -12,7 +12,31 @@ class RotaryPositionalEncoding(nn.Module):
         base_frequency: float = 10000.0,
         learnable_frequencies: bool = False,
     ):
+        """Initialize rotary positional encoding frequencies.
+
+        Args:
+            embedding_dimension: Full model embedding dimension.
+            num_heads: Number of attention heads.
+            base_frequency: Base frequency for geometric spacing.
+            learnable_frequencies: Whether frequency bands are trainable.
+
+        Raises:
+            ValueError: If attention dimensions or frequencies are invalid.
+        """
         super().__init__()
+        if embedding_dimension <= 0:
+            raise ValueError(
+                f"embedding_dimension must be positive, got {embedding_dimension}."
+            )
+        if num_heads <= 0:
+            raise ValueError(f"num_heads must be positive, got {num_heads}.")
+        if embedding_dimension % num_heads != 0:
+            raise ValueError(
+                f"embedding_dimension ({embedding_dimension}) must be divisible "
+                f"by num_heads ({num_heads})."
+            )
+        if base_frequency <= 0.0:
+            raise ValueError(f"base_frequency must be positive, got {base_frequency}.")
         self.embedding_dimension = embedding_dimension
         self.num_heads = num_heads
         self.head_dimension = embedding_dimension // num_heads
@@ -145,6 +169,17 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
         base_frequency: float = 10000.0,
         learnable_frequencies: bool = False,
     ):
+        """Initialize rotary positional encoding for 2D grids.
+
+        Args:
+            embedding_dimension: Full model embedding dimension.
+            num_heads: Number of attention heads.
+            base_frequency: Base frequency for geometric spacing.
+            learnable_frequencies: Whether frequency bands are trainable.
+
+        Raises:
+            ValueError: If per-axis head dimensions are invalid.
+        """
         super().__init__(
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
@@ -157,7 +192,8 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
         freq_set = self._compute_frequencies(
             self.half_head_dim, base_frequency=base_frequency
         )
-        self.frequencies.data = torch.cat([freq_set, freq_set])
+        with torch.no_grad():
+            self.frequencies.copy_(torch.cat([freq_set, freq_set]))
 
     def compute_rotation_components(
         self, height: int, width: int

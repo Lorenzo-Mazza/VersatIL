@@ -679,6 +679,32 @@ class TestSmolVLADecoderBehavior:
         )
         assert cross_mask.shape == (BATCH_SIZE, 1, action_len, prefix_len)
 
+    def test_vlm_prefix_padding_mask_converted_to_additive_mask(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory(include_padding_mask=True)
+        actions = noisy_actions_factory()
+        with patch.object(
+            decoder,
+            "_run_training_forward",
+            wraps=decoder._run_training_forward,
+        ) as spy:
+            decoder(features=features, actions=actions)
+        prefix_attention_mask = spy.call_args.kwargs["vlm_prefix_attention_mask"]
+        assert prefix_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_SEQUENCE_LENGTH,
+            PREFIX_SEQUENCE_LENGTH,
+        )
+        expected_masked_value = torch.finfo(features[FEATURE_KEY].dtype).min
+        assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
+        assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
+
     def test_cached_forward_passes_correct_mask_per_layer_type(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
@@ -1113,6 +1139,37 @@ class TestSmolVLADecoderCaching:
                 PREDICTION_HORIZON,
                 decoder.action_heads[action_key].output_dim,
             )
+
+    def test_cached_forward_passes_additive_prefix_attention_mask(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = prefix_features_factory(include_padding_mask=True)
+        actions = noisy_actions_factory()
+        with (
+            patch.object(
+                decoder,
+                "_fill_prefix_cache",
+                wraps=decoder._fill_prefix_cache,
+            ) as spy,
+            torch.no_grad(),
+        ):
+            decoder(features=features, actions=actions)
+        prefix_attention_mask = spy.call_args.kwargs["prefix_attention_mask"]
+        assert prefix_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_SEQUENCE_LENGTH,
+            PREFIX_SEQUENCE_LENGTH,
+        )
+        expected_masked_value = torch.finfo(features[FEATURE_KEY].dtype).min
+        assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
+        assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
 
     def test_cached_forwards_are_self_consistent(
         self,

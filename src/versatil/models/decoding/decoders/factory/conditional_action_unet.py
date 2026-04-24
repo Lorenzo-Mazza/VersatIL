@@ -9,8 +9,12 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.timestep_conditioning import (
+    extract_timestep_conditioning,
+    filter_timestep_feature,
+    validate_noisy_action_tensors,
+)
 from versatil.models.decoding.unet_input_builder import UNetInputBuilder
 from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.conditional_unet import ConditionalUnet1D
@@ -117,12 +121,15 @@ class ConditionalActionUNet(ActionDecoder):
         self.unet_conditioning_builder = UNetInputBuilder(
             embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon > 1
         )
+        self.register_buffer("_device_tracker", torch.zeros(1))
 
         # U-Net will be lazily initialized on first forward pass
         # (once we know the global conditioning dimension)
         self._unet: ConditionalUnet1D | None = None
 
-    def _initialize_unet(self, global_conditioning_dimension: int | None = None):
+    def _initialize_unet(
+        self, global_conditioning_dimension: int | None = None
+    ) -> None:
         """Lazily initialize the U-Net once we know the global conditioning dimension.
 
         Args:
@@ -138,9 +145,89 @@ class ConditionalActionUNet(ActionDecoder):
             kernel_size=self.kernel_size,
             num_groups=self.num_groups,
             condition_predict_scale=self.condition_predict_scale,
-        ).to(self.device)
+        ).to(device=self._device_tracker.device, dtype=self._device_tracker.dtype)
         logging.info(
             f"Initialized ConditionalUnet1D with global_conditioning_dimension={global_conditioning_dimension}"
+        )
+
+    def _infer_unet_global_conditioning_dimension(
+        self,
+        state_dict: dict[str, torch.Tensor],
+        prefix: str,
+    ) -> int:
+        """Infer U-Net global conditioning dimension from checkpoint weights.
+
+        Args:
+            state_dict: Checkpoint state dictionary.
+            prefix: Prefix for this decoder in the parent state dictionary.
+
+        Returns:
+            Global conditioning dimension stored in the checkpoint.
+
+        Raises:
+            ValueError: If the checkpoint contains U-Net weights but the conditioning dimension is invalid.
+        """
+        condition_weight_key = (
+            prefix + "_unet.downsampling_modules.0.0.modulator.projection.1.weight"
+        )
+        if condition_weight_key not in state_dict:
+            raise ValueError(
+                "ConditionalActionUNet checkpoint contains U-Net weights but "
+                f"'{condition_weight_key}' is missing."
+            )
+        condition_dimension = state_dict[condition_weight_key].shape[1]
+        global_conditioning_dimension = condition_dimension - self.embedding_dimension
+        if global_conditioning_dimension < 0:
+            raise ValueError(
+                "ConditionalActionUNet checkpoint has invalid conditioning "
+                f"dimension {condition_dimension}; expected at least "
+                f"{self.embedding_dimension}."
+            )
+        return global_conditioning_dimension
+
+    def _load_from_state_dict(
+        self,
+        state_dict: dict[str, torch.Tensor],
+        prefix: str,
+        local_metadata: dict,
+        strict: bool,
+        missing_keys: list,
+        unexpected_keys: list,
+        error_msgs: list,
+    ) -> None:
+        """Create the lazy U-Net from checkpoint weights before loading.
+
+        Args:
+            state_dict: Checkpoint state dictionary.
+            prefix: Prefix for this decoder in the parent state dictionary.
+            local_metadata: Metadata for this module.
+            strict: Whether missing and unexpected keys are errors.
+            missing_keys: Missing key accumulator.
+            unexpected_keys: Unexpected key accumulator.
+            error_msgs: Error message accumulator.
+        """
+        unet_prefix = prefix + "_unet."
+        has_unet_state = any(key.startswith(unet_prefix) for key in state_dict)
+        if self._unet is None and has_unet_state:
+            global_conditioning_dimension = (
+                self._infer_unet_global_conditioning_dimension(
+                    state_dict=state_dict,
+                    prefix=prefix,
+                )
+            )
+            self._initialize_unet(
+                global_conditioning_dimension=global_conditioning_dimension
+                if global_conditioning_dimension > 0
+                else None
+            )
+        super()._load_from_state_dict(
+            state_dict=state_dict,
+            prefix=prefix,
+            local_metadata=local_metadata,
+            strict=strict,
+            missing_keys=missing_keys,
+            unexpected_keys=unexpected_keys,
+            error_msgs=error_msgs,
         )
 
     def _prepare_global_conditioning(
@@ -200,15 +287,18 @@ class ConditionalActionUNet(ActionDecoder):
                 "The algorithm should provide noisy actions during forward pass."
             )
 
-        if DecoderOutputKey.TIMESTEP.value not in features:
-            raise ValueError(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
-                "The algorithm should inject timesteps into features."
-            )
-
-        timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)  # (B,) or (B, 1)
-        if len(timesteps.shape) == 2:
-            timesteps = timesteps.squeeze(-1)
+        batch_size, action_device = validate_noisy_action_tensors(
+            actions=actions,
+            action_heads=self.action_heads,
+            prediction_horizon=self.prediction_horizon,
+            decoder_name=self.__class__.__name__,
+        )
+        timesteps = extract_timestep_conditioning(
+            features=features,
+            batch_size=batch_size,
+            action_device=action_device,
+        )  # (B,)
+        observation_features = filter_timestep_feature(features=features)
 
         # Concatenate all action modalities into single tensor
         # Shape: (B, T, action_dimension) where T = prediction_horizon
@@ -221,7 +311,7 @@ class ConditionalActionUNet(ActionDecoder):
 
         # Prepare global conditioning
         global_conditioning = self._prepare_global_conditioning(
-            features
+            observation_features
         )  # (B, global_conditioning_dimension)
 
         # Run U-Net denoising

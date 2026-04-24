@@ -383,6 +383,26 @@ class TestDiffusionActionTransformerForward:
         outputs = decoder(features=features, actions=actions)
         assert all(tensor.shape[0] == BATCH_SIZE for tensor in outputs.values())
 
+    def test_forward_does_not_mutate_features(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = diffusion_transformer_factory()
+        decoder.eval()
+        features = spatial_features_with_timestep_factory(
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)
+        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
+
     def test_with_multiple_action_heads(
         self,
         diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],

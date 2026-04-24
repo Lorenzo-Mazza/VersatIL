@@ -271,6 +271,41 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         return cos.unsqueeze(1), sin.unsqueeze(1)
 
     @staticmethod
+    def build_additive_attention_mask(
+        attention_mask: torch.Tensor | None,
+        dtype: torch.dtype,
+    ) -> torch.Tensor | None:
+        """Convert a bool mask to the additive mask expected by HF decoder layers.
+
+        Args:
+            attention_mask: Boolean attention mask where ``True`` means masked.
+                Accepts any broadcast-compatible shape used by HF decoder layers,
+                typically ``(B, 1, Q, K)``.
+            dtype: Floating dtype for the returned additive mask.
+
+        Returns:
+            Additive attention mask with ``0`` for valid locations and
+            ``torch.finfo(dtype).min`` for masked locations. Returns ``None``
+            when no mask is provided or when the mask has no masked entries.
+
+        Raises:
+            ValueError: If ``dtype`` is not a floating-point dtype.
+        """
+        if attention_mask is None:
+            return None
+        if not torch.empty((), dtype=dtype).is_floating_point():
+            raise ValueError(f"dtype must be floating point, got {dtype}.")
+        boolean_mask = attention_mask.to(dtype=torch.bool)
+        if not boolean_mask.any():
+            return None
+        additive_mask = torch.zeros(
+            boolean_mask.shape,
+            dtype=dtype,
+            device=boolean_mask.device,
+        )
+        return additive_mask.masked_fill(boolean_mask, torch.finfo(dtype).min)
+
+    @staticmethod
     def extract_key_value_with_rope(
         vlm_layer: nn.Module,
         hidden_states: torch.Tensor,

@@ -266,10 +266,11 @@ class DiscreteDETRActionTransformer(ActionDecoder):
             batch_size, 1, 1
         )  # (B, max_seq_len, emb)
         target = torch.zeros_like(query_positional_encoding)
-        return self.action_decoder(
+        decoder_outputs = self.action_decoder(
             source=input_tokens,
             target=target,
             source_positional_encoding=positional_encodings,
             source_key_padding_mask=padding_mask,
             target_positional_encoding=query_positional_encoding,
-        )[-1]  # (B, max_seq_len, embedding_dimension)  type: ignore[no-any-return]
+        )
+        return decoder_outputs[-1]

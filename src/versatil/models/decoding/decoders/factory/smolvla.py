@@ -354,10 +354,15 @@ class SmolVLADecoder(ActionDecoder):
             causal_actions=True,
             causal_prefix_suffix_length=causal_prefix_suffix_length,
         )
+        prefix_length = prefix_embeddings.shape[1]
+        prefix_attention_mask = attention_mask[:, :, :prefix_length, :prefix_length]
+        vlm_prefix_attention_mask = GenerativeVLMEncoder.build_additive_attention_mask(
+            attention_mask=prefix_attention_mask,
+            dtype=prefix_embeddings.dtype,
+        )
         # Reorder attention mask from [prefix(P), action(A)] to [expert(A), VLM(P)]
         # so _joint_sdpa's primary/secondary slicing gets the correct blocks.
         # key_padding_mask and position_ids stay in [prefix, action] order for RoPE.
-        prefix_length = prefix_embeddings.shape[1]
         action_length = expert_hidden.shape[1]
         perm = torch.cat(
             [
@@ -409,13 +414,10 @@ class SmolVLADecoder(ActionDecoder):
                 expert_cross_attn_rope=expert_cross_attn_rope,
             )
         elif self._encoder_cache_enabled:
-            vlm_attention_mask = None
-            if prefix_padding_mask is not None and prefix_padding_mask.any():
-                vlm_attention_mask = (
-                    (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)
-                )  # (B, P) → (B, 1, 1, P)
             vlm_cache = self._fill_prefix_cache(
-                prefix_embeddings, position_ids, vlm_attention_mask
+                prefix_embeddings=prefix_embeddings,
+                position_ids=position_ids,
+                prefix_attention_mask=vlm_prefix_attention_mask,
             )
             self._prefix_cache = vlm_cache
             expert_hidden = self._run_expert_with_cache(
@@ -427,11 +429,6 @@ class SmolVLADecoder(ActionDecoder):
                 expert_cross_attn_rope=expert_cross_attn_rope,
             )
         else:
-            vlm_train_mask = None
-            if prefix_padding_mask is not None and prefix_padding_mask.any():
-                vlm_train_mask = (
-                    (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)
-                )  # (B, P) → (B, 1, 1, P)
             expert_hidden = self._run_training_forward(
                 prefix_embeddings=prefix_embeddings,
                 expert_hidden=expert_hidden,
@@ -440,7 +437,7 @@ class SmolVLADecoder(ActionDecoder):
                 position_ids=position_ids,
                 expert_action_rope=expert_action_rope,
                 expert_cross_attn_rope=expert_cross_attn_rope,
-                vlm_prefix_attention_mask=vlm_train_mask,
+                vlm_prefix_attention_mask=vlm_prefix_attention_mask,
             )
         expert_hidden = self.expert_final_norm(expert_hidden)
         action_output = self.action_output_projection(
@@ -480,8 +477,8 @@ class SmolVLADecoder(ActionDecoder):
                 joint position frame (positions [P, P+A)).
             expert_cross_attn_rope: Pre-computed (cos, sin) for expert RoPE in
                 the shifted cross-attn frame (positions [0, A)).
-            vlm_prefix_attention_mask: Optional HF-style mask for VLM layers
-                (B, 1, 1, P) where True=attend, False=masked.
+            vlm_prefix_attention_mask: Optional additive mask for VLM prefix
+                self-attention, shaped ``(B, 1, P, P)``.
         """
 
         vlm_hidden = prefix_embeddings
@@ -581,9 +578,8 @@ class SmolVLADecoder(ActionDecoder):
             prefix_embeddings: Prefix token embeddings (B, P, D).
             position_ids: Full position IDs (B, P + A). Only the prefix
                 portion [:, :P] is used.
-            prefix_attention_mask: Optional (B, P) mask where 1 means attend
-                and 0 means ignore. Passed to each VLM layer so padded tokens
-                do not participate in self-attention.
+            prefix_attention_mask: Optional additive mask for VLM prefix
+                self-attention, shaped ``(B, 1, P, P)``.
 
         Returns:
             ConditioningCache with one entry per expert layer (VLM_ONLY layers

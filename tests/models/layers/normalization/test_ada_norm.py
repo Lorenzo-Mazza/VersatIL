@@ -6,6 +6,7 @@ import pytest
 import torch
 from torch import nn
 
+from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.rms_norm import RMSNorm
 
@@ -83,6 +84,17 @@ class TestAdaNormInitialization:
         else:
             has_nonzero = any(torch.any(w != 0).item() for w in linear_weights)
             assert has_nonzero
+
+    def test_activation_is_forwarded_to_modulation(
+        self,
+        ada_norm_factory: Callable[..., AdaNorm],
+    ):
+        norm = ada_norm_factory(
+            condition_dim=32,
+            feature_dim=64,
+            activation=ActivationFunction.MISH.value,
+        )
+        assert isinstance(norm.modulation.projection[0], nn.Mish)
 
 
 class TestAdaNormForward:

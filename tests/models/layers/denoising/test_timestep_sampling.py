@@ -72,6 +72,59 @@ class TestTimestepSamplingConfig:
         assert timesteps.min() >= 0.0
         assert timesteps.max() <= max_timestep
 
+    @pytest.mark.parametrize(
+        "sampler, field_name, field_value, error_message",
+        [
+            (
+                TimestepSampler.LOGIT_NORMAL.value,
+                "logit_std",
+                -1.0,
+                "logit_std must be non-negative, got -1.0.",
+            ),
+            (
+                TimestepSampler.BETA.value,
+                "beta_alpha",
+                0.0,
+                "beta_alpha must be positive, got 0.0.",
+            ),
+            (
+                TimestepSampler.BETA.value,
+                "beta_beta",
+                0.0,
+                "beta_beta must be positive, got 0.0.",
+            ),
+            (
+                TimestepSampler.BETA.value,
+                "max_timestep",
+                1.5,
+                "max_timestep must be in the interval (0, 1], got 1.5.",
+            ),
+        ],
+        ids=["logit_std", "beta_alpha", "beta_beta", "max_timestep"],
+    )
+    def test_invalid_parameter_validation(
+        self,
+        sampler: str,
+        field_name: str,
+        field_value: float,
+        error_message: str,
+    ):
+        parameters = {
+            "logit_std": 1.0,
+            "beta_alpha": 1.5,
+            "beta_beta": 1.0,
+            "max_timestep": 0.999,
+        }
+        parameters[field_name] = field_value
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            TimestepSamplingConfig(
+                sampler=sampler,
+                logit_std=parameters["logit_std"],
+                beta_alpha=parameters["beta_alpha"],
+                beta_beta=parameters["beta_beta"],
+                max_timestep=parameters["max_timestep"],
+            )
+
 
 class TestSampleTimestepsUniform:
     @pytest.mark.parametrize("batch_size", [1, 8])
@@ -363,3 +416,76 @@ class TestSampleTimestepsValidation:
                 sampler=sampler,
             )
             assert result.shape == (4,)
+
+    @pytest.mark.parametrize(
+        "sampler, batch_size, logit_std, beta_alpha, beta_beta, max_timestep, error_message",
+        [
+            (
+                TimestepSampler.UNIFORM.value,
+                -1,
+                1.0,
+                1.5,
+                1.0,
+                0.999,
+                "batch_size must be non-negative, got -1.",
+            ),
+            (
+                TimestepSampler.LOGIT_NORMAL.value,
+                4,
+                -1.0,
+                1.5,
+                1.0,
+                0.999,
+                "logit_std must be non-negative, got -1.0.",
+            ),
+            (
+                TimestepSampler.BETA.value,
+                4,
+                1.0,
+                0.0,
+                1.0,
+                0.999,
+                "beta_alpha must be positive, got 0.0.",
+            ),
+            (
+                TimestepSampler.BETA.value,
+                4,
+                1.0,
+                1.5,
+                0.0,
+                0.999,
+                "beta_beta must be positive, got 0.0.",
+            ),
+            (
+                TimestepSampler.BETA.value,
+                4,
+                1.0,
+                1.5,
+                1.0,
+                0.0,
+                "max_timestep must be in the interval (0, 1], got 0.0.",
+            ),
+        ],
+        ids=["batch_size", "logit_std", "beta_alpha", "beta_beta", "max_timestep"],
+    )
+    def test_parameter_validation(
+        self,
+        device: torch.device,
+        sampler: str,
+        batch_size: int,
+        logit_std: float,
+        beta_alpha: float,
+        beta_beta: float,
+        max_timestep: float,
+        error_message: str,
+    ):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            sample_timesteps(
+                batch_size=batch_size,
+                device=device,
+                sampler=sampler,
+                logit_std=logit_std,
+                beta_alpha=beta_alpha,
+                beta_beta=beta_beta,
+                max_timestep=max_timestep,
+            )

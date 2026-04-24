@@ -1,6 +1,7 @@
 """Tests for versatil.models.layers.transformer.transformer_mixin module."""
 
 import math
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -231,6 +232,124 @@ class TestExpandPaddingMask:
         assert expanded[0, 0, 0, 1].item() is False
         assert expanded[0, 0, 0, 2].item() is False
         assert expanded[0, 0, 0, 3].item() is True
+
+
+class TestResolveAttentionDimensions:
+    @pytest.mark.parametrize(
+        (
+            "embedding_dimension, number_of_heads, number_of_key_value_heads, "
+            "attention_type, expected_key_value_heads, expected_head_dimension"
+        ),
+        [
+            (32, 4, None, AttentionType.MULTI_HEAD.value, 4, 8),
+            (32, 4, 2, AttentionType.GROUPED_QUERY.value, 2, 8),
+        ],
+        ids=["multi_head", "grouped_query"],
+    )
+    def test_resolves_valid_attention_dimensions(
+        self,
+        embedding_dimension: int,
+        number_of_heads: int,
+        number_of_key_value_heads: int | None,
+        attention_type: str,
+        expected_key_value_heads: int,
+        expected_head_dimension: int,
+    ):
+        key_value_heads, head_dimension = (
+            TransformerMixin._resolve_attention_dimensions(
+                embedding_dimension=embedding_dimension,
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                attention_type=attention_type,
+            )
+        )
+        assert key_value_heads == expected_key_value_heads
+        assert head_dimension == expected_head_dimension
+
+    @pytest.mark.parametrize(
+        (
+            "embedding_dimension, number_of_heads, number_of_key_value_heads, "
+            "attention_type, error_message"
+        ),
+        [
+            (
+                32,
+                0,
+                None,
+                AttentionType.MULTI_HEAD.value,
+                "number_of_heads must be positive, got 0.",
+            ),
+            (
+                30,
+                8,
+                None,
+                AttentionType.MULTI_HEAD.value,
+                "embedding_dimension (30) must be divisible by number_of_heads (8).",
+            ),
+            (
+                32,
+                4,
+                None,
+                AttentionType.GROUPED_QUERY.value,
+                "number_of_key_value_heads required for GQA",
+            ),
+            (
+                32,
+                4,
+                0,
+                AttentionType.GROUPED_QUERY.value,
+                "number_of_key_value_heads must be positive, got 0.",
+            ),
+            (
+                36,
+                3,
+                2,
+                AttentionType.GROUPED_QUERY.value,
+                "number_of_heads (3) must be divisible by "
+                "number_of_key_value_heads (2).",
+            ),
+            (
+                32,
+                4,
+                2,
+                AttentionType.MULTI_HEAD.value,
+                "number_of_key_value_heads must be None or equal to "
+                "number_of_heads for multi-head attention, got 2.",
+            ),
+            (
+                32,
+                4,
+                None,
+                "invalid_type",
+                "Unsupported attention type: invalid_type. "
+                f"Must be one of {[e.value for e in AttentionType]}.",
+            ),
+        ],
+        ids=[
+            "zero_heads",
+            "embedding_not_divisible",
+            "missing_gqa_heads",
+            "zero_gqa_heads",
+            "non_divisible_gqa_heads",
+            "mha_key_value_mismatch",
+            "unsupported_attention_type",
+        ],
+    )
+    def test_invalid_attention_dimensions_raise(
+        self,
+        embedding_dimension: int,
+        number_of_heads: int,
+        number_of_key_value_heads: int | None,
+        attention_type: str,
+        error_message: str,
+    ):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            TransformerMixin._resolve_attention_dimensions(
+                embedding_dimension=embedding_dimension,
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                attention_type=attention_type,
+            )
 
 
 class TestSetupPositionalEncoding:

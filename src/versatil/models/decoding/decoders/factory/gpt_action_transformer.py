@@ -137,7 +137,7 @@ class GPTActionTransformer(ActionDecoder):
         self._build_transformer_components()
         self.to(self.device)
 
-    def _build_transformer_components(self):
+    def _build_transformer_components(self) -> None:
         """Build core transformer encoder-decoder and positional encodings."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
             embedding_dimension=self.embedding_dimension, normalize=True
@@ -174,8 +174,15 @@ class GPTActionTransformer(ActionDecoder):
             maximum_sequence_length=self.max_seq_len,
         )
 
-    def set_tokenizer(self, tokenizer: Tokenizer | None = None):
-        """Set tokenizer and adjust vocabulary size accordingly."""
+    def set_tokenizer(self, tokenizer: Tokenizer | None = None) -> None:
+        """Set tokenizer and adjust vocabulary size accordingly.
+
+        Args:
+            tokenizer: Tokenizer with an action tokenizer.
+
+        Raises:
+            ValueError: If tokenizer or action tokenizer is missing.
+        """
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
                 "GPTActionTransformer requires a tokenizer for tokenized action prediction."
@@ -229,6 +236,56 @@ class GPTActionTransformer(ActionDecoder):
         ].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
 
+    def _validate_tokenizer_is_set(self) -> None:
+        """Validate that tokenization modules are initialized before forward.
+
+        Raises:
+            ValueError: If ``set_tokenizer`` has not initialized token embeddings.
+        """
+        if (
+            self.token_embedding is None
+            or self.tokenizer is None
+            or self.vocab_size is None
+        ):
+            raise ValueError(
+                "GPTActionTransformer requires set_tokenizer() to be called before forward."
+            )
+
+    def _get_target_token_ids(
+        self,
+        actions: dict[str, torch.Tensor],
+        batch_size: int,
+    ) -> torch.Tensor:
+        """Read and validate teacher-forcing token ids.
+
+        Args:
+            actions: Training action dictionary.
+            batch_size: Batch size inferred from feature tokens.
+
+        Returns:
+            Token ids with shape ``(B, token_length)``.
+
+        Raises:
+            ValueError: If tokenized actions are missing or malformed.
+        """
+        if SampleKey.TOKENIZED_ACTIONS.value not in actions:
+            raise ValueError(
+                f"GPTActionTransformer training requires "
+                f"'{SampleKey.TOKENIZED_ACTIONS.value}' in actions."
+            )
+        target_token_ids = actions[SampleKey.TOKENIZED_ACTIONS.value]
+        if target_token_ids.ndim != 2:
+            raise ValueError(
+                f"'{SampleKey.TOKENIZED_ACTIONS.value}' must have shape "
+                f"(B, token_length), got {target_token_ids.shape}."
+            )
+        if target_token_ids.shape[0] != batch_size:
+            raise ValueError(
+                f"'{SampleKey.TOKENIZED_ACTIONS.value}' batch size must match "
+                f"feature batch size {batch_size}, got {target_token_ids.shape[0]}."
+            )
+        return target_token_ids
+
     def forward(
         self,
         features: dict[str, torch.Tensor],
@@ -246,6 +303,7 @@ class GPTActionTransformer(ActionDecoder):
         Returns:
             Dict with DecoderOutputKey.ACTION_LOGITS.value (training) or DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (inference)
         """
+        self._validate_tokenizer_is_set()
         feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
             features
         )  # (B, token_len, embedding_dimension)
@@ -288,9 +346,10 @@ class GPTActionTransformer(ActionDecoder):
             Dict with DecoderOutputKey.ACTION_LOGITS.value and tokenized targets
         """
         prefix_len = feature_tokens.shape[1]
-        target_token_ids = actions[
-            SampleKey.TOKENIZED_ACTIONS.value
-        ]  # (B, action_token_len)
+        target_token_ids = self._get_target_token_ids(
+            actions=actions,
+            batch_size=feature_tokens.shape[0],
+        )  # (B, action_token_len)
         action_token_embeddings = self.token_embedding(
             target_token_ids
         )  # (B, action_token_len, emb_dim)
@@ -345,12 +404,25 @@ class GPTActionTransformer(ActionDecoder):
         """
         batch_size = feature_tokens.shape[0]
         prefix_len = feature_tokens.shape[1]
+        if prefix_len >= self.max_seq_len:
+            raise ValueError(
+                f"Input prefix token length {prefix_len} >= max_seq_len "
+                f"{self.max_seq_len}. No room for generated action tokens. "
+                "Consider increasing max_seq_len or reducing feature token count."
+            )
         current_sequence = feature_tokens
         prefix_self_mask = torch.zeros(
-            batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
+            batch_size,
+            1,
+            prefix_len,
+            prefix_len,
+            dtype=torch.bool,
+            device=feature_tokens.device,
         )
         generation_cache = self.gpt_decoder.create_empty_generation_cache(
-            batch_size=batch_size, device=self.device, dtype=feature_tokens.dtype
+            batch_size=batch_size,
+            device=feature_tokens.device,
+            dtype=feature_tokens.dtype,
         )
         decoder_output, generation_cache = self.gpt_decoder(
             hidden_states=current_sequence,

@@ -14,6 +14,7 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
 )
@@ -268,7 +269,10 @@ class Pi0Decoder(ActionDecoder):
             raise ValueError(
                 "Pi0Decoder requires actions during forward (noisy actions for denoising)."
             )
-        prefix_embeddings = features[self.decoder_input.keys[0]]
+        feature_key = self.decoder_input.keys[0]
+        padding_mask_key = f"{feature_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        prefix_embeddings = features[feature_key]
+        prefix_padding_mask = features.get(padding_mask_key)
         if DecoderOutputKey.TIMESTEP.value not in features:
             raise ValueError(
                 f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
@@ -296,17 +300,33 @@ class Pi0Decoder(ActionDecoder):
                 if proprio_token.ndim == 2:
                     proprio_token = proprio_token.unsqueeze(1)  # (B, D) → (B, 1, D)
                 prefix_embeddings = torch.cat([prefix_embeddings, proprio_token], dim=1)
+                if prefix_padding_mask is not None:
+                    proprio_padding_mask = torch.zeros(
+                        prefix_padding_mask.shape[0],
+                        proprio_token.shape[1],
+                        dtype=torch.bool,
+                        device=prefix_padding_mask.device,
+                    )
+                    prefix_padding_mask = torch.cat(
+                        [prefix_padding_mask, proprio_padding_mask], dim=1
+                    )
                 causal_prefix_suffix_length = 1
         attention_mask, key_padding_mask = make_attention_mask(
             action_tokens=expert_hidden,
             feature_tokens=prefix_embeddings,
+            feature_token_mask=prefix_padding_mask,
             causal_actions=False,
             causal_prefix_suffix_length=causal_prefix_suffix_length,
+        )
+        prefix_len = prefix_embeddings.shape[1]
+        prefix_attention_mask = attention_mask[:, :, :prefix_len, :prefix_len]
+        vlm_prefix_attention_mask = GenerativeVLMEncoder.build_additive_attention_mask(
+            attention_mask=prefix_attention_mask,
+            dtype=prefix_embeddings.dtype,
         )
         # Reorder attention mask from [prefix(P), action(A)] to [expert(A), VLM(P)]
         # so _joint_sdpa's primary/secondary slicing gets the correct blocks.
         # key_padding_mask and position_ids stay in [prefix, action] order for RoPE.
-        prefix_len = prefix_embeddings.shape[1]
         action_len = expert_hidden.shape[1]
         perm = torch.cat(
             [
@@ -342,6 +362,7 @@ class Pi0Decoder(ActionDecoder):
             vlm_cache = self._fill_prefix_cache(
                 prefix_embeddings=prefix_embeddings,
                 position_ids=position_ids,
+                prefix_attention_mask=vlm_prefix_attention_mask,
             )
             self._prefix_cache = vlm_cache
             expert_hidden = self._run_expert_with_cache(
@@ -417,8 +438,20 @@ class Pi0Decoder(ActionDecoder):
         self,
         prefix_embeddings: torch.Tensor,
         position_ids: torch.Tensor,
+        prefix_attention_mask: torch.Tensor | None = None,
     ) -> ConditioningCache:
-        """Run VLM layers and cache Q/K/V for inference."""
+        """Run VLM layers and cache Q/K/V for inference.
+
+        Args:
+            prefix_embeddings: VLM prefix token embeddings (B, P, D).
+            position_ids: Full position IDs (B, P + A). Only the prefix
+                portion is used.
+            prefix_attention_mask: Optional additive mask for VLM prefix
+                self-attention, shaped ``(B, 1, P, P)``.
+
+        Returns:
+            Conditioning cache with one layer entry per expert layer.
+        """
         if self.vlm_rotary_embedding is None:
             raise RuntimeError(
                 "VLM rotary embedding not set. set_backbone() must be called."
@@ -447,6 +480,7 @@ class Pi0Decoder(ActionDecoder):
                 )
                 vlm_output = vlm_layer(
                     vlm_hidden,
+                    attention_mask=prefix_attention_mask,
                     position_embeddings=vlm_position_embeddings,
                 )
                 vlm_hidden = (

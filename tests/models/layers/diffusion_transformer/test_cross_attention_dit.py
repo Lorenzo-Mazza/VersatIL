@@ -262,7 +262,10 @@ class TestCrossAttentionDiTForward:
         embedding_dimension = 32
         model = cross_attention_dit_factory(
             embedding_dimension=embedding_dimension,
+            use_gating=False,
         )
+        reinit_modulation_layers(model)
+        nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         model.eval()
         decoder_hidden = sequence_tensor_factory(
             batch_size=2,
@@ -287,6 +290,54 @@ class TestCrossAttentionDiTForward:
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             conditioning_cache=conditioning_cache,
+        )
+        assert torch.allclose(output_uncached, output_cached, atol=1e-5)
+
+    def test_cached_forward_with_padding_mask_matches_uncached(
+        self,
+        cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
+        padding_mask_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 32
+        model = cross_attention_dit_factory(
+            embedding_dimension=embedding_dimension,
+            use_gating=False,
+        )
+        reinit_modulation_layers(model)
+        nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
+        model.eval()
+        decoder_hidden = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=embedding_dimension,
+        )
+        encoder_hidden = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=embedding_dimension,
+        )
+        encoder_padding_mask = padding_mask_factory(
+            batch_size=2,
+            sequence_length=6,
+            mask_last_n=2,
+        )
+        timesteps = continuous_timestep_factory(batch_size=2)
+        output_uncached = model(
+            decoder_hidden_states=decoder_hidden,
+            timesteps=timesteps,
+            encoder_hidden_states=encoder_hidden,
+            encoder_padding_mask=encoder_padding_mask,
+        )
+        conditioning_cache = model.precompute_conditioning_kv(
+            encoder_hidden_states=encoder_hidden,
+        )
+        output_cached = model(
+            decoder_hidden_states=decoder_hidden,
+            timesteps=timesteps,
+            conditioning_cache=conditioning_cache,
+            encoder_padding_mask=encoder_padding_mask,
         )
         assert torch.allclose(output_uncached, output_cached, atol=1e-5)
 
