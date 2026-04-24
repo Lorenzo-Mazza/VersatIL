@@ -318,7 +318,7 @@ class TestLanguageEncoderPadTextInputs:
         assert torch.equal(result_ids, text_ids)
         assert torch.equal(result_mask, mask)
 
-    def test_none_mask_with_padding(
+    def test_none_mask_marks_added_padding(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
         rng: np.random.Generator,
@@ -334,7 +334,9 @@ class TestLanguageEncoderPadTextInputs:
             max_length=max_token_len,
         )
         assert result_ids.shape[1] == max_token_len
-        assert result_mask is None
+        assert result_mask.shape == (2, max_token_len)
+        assert not result_mask[:, :5].any()
+        assert result_mask[:, 5:].all()
 
 
 class TestLanguageEncoderForward:
@@ -467,6 +469,38 @@ class TestLanguageEncoderForward:
         expected_seq_len = MAX_TOKEN_LEN - encoder._num_prefix_tokens
         assert features.shape == (batch_size, 1, expected_seq_len, HIDDEN_SIZE)
         assert mask.shape[-1] == expected_seq_len
+
+    def test_average_pooling_ignores_padding_mask(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        max_token_len = 5
+        encoder = language_encoder_factory(
+            pooling_method=PoolingMethod.AVERAGE.value,
+            max_token_len=max_token_len,
+        )
+        encoder.use_embeddings_only = False
+        hidden_states = torch.full(
+            (batch_size, max_token_len, HIDDEN_SIZE),
+            fill_value=100.0,
+        )
+        hidden_states[:, 0, :] = -100.0
+        hidden_states[:, 1:3, :] = 2.0
+        mock_output = MagicMock()
+        mock_output.last_hidden_state = hidden_states
+        encoder.encoder.return_value = mock_output
+        inputs = token_input_factory(
+            batch_size=batch_size,
+            sequence_length=max_token_len,
+            include_padding_mask=True,
+        )
+        inputs[SampleKey.IS_PAD_OBSERVATION.value][:, :, 3:] = True
+        output = encoder(inputs=inputs)
+        features = output[EncoderOutputKeys.LANGUAGE.value]
+        expected = torch.full((batch_size, 1, HIDDEN_SIZE), fill_value=2.0)
+        torch.testing.assert_close(features, expected)
 
 
 class TestLanguageEncoderValidateInputMetadata:

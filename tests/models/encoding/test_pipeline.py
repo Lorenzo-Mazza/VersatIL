@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
@@ -378,6 +379,46 @@ class TestForward:
         call_args = encoder.call_args[0][0]
         assert "left" in call_args
         assert torch.equal(call_args["left"], image)
+
+    def test_optional_padding_mask_absence_does_not_skip_encoder(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+        default_observation_space,
+    ):
+        encoder = encoder_mock_factory(
+            input_keys=["left", SampleKey.IS_PAD_OBSERVATION.value]
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space, encoders={"rgb": encoder}
+        )
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        pipeline.forward(observation={"left": image})
+        call_args = encoder.call_args[0][0]
+        assert list(call_args.keys()) == ["left"]
+
+    def test_optional_padding_mask_is_forwarded_when_present(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+        default_observation_space,
+    ):
+        encoder = encoder_mock_factory(
+            input_keys=["left", SampleKey.IS_PAD_OBSERVATION.value]
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space, encoders={"rgb": encoder}
+        )
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        padding_mask = torch.zeros(2, 8, dtype=torch.bool)
+        pipeline.forward(
+            observation={
+                "left": image,
+                SampleKey.IS_PAD_OBSERVATION.value: padding_mask,
+            }
+        )
+        call_args = encoder.call_args[0][0]
+        assert torch.equal(call_args[SampleKey.IS_PAD_OBSERVATION.value], padding_mask)
 
     def test_prefixes_encoder_output_features(
         self,

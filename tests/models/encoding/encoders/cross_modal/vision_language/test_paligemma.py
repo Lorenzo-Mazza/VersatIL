@@ -201,6 +201,7 @@ class TestPaliGemmaEncoderInitialization:
         assert encoder.num_image_tokens_per_camera == NUM_IMAGE_TOKENS
         assert len(encoder.camera_keys) == expected_camera_count
         assert encoder.input_specification.requires_tokenized is True
+        assert SampleKey.IS_PAD_OBSERVATION.value in encoder.input_specification.keys
         assert encoder.use_embeddings_only is use_embeddings_only
         if frozen:
             for parameter in encoder.parameters():
@@ -300,6 +301,27 @@ class TestPaliGemmaEncoderForward:
             expected_seq_length,
             HIDDEN_DIM,
         )
+
+    def test_language_model_attention_mask_marks_auto_padded_text_tokens(
+        self,
+        paligemma_encoder_factory: Callable[..., PaliGemmaEncoder],
+        paligemma_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        sequence_length = 5
+        encoder = paligemma_encoder_factory()
+        _setup_mock_vlm_for_batch(encoder, batch_size)
+        inputs = paligemma_input_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+        )
+        encoder(inputs=inputs)
+        attention_mask = encoder.vlm.language_model.call_args.kwargs["attention_mask"]
+        image_attention = attention_mask[:, :NUM_IMAGE_TOKENS]
+        text_attention = attention_mask[:, NUM_IMAGE_TOKENS:]
+        assert image_attention.all()
+        assert text_attention[:, :sequence_length].all()
+        assert not text_attention[:, sequence_length:].any()
 
     def test_different_images_produce_different_vision_tower_inputs(
         self,

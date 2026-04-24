@@ -86,6 +86,12 @@ class LanguageEncoderMixin:
                 device=text_input_ids.device,
             )
             text_input_ids = torch.cat([text_input_ids, pad_tensor], dim=1)
+            if language_mask is None:
+                language_mask = torch.zeros(
+                    (batch_size, current_length),
+                    dtype=torch.bool,
+                    device=text_input_ids.device,
+                )
             if language_mask is not None:
                 pad_mask = torch.ones(
                     (batch_size, pad_length),
@@ -110,7 +116,10 @@ class LanguageEncoderMixin:
             Long attention mask (1 = attend, 0 = ignore).
         """
         if language_mask is not None:
-            attention_mask = ~language_mask
+            attention_mask = ~language_mask.to(
+                device=text_input_ids.device,
+                dtype=torch.bool,
+            )
         else:
             attention_mask = torch.ones_like(text_input_ids, dtype=torch.bool)
         return attention_mask.to(torch.long)
@@ -143,6 +152,6 @@ class LanguageEncoderMixin:
             mask = ~attention_mask.bool()
             if num_prefix_tokens > 0:
                 mask = mask[:, num_prefix_tokens:]  # (B, S) → (B, S-N)
-            return mask
+            return mask.to(device=device)
         else:
             return torch.zeros(batch_size, dtype=torch.bool, device=device)

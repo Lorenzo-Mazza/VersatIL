@@ -47,7 +47,10 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
     ):
         if isinstance(input_keys, str):
             input_keys = [input_keys]
-        all_keys = list(input_keys) + [SampleKey.TOKENIZED_OBSERVATIONS.value]
+        all_keys = list(input_keys) + [
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+            SampleKey.IS_PAD_OBSERVATION.value,
+        ]
         specification = EncoderInput(
             keys=all_keys,
             at_least_one_of_groups=[RGB_CAMERAS],

@@ -56,7 +56,10 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
         """
         if isinstance(input_keys, str):
             input_keys = [input_keys]
-        all_keys = list(input_keys) + [SampleKey.TOKENIZED_OBSERVATIONS.value]
+        all_keys = list(input_keys) + [
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+            SampleKey.IS_PAD_OBSERVATION.value,
+        ]
         specification = EncoderInput(
             keys=all_keys,
             at_least_one_of_groups=[RGB_CAMERAS],
@@ -120,13 +123,17 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
         self._apply_model_dtype()
 
     def _pool_features(
-        self, outputs: BaseModelOutputWithPooling, modality: str
+        self,
+        outputs: BaseModelOutputWithPooling,
+        modality: str,
+        padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Pool extracted features from encoder outputs.
 
         Args:
             outputs: HuggingFace model output containing hidden states and pooler output.
             modality: Modality key determining which pooling head to use.
+            padding_mask: Optional token padding mask where ``True`` means padded.
 
         Returns:
             Pooled feature tensor.
@@ -141,7 +148,10 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
         if modality == EncoderOutputKeys.RGB.value:
             return self.vision_pooling_head(outputs.last_hidden_state)
         else:
-            return self.language_pooling_head(outputs.last_hidden_state)
+            return self.language_pooling_head(
+                outputs.last_hidden_state,
+                padding_mask=padding_mask,
+            )
 
     def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
         """Encode a single camera's images through the vision tower.
@@ -190,7 +200,9 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
             attention_mask=attention_mask,
         )
         language_features = self._pool_features(
-            text_output, modality=EncoderOutputKeys.LANGUAGE.value
+            text_output,
+            modality=EncoderOutputKeys.LANGUAGE.value,
+            padding_mask=~attention_mask.bool(),
         )
         token_padding_mask = self._build_output_padding_mask(
             attention_mask=attention_mask,

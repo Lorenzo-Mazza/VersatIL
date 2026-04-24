@@ -156,11 +156,49 @@ class TokenPoolingHead(PoolingHead):
             return sequence_length, self.input_dimension
         return self.input_dimension
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def _slice_padding_mask(
+        self,
+        padding_mask: torch.Tensor | None,
+        hidden_states: torch.Tensor,
+    ) -> torch.Tensor | None:
+        """Align an optional padding mask with pooled non-prefix tokens."""
+        if padding_mask is None:
+            return None
+        expected_shape = hidden_states.shape[:2]
+        if padding_mask.shape != expected_shape:
+            raise ValueError(
+                f"padding_mask must have shape {expected_shape}, got {padding_mask.shape}."
+            )
+        return padding_mask[:, self.num_prefix_tokens :].to(
+            device=hidden_states.device,
+            dtype=torch.bool,
+        )
+
+    def _masked_average(
+        self,
+        tokens: torch.Tensor,
+        padding_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Average valid tokens while ignoring padded positions."""
+        if padding_mask is None:
+            return tokens.mean(dim=1)
+        valid_token_mask = ~padding_mask
+        weights = valid_token_mask.unsqueeze(-1).to(dtype=tokens.dtype)
+        summed_tokens = (tokens * weights).sum(dim=1)
+        token_counts = weights.sum(dim=1).clamp(min=1)
+        return summed_tokens / token_counts
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Pool token sequence.
 
         Args:
             hidden_states: Token embeddings of shape (B, S, D).
+            padding_mask: Optional padding mask of shape (B, S), where True
+                means padded. Used by pooling methods that aggregate tokens.
 
         Returns:
             Pooled features of shape (B, D) or (B, S', D) for NONE.
@@ -170,9 +208,23 @@ class TokenPoolingHead(PoolingHead):
             case PoolingMethod.DEFAULT.value:
                 return hidden_states[:, 0]  # CLS token
             case PoolingMethod.AVERAGE.value:
-                return hidden_states[:, start:].mean(dim=1)
+                token_padding_mask = self._slice_padding_mask(
+                    padding_mask=padding_mask,
+                    hidden_states=hidden_states,
+                )
+                return self._masked_average(
+                    tokens=hidden_states[:, start:],
+                    padding_mask=token_padding_mask,
+                )
             case PoolingMethod.LEARNED_AGGREGATION.value:
-                return self.learned_aggregation(hidden_states[:, start:])
+                token_padding_mask = self._slice_padding_mask(
+                    padding_mask=padding_mask,
+                    hidden_states=hidden_states,
+                )
+                return self.learned_aggregation(
+                    hidden_states[:, start:],
+                    padding_mask=token_padding_mask,
+                )
             case PoolingMethod.NONE.value:
                 return hidden_states[:, start:]
             case _:

@@ -154,7 +154,10 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             language_mask=language_mask, text_input_ids=text_input_ids
         )
         if self.use_embeddings_only:
-            features = self.token_pooling_head(self.encoder(text_input_ids.to(device)))
+            features = self.token_pooling_head(
+                self.encoder(text_input_ids.to(device)),
+                padding_mask=~attention_mask.bool(),
+            )
         else:
             encoder_inputs = {
                 "input_ids": text_input_ids.to(device),
@@ -163,7 +166,10 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             outputs = self.encoder(**encoder_inputs, return_dict=True)
             if outputs.last_hidden_state is None:
                 raise RuntimeError("last_hidden_state must be present in model output")
-            features = self.token_pooling_head(outputs.last_hidden_state)
+            features = self.token_pooling_head(
+                outputs.last_hidden_state,
+                padding_mask=~attention_mask.bool(),
+            )
         padding_mask = self._build_output_padding_mask(
             attention_mask=attention_mask,
             pooling_method=self.pooling_method,

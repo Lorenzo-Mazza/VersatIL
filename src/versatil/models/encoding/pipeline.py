@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from versatil.common.tensor_ops import dict_apply
+from versatil.data.constants import SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
@@ -48,6 +49,23 @@ class EncodingPipeline(nn.Module):
         self._setup_encoders(encoders=encoders)
         self._setup_fusion_modules(fusion_stages=fusion_stages)
         self._validate_pipeline()
+
+    @staticmethod
+    def _get_encoder_runtime_inputs(
+        input_keys: list[str],
+        flat_observation: dict[str, torch.Tensor],
+    ) -> tuple[list[str], dict[str, torch.Tensor]]:
+        """Return missing required keys and the available input slice for an encoder."""
+        optional_input_keys = {SampleKey.IS_PAD_OBSERVATION.value}
+        missing_keys = [
+            key
+            for key in input_keys
+            if key not in flat_observation and key not in optional_input_keys
+        ]
+        encoder_input = {
+            key: flat_observation[key] for key in input_keys if key in flat_observation
+        }
+        return missing_keys, encoder_input
 
     def set_output_dtype(self, output_dtype: torch.dtype | None) -> None:
         """Pin the dtype of features emitted by ``forward``.
@@ -259,13 +277,15 @@ class EncodingPipeline(nn.Module):
         features = {}
         for encoder_name, encoder in self.encoders.items():
             input_keys = encoder.input_specification.keys
-            missing_keys = [key for key in input_keys if key not in flat_obs]
+            missing_keys, encoder_input = self._get_encoder_runtime_inputs(
+                input_keys=input_keys,
+                flat_observation=flat_obs,
+            )
             if missing_keys:
                 logging.warning(
                     f"Encoder '{encoder_name}' skipped: missing {missing_keys}"
                 )
                 continue
-            encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input)
             for feature_key in self._encoder_feature_keys[encoder_name]:
                 if feature_key in encoded:
@@ -273,14 +293,16 @@ class EncodingPipeline(nn.Module):
 
         for encoder_name, encoder in self.conditional_encoders.items():
             input_keys = encoder.input_specification.keys
-            missing_keys = [key for key in input_keys if key not in flat_obs]
+            missing_keys, encoder_input = self._get_encoder_runtime_inputs(
+                input_keys=input_keys,
+                flat_observation=flat_obs,
+            )
             if missing_keys:
                 logging.warning(
                     f"Conditional encoder '{encoder_name}' skipped: missing {missing_keys}"
                 )
                 continue
             condition_key = encoder.condition_key
-            encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input, features[condition_key])
             for feature_key in self._encoder_feature_keys[encoder_name]:
                 if feature_key in encoded:

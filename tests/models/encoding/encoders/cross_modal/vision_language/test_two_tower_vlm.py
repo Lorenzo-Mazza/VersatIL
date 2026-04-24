@@ -160,6 +160,7 @@ class TestTwoTowerVLMEncoderInitialization:
         assert encoder.hidden_vision_dim == HIDDEN_VISION_DIM
         assert encoder.hidden_language_dim == HIDDEN_LANGUAGE_DIM
         assert encoder.max_text_length == MAX_TEXT_LENGTH
+        assert SampleKey.IS_PAD_OBSERVATION.value in encoder.input_specification.keys
 
     def test_requires_tokenized_specification(
         self,
@@ -371,6 +372,43 @@ class TestTwoTowerVLMEncoderForward:
         assert EncoderOutputKeys.RGB.value in output
         assert EncoderOutputKeys.LANGUAGE.value in output
         assert encoder.padding_mask_name in output
+
+    def test_average_pooling_ignores_language_padding_mask(
+        self,
+        vlm_encoder_factory: Callable[..., TwoTowerVLMEncoder],
+        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
+        vision_hidden = torch.zeros(batch_size, 49, HIDDEN_VISION_DIM)
+        vision_pooler = torch.zeros(batch_size, HIDDEN_VISION_DIM)
+        language_hidden = torch.full(
+            (batch_size, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM),
+            fill_value=100.0,
+        )
+        language_hidden[:, :3, :] = 2.0
+        language_pooler = torch.zeros(batch_size, HIDDEN_LANGUAGE_DIM)
+        encoder.encoder.vision_model.return_value = BaseModelOutputWithPooling(
+            last_hidden_state=vision_hidden,
+            pooler_output=vision_pooler,
+        )
+        encoder.encoder.text_model.return_value = BaseModelOutputWithPooling(
+            last_hidden_state=language_hidden,
+            pooler_output=language_pooler,
+        )
+        inputs = vlm_input_factory(
+            batch_size=batch_size,
+            sequence_length=5,
+            include_padding_mask=True,
+        )
+        inputs[SampleKey.IS_PAD_OBSERVATION.value][:, :, 3:] = True
+        output = encoder(inputs=inputs)
+        language_features = output[EncoderOutputKeys.LANGUAGE.value]
+        expected = torch.full(
+            (batch_size, 1, HIDDEN_LANGUAGE_DIM),
+            fill_value=2.0,
+        )
+        torch.testing.assert_close(language_features, expected)
 
 
 class TestTwoTowerVLMEncoderValidateInputMetadata:
