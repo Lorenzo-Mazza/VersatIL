@@ -12,6 +12,7 @@ from omegaconf import ListConfig, OmegaConf
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
 from versatil.configs.training import TrainingConfig, TrainingStageConfig
+from versatil.models.decoding.constants import LatentKey
 
 HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
 
@@ -30,6 +31,7 @@ _PARTIAL_CONFIG_PREFIXES = (
     "task_bundle/",
     "task_bundle_plain/",
     "training/multistage/",
+    "training/optimizer/param_groups/",
 )
 
 ALL_CONFIG_IDS = [
@@ -40,6 +42,47 @@ ALL_CONFIG_IDS = [
     )
     if not config_id.startswith(_PARTIAL_CONFIG_PREFIXES)
 ]
+
+DIT_PRIOR_TRAINING_RUNS = [
+    pytest.param(
+        "end_to_end_training_runs/synthetic/lact_dit_prior",
+        True,
+        id="synthetic-lact",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/synthetic/action_transformer_dit_prior",
+        True,
+        id="synthetic-action-transformer",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/pusht/lact_dit_prior",
+        True,
+        id="pusht-lact-rgb",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/pusht/lact_dit_prior_state",
+        False,
+        id="pusht-lact-state",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/pusht/action_transformer_dit_prior",
+        True,
+        id="pusht-action-transformer-rgb",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/pusht/action_transformer_dit_prior_state",
+        False,
+        id="pusht-action-transformer-state",
+    ),
+]
+
+DIT_PRIOR_ALGORITHM_CONFIGS = [
+    "policy/algorithm/bc_with_dit_prior",
+    "policy/algorithm/flow_matching_with_dit_prior",
+    "policy/algorithm/bc_with_denoising_flow_matching_prior",
+]
+
+DIT_PRIOR_STAGE_SPLIT_FRACTION = 0.4
 
 
 @pytest.mark.unit
@@ -57,10 +100,90 @@ class TestHydraComposition:
             )
 
         assert [stage.name for stage in config.training.stages] == ["vae", "prior"]
-        assert config.training.stages[0].frozen_groups == ["prior"]
+        assert config.training.stages[0].trainable_groups == [
+            "backbone",
+            "posterior",
+            "decoder",
+            "unmatched",
+        ]
         assert config.training.stages[1].trainable_groups == ["prior"]
+        assert config.training.stages[1].frozen_groups == [
+            "backbone",
+            "posterior",
+            "decoder",
+            "unmatched",
+        ]
+        assert config.training.stages[1].start_epoch == 400
+        assert OmegaConf.to_container(config.training.stages[1].loss_weights) == {}
 
-    @pytest.mark.parametrize("preset_name", ["vae_frozen_prior"])
+    @pytest.mark.parametrize("config_name, has_backbone_group", DIT_PRIOR_TRAINING_RUNS)
+    def test_dit_prior_runs_use_staged_standardized_prior(
+        self,
+        config_name: str,
+        has_backbone_group: bool,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name=config_name)
+
+        prior = config.policy.algorithm.prior
+        configured_group_names = [
+            group.name for group in config.training.optimizer.param_groups
+        ]
+        expected_prior_start = min(
+            max(int(config.training.num_epochs * DIT_PRIOR_STAGE_SPLIT_FRACTION), 1),
+            config.training.num_epochs - 1,
+        )
+        expected_group_names = ["posterior", "prior", "decoder"]
+        expected_vae_trainable_groups = ["posterior", "decoder", "unmatched"]
+        expected_prior_frozen_groups = ["posterior", "decoder", "unmatched"]
+        if has_backbone_group:
+            expected_group_names = ["backbone", *expected_group_names]
+            expected_vae_trainable_groups = [
+                "backbone",
+                *expected_vae_trainable_groups,
+            ]
+            expected_prior_frozen_groups = [
+                "backbone",
+                *expected_prior_frozen_groups,
+            ]
+
+        assert prior.prior_target_key == LatentKey.POSTERIOR_MU.value
+        assert prior.latent_standardization_enabled is True
+        assert prior.latent_standardization_max_batches is None
+        assert prior.require_fitted_latent_standardization is False
+        assert [stage.name for stage in config.training.stages] == ["vae", "prior"]
+        assert (
+            config.training.stages[0].trainable_groups == expected_vae_trainable_groups
+        )
+        assert config.training.stages[0].frozen_groups == ["prior"]
+        assert config.training.stages[0].loss_weights.denoising_prior.weight == 0.0
+        assert config.training.stages[1].start_epoch == expected_prior_start
+        assert config.training.stages[1].trainable_groups == ["prior"]
+        assert config.training.stages[1].frozen_groups == expected_prior_frozen_groups
+        assert OmegaConf.to_container(config.training.stages[1].loss_weights) == {}
+        assert configured_group_names == expected_group_names
+
+    @pytest.mark.parametrize("config_name", DIT_PRIOR_ALGORITHM_CONFIGS)
+    def test_dit_prior_algorithm_configs_use_standardized_mu_targets(
+        self,
+        config_name: str,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name=config_name)
+
+        prior = OmegaConf.select(config, "policy.algorithm.prior")
+
+        assert prior is not None
+
+        assert prior.prior_target_key == LatentKey.POSTERIOR_MU.value
+        assert prior.latent_standardization_enabled is True
+        assert prior.latent_standardization_eps == pytest.approx(1.0e-6)
+        assert prior.latent_standardization_max_batches is None
+        assert prior.require_fitted_latent_standardization is False
+
+    @pytest.mark.parametrize(
+        "preset_name", ["vae_frozen_prior", "vae_frozen_prior_with_backbone"]
+    )
     def test_multistage_preset_validates_against_training_stage_config(
         self, preset_name: str
     ) -> None:

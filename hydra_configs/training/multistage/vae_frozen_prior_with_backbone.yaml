@@ -1,8 +1,9 @@
 # @package training.stages
-# Two-stage recipe: train posterior/decoder first, then train the prior only.
+# Two-stage recipe for image encoders with a named backbone optimizer group.
 - name: vae
   start_epoch: 0
   trainable_groups:
+    - backbone
     - posterior
     - decoder
     - unmatched
@@ -17,6 +18,7 @@
   trainable_groups:
     - prior
   frozen_groups:
+    - backbone
     - posterior
     - decoder
     - unmatched

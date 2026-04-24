@@ -10,6 +10,8 @@ defaults:
   - /task/action_space: synthetic_2d
   - /task/observation_space: synthetic_image_state
   - /training: synthetic
+  - /training/optimizer/param_groups: variational_prior_with_backbone
+  - /training/multistage: vae_frozen_prior_with_backbone
   - /policy/encoding_pipeline: mono_rgb
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_dit_prior

@@ -206,3 +206,46 @@ class TestPathResolvers:
         with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
             cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
             assert cfg.dir == str(Path("/models/pretrained") / "resnet")
+
+
+@pytest.mark.unit
+class TestNumericResolvers:
+    @pytest.mark.parametrize(
+        "num_epochs, fraction, expected_epoch",
+        [
+            pytest.param(2000, 0.4, 800, id="synthetic-budget"),
+            pytest.param(50, 0.4, 20, id="short-budget"),
+            pytest.param(2, 0.8, 1, id="keeps-valid-order"),
+        ],
+    )
+    def test_stage_split_epoch_returns_valid_integer_boundary(
+        self,
+        num_epochs: int,
+        fraction: float,
+        expected_epoch: int,
+    ):
+        cfg = OmegaConf.create(
+            {"split": f"${{stage_split_epoch:{num_epochs},{fraction}}}"}
+        )
+
+        assert cfg.split == expected_epoch
+
+    @pytest.mark.parametrize(
+        "num_epochs, fraction",
+        [
+            pytest.param(0, 0.2, id="non-positive-epochs"),
+            pytest.param(10, 0.0, id="zero-fraction"),
+            pytest.param(10, 1.0, id="one-fraction"),
+        ],
+    )
+    def test_stage_split_epoch_rejects_invalid_inputs(
+        self,
+        num_epochs: int,
+        fraction: float,
+    ):
+        cfg = OmegaConf.create(
+            {"split": f"${{stage_split_epoch:{num_epochs},{fraction}}}"}
+        )
+
+        with pytest.raises(InterpolationResolutionError):
+            _ = cfg.split

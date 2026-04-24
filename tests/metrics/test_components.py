@@ -1445,6 +1445,51 @@ class TestGaussianMixtureNLLossForward:
         expected = per_step_nll / horizon
         assert actual.item() == pytest.approx(expected, rel=1e-4)
 
+    @pytest.mark.parametrize("per_step_routing", [False, True])
+    def test_multi_key_routing_uses_joint_component_assignment(
+        self, per_step_routing: bool
+    ):
+        batch_size, horizon, num_experts, action_dim = 1, 1, 2, 1
+        target = torch.zeros(batch_size, horizon, action_dim)
+        position_means = 10.0 * torch.ones(batch_size, horizon, num_experts, action_dim)
+        orientation_means = 10.0 * torch.ones(
+            batch_size, horizon, num_experts, action_dim
+        )
+        position_means[:, :, 0, :] = 0.0
+        orientation_means[:, :, 1, :] = 0.0
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        if per_step_routing:
+            routing_weights = torch.tensor([[[0.5, 0.5]]])
+            log_routing_weights = torch.log(routing_weights[:, 0, :])
+        else:
+            routing_weights = torch.tensor([[0.5, 0.5]])
+            log_routing_weights = torch.log(routing_weights)
+        predictions = {
+            "position_mean": position_means,
+            "position_logvar": logvars,
+            "orientation_mean": orientation_means,
+            "orientation_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(
+            action_keys=["position", "orientation"], learned_variance=True
+        )
+        actual = loss(
+            predictions=predictions,
+            targets={"position": target, "orientation": target},
+        )
+        log_normalization = -0.5 * action_dim * math.log(2 * math.pi)
+        joint_log_component = torch.tensor(
+            [[2 * log_normalization - 50.0, 2 * log_normalization - 50.0]]
+        )
+        expected = -torch.logsumexp(
+            log_routing_weights + joint_log_component, dim=-1
+        ).mean()
+        assert actual.total_loss.item() == pytest.approx(expected.item(), rel=1e-4)
+        assert actual.component_losses[
+            MetricKey.GAUSSIAN_MIXTURE_NLL.value
+        ].item() == pytest.approx(expected.item(), rel=1e-4)
+
     def test_padding_excludes_padded_timesteps_from_trajectory_sum(self):
         batch_size, horizon, num_experts, action_dim = 1, 4, 2, 2
         target = torch.zeros(batch_size, horizon, action_dim)

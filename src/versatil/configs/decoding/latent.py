@@ -8,6 +8,7 @@ from versatil.configs.data.task import ActionSpaceConfig
 from versatil.models.decoding.constants import (
     BetaSchedule,
     DenoisingAlgorithm,
+    LatentKey,
     ODESolver,
     PredictionType,
 )
@@ -156,6 +157,11 @@ class DiTPriorConfig(PriorLatentEncoderConfig):
     activation: str = ActivationFunction.SILU.value
     use_gating: bool = True
     exclude_keys: list[str] | None = None
+    prior_target_key: str = LatentKey.POSTERIOR_MU.value
+    latent_standardization_enabled: bool = True
+    latent_standardization_eps: float = 1e-6
+    latent_standardization_max_batches: int | None = None
+    require_fitted_latent_standardization: bool = False
 
 
 @dataclass

@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -51,6 +51,11 @@ def dit_prior_factory() -> Callable[..., DiTPrior]:
         num_inference_steps: int = NUM_INFERENCE_STEPS,
         exclude_keys: list[str] | None = None,
         prediction_type: str = PredictionType.EPSILON.value,
+        prior_target_key: str = LatentKey.POSTERIOR_MU.value,
+        latent_standardization_enabled: bool = True,
+        latent_standardization_eps: float = 1e-6,
+        latent_standardization_max_batches: int | None = None,
+        require_fitted_latent_standardization: bool = False,
     ) -> DiTPrior:
         return DiTPrior(
             latent_dimension=latent_dimension,
@@ -71,6 +76,11 @@ def dit_prior_factory() -> Callable[..., DiTPrior]:
             num_inference_steps=num_inference_steps,
             exclude_keys=exclude_keys,
             prediction_type=prediction_type,
+            prior_target_key=prior_target_key,
+            latent_standardization_enabled=latent_standardization_enabled,
+            latent_standardization_eps=latent_standardization_eps,
+            latent_standardization_max_batches=latent_standardization_max_batches,
+            require_fitted_latent_standardization=require_fitted_latent_standardization,
         )
 
     return factory
@@ -215,6 +225,65 @@ class TestDiTPriorInitialization:
         assert prior.max_timestep == 0.9
 
     @pytest.mark.unit
+    def test_stores_prior_target_and_standardization_configuration(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory(
+            prior_target_key=LatentKey.POSTERIOR_LATENT.value,
+            latent_standardization_enabled=False,
+            latent_standardization_eps=1e-5,
+            latent_standardization_max_batches=3,
+            require_fitted_latent_standardization=True,
+        )
+
+        assert prior.prior_target_key == LatentKey.POSTERIOR_LATENT.value
+        assert prior.latent_standardizer.enabled is False
+        assert prior.latent_standardizer.eps == pytest.approx(1e-5)
+        assert prior.latent_standardization_max_batches == 3
+        assert prior.latent_standardizer.require_fitted is True
+
+    @pytest.mark.unit
+    def test_invalid_latent_standardization_max_batches_raises(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "latent_standardization_max_batches must be positive when set, got 0."
+            ),
+        ):
+            dit_prior_factory(latent_standardization_max_batches=0)
+
+    @pytest.mark.unit
+    def test_invalid_prior_target_key_raises(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Unsupported DiTPrior prior_target_key: wrong_key. "
+                f"Expected one of "
+                f"{[LatentKey.POSTERIOR_MU.value, LatentKey.POSTERIOR_LATENT.value]}"
+            ),
+        ):
+            dit_prior_factory(prior_target_key="wrong_key")
+
+    @pytest.mark.unit
+    def test_latent_standardizer_buffers_are_registered_at_init(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory()
+        state_dict = prior.state_dict()
+
+        assert "latent_standardizer.mean" in state_dict
+        assert "latent_standardizer.std" in state_dict
+        assert "latent_standardizer.is_fitted" in state_dict
+
+    @pytest.mark.unit
     def test_temporal_positional_encoding_created_for_multi_horizon(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -308,6 +377,36 @@ class TestDiTPriorGetAuxiliaryOutputKeys:
         keys = prior.get_auxiliary_output_keys()
         assert LatentKey.PRIOR_MU.value not in keys
         assert LatentKey.PRIOR_LOGVAR.value not in keys
+
+
+class TestDiTPriorBuildTrainingTarget:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "prior_target_key",
+        [
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.POSTERIOR_LATENT.value,
+        ],
+    )
+    def test_selects_configured_detached_target(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        prior_target_key: str,
+    ):
+        prior = dit_prior_factory(prior_target_key=prior_target_key)
+        posterior_output = {
+            LatentKey.POSTERIOR_LATENT.value: torch.full(
+                (2, LATENT_DIMENSION), fill_value=1.0, requires_grad=True
+            ),
+            LatentKey.POSTERIOR_MU.value: torch.full(
+                (2, LATENT_DIMENSION), fill_value=2.0, requires_grad=True
+            ),
+        }
+
+        target = prior.build_training_target(posterior_output)
+
+        torch.testing.assert_close(target, posterior_output[prior_target_key].detach())
+        assert target.requires_grad is False
 
 
 class TestDiTPriorFilterObservations:
@@ -493,6 +592,56 @@ class TestDiTPriorForwardFlowMatching:
             target_velocity,
         )
 
+    @pytest.mark.unit
+    def test_flow_matching_standardizes_training_target(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.FLOW_MATCHING.value,
+        )
+        prior.latent_standardizer.set_stats(
+            mean=torch.arange(LATENT_DIMENSION, dtype=torch.float32),
+            std=2.0 * torch.ones(LATENT_DIMENSION),
+        )
+        target_latents = latent_tensor_factory(batch_size=batch_size)
+        observations = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        sampled_time = torch.tensor([0.1, 0.7])
+        interpolated_latent = torch.ones_like(target_latents)
+        target_velocity = torch.full_like(target_latents, fill_value=2.0)
+        predicted_velocity = torch.full_like(target_latents, fill_value=3.0)
+
+        with (
+            patch(
+                "versatil.models.decoding.latent.prior.dit_prior.sample_timesteps_from_config",
+                return_value=sampled_time,
+            ),
+            patch.object(
+                prior.flow_matcher,
+                "sample_location_and_conditional_flow",
+                return_value=(sampled_time, interpolated_latent, target_velocity),
+            ) as flow_matcher_mock,
+            patch.object(
+                prior,
+                "_predict_from_tokens",
+                return_value=predicted_velocity,
+            ),
+        ):
+            prior.forward(target_latents=target_latents, observations=observations)
+
+        expected_target = prior.latent_standardizer.standardize(target_latents)
+        torch.testing.assert_close(
+            flow_matcher_mock.call_args.kwargs["x1"],
+            expected_target,
+        )
+
 
 class TestDiTPriorForwardDiffusion:
     @pytest.mark.unit
@@ -594,6 +743,37 @@ class TestDiTPriorForwardDiffusion:
         )
         # Sample prediction type targets the clean data directly
         torch.testing.assert_close(result[LatentKey.PRIOR_TARGET.value], target_latents)
+
+    @pytest.mark.unit
+    def test_sample_target_uses_standardized_clean_latents(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+            prediction_type=PredictionType.SAMPLE.value,
+        )
+        prior.latent_standardizer.set_stats(
+            mean=torch.arange(LATENT_DIMENSION, dtype=torch.float32),
+            std=2.0 * torch.ones(LATENT_DIMENSION),
+        )
+        target_latents = latent_tensor_factory()
+        observations = flat_feature_factory(
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+
+        result = prior.forward(
+            target_latents=target_latents,
+            observations=observations,
+        )
+
+        torch.testing.assert_close(
+            result[LatentKey.PRIOR_TARGET.value],
+            prior.latent_standardizer.standardize(target_latents),
+        )
 
     @pytest.mark.unit
     def test_velocity_target_differs_from_noise_and_clean(
@@ -709,6 +889,38 @@ class TestDiTPriorSamplePriorFlowMatching:
         mock_integrate.assert_called_once()
 
     @pytest.mark.unit
+    def test_unstandardizes_integrated_sample(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.FLOW_MATCHING.value,
+        )
+        prior.latent_standardizer.set_stats(
+            mean=torch.arange(LATENT_DIMENSION, dtype=torch.float32),
+            std=2.0 * torch.ones(LATENT_DIMENSION),
+        )
+        standardized_sample = torch.full((batch_size, LATENT_DIMENSION), fill_value=3.0)
+        observations = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+
+        with patch(
+            "versatil.models.decoding.latent.prior.dit_prior.integrate_ode",
+            return_value=standardized_sample,
+        ):
+            sample = prior.sample_prior(
+                batch_size=batch_size, observations=observations
+            )
+
+        expected_sample = prior.latent_standardizer.unstandardize(standardized_sample)
+        torch.testing.assert_close(sample, expected_sample)
+
+    @pytest.mark.unit
     def test_sample_without_observations(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -769,3 +981,48 @@ class TestDiTPriorSamplePriorDiffusion:
         )
         assert sample.shape == (batch_size, LATENT_DIMENSION)
         assert not torch.any(torch.isnan(sample))
+
+    @pytest.mark.unit
+    def test_unstandardizes_diffusion_sample(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+            num_inference_steps=1,
+        )
+        prior.latent_standardizer.set_stats(
+            mean=torch.arange(LATENT_DIMENSION, dtype=torch.float32),
+            std=2.0 * torch.ones(LATENT_DIMENSION),
+        )
+        standardized_sample = torch.full((batch_size, LATENT_DIMENSION), fill_value=3.0)
+        observations = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        prior.noise_scheduler.timesteps = torch.tensor([0])
+
+        with (
+            patch(
+                "versatil.models.decoding.latent.prior.dit_prior.setup_inference_timesteps",
+            ),
+            patch.object(
+                prior,
+                "_predict_from_tokens",
+                return_value=torch.zeros_like(standardized_sample),
+            ),
+            patch.object(
+                prior.noise_scheduler,
+                "step",
+                return_value=MagicMock(prev_sample=standardized_sample),
+            ),
+        ):
+            sample = prior.sample_prior(
+                batch_size=batch_size, observations=observations
+            )
+
+        expected_sample = prior.latent_standardizer.unstandardize(standardized_sample)
+        torch.testing.assert_close(sample, expected_sample)

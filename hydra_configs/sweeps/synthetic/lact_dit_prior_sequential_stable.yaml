@@ -18,7 +18,7 @@ task:
 training:
   num_epochs: 2000
   early_stopping_patience: 20
-  reduce_lr_on_plateau: true
+  reduce_lr_on_plateau: false
   reduce_lr_patience: 3
   reduce_lr_cooldown: 2
   optimizer:
@@ -28,7 +28,7 @@ training:
       - name: backbone
         lr: 1.0e-5
         weight_decay: 1.0e-3
-        params_pattern: "encoding_pipeline.encoders.*.backbone"
+        params_pattern: "^encoding_pipeline\\.encoders\\.[^.]+\\.backbone\\."
       - name: posterior
         lr: 5.0e-5
         params_pattern: "^algorithm\\.posterior_encoder\\."

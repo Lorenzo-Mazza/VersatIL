@@ -1,0 +1,10 @@
+# @package training.optimizer.param_groups
+- name: posterior
+  lr: ${training.optimizer.lr}
+  params_pattern: "^algorithm\\.posterior_encoder\\."
+- name: prior
+  lr: ${training.optimizer.lr}
+  params_pattern: "^algorithm\\.prior\\."
+- name: decoder
+  lr: ${training.optimizer.lr}
+  params_pattern: "^decoder\\."

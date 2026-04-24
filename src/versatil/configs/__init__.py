@@ -291,6 +291,32 @@ __all__ = [
 ]
 
 
+def _stage_split_epoch(num_epochs: int | float | str, fraction: float | str) -> int:
+    """Resolve a valid epoch boundary for two-stage training configs.
+
+    Args:
+        num_epochs: Total number of configured training epochs.
+        fraction: Fraction of training budget assigned before the split.
+
+    Returns:
+        Integer epoch where the second stage should start.
+
+    Raises:
+        ValueError: If ``num_epochs`` is not positive or ``fraction`` is outside
+            the open interval ``(0, 1)``.
+    """
+    total_epochs = int(float(num_epochs))
+    split_fraction = float(fraction)
+    if total_epochs <= 0:
+        raise ValueError(f"num_epochs must be positive, got {num_epochs}.")
+    if split_fraction <= 0.0 or split_fraction >= 1.0:
+        raise ValueError(f"fraction must be in (0, 1), got {fraction}.")
+    if total_epochs == 1:
+        return 1
+    split_epoch = int(total_epochs * split_fraction)
+    return min(max(split_epoch, 1), total_epochs - 1)
+
+
 def register_resolvers():
     """Register custom OmegaConf resolvers for enum access in YAML configs.
 
@@ -572,6 +598,8 @@ def register_resolvers():
             "mul",
             lambda a, b: float(a) * float(b),
         )
+    if not OmegaConf.has_resolver("stage_split_epoch"):
+        OmegaConf.register_new_resolver("stage_split_epoch", _stage_split_epoch)
 
 
 def register_configs():

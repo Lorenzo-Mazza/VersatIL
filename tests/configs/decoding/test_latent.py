@@ -16,6 +16,7 @@ from versatil.configs.decoding.latent import (
 from versatil.models.decoding.constants import (
     BetaSchedule,
     DenoisingAlgorithm,
+    LatentKey,
     ODESolver,
     PredictionType,
 )
@@ -267,6 +268,23 @@ class TestDiTPriorConfig:
         assert config.beta_alpha == 1.25
         assert config.beta_beta == 0.75
         assert config.max_timestep == 0.9
+
+    def test_prior_target_default_is_posterior_mu(self):
+        config = DiTPriorConfig(latent_dimension=32)
+        assert config.prior_target_key == LatentKey.POSTERIOR_MU.value
+
+    def test_stores_latent_standardization_fields(self):
+        config = DiTPriorConfig(
+            latent_dimension=32,
+            latent_standardization_enabled=False,
+            latent_standardization_eps=1e-5,
+            latent_standardization_max_batches=7,
+            require_fitted_latent_standardization=True,
+        )
+        assert config.latent_standardization_enabled is False
+        assert config.latent_standardization_eps == pytest.approx(1e-5)
+        assert config.latent_standardization_max_batches == 7
+        assert config.require_fitted_latent_standardization is True
 
     def test_beta_schedule_default_is_squaredcos_string(self):
         config = DiTPriorConfig(latent_dimension=32)

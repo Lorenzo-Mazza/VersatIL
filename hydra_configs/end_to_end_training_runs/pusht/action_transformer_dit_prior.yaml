@@ -11,6 +11,8 @@ defaults:
   - /task/action_space: pusht_precomputed
   - /task/observation_space: pusht_rgb_proprio
   - /training: default
+  - /training/optimizer/param_groups: variational_prior_with_backbone
+  - /training/multistage: vae_frozen_prior_with_backbone
   - /policy/encoding_pipeline: pusht_rgb_proprio
   - /policy/decoder: action_transformer
   - /policy/algorithm: bc_with_dit_prior

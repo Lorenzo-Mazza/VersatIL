@@ -19,10 +19,14 @@ from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
+from versatil.models.decoding.latent.posterior.base_posterior import (
+    PosteriorLatentEncoder,
+)
+from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.protocols import RequiresPosteriorWiring
 from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
+from versatil.training.callbacks.provider import CallbackProvider
 
 
 class VariationalAlgorithm(DecodingAlgorithm):
@@ -80,12 +84,24 @@ class VariationalAlgorithm(DecodingAlgorithm):
             self.prior.wire_posterior(self.posterior_encoder)
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
-        """Provide latent visualization callback for variational inference monitoring."""
-        return [
+        """Provide callbacks for variational latent monitoring and prior fitting.
+
+        Args:
+            experiment_config: Experiment-level callback configuration.
+
+        Returns:
+            Callbacks required by the variational algorithm.
+        """
+        callbacks = [
             LatentVisualizationCallback(
                 log_every_n_epochs=experiment_config.val_every,
             )
         ]
+        if isinstance(self.prior, CallbackProvider):
+            callbacks.extend(
+                self.prior.get_callbacks(experiment_config=experiment_config)
+            )
+        return callbacks
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Variational algorithm adds latent variable keys to the output."""
@@ -112,11 +128,9 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_output = self.posterior_encoder.encode(
             actions=actions, observations=features
         )
-        z = posterior_output[
-            LatentKey.POSTERIOR_LATENT.value
-        ]  # (B, posterior.latent_dim)
+        target_latents = self.prior.build_training_target(posterior_output)
         prior_output = self.prior.forward(
-            target_latents=z.detach(),  # Detach z to prevent gradients flowing to posterior encoder
+            target_latents=target_latents,
             observations=features,
         )
         return posterior_output, prior_output

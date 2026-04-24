@@ -40,3 +40,8 @@ prior:
   beta_beta: 1.0
   max_timestep: 0.999
   num_inference_steps: 10
+  prior_target_key: ${latent_key:POSTERIOR_MU}
+  latent_standardization_enabled: true
+  latent_standardization_eps: 1.0e-6
+  latent_standardization_max_batches: null
+  require_fitted_latent_standardization: false

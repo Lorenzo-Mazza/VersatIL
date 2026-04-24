@@ -70,6 +70,19 @@ class PriorLatentEncoder(nn.Module, abc.ABC):
             LatentKey.PRIOR_LOGVAR.value,
         }
 
+    def build_training_target(
+        self, posterior_output: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """Select and detach the posterior latent used to train this prior.
+
+        Args:
+            posterior_output: Posterior encoder output dictionary.
+
+        Returns:
+            Detached posterior sample used as the default prior target.
+        """
+        return posterior_output[LatentKey.POSTERIOR_LATENT.value].detach()
+
     @abc.abstractmethod
     def sample_prior(
         self,

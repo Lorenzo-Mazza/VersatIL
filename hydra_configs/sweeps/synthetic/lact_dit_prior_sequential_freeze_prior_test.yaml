@@ -4,7 +4,6 @@
 defaults:
   - /end_to_end_training_runs/synthetic/lact_dit_prior
   - /task_bundle/synthetic: sequential
-  - /training/multistage: vae_frozen_prior
   - override /hydra/sweeper: basic
   - _self_
 

@@ -11,6 +11,8 @@ defaults:
   - /task/action_space: pusht_precomputed
   - /task/observation_space: pusht_state
   - /training: default
+  - /training/optimizer/param_groups: variational_prior
+  - /training/multistage: vae_frozen_prior
   - /policy/encoding_pipeline: pusht_state
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_dit_prior

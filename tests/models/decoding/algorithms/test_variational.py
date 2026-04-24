@@ -11,14 +11,18 @@ import torch
 from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.constants import LatentKey
+from versatil.models.decoding.constants import DenoisingAlgorithm, LatentKey
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
+from versatil.models.decoding.latent.prior.dit_prior import DiTPrior
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
 from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
+from versatil.training.callbacks.prior_target_standardization import (
+    PriorTargetStandardizationCallback,
+)
 
 LATENT_DIMENSION = 32
 
@@ -74,6 +78,9 @@ def mock_prior_factory(
                 rng.standard_normal((2, latent_dimension)).astype(np.float32)
             )
         prior.forward.return_value = forward_result
+        prior.build_training_target.side_effect = lambda posterior_output: (
+            posterior_output[LatentKey.POSTERIOR_LATENT.value].detach()
+        )
         prior.sample_prior.return_value = torch.from_numpy(
             rng.standard_normal((2, latent_dimension)).astype(np.float32)
         )
@@ -310,6 +317,28 @@ class TestVariationalAlgorithmForward:
         prior_call_kwargs = algo.prior.forward.call_args.kwargs
         target_latents_passed = prior_call_kwargs["target_latents"]
         assert not target_latents_passed.requires_grad
+
+    def test_prior_builds_training_target(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory()
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+
+        algo.forward(network=network, features=features, actions=actions)
+
+        algo.prior.build_training_target.assert_called_once_with(
+            algo.posterior_encoder.encode.return_value
+        )
 
     def test_delegates_to_base_algorithm(
         self,
@@ -788,3 +817,33 @@ def test_get_callbacks_returns_latent_visualization(
     assert len(callbacks) == 1
     assert isinstance(callbacks[0], LatentVisualizationCallback)
     assert callbacks[0].log_every_n_epochs == 4
+
+
+def test_get_callbacks_adds_prior_target_standardization_for_enabled_standardizer(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    prior = DiTPrior(
+        latent_dimension=LATENT_DIMENSION,
+        embedding_dimension=16,
+        number_of_heads=2,
+        number_of_layers=1,
+        feedforward_dimension=32,
+        device="cpu",
+        algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+        latent_standardization_max_batches=3,
+    )
+    algo = variational_factory(base_algorithm=base, prior=prior)
+    experiment_config = MagicMock(spec=ExperimentConfig)
+    experiment_config.val_every = 4
+
+    callbacks = algo.get_callbacks(experiment_config=experiment_config)
+
+    prior_callbacks = [
+        callback
+        for callback in callbacks
+        if isinstance(callback, PriorTargetStandardizationCallback)
+    ]
+    assert len(prior_callbacks) == 1
+    assert prior_callbacks[0].max_batches == 3

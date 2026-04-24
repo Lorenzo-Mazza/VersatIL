@@ -1464,8 +1464,8 @@ class GaussianMixtureNLLoss(ScalarWeightedLoss):
         Returns:
             LossOutput with Gaussian mixture NLL.
         """
-        component_losses = {}
-        total_loss = 0.0
+        component_losses: dict[str, torch.Tensor] = {}
+        log_components_by_key: dict[str, torch.Tensor] = {}
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
         for action_key in self.action_keys:
             target = targets[action_key]  # (B, T, D)
@@ -1484,17 +1484,40 @@ class GaussianMixtureNLLoss(ScalarWeightedLoss):
                 log_component = self._compute_fixed_variance_log_pdf(
                     target, means, sigma
                 )
-            nll_per_batch = _aggregate_mixture_nll(
+            log_components_by_key[action_key] = log_component
+            per_key_nll = _aggregate_mixture_nll(
                 log_component=log_component,
                 mixing_probs=mixing_probs,
                 is_pad=is_pad,
             )  # (B,)
-            nll_reduced = nll_per_batch.mean()
-            key_weight = self.per_key_weights.get(action_key, 1.0)
+            per_key_nll_reduced = per_key_nll.mean()
             component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = (
-                nll_reduced
+                per_key_nll_reduced
             )
-            total_loss = total_loss + key_weight * nll_reduced
+
+        if len(self.action_keys) == 1:
+            action_key = self.action_keys[0]
+            joint_nll_reduced = component_losses[
+                f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"
+            ]
+            total_loss = self.per_key_weights.get(action_key, 1.0) * joint_nll_reduced
+        else:
+            weighted_log_components = [
+                self.per_key_weights.get(action_key, 1.0)
+                * log_components_by_key[action_key]
+                for action_key in self.action_keys
+            ]
+            # A shared mixture component represents the full action tuple.
+            joint_log_component = torch.stack(weighted_log_components, dim=0).sum(dim=0)
+            joint_nll = _aggregate_mixture_nll(
+                log_component=joint_log_component,
+                mixing_probs=mixing_probs,
+                is_pad=is_pad,
+            )
+            joint_nll_reduced = joint_nll.mean()
+            total_loss = joint_nll_reduced
+
+        component_losses[MetricKey.GAUSSIAN_MIXTURE_NLL.value] = joint_nll_reduced
         return LossOutput(
             total_loss=self.weight * total_loss, component_losses=component_losses
         )
