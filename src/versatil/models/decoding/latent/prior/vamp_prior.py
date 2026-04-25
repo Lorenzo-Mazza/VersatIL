@@ -45,6 +45,10 @@ def log_normal_diag(
 class VampPrior(PriorLatentEncoder):
     """Variational Mixture of Posteriors Prior.
 
+    The posterior encoder in this policy family is conditional,
+    ``q_phi(z | a, s)``. Therefore the VampPrior components are conditional
+    pseudo-action posteriors, ``q_phi(z | u_k, s)``.
+
     Args:
         latent_dimension: Dimension of latent variable z
         num_components: Number of mixture components K
@@ -68,12 +72,105 @@ class VampPrior(PriorLatentEncoder):
         self.prediction_horizon = prediction_horizon
         self.action_dim = action_space.get_total_action_dim()
         self.min_logvar = min_logvar
+        self.action_keys, self.action_dimensions = self._get_action_layout(
+            action_space=action_space,
+        )
         self.pseudo_inputs = nn.Parameter(
             torch.randn(num_components, prediction_horizon, self.action_dim)
         )
         self.log_weights = nn.Parameter(torch.zeros(num_components, 1, 1))
         self._encoder: PosteriorLatentEncoder | None = None
         self.to(torch.device(device))
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Return prediction keys produced by the mixture prior."""
+        return {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_LOG_PROB.value,
+        }
+
+    @staticmethod
+    def _get_action_layout(action_space: ActionSpace) -> tuple[list[str], list[int]]:
+        action_keys = []
+        action_dimensions = []
+        for action_key in sorted(action_space.actions_metadata.keys()):
+            metadata = action_space.actions_metadata[action_key]
+            if metadata.requires_prediction_head:
+                action_keys.append(action_key)
+                action_dimensions.append(metadata.prediction_dimension)
+
+        total_dimension = sum(action_dimensions)
+        expected_dimension = action_space.get_total_action_dim()
+        if not action_keys:
+            raise ValueError("VampPrior requires at least one predicted action key.")
+        if total_dimension != expected_dimension:
+            raise ValueError(
+                "VampPrior action layout dimension mismatch: "
+                f"metadata sums to {total_dimension}, "
+                f"but action_space.get_total_action_dim() returned {expected_dimension}."
+            )
+        return action_keys, action_dimensions
+
+    def _build_pseudo_actions(
+        self,
+        batch_size: int,
+    ) -> dict[str, torch.Tensor]:
+        """Split flat pseudo-actions into the same keys used by real actions."""
+        pseudo_components = torch.split(
+            self.pseudo_inputs,
+            self.action_dimensions,
+            dim=-1,
+        )
+        pseudo_actions = {}
+        for action_key, component in zip(
+            self.action_keys,
+            pseudo_components,
+            strict=True,
+        ):
+            component = (
+                component.unsqueeze(0)
+                .expand(batch_size, -1, -1, -1)
+                .reshape(
+                    batch_size * self.num_components,
+                    self.prediction_horizon,
+                    component.size(-1),
+                )
+            )
+            pseudo_actions[action_key] = component
+
+        pseudo_actions[SampleKey.IS_PAD_ACTION.value] = torch.zeros(
+            batch_size * self.num_components,
+            self.prediction_horizon,
+            dtype=torch.bool,
+            device=self.pseudo_inputs.device,
+        )
+        return pseudo_actions
+
+    @staticmethod
+    def _require_observations(
+        observations: dict[str, torch.Tensor] | None,
+    ) -> dict[str, torch.Tensor]:
+        if not observations:
+            raise ValueError(
+                "VampPrior requires observations to compute "
+                "q_phi(z | pseudo_actions, observations)."
+            )
+        return observations
+
+    def _get_observation_batch_size(
+        self,
+        observations: dict[str, torch.Tensor],
+    ) -> int:
+        return next(iter(observations.values())).size(0)
+
+    def _repeat_observations_for_components(
+        self,
+        observations: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        return {
+            key: value.repeat_interleave(self.num_components, dim=0)
+            for key, value in observations.items()
+        }
 
     def wire_posterior(self, posterior: PosteriorLatentEncoder) -> None:
         """Wire shared state from the posterior encoder.
@@ -96,28 +193,44 @@ class VampPrior(PriorLatentEncoder):
             )
         return self._encoder
 
-    def get_mixture_params(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def get_mixture_params(
+        self,
+        observations: dict[str, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute mixture component parameters by passing pseudo-inputs through encoder.
 
         Returns:
-            Tuple of (means, logvars) each of shape (K, latent_dim)
+            Tuple of conditional (means, logvars), each shaped (B, K, latent_dim).
         """
-        is_pad = torch.zeros(
-            self.num_components,
-            self.prediction_horizon,
-            dtype=torch.bool,
-            device=self.pseudo_inputs.device,
+        observations = self._require_observations(observations=observations)
+        batch_size = self._get_observation_batch_size(observations=observations)
+        encoder_observations = self._repeat_observations_for_components(
+            observations=observations,
         )
-        pseudo_actions = {
-            "pseudo": self.pseudo_inputs,  # (K, prediction_horizon, action_dim)
-            SampleKey.IS_PAD_ACTION.value: is_pad,
-        }
-        encoder_output = self.encoder.encode(actions=pseudo_actions, observations=None)
+
+        pseudo_actions = self._build_pseudo_actions(batch_size=batch_size)
+        encoder_output = self.encoder.encode(
+            actions=pseudo_actions,
+            observations=encoder_observations,
+        )
         mu = encoder_output[LatentKey.POSTERIOR_MU.value]  # (K, latent_dim)
         logvar = encoder_output[LatentKey.POSTERIOR_LOGVAR.value]  # (K, latent_dim)
+        mu = mu.reshape(batch_size, self.num_components, self.latent_dimension)
+        logvar = logvar.reshape(
+            batch_size,
+            self.num_components,
+            self.latent_dimension,
+        )
         if self.min_logvar is not None:
             logvar = torch.clamp(logvar, min=self.min_logvar)
         return mu, logvar
+
+    def build_training_target(
+        self,
+        posterior_output: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Use a differentiable posterior sample for the sample-based KL."""
+        return posterior_output[LatentKey.POSTERIOR_LATENT.value]
 
     def sample_prior(
         self,
@@ -128,18 +241,25 @@ class VampPrior(PriorLatentEncoder):
 
         Args:
             batch_size: Number of samples to generate
-            observations: Optional conditioning (ignored, VampPrior is unconditional)
+            observations: Required conditioning features
 
         Returns:
             Sampled latents of shape (batch_size, latent_dim)
         """
-        mu, logvar = self.get_mixture_params()  # (K, latent_dim)
+        mu, logvar = self.get_mixture_params(observations=observations)
         weights = F.softmax(self.log_weights.view(-1), dim=0)  # (K,)
         component_indices = torch.multinomial(
             weights, batch_size, replacement=True
         )  # (batch_size,)
-        selected_mu = mu[component_indices]  # (batch_size, latent_dim)
-        selected_logvar = logvar[component_indices]  # (batch_size, latent_dim)
+        if mu.size(0) != batch_size:
+            raise ValueError(
+                "VampPrior conditional mixture batch size mismatch: "
+                f"got {mu.size(0)} component batches for requested "
+                f"batch_size {batch_size}."
+            )
+        batch_indices = torch.arange(batch_size, device=mu.device)
+        selected_mu = mu[batch_indices, component_indices]
+        selected_logvar = logvar[batch_indices, component_indices]
         std = (selected_logvar / 2).exp()
         eps = torch.randn_like(std)
         z = selected_mu + std * eps
@@ -157,43 +277,42 @@ class VampPrior(PriorLatentEncoder):
 
         Args:
             target_latents: Target latents from posterior (B, latent_dim)
-            observations: Conditioning features (ignored for VampPrior)
+            observations: Conditioning features
 
         Returns:
-            Dictionary with LatentKey.PRIOR_LATENT and LatentKey.PRIOR_LOG_PROB
+            Dictionary with LatentKey.PRIOR_LOG_PROB
         """
         if target_latents is None:
             raise ValueError(
                 "VampPrior.forward() requires target_latents for log-prob "
                 "computation. Use sample_prior() for inference."
             )
-        batch_size = target_latents.size(0)
-        z = self.sample_prior(batch_size, observations)
-        log_prob = self.log_prob(target_latents)
+        log_prob = self.log_prob(target_latents, observations=observations)
         return {
-            LatentKey.PRIOR_LATENT.value: z,
             LatentKey.PRIOR_LOG_PROB.value: log_prob,
         }
 
-    def log_prob(self, z: torch.Tensor) -> torch.Tensor:
+    def log_prob(
+        self,
+        z: torch.Tensor,
+        observations: dict[str, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
         """Compute log probability of z under the VampPrior mixture.
 
         Args:
             z: Latent samples of shape (B, latent_dim)
+            observations: Required conditioning features
 
         Returns:
             Log probability of shape (B,) - summed over latent dimensions
         """
-        mu, logvar = self.get_mixture_params()  # (K, latent_dim)
+        mu, logvar = self.get_mixture_params(observations=observations)
         weights = F.softmax(self.log_weights.view(-1), dim=0)  # (K,)
-        z_expanded = z.unsqueeze(0)  # (1, B, latent_dim)
-        mu_expanded = mu.unsqueeze(1)  # (K, 1, latent_dim)
-        logvar_expanded = logvar.unsqueeze(1)  # (K, 1, latent_dim)
         log_p_components = log_normal_diag(
-            z_expanded, mu_expanded, logvar_expanded
-        )  # (K, B, latent_dim)
-        log_p_components = log_p_components.sum(dim=-1)  # (K, B)
-        log_weights = torch.log(weights).unsqueeze(-1)  # (K, 1)
-        log_p_weighted = log_p_components + log_weights  # (K, B)
-        log_prob = torch.logsumexp(log_p_weighted, dim=0)  # (B,)
+            z.unsqueeze(1),
+            mu,
+            logvar,
+        ).sum(dim=-1)  # (B, K)
+        log_p_weighted = log_p_components + torch.log(weights).unsqueeze(0)
+        log_prob = torch.logsumexp(log_p_weighted, dim=1)  # (B,)
         return log_prob

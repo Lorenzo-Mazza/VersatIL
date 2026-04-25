@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import SampleKey
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
@@ -28,11 +29,21 @@ def vamp_prior_factory(
         latent_dimension: int = 16,
         num_components: int = 5,
         action_dim: int = 7,
+        has_orientation: bool = False,
+        orientation_dim: int = 0,
+        has_gripper: bool = False,
+        gripper_dim: int = 0,
         prediction_horizon: int = 8,
         device: str = "cpu",
         min_logvar: float | None = None,
     ) -> VampPrior:
-        action_space = mock_action_space_factory(position_dim=action_dim)
+        action_space = mock_action_space_factory(
+            position_dim=action_dim,
+            has_orientation=has_orientation,
+            orientation_dim=orientation_dim,
+            has_gripper=has_gripper,
+            gripper_dim=gripper_dim,
+        )
         return VampPrior(
             latent_dimension=latent_dimension,
             num_components=num_components,
@@ -55,22 +66,35 @@ def mock_encoder_factory(
         latent_dimension: int = 16,
         num_components: int = 5,
     ) -> MagicMock:
+        del num_components
         encoder = MagicMock(spec=PosteriorLatentEncoder)
         encoder.latent_dimension = latent_dimension
-        mu = torch.from_numpy(
-            rng.standard_normal((num_components, latent_dimension)).astype(np.float32)
-        )
-        logvar = torch.from_numpy(
-            np.zeros((num_components, latent_dimension), dtype=np.float32)
-        )
-        latent = torch.from_numpy(
-            rng.standard_normal((num_components, latent_dimension)).astype(np.float32)
-        )
-        encoder.encode.return_value = {
-            LatentKey.POSTERIOR_MU.value: mu,
-            LatentKey.POSTERIOR_LOGVAR.value: logvar,
-            LatentKey.POSTERIOR_LATENT.value: latent,
-        }
+
+        def encode_side_effect(
+            actions: dict[str, torch.Tensor],
+            observations: dict[str, torch.Tensor] | None = None,
+        ) -> dict[str, torch.Tensor]:
+            del observations
+            first_action = next(
+                tensor
+                for key, tensor in actions.items()
+                if key != SampleKey.IS_PAD_ACTION.value
+            )
+            batch_size = first_action.size(0)
+            mu = torch.from_numpy(
+                rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+            )
+            logvar = torch.zeros(batch_size, latent_dimension, dtype=torch.float32)
+            latent = torch.from_numpy(
+                rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+            )
+            return {
+                LatentKey.POSTERIOR_MU.value: mu,
+                LatentKey.POSTERIOR_LOGVAR.value: logvar,
+                LatentKey.POSTERIOR_LATENT.value: latent,
+            }
+
+        encoder.encode.side_effect = encode_side_effect
         return encoder
 
     return factory
@@ -213,6 +237,26 @@ class TestVampPriorInitialization:
         assert prior.prediction_horizon == prediction_horizon
 
     @pytest.mark.unit
+    def test_stores_action_layout_from_action_space_metadata(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+    ):
+        prior = vamp_prior_factory(
+            action_dim=3,
+            has_orientation=True,
+            orientation_dim=2,
+            has_gripper=True,
+            gripper_dim=1,
+        )
+        assert prior.action_keys == [
+            "gripper_action",
+            "orientation_action",
+            "position_action",
+        ]
+        assert prior.action_dimensions == [1, 2, 3]
+        assert prior.action_dim == 6
+
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "num_components, prediction_horizon, action_dim",
         [
@@ -253,7 +297,7 @@ class TestVampPriorInitialization:
 
 class TestVampPriorGetAuxiliaryOutputKeys:
     @pytest.mark.unit
-    def test_returns_gaussian_keys(
+    def test_returns_mixture_keys(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
     ) -> None:
@@ -261,8 +305,7 @@ class TestVampPriorGetAuxiliaryOutputKeys:
         keys = prior.get_auxiliary_output_keys()
         assert keys == {
             LatentKey.PRIOR_LATENT.value,
-            LatentKey.PRIOR_MU.value,
-            LatentKey.PRIOR_LOGVAR.value,
+            LatentKey.PRIOR_LOG_PROB.value,
         }
 
 
@@ -307,28 +350,7 @@ class TestVampPriorEncoder:
 
 class TestVampPriorGetMixtureParams:
     @pytest.mark.unit
-    def test_returns_mu_and_logvar(
-        self,
-        vamp_prior_factory: Callable[..., VampPrior],
-        mock_encoder_factory: Callable[..., MagicMock],
-    ):
-        latent_dimension = 16
-        num_components = 5
-        prior = vamp_prior_factory(
-            latent_dimension=latent_dimension,
-            num_components=num_components,
-        )
-        encoder = mock_encoder_factory(
-            latent_dimension=latent_dimension,
-            num_components=num_components,
-        )
-        prior.wire_posterior(posterior=encoder)
-        mu, logvar = prior.get_mixture_params()
-        assert mu.shape == (num_components, latent_dimension)
-        assert logvar.shape == (num_components, latent_dimension)
-
-    @pytest.mark.unit
-    def test_calls_encoder_encode(
+    def test_raises_without_observations(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
         mock_encoder_factory: Callable[..., MagicMock],
@@ -336,16 +358,131 @@ class TestVampPriorGetMixtureParams:
         prior = vamp_prior_factory()
         encoder = mock_encoder_factory()
         prior.wire_posterior(posterior=encoder)
-        prior.get_mixture_params()
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "VampPrior requires observations to compute "
+                "q_phi(z | pseudo_actions, observations)."
+            ),
+        ):
+            prior.get_mixture_params()
+
+    @pytest.mark.unit
+    def test_returns_conditional_mu_and_logvar(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 4
+        latent_dimension = 16
+        num_components = 5
+        prior = vamp_prior_factory(
+            latent_dimension=latent_dimension,
+            num_components=num_components,
+        )
+        encoder = mock_encoder_factory(latent_dimension=latent_dimension)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        prior.wire_posterior(posterior=encoder)
+        mu, logvar = prior.get_mixture_params(observations=observations)
+        assert mu.shape == (batch_size, num_components, latent_dimension)
+        assert logvar.shape == (batch_size, num_components, latent_dimension)
+
+    @pytest.mark.unit
+    def test_calls_encoder_encode(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 4
+        prior = vamp_prior_factory()
+        encoder = mock_encoder_factory()
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        prior.wire_posterior(posterior=encoder)
+        prior.get_mixture_params(observations=observations)
         encoder.encode.assert_called_once()
         call_kwargs = encoder.encode.call_args
-        assert call_kwargs.kwargs["observations"] is None
+        for value in call_kwargs.kwargs["observations"].values():
+            assert value.shape[0] == batch_size * prior.num_components
+
+    @pytest.mark.unit
+    def test_calls_encoder_with_real_action_keys(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 4
+        num_components = 5
+        prediction_horizon = 8
+        prior = vamp_prior_factory(
+            num_components=num_components,
+            prediction_horizon=prediction_horizon,
+            action_dim=3,
+            has_orientation=True,
+            orientation_dim=2,
+            has_gripper=True,
+            gripper_dim=1,
+        )
+        encoder = mock_encoder_factory(num_components=num_components)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        prior.wire_posterior(posterior=encoder)
+        prior.get_mixture_params(observations=observations)
+        actions = encoder.encode.call_args.kwargs["actions"]
+        assert set(actions.keys()) == {
+            "position_action",
+            "orientation_action",
+            "gripper_action",
+            SampleKey.IS_PAD_ACTION.value,
+        }
+        assert actions["position_action"].shape == (
+            batch_size * num_components,
+            prediction_horizon,
+            3,
+        )
+        assert actions["orientation_action"].shape == (
+            batch_size * num_components,
+            prediction_horizon,
+            2,
+        )
+        assert actions["gripper_action"].shape == (
+            batch_size * num_components,
+            prediction_horizon,
+            1,
+        )
+        assert actions[SampleKey.IS_PAD_ACTION.value].shape == (
+            batch_size * num_components,
+            prediction_horizon,
+        )
+
+    @pytest.mark.unit
+    def test_repeats_observations_for_conditional_components(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 4
+        num_components = 5
+        prior = vamp_prior_factory(num_components=num_components)
+        encoder = mock_encoder_factory(num_components=num_components)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        prior.wire_posterior(posterior=encoder)
+        prior.get_mixture_params(observations=observations)
+        encoded_actions = encoder.encode.call_args.kwargs["actions"]
+        encoded_observations = encoder.encode.call_args.kwargs["observations"]
+        expected_batch_size = batch_size * num_components
+        assert encoded_actions["position_action"].shape[0] == expected_batch_size
+        for value in encoded_observations.values():
+            assert value.shape[0] == expected_batch_size
 
     @pytest.mark.unit
     def test_clamps_logvar_when_min_logvar_set(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
         mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         latent_dimension = 16
         num_components = 5
@@ -359,13 +496,53 @@ class TestVampPriorGetMixtureParams:
             latent_dimension=latent_dimension,
             num_components=num_components,
         )
-        # Set logvar to values below the clamp threshold
-        encoder.encode.return_value[LatentKey.POSTERIOR_LOGVAR.value] = torch.full(
-            (num_components, latent_dimension), -10.0
-        )
+
+        def encode_side_effect(
+            actions: dict[str, torch.Tensor],
+            observations: dict[str, torch.Tensor] | None = None,
+        ) -> dict[str, torch.Tensor]:
+            del observations
+            first_action = next(
+                tensor
+                for key, tensor in actions.items()
+                if key != SampleKey.IS_PAD_ACTION.value
+            )
+            batch_size = first_action.size(0)
+            return {
+                LatentKey.POSTERIOR_MU.value: torch.zeros(
+                    batch_size,
+                    latent_dimension,
+                ),
+                LatentKey.POSTERIOR_LOGVAR.value: torch.full(
+                    (batch_size, latent_dimension),
+                    -10.0,
+                ),
+                LatentKey.POSTERIOR_LATENT.value: torch.zeros(
+                    batch_size,
+                    latent_dimension,
+                ),
+            }
+
+        encoder.encode.side_effect = encode_side_effect
+        observations = feature_dictionary_factory(batch_size=4)
         prior.wire_posterior(posterior=encoder)
-        _, logvar = prior.get_mixture_params()
+        _, logvar = prior.get_mixture_params(observations=observations)
         assert torch.all(logvar >= min_logvar)
+
+
+class TestVampPriorBuildTrainingTarget:
+    @pytest.mark.unit
+    def test_preserves_posterior_latent_gradient(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+    ):
+        latent = torch.ones(2, 4, requires_grad=True)
+        prior = vamp_prior_factory(latent_dimension=4)
+        target = prior.build_training_target({LatentKey.POSTERIOR_LATENT.value: latent})
+        loss = target.sum()
+        loss.backward()
+        assert latent.grad is not None
+        assert torch.all(latent.grad == 1.0)
 
 
 class TestVampPriorSamplePrior:
@@ -376,6 +553,7 @@ class TestVampPriorSamplePrior:
         self,
         vamp_prior_factory: Callable[..., VampPrior],
         mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
         batch_size: int,
         latent_dimension: int,
     ):
@@ -389,7 +567,8 @@ class TestVampPriorSamplePrior:
             num_components=num_components,
         )
         prior.wire_posterior(posterior=encoder)
-        sample = prior.sample_prior(batch_size=batch_size)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        sample = prior.sample_prior(batch_size=batch_size, observations=observations)
         assert sample.shape == (batch_size, latent_dimension)
 
     @pytest.mark.unit
@@ -397,13 +576,52 @@ class TestVampPriorSamplePrior:
         self,
         vamp_prior_factory: Callable[..., VampPrior],
         mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        prior = vamp_prior_factory()
+        encoder = mock_encoder_factory()
+        observations = feature_dictionary_factory(batch_size=4)
+        prior.wire_posterior(posterior=encoder)
+        prior.sample_prior(batch_size=4, observations=observations)
+        encoder.encode.assert_called_once()
+
+    @pytest.mark.unit
+    def test_sample_prior_raises_without_observations(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
     ):
         prior = vamp_prior_factory()
         encoder = mock_encoder_factory()
         prior.wire_posterior(posterior=encoder)
-        prior.sample_prior(batch_size=4)
-        # get_mixture_params calls encoder.encode, so verify it was called
-        encoder.encode.assert_called_once()
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "VampPrior requires observations to compute "
+                "q_phi(z | pseudo_actions, observations)."
+            ),
+        ):
+            prior.sample_prior(batch_size=4)
+
+    @pytest.mark.unit
+    def test_conditional_output_shape(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 4
+        latent_dimension = 16
+        num_components = 5
+        prior = vamp_prior_factory(
+            latent_dimension=latent_dimension,
+            num_components=num_components,
+        )
+        encoder = mock_encoder_factory(latent_dimension=latent_dimension)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        prior.wire_posterior(posterior=encoder)
+        sample = prior.sample_prior(batch_size=batch_size, observations=observations)
+        assert sample.shape == (batch_size, latent_dimension)
 
 
 class TestVampPriorForward:
@@ -472,7 +690,6 @@ class TestVampPriorForward:
             observations=observations,
         )
         assert set(result.keys()) == {
-            LatentKey.PRIOR_LATENT.value,
             LatentKey.PRIOR_LOG_PROB.value,
         }
 
@@ -507,10 +724,6 @@ class TestVampPriorForward:
             target_latents=target_latents,
             observations=observations,
         )
-        assert result[LatentKey.PRIOR_LATENT.value].shape == (
-            batch_size,
-            latent_dimension,
-        )
         assert result[LatentKey.PRIOR_LOG_PROB.value].shape == (batch_size,)
 
 
@@ -523,6 +736,7 @@ class TestVampPriorLogProb:
         vamp_prior_factory: Callable[..., VampPrior],
         mock_encoder_factory: Callable[..., MagicMock],
         latent_tensor_factory: Callable[..., torch.Tensor],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
         batch_size: int,
         latent_dimension: int,
     ):
@@ -540,7 +754,33 @@ class TestVampPriorLogProb:
             batch_size=batch_size,
             latent_dimension=latent_dimension,
         )
-        log_prob = prior.log_prob(z=z)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        log_prob = prior.log_prob(z=z, observations=observations)
+        assert log_prob.shape == (batch_size,)
+
+    @pytest.mark.unit
+    def test_conditional_output_shape(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 4
+        latent_dimension = 16
+        num_components = 5
+        prior = vamp_prior_factory(
+            latent_dimension=latent_dimension,
+            num_components=num_components,
+        )
+        encoder = mock_encoder_factory(latent_dimension=latent_dimension)
+        observations = feature_dictionary_factory(batch_size=batch_size)
+        prior.wire_posterior(posterior=encoder)
+        z = latent_tensor_factory(
+            batch_size=batch_size,
+            latent_dimension=latent_dimension,
+        )
+        log_prob = prior.log_prob(z=z, observations=observations)
         assert log_prob.shape == (batch_size,)
 
     @pytest.mark.unit
@@ -549,6 +789,7 @@ class TestVampPriorLogProb:
         vamp_prior_factory: Callable[..., VampPrior],
         mock_encoder_factory: Callable[..., MagicMock],
         latent_tensor_factory: Callable[..., torch.Tensor],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         latent_dimension = 16
         num_components = 5
@@ -565,5 +806,26 @@ class TestVampPriorLogProb:
             batch_size=4,
             latent_dimension=latent_dimension,
         )
-        log_prob = prior.log_prob(z=z)
+        observations = feature_dictionary_factory(batch_size=4)
+        log_prob = prior.log_prob(z=z, observations=observations)
         assert torch.all(torch.isfinite(log_prob))
+
+    @pytest.mark.unit
+    def test_log_prob_raises_without_observations(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        prior = vamp_prior_factory()
+        encoder = mock_encoder_factory()
+        prior.wire_posterior(posterior=encoder)
+        z = latent_tensor_factory(batch_size=4)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "VampPrior requires observations to compute "
+                "q_phi(z | pseudo_actions, observations)."
+            ),
+        ):
+            prior.log_prob(z=z)
