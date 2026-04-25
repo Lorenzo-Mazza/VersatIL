@@ -6,7 +6,6 @@ or flow matching, where z is the latent variable and s is the conditioning (obse
 
 import torch
 import torch.nn as nn
-from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
 from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.constants import (
@@ -22,6 +21,9 @@ from versatil.models.decoding.latent.prior.latent_standardizer import LatentStan
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.denoising.conditional_flow_matching import (
+    ConditionalFlowMatcher,
+)
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     SchedulerType,

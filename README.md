@@ -38,11 +38,11 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * **[Timm](https://github.com/huggingface/pytorch-image-models)** for vision backbones.
     * **[HuggingFace Transformers](https://github.com/huggingface/transformers)** for Language encoders, VLMs, and tokenizers.
     * **[HuggingFace Diffusers](https://github.com/huggingface/diffusers)** for diffusion schedulers.
-    * **[TorchCFM](https://github.com/atong01/conditional-flow-matching)** for Flow Matching schedulers.
     * **[Albumentations](https://albumentations.ai/)** for image augmentations.
     * **[torchao](https://github.com/pytorch/ao)** for post-training quantization (PT2E and quantize_() APIs).
 - 💡 **Invent What Matters** For performance-critical components, we wrote a custom `src/versatil/models/layers` package in pure PyTorch. This includes optimized implementations of:
     * [Attention](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) (PyTorch built-in SDPA Flash kernel dispatch).
+    * Conditional Flow Matching utilities and ODE integration.
     * Positional Encodings (Sinusoidal, Learned, Rotary).
     * Transformer variants (DETR, GPT, BERT, Free Transformer).
     * Modular Deep Neural Networks layers such as normalization, modulation, convolution, etc

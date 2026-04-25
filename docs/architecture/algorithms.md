@@ -132,7 +132,7 @@ Generative modeling via Continuous Normalizing Flows. Trains the network to pred
 
 | Parameter | Default | Description                                                               |
 |-----------|---------|---------------------------------------------------------------------------|
-| `sigma` | `0.0` | Noise level for CFM (0 = deterministic optimal transport)                 |
+| `sigma` | `0.0` | Noise level for CFM (0 = deterministic straight conditional path)          |
 | `num_inference_steps` | `10` | Number of ODE integration steps                                           |
 | `ode_solver` | `"euler"` | Solver type (`"euler"`, `"heun"`, `"rk4"`)                                |
 | `timestep_sampler` | `"beta"` | Sampling strategy (`"uniform"`, `"logit_normal"`, `"beta"`)               |

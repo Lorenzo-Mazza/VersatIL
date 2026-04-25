@@ -1,12 +1,14 @@
 """Flow Matching algorithm for action generation via continuous normalizing flows."""
 
 import torch
-from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.layers.denoising.conditional_flow_matching import (
+    ConditionalFlowMatcher,
+)
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
 from versatil.models.layers.denoising.timestep_sampling import (
     TimestepSampler,
@@ -109,13 +111,9 @@ class FlowMatching(DecodingAlgorithm):
         beta_alpha: First shape parameter for Beta distribution (pi0 uses 1.5).
         beta_beta: Second shape parameter for Beta distribution (pi0 uses 1.0).
         max_timestep: Upper bound s for Beta sampling (pi0 uses 0.999).
-        reverse_flow_convention: Reverse the time/velocity convention for
-            inference. torchcfm uses t=0 as noise, t=1 as data with velocity
-            v=data-noise. LeRobot-trained models use the opposite convention
-            (t=1 as noise, t=0 as data, v=noise-data). When True, the inference
-            loop remaps t to (1-t) and negates the predicted velocity so that
-            integration from t=0 to 1 correctly denoises with LeRobot-trained
-            weights.
+        reverse_flow_convention: Reverse the time/velocity convention during
+            inference. When True, the inference loop remaps t to (1-t) and
+            negates the predicted velocity.
     """
 
     def __init__(
