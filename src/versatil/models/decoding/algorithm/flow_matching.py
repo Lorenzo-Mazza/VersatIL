@@ -92,8 +92,8 @@ class FlowMatching(DecodingAlgorithm):
     """Flow Matching algorithm for action prediction.
 
     Trains a model to predict velocity fields that transport samples from a noise
-    distribution to the target action distribution. Uses Conditional Flow Matching (CFM)
-    with optimal transport paths.
+    distribution to the target action distribution. Uses Conditional Flow Matching
+    with straight conditional paths.
 
     During training, samples a time t in [0,1] and trains the model to predict the
     velocity field u_t = dx/dt that moves from noise (t=0) to actions (t=1).

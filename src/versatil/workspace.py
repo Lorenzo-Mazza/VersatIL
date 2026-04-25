@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import wandb
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
@@ -22,6 +21,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
+import wandb
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
@@ -260,6 +260,7 @@ class Workspace:
             self.config.experiment.val_every if self.val_loader is not None else 0
         )
         limit_val_batches = 1.0 if self.val_loader is not None else 0
+        log_every_n_steps = self._get_log_every_n_steps()
 
         self.trainer = pl.Trainer(
             max_epochs=self.config.training.num_epochs,
@@ -272,7 +273,7 @@ class Workspace:
             accumulate_grad_batches=self.config.training.gradient_accumulate_every,
             check_val_every_n_epoch=val_every,
             limit_val_batches=limit_val_batches,
-            log_every_n_steps=50,
+            log_every_n_steps=log_every_n_steps,
             enable_progress_bar=True,
             enable_model_summary=True,
             enable_checkpointing=self.config.experiment.save_checkpoints,
@@ -281,6 +282,12 @@ class Workspace:
         )
 
         logging.info(f"Trainer created with {len(callbacks)} callbacks")
+
+    def _get_log_every_n_steps(self) -> int:
+        """Choose a logging interval that stays visible on small datasets."""
+        if self.train_loader is None:
+            return 50
+        return max(1, min(50, len(self.train_loader)))
 
     def _create_callbacks(self):
         """Create training callbacks.

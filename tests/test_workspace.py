@@ -1274,6 +1274,52 @@ class TestSetupTrainer:
             call_kwargs = mock_trainer_cls.call_args[1]
             assert call_kwargs["enable_checkpointing"] is save_checkpoints
 
+    @pytest.mark.parametrize(
+        "num_training_batches, expected_log_every_n_steps",
+        [
+            (0, 1),
+            (4, 4),
+            (100, 50),
+        ],
+    )
+    def test_log_every_n_steps_is_capped_by_train_loader_length(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        mock_workspace_policy_factory: Callable[..., MagicMock],
+        num_training_batches: int,
+        expected_log_every_n_steps: int,
+    ) -> None:
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+        train_loader = MagicMock()
+        train_loader.__len__ = MagicMock(return_value=num_training_batches)
+        workspace.train_loader = train_loader
+
+        with patch("versatil.workspace.pl.Trainer") as mock_trainer_cls:
+            workspace._setup_trainer()
+
+            call_kwargs = mock_trainer_cls.call_args[1]
+            assert call_kwargs["log_every_n_steps"] == expected_log_every_n_steps
+
+    def test_log_every_n_steps_keeps_default_without_train_loader(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        mock_workspace_policy_factory: Callable[..., MagicMock],
+    ) -> None:
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+        workspace.train_loader = None
+
+        with patch("versatil.workspace.pl.Trainer") as mock_trainer_cls:
+            workspace._setup_trainer()
+
+            call_kwargs = mock_trainer_cls.call_args[1]
+            assert call_kwargs["log_every_n_steps"] == 50
+
 
 @pytest.mark.unit
 class TestSetupPolicy:
