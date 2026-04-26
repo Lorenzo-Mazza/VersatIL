@@ -1,5 +1,6 @@
 """Tests for versatil.metrics.accumulators module."""
 
+import math
 from collections.abc import Callable
 
 import numpy as np
@@ -76,6 +77,25 @@ def latent_loss_output_factory(
             total_loss=torch.tensor(total_loss),
             component_losses={},
             metadata=metadata,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def vq_loss_output_factory() -> Callable[..., LossOutput]:
+    def factory(
+        code_indices: torch.Tensor,
+        num_codes: int = 4,
+        total_loss: float = 1.0,
+    ) -> LossOutput:
+        return LossOutput(
+            total_loss=torch.tensor(total_loss),
+            component_losses={},
+            metadata={
+                MetadataKey.VQ_CODE_INDICES.value: code_indices,
+                MetadataKey.VQ_NUM_CODES.value: torch.tensor(num_codes),
+            },
         )
 
     return factory
@@ -474,6 +494,75 @@ class TestMetricsAccumulatorLatentStatistics:
 
 
 @pytest.mark.unit
+class TestMetricsAccumulatorVQCodebookMetrics:
+    def test_returns_empty_when_no_vq_data(self) -> None:
+        accumulator = MetricsAccumulator()
+        assert accumulator.compute_vq_codebook_metrics() == {}
+
+    def test_computes_single_layer_usage_metrics(
+        self,
+        vq_loss_output_factory: Callable[..., LossOutput],
+    ) -> None:
+        accumulator = MetricsAccumulator()
+        first_batch_indices = torch.tensor([[0, 0, 1, 1]])
+        second_batch_indices = torch.tensor([[2, 3, 3, 3]])
+        accumulator.add_loss_output(
+            vq_loss_output_factory(code_indices=first_batch_indices, num_codes=4)
+        )
+        accumulator.add_loss_output(
+            vq_loss_output_factory(code_indices=second_batch_indices, num_codes=4)
+        )
+
+        metrics = accumulator.compute_vq_codebook_metrics()
+        probabilities = torch.tensor([0.25, 0.25, 0.125, 0.375])
+        expected_entropy = -float((probabilities * torch.log(probabilities)).sum())
+        expected_entropy_ratio = expected_entropy / math.log(4)
+
+        assert metrics[MetricKey.VQ_CODEBOOK_USAGE.value] == pytest.approx(1.0)
+        assert metrics[MetricKey.VQ_CODEBOOK_ENTROPY.value] == pytest.approx(
+            expected_entropy
+        )
+        assert metrics[MetricKey.VQ_CODEBOOK_ENTROPY_RATIO.value] == pytest.approx(
+            expected_entropy_ratio
+        )
+        assert metrics[MetricKey.VQ_CODEBOOK_PERPLEXITY.value] == pytest.approx(
+            math.exp(expected_entropy)
+        )
+        assert metrics[MetricKey.VQ_CODEBOOK_MAX_FREQUENCY.value] == pytest.approx(
+            0.375
+        )
+        assert metrics[MetricKey.VQ_CODEBOOK_DEAD_CODES.value] == pytest.approx(0.0)
+        assert metrics["vq_codebook/layer_0/code_0_frequency"] == pytest.approx(0.25)
+        assert metrics["vq_codebook/layer_0/code_1_frequency"] == pytest.approx(0.25)
+        assert metrics["vq_codebook/layer_0/code_2_frequency"] == pytest.approx(0.125)
+        assert metrics["vq_codebook/layer_0/code_3_frequency"] == pytest.approx(0.375)
+
+    def test_averages_metrics_over_residual_layers(
+        self,
+        vq_loss_output_factory: Callable[..., LossOutput],
+    ) -> None:
+        accumulator = MetricsAccumulator()
+        code_indices = torch.tensor(
+            [
+                [0, 1, 2, 3],
+                [0, 0, 0, 0],
+            ]
+        )
+        accumulator.add_loss_output(
+            vq_loss_output_factory(code_indices=code_indices, num_codes=4)
+        )
+
+        metrics = accumulator.compute_vq_codebook_metrics()
+
+        assert metrics[MetricKey.VQ_CODEBOOK_USAGE.value] == pytest.approx(0.625)
+        assert metrics[MetricKey.VQ_CODEBOOK_ENTROPY_RATIO.value] == pytest.approx(0.5)
+        assert metrics[MetricKey.VQ_CODEBOOK_DEAD_CODES.value] == pytest.approx(1.5)
+        assert metrics["vq_codebook/layer_0/usage_ratio"] == pytest.approx(1.0)
+        assert metrics["vq_codebook/layer_1/usage_ratio"] == pytest.approx(0.25)
+        assert metrics["vq_codebook/layer_1/dead_codes"] == pytest.approx(3.0)
+
+
+@pytest.mark.unit
 class TestMetricsAccumulatorToDict:
     def test_includes_averaged_and_phase_and_latent_metrics(
         self, phase_loss_output_factory, latent_loss_output_factory
@@ -485,6 +574,18 @@ class TestMetricsAccumulatorToDict:
         assert MetricKey.TOTAL_LOSS.value in result
         assert MetricKey.PHASE_ACCURACY.value in result
         assert "posterior_mu_mean" in result
+
+    def test_includes_vq_codebook_metrics(
+        self,
+        vq_loss_output_factory: Callable[..., LossOutput],
+    ) -> None:
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(
+            vq_loss_output_factory(code_indices=torch.tensor([[0, 1, 2, 3]]))
+        )
+        result = accumulator.to_dict()
+        assert MetricKey.VQ_CODEBOOK_USAGE.value in result
+        assert MetricKey.VQ_CODEBOOK_ENTROPY_RATIO.value in result
 
 
 @pytest.mark.unit

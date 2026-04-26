@@ -2237,6 +2237,16 @@ class VQCommitmentLoss(ScalarWeightedLoss):
             metadata[MetricKey.VQ_CODEBOOK_USAGE.value] = (
                 unique_codes_total / codebook_capacity
             )
+            metadata[MetadataKey.VQ_CODE_INDICES.value] = torch.stack(
+                [
+                    layer_indices.long() for layer_indices in posterior_indices
+                ],  # list[L] of (B,)
+                dim=0,
+            )  # (L, B)
+            metadata[MetadataKey.VQ_NUM_CODES.value] = torch.tensor(
+                self.num_codes,
+                device=z_continuous.device,
+            )  # ()
 
         return LossOutput(
             total_loss=self.weight * commitment_loss,

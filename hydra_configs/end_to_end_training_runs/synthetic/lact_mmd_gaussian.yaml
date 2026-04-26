@@ -51,6 +51,8 @@ policy:
     number_of_heads: 8
     feedforward_dimension: 512
     number_of_layers: 4
+    dropout_rate: 0.2
+    attention_dropout: 0.1
   algorithm:
     posterior_decoder_noise_std: 0.135
     posterior_encoder:
@@ -59,7 +61,7 @@ policy:
       number_of_heads: 8
       feedforward_dimension: 512
       number_of_encoder_layers: 4
-      dropout_rate: 0.0
+      dropout_rate: 0.2
       device: ${policy.device}
       deterministic: true
     prior:

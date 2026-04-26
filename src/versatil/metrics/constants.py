@@ -56,6 +56,11 @@ class MetricKey(StrEnum):
     POSTERIOR_GEOMETRY_COVARIANCE_LOSS = "posterior_geometry_covariance_loss"
     VQ_COMMITMENT_LOSS = "vq_commitment_loss"
     VQ_CODEBOOK_USAGE = "vq_codebook_usage"
+    VQ_CODEBOOK_ENTROPY = "vq_codebook_entropy"
+    VQ_CODEBOOK_ENTROPY_RATIO = "vq_codebook_entropy_ratio"
+    VQ_CODEBOOK_PERPLEXITY = "vq_codebook_perplexity"
+    VQ_CODEBOOK_MAX_FREQUENCY = "vq_codebook_max_frequency"
+    VQ_CODEBOOK_DEAD_CODES = "vq_codebook_dead_codes"
     VQ_PRIOR_CROSS_ENTROPY = "vq_prior_cross_entropy"
 
 
@@ -100,3 +105,5 @@ class MetadataKey(StrEnum):
     PRIOR_MU = "prior_mu"
     PRIOR_LOGVAR = "prior_logvar"
     HYPERPRIOR_Z = "hyperprior_z"
+    VQ_CODE_INDICES = "vq_code_indices"
+    VQ_NUM_CODES = "vq_num_codes"
