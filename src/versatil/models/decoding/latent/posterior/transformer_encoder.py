@@ -16,6 +16,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 )
 from versatil.models.decoding.latent.reparametrize import reparametrize
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -201,13 +202,17 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         else:
             input_observations = {}
 
-        for action in actions:
-            input_observations[action] = (
-                actions[action].to(self.cls_token.weight.device).float()
-            )
+        action_feature_keys = []
+        for action_key, action_tensor in actions.items():
+            if action_key == SampleKey.IS_PAD_ACTION.value:
+                continue
+            input_observations[action_key] = action_tensor.to(
+                self.cls_token.weight.device
+            ).float()
+            action_feature_keys.append(action_key)
 
         batch_size = list(input_observations.values())[0].size(0)
-        is_pad = input_observations.get(SampleKey.IS_PAD_ACTION.value)
+        is_pad = actions.get(SampleKey.IS_PAD_ACTION.value)
         if is_pad is None:
             logging.warning("No padding key found in actions; assuming no padding.")
             is_pad = torch.zeros(
@@ -217,6 +222,15 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
                 device=self.cls_token.weight.device,
             )
             input_observations[SampleKey.IS_PAD_ACTION.value] = is_pad
+        else:
+            is_pad = is_pad.to(device=self.cls_token.weight.device, dtype=torch.bool)
+            input_observations[SampleKey.IS_PAD_ACTION.value] = is_pad
+
+        for action_key in action_feature_keys:
+            input_observations[
+                f"{action_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+            ] = is_pad
+
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)

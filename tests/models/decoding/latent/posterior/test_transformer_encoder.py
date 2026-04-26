@@ -15,6 +15,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 from versatil.models.decoding.latent.posterior.transformer_encoder import (
     VAETransformerEncoder,
 )
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
 @pytest.fixture
@@ -370,6 +371,36 @@ class TestVAETransformerEncoderEncode:
         assert captured_observations[pad_key].shape == (2, prediction_horizon)
         assert not captured_observations[pad_key].any()
         assert "No padding key found in actions" in caplog.text
+
+    def test_encode_attaches_padding_mask_per_action_feature(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        action_key = "proprio_robot_frame"
+        encoder = vae_encoder_factory(deterministic=False)
+        actions = action_dictionary_factory(
+            prediction_horizon=8,
+            action_keys=[action_key],
+        )
+        features = feature_dictionary_factory()
+        builder = encoder.input_sequence_builder
+        original_forward = builder.forward
+        captured_observations = {}
+
+        def capturing_forward(observations):
+            captured_observations.update(observations)
+            return original_forward(observations)
+
+        builder.forward = capturing_forward
+        encoder.encode(actions=actions, observations=features)
+        padding_key = f"{action_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        assert padding_key in captured_observations
+        assert torch.equal(
+            captured_observations[padding_key],
+            actions[SampleKey.IS_PAD_ACTION.value],
+        )
 
 
 class TestVAETransformerEncoderForward:
