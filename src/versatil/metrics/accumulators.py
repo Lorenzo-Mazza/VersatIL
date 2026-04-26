@@ -1,5 +1,6 @@
 """Metrics accumulator for tracking training and validation metrics."""
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -273,6 +274,97 @@ class MetricsAccumulator:
 
         return stats
 
+    def compute_vq_codebook_metrics(self) -> dict[str, float]:
+        """Compute VQ posterior code usage metrics from hard assignments.
+
+        Aggregates posterior code indices over an epoch. The global metrics are
+        averaged over residual VQ layers; per-layer code frequencies are emitted
+        separately to make single-code collapse visible in W&B scalar plots.
+        """
+        indices_key = MetadataKey.VQ_CODE_INDICES.value
+        num_codes_key = MetadataKey.VQ_NUM_CODES.value
+        if indices_key not in self.metadata or num_codes_key not in self.metadata:
+            return {}
+
+        stored_indices = self.metadata[indices_key]
+        stored_num_codes = self.metadata[num_codes_key]
+        if not isinstance(stored_indices, list) or not isinstance(
+            stored_num_codes, list
+        ):
+            return {}
+
+        code_indices = torch.cat(stored_indices, dim=1).long()  # (L, total_samples)
+        num_codes_per_batch = torch.stack(stored_num_codes).flatten()  # (num_batches,)
+        num_codes = int(num_codes_per_batch[0].item())
+        num_layers = code_indices.shape[0]
+        max_entropy = math.log(num_codes) if num_codes > 1 else 0.0
+
+        metrics: dict[str, float] = {}
+        usage_ratios = []
+        entropies = []
+        entropy_ratios = []
+        perplexities = []
+        max_frequencies = []
+        dead_codes = []
+
+        for layer_index in range(num_layers):
+            layer_indices = code_indices[layer_index]  # (total_samples,)
+            counts = torch.bincount(layer_indices, minlength=num_codes)[
+                :num_codes
+            ]  # (K,)
+            probabilities = counts.float() / counts.sum().clamp(min=1)  # (K,)
+            nonzero_probabilities = probabilities[probabilities > 0]
+            entropy = -(nonzero_probabilities * torch.log(nonzero_probabilities)).sum()
+            entropy_ratio = entropy / max_entropy if max_entropy > 0.0 else entropy
+            perplexity = torch.exp(entropy)
+            usage_ratio = (counts > 0).float().mean()
+            max_frequency = probabilities.max()
+            dead_code_count = (counts == 0).sum().float()
+
+            usage_ratios.append(usage_ratio)
+            entropies.append(entropy)
+            entropy_ratios.append(entropy_ratio)
+            perplexities.append(perplexity)
+            max_frequencies.append(max_frequency)
+            dead_codes.append(dead_code_count)
+
+            layer_prefix = f"vq_codebook/layer_{layer_index}"
+            metrics[f"{layer_prefix}/usage_ratio"] = float(usage_ratio.item())
+            metrics[f"{layer_prefix}/entropy"] = float(entropy.item())
+            metrics[f"{layer_prefix}/entropy_ratio"] = float(entropy_ratio.item())
+            metrics[f"{layer_prefix}/perplexity"] = float(perplexity.item())
+            metrics[f"{layer_prefix}/max_frequency"] = float(max_frequency.item())
+            metrics[f"{layer_prefix}/dead_codes"] = float(dead_code_count.item())
+            for code_index, probability in enumerate(probabilities):
+                metrics[f"{layer_prefix}/code_{code_index}_frequency"] = float(
+                    probability.item()
+                )
+
+        usage_tensor = torch.stack(usage_ratios)  # (L,)
+        entropy_tensor = torch.stack(entropies)  # (L,)
+        entropy_ratio_tensor = torch.stack(entropy_ratios)  # (L,)
+        perplexity_tensor = torch.stack(perplexities)  # (L,)
+        max_frequency_tensor = torch.stack(max_frequencies)  # (L,)
+        dead_code_tensor = torch.stack(dead_codes)  # (L,)
+
+        metrics[MetricKey.VQ_CODEBOOK_USAGE.value] = float(usage_tensor.mean().item())
+        metrics[MetricKey.VQ_CODEBOOK_ENTROPY.value] = float(
+            entropy_tensor.mean().item()
+        )
+        metrics[MetricKey.VQ_CODEBOOK_ENTROPY_RATIO.value] = float(
+            entropy_ratio_tensor.mean().item()
+        )
+        metrics[MetricKey.VQ_CODEBOOK_PERPLEXITY.value] = float(
+            perplexity_tensor.mean().item()
+        )
+        metrics[MetricKey.VQ_CODEBOOK_MAX_FREQUENCY.value] = float(
+            max_frequency_tensor.mean().item()
+        )
+        metrics[MetricKey.VQ_CODEBOOK_DEAD_CODES.value] = float(
+            dead_code_tensor.mean().item()
+        )
+        return metrics
+
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary of averaged metrics.
 
@@ -286,6 +378,9 @@ class MetricsAccumulator:
         latent_stats = self.compute_latent_statistics()
         if latent_stats:
             metrics.update(latent_stats)
+        vq_codebook_metrics = self.compute_vq_codebook_metrics()
+        if vq_codebook_metrics:
+            metrics.update(vq_codebook_metrics)
         return metrics
 
     def reset(self):
