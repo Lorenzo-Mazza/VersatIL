@@ -12,7 +12,6 @@ from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.lact import LACT
-from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
@@ -184,7 +183,7 @@ class TestLACTInitialization:
         lact_decoder_factory: Callable[..., LACT],
     ):
         decoder = lact_decoder_factory()
-        assert FeatureType.SPATIAL.value in decoder.decoder_input.required_types
+        assert decoder.decoder_input.required_types == []
         assert decoder.decoder_input.requires_actions is False
         assert (
             decoder.decoder_input.conditioning_key == LatentKey.POSTERIOR_LATENT.value
@@ -235,6 +234,29 @@ class TestLACTForward:
     ):
         decoder = lact_decoder_factory()
         features = spatial_features_with_latent_factory()
+        output = decoder(features=features)
+        for action_key in decoder.action_heads:
+            expected_dim = decoder.action_heads[action_key].output_dim
+            assert output[action_key].shape == (
+                BATCH_SIZE,
+                PREDICTION_HORIZON,
+                expected_dim,
+            )
+
+    def test_accepts_flat_observation_features(
+        self,
+        lact_decoder_factory: Callable[..., LACT],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = lact_decoder_factory(input_keys=["robot_state_proprio"])
+        features = flat_feature_factory(
+            batch_size=BATCH_SIZE,
+            feature_dim=SPATIAL_CHANNELS,
+            feature_keys=["robot_state_proprio"],
+        )
+        features[LatentKey.POSTERIOR_LATENT.value] = torch.zeros(
+            BATCH_SIZE, LATENT_DIMENSION
+        )
         output = decoder(features=features)
         for action_key in decoder.action_heads:
             expected_dim = decoder.action_heads[action_key].output_dim

@@ -11,7 +11,6 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -85,7 +84,7 @@ class LACT(ActionDecoder):
         """
         decoder_input = DecoderInput(
             keys=input_keys,
-            required_types=[FeatureType.SPATIAL.value],
+            required_types=[],
             requires_actions=False,
             conditioning_key=LatentKey.POSTERIOR_LATENT.value,
             conditioning_required=[LatentKey.POSTERIOR_LATENT.value],
