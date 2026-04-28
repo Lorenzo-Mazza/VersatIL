@@ -6,7 +6,7 @@ _target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
 dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:multimodal_peg_transfer/dataset.zarr}
 dataset_folders:
-  - /mnt/nct-zfs/TCO-Test/datasets/robotics_multimodality/pick_place
+  - ${multimodal_peg_transfer_dir:}
 use_rectified_images: false
 rgb_image_crops:
   ${cameras:LEFT}:

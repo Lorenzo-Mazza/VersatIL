@@ -596,6 +596,14 @@ def register_resolvers():
                 / subpath
             ),
         )
+    if not OmegaConf.has_resolver("multimodal_peg_transfer_dir"):
+        OmegaConf.register_new_resolver(
+            "multimodal_peg_transfer_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR", "."))
+                / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("prunable_layer"):
         OmegaConf.register_new_resolver(
             "prunable_layer",

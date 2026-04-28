@@ -208,6 +208,22 @@ class TestPathResolvers:
             cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
             assert cfg.dir == str(Path("/models/pretrained") / "resnet")
 
+    def test_multimodal_peg_transfer_dir_resolver_uses_env_variable(self):
+        with patch.dict(
+            os.environ,
+            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
+        ):
+            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:}"})
+            assert cfg.dir == "/data/multimodal_peg_transfer"
+
+    def test_multimodal_peg_transfer_dir_resolver_appends_subpath(self):
+        with patch.dict(
+            os.environ,
+            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
+        ):
+            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:session_1}"})
+            assert cfg.dir == str(Path("/data/multimodal_peg_transfer") / "session_1")
+
 
 @pytest.mark.unit
 class TestNumericResolvers:
