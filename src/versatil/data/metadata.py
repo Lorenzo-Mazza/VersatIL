@@ -507,6 +507,7 @@ class PositionActionMetadata(PrecomputedActionMetadata):
         dtype: str,
         slice_start: int | None = None,
         slice_end: int | None = None,
+        computation_method: str | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -521,14 +522,27 @@ class PositionActionMetadata(PrecomputedActionMetadata):
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
             raise ValueError(f"frame must be one of {valid_frames}, got '{frame}'")
+        if computation_method is not None:
+            valid_methods = [e.value for e in ActionComputationMethod]
+            if computation_method not in valid_methods:
+                raise ValueError(
+                    "computation_method must be one of "
+                    f"{valid_methods}, got '{computation_method}'"
+                )
         self.frame = frame
+        self.computation_method = computation_method
         self.action_type = ProprioceptiveType.POSITION.value
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
         if not isinstance(other, PositionActionMetadata):
             return NotImplemented
-        return super().__eq__(other) and self.frame == other.frame
+        return (
+            super().__eq__(other)
+            and self.frame == other.frame
+            and getattr(self, "computation_method", None)
+            == getattr(other, "computation_method", None)
+        )
 
 
 class OrientationActionMetadata(PrecomputedActionMetadata):

@@ -127,7 +127,10 @@ class ActionPostprocessor:
         action_meta: ActionMetadata, entry: dict[str, str | int]
     ) -> None:
         """Add action computation method (delta or next_timestep) to metadata."""
-        if isinstance(action_meta, OnTheFlyActionMetadata):
+        if isinstance(action_meta, OnTheFlyActionMetadata) or (
+            isinstance(action_meta, PositionActionMetadata)
+            and action_meta.computation_method is not None
+        ):
             entry[ActionMetadataField.ACTION_TYPE.value] = (
                 action_meta.computation_method
             )

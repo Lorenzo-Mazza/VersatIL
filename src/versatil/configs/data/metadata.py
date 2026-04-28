@@ -109,6 +109,7 @@ class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
 
     _target_: str = "versatil.data.metadata.PositionActionMetadata"
     frame: str = MISSING
+    computation_method: str | None = None
 
 
 @dataclass

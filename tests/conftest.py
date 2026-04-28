@@ -395,6 +395,7 @@ def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
         dtype: str = "float32",
         slice_start: int = None,
         slice_end: int = None,
+        computation_method: str = None,
     ) -> PositionActionMetadata:
         if raw_data_column_keys is None:
             raw_data_column_keys = ["x", "y", "z"][:prediction_dimension]
@@ -407,6 +408,7 @@ def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
             dtype=dtype,
             slice_start=slice_start,
             slice_end=slice_end,
+            computation_method=computation_method,
         )
 
     return factory

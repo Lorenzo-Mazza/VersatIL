@@ -14,4 +14,4 @@ actions_metadata:
     storage_dimension: 2
     prediction_dimension: 2
     needs_normalization: true
-    computation_method: ${action_computation:DELTA}
+    computation_method: ${action_computation:NEXT_TIMESTEP}

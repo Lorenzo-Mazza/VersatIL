@@ -1,0 +1,82 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: multimodal_peg_transfer
+  - /task/dataloader: bowel_retraction
+  - /task/action_space: deltas_robot_pos_gripper
+  - /task/observation_space: stereo_rgb_270
+  - /training: default
+  - /policy/encoding_pipeline: stereo_rgb
+  - /policy/decoder: action_transformer
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: regression_gripper
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: robot_pos_gripper
+  - _self_
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:multimodal_peg_transfer}
+  checkpoint_every: 100
+  use_wandb: true
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 60
+  dataloader:
+    batch_size: 64
+    num_workers: 16
+    val_ratio: 0.0
+    preload_data_in_memory: true
+    trailing_padded_actions: 0
+
+training:
+  num_epochs: 1000
+  early_stopping_patience: null
+  clip_gradient_norm: false
+  lr_schedule: null
+  use_ema: true
+  optimizer:
+    lr: 5.0e-4
+    param_groups:
+      - name: backbone
+        lr: 1.0e-5
+        weight_decay: 1.0e-3
+        params_pattern: encoding_pipeline.encoders.*.backbone
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:ROBOT_FRAME_CARTESIAN_TIP_POS}
+        mse_weight: 0.0
+        l1_weight: 1.0
+        huber_weight: 0.0
+      gripper_loss:
+        key: ${proprio_key:GRIPPER_STATE}
+      trajectory_length:
+        weight: 0.0
+        action_key: ${proprio_key:ROBOT_FRAME_CARTESIAN_TIP_POS}
+
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+    embedding_dimension: 256
+    number_of_heads: 8
+    feedforward_dimension: 1024
+    number_of_layers: 8
+    dropout_rate: 0.1
+    attention_dropout: 0.01

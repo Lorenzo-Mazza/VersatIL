@@ -9,7 +9,7 @@ defaults:
   - /experiment: default
   - /task/dataset_schema: block_pushing_abs
   - /task/dataloader: block_pushing_state
-  - /task/action_space: block_pushing_precomputed
+  - /task/action_space: block_pushing_abs_precomputed
   - /task/observation_space: block_pushing_state
   - /training: ema
   - /policy/encoding_pipeline: block_pushing_state

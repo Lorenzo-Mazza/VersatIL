@@ -818,6 +818,29 @@ class TestPositionActionMetadata:
                 dtype="float32",
             )
 
+    @pytest.mark.parametrize(
+        "method, expectation",
+        [(member.value, does_not_raise()) for member in ActionComputationMethod]
+        + [
+            (
+                "velocity",
+                pytest.raises(ValueError, match="computation_method must be one of"),
+            ),
+            (None, does_not_raise()),
+        ],
+    )
+    def test_computation_method_validation(self, method, expectation):
+        with expectation:
+            PositionActionMetadata(
+                frame=CoordinateSystem.ROBOT_BASE.value,
+                raw_data_column_keys=["x", "y"],
+                storage_dimension=2,
+                prediction_dimension=2,
+                needs_normalization=True,
+                dtype="float32",
+                computation_method=method,
+            )
+
     def test_sets_action_type_to_position(self):
         metadata = PositionActionMetadata(
             frame=CoordinateSystem.ROBOT_BASE.value,
@@ -847,6 +870,47 @@ class TestPositionActionMetadata:
             dtype="float32",
         )
         assert robot != camera
+
+    def test_equality_includes_computation_method(self):
+        delta = PositionActionMetadata(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+            raw_data_column_keys=["x", "y"],
+            storage_dimension=2,
+            prediction_dimension=2,
+            needs_normalization=True,
+            dtype="float32",
+            computation_method=ActionComputationMethod.DELTA.value,
+        )
+        next_timestep = PositionActionMetadata(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+            raw_data_column_keys=["x", "y"],
+            storage_dimension=2,
+            prediction_dimension=2,
+            needs_normalization=True,
+            dtype="float32",
+            computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+        )
+        assert delta != next_timestep
+
+    def test_equality_treats_missing_computation_method_as_none(self):
+        current = PositionActionMetadata(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+            raw_data_column_keys=["x", "y"],
+            storage_dimension=2,
+            prediction_dimension=2,
+            needs_normalization=True,
+            dtype="float32",
+        )
+        legacy = PositionActionMetadata(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+            raw_data_column_keys=["x", "y"],
+            storage_dimension=2,
+            prediction_dimension=2,
+            needs_normalization=True,
+            dtype="float32",
+        )
+        del legacy.computation_method
+        assert current == legacy
 
 
 class TestOrientationActionMetadata:

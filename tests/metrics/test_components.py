@@ -2309,6 +2309,8 @@ class TestVQCommitmentLoss:
             targets={},
         )
         assert MetricKey.VQ_CODEBOOK_USAGE.value in result.metadata
+        assert MetadataKey.VQ_CODE_INDICES.value in result.metadata
+        assert MetadataKey.VQ_NUM_CODES.value in result.metadata
 
     @pytest.mark.unit
     def test_codebook_usage_uses_k_times_l_denominator(self) -> None:

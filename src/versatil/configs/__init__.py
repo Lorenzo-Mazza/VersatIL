@@ -162,6 +162,7 @@ from versatil.configs.training import (
     TrainingStageConfig,
 )
 from versatil.data.constants import (
+    ActionComputationMethod,
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
@@ -336,6 +337,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("orientation"):
         OmegaConf.register_new_resolver(
             "orientation", lambda name: OrientationRepresentation[name].value
+        )
+    if not OmegaConf.has_resolver("action_computation"):
+        OmegaConf.register_new_resolver(
+            "action_computation", lambda name: ActionComputationMethod[name].value
         )
     if not OmegaConf.has_resolver("rgb_backbone"):
         OmegaConf.register_new_resolver(
