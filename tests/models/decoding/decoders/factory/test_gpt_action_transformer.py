@@ -643,17 +643,26 @@ class TestGPTActionTransformerForward:
         decoder.eval()
         eos_token_id = tokenizer.action_tokenizer.eos_token_id
         head = decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
-        with torch.no_grad():
-            head.output_proj.weight.data.zero_()
-            # Set EOS embedding row to large value so dot product with any input strongly favors EOS
-            head.output_proj.weight.data[eos_token_id] = 100.0
+        eos_logits = torch.full(
+            (BATCH_SIZE, 1, tokenizer.action_tokenizer.vocab_size),
+            fill_value=-100.0,
+        )
+        eos_logits[:, :, eos_token_id] = 100.0
         features = flat_feature_factory(
             batch_size=BATCH_SIZE,
             feature_dim=EMBEDDING_DIMENSION,
         )
-        with torch.no_grad():
+        with (
+            torch.no_grad(),
+            unittest.mock.patch.object(
+                head,
+                "forward",
+                return_value=eos_logits,
+            ) as head_forward_mock,
+        ):
             predictions = decoder(features=features, actions=None)
         tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        head_forward_mock.assert_called_once()
         assert tokens.shape[1] == 1
         assert (tokens == eos_token_id).all()
 

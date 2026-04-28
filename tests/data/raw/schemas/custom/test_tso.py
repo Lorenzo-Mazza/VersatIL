@@ -1,5 +1,6 @@
-"""Tests for versatil.data.raw.schemas.custom.bowel_retraction module."""
+"""Tests for versatil.data.raw.schemas.custom.tso module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import patch
 
@@ -27,28 +28,27 @@ from versatil.data.metadata import (
     PositionObservationMetadata,
     PrecomputedActionMetadata,
 )
-from versatil.data.raw.schemas.custom.bowel_retraction import (
-    BOWEL_RETRACTION_EPISODE_FILENAME,
-    BOWEL_RETRACTION_GRIPPER_COL,
-    BOWEL_RETRACTION_LANGUAGE_COL,
-    BOWEL_RETRACTION_LEFT_IMAGE_KEY,
-    BOWEL_RETRACTION_PHASE_COL,
-    BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY,
-    BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY,
-    BOWEL_RETRACTION_RIGHT_IMAGE_KEY,
-    BowelRetractionSchema,
+from versatil.data.raw.schemas.custom.tso import (
+    TSO_EPISODE_FILENAME,
+    TSO_GRIPPER_COL,
+    TSO_LANGUAGE_COL,
+    TSO_LEFT_IMAGE_KEY,
+    TSO_PHASE_COL,
+    TSO_RECTIFIED_LEFT_IMAGE_KEY,
+    TSO_RECTIFIED_RIGHT_IMAGE_KEY,
+    TSO_RIGHT_IMAGE_KEY,
+    TSODatasetSchema,
 )
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
 
 @pytest.fixture
-def valid_bowel_retraction_metadata(
+def valid_tso_metadata(
     camera_metadata_factory: Callable[..., CameraMetadata],
     position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
     gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
     dataset_metadata_factory: Callable[..., DatasetMetadata],
 ) -> DatasetMetadata:
-    """Minimal valid metadata that passes BowelRetraction validation."""
     observations = {
         Cameras.LEFT.value: camera_metadata_factory(
             camera_key=Cameras.LEFT.value,
@@ -67,83 +67,89 @@ def valid_bowel_retraction_metadata(
             gripper_type=GripperType.BINARY.value,
             binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
             dimension=1,
-            raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+            raw_data_column_keys=[TSO_GRIPPER_COL],
         ),
     }
     return dataset_metadata_factory(observations=observations, precomputed_actions={})
 
 
-class TestBowelRetractionSchemaInit:
+class TestTSODatasetSchemaInit:
     def test_wrong_dataset_type_raises(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        with pytest.raises(ValueError, match="only supports dataset_type"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema only supports dataset_type='tso', got 'wrong_type'"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
-                metadata=valid_bowel_retraction_metadata,
+                metadata=valid_tso_metadata,
                 dataset_type="wrong_type",
             )
 
     def test_valid_init_with_minimal_metadata(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
 
         assert schema.zarr_path == "/tmp/test.zarr"
-        assert schema.metadata is valid_bowel_retraction_metadata
+        assert schema.metadata is valid_tso_metadata
         assert schema.dataset_type == DatasetType.TSO.value
 
     def test_sets_episode_filename(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
 
-        assert schema.dataset_filename == BOWEL_RETRACTION_EPISODE_FILENAME
+        assert schema.dataset_filename == TSO_EPISODE_FILENAME
 
-    def test_sets_use_rectified_images_true(
+    @pytest.mark.parametrize("use_rectified_images", [True, False])
+    def test_stores_use_rectified_images(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        use_rectified_images: bool,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
+            use_rectified_images=use_rectified_images,
         )
 
-        assert schema.use_rectified_images is True
+        assert schema.use_rectified_images is use_rectified_images
 
     def test_stores_dataset_folders(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
         folders = ["/data/ep1", "/data/ep2"]
 
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=folders,
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
 
         assert schema.dataset_folders == folders
 
 
-class TestBowelRetractionValidateMetadata:
+class TestTSOValidateMetadata:
     def test_invalid_camera_key_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
@@ -170,15 +176,20 @@ class TestBowelRetractionValidateMetadata:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="Invalid cameras"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - Invalid cameras for TSODatasetSchema: ['eye_in_hand_rgb']. "
+            "Allowed cameras: ['depth', 'left', 'right']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -215,15 +226,19 @@ class TestBowelRetractionValidateMetadata:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="Missing"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            f"  - TSODatasetSchema requires stereo cameras. Missing: ['{missing_camera.value}']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -253,15 +268,21 @@ class TestBowelRetractionValidateMetadata:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="Invalid proprioceptive"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - Invalid proprioceptive observation keys: ['invalid_proprio']. "
+            "TSODatasetSchema requires keys from: "
+            "['proprio_camera_frame', 'proprio_robot_frame']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -307,15 +328,24 @@ class TestBowelRetractionValidateMetadata:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="must have frame"):
-            BowelRetractionSchema(
+        expected_frame = (
+            CoordinateSystem.ROBOT_BASE.value
+            if proprio_key == ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+            else CoordinateSystem.CAMERA.value
+        )
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            f"  - '{proprio_key}' must have frame='{expected_frame}', got: '{wrong_frame}'"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -359,14 +389,14 @@ class TestBowelRetractionValidateMetadata:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
             metadata=metadata,
@@ -402,15 +432,19 @@ class TestBowelRetractionValidateMetadata:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="does not support orientation"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - TSODatasetSchema does not support orientation proprioceptive observations."
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -439,15 +473,19 @@ class TestBowelRetractionValidateMetadata:
             ProprioKey.GRIPPER_STATE.value: gripper_observation_metadata_factory(
                 gripper_type=GripperType.CONTINUOUS.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="binary gripper"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - TSODatasetSchema requires binary gripper, got: continuous"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -484,8 +522,13 @@ class TestBowelRetractionValidateMetadata:
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="gripper source column"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - TSODatasetSchema requires gripper source column to be open, "
+            "got: ['wrong_column']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -494,7 +537,7 @@ class TestBowelRetractionValidateMetadata:
 
     def test_custom_observation_without_language_key_logs_warning(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         custom_observation = ObservationMetadata(
@@ -505,16 +548,14 @@ class TestBowelRetractionValidateMetadata:
             needs_normalization=False,
         )
         # Rebuild metadata adding a custom obs to the existing valid observations
-        observations = dict(valid_bowel_retraction_metadata.observations)
+        observations = dict(valid_tso_metadata.observations)
         observations["some_custom"] = custom_observation
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with patch(
-            "versatil.data.raw.schemas.custom.bowel_retraction.logging"
-        ) as mock_logging:
-            BowelRetractionSchema(
+        with patch("versatil.data.raw.schemas.custom.tso.logging") as mock_logging:
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -525,7 +566,7 @@ class TestBowelRetractionValidateMetadata:
 
     def test_language_observation_with_wrong_column_raises(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         language_observation = ObservationMetadata(
@@ -535,14 +576,19 @@ class TestBowelRetractionValidateMetadata:
             is_numerical=False,
             needs_normalization=False,
         )
-        observations = dict(valid_bowel_retraction_metadata.observations)
+        observations = dict(valid_tso_metadata.observations)
         observations[ObsKey.LANGUAGE.value] = language_observation
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError, match="language source column"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - TSODatasetSchema requires language source column to be language, "
+            "got: ['wrong_language_col']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -551,23 +597,23 @@ class TestBowelRetractionValidateMetadata:
 
     def test_language_observation_with_correct_column_succeeds(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         language_observation = ObservationMetadata(
-            raw_data_column_keys=[BOWEL_RETRACTION_LANGUAGE_COL],
+            raw_data_column_keys=[TSO_LANGUAGE_COL],
             dimension=1,
             dtype="str",
             is_numerical=False,
             needs_normalization=False,
         )
-        observations = dict(valid_bowel_retraction_metadata.observations)
+        observations = dict(valid_tso_metadata.observations)
         observations[ObsKey.LANGUAGE.value] = language_observation
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
 
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
             metadata=metadata,
@@ -578,7 +624,7 @@ class TestBowelRetractionValidateMetadata:
 
     def test_custom_action_without_phase_label_logs_warning(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -589,14 +635,12 @@ class TestBowelRetractionValidateMetadata:
             ),
         }
         metadata = dataset_metadata_factory(
-            observations=dict(valid_bowel_retraction_metadata.observations),
+            observations=dict(valid_tso_metadata.observations),
             precomputed_actions=actions,
         )
 
-        with patch(
-            "versatil.data.raw.schemas.custom.bowel_retraction.logging"
-        ) as mock_logging:
-            BowelRetractionSchema(
+        with patch("versatil.data.raw.schemas.custom.tso.logging") as mock_logging:
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -607,7 +651,7 @@ class TestBowelRetractionValidateMetadata:
 
     def test_phase_label_action_with_wrong_column_raises(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -619,12 +663,17 @@ class TestBowelRetractionValidateMetadata:
             ),
         }
         metadata = dataset_metadata_factory(
-            observations=dict(valid_bowel_retraction_metadata.observations),
+            observations=dict(valid_tso_metadata.observations),
             precomputed_actions=actions,
         )
 
-        with pytest.raises(ValueError, match="phase label source column"):
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - TSODatasetSchema requires phase label source column to be task_phase, "
+            "got: ['wrong_phase_col']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
@@ -633,7 +682,7 @@ class TestBowelRetractionValidateMetadata:
 
     def test_phase_label_action_with_correct_column_succeeds(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -641,15 +690,15 @@ class TestBowelRetractionValidateMetadata:
             TSOObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
                 storage_dimension=1,
                 prediction_dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_PHASE_COL],
+                raw_data_column_keys=[TSO_PHASE_COL],
             ),
         }
         metadata = dataset_metadata_factory(
-            observations=dict(valid_bowel_retraction_metadata.observations),
+            observations=dict(valid_tso_metadata.observations),
             precomputed_actions=actions,
         )
 
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
             metadata=metadata,
@@ -678,54 +727,194 @@ class TestBowelRetractionValidateMetadata:
             observations=observations, precomputed_actions={}
         )
 
-        with pytest.raises(ValueError) as exc_info:
-            BowelRetractionSchema(
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            "  - TSODatasetSchema requires stereo cameras. Missing: ['right']\n"
+            "  - TSODatasetSchema requires binary gripper, got: continuous\n"
+            "  - TSODatasetSchema requires gripper source column to be open, "
+            "got: ['wrong']"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
                 dataset_folders=["/data/ep1"],
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
                 dataset_type=DatasetType.TSO.value,
             )
 
-        error_message = str(exc_info.value)
-        assert error_message.count("  - ") >= 2
-
     def test_no_custom_observations_skips_language_validation(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
 
-        assert valid_bowel_retraction_metadata.custom_observations == {}
-        assert schema.metadata is valid_bowel_retraction_metadata
+        assert valid_tso_metadata.custom_observations == {}
+        assert schema.metadata is valid_tso_metadata
 
     def test_no_custom_actions_skips_phase_validation(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
 
-        assert valid_bowel_retraction_metadata.custom_actions == {}
-        assert schema.metadata is valid_bowel_retraction_metadata
+        assert valid_tso_metadata.custom_actions == {}
+        assert schema.metadata is valid_tso_metadata
 
 
-class TestBowelRetractionExtractEpisode:
+class TestTSOImageCrops:
+    def test_resolves_interpolated_camera_crop_keys(
+        self,
+        valid_tso_metadata: DatasetMetadata,
+    ):
+        crop_params = {"x_min": 1, "y_min": 2, "x_max": 11, "y_max": 12}
+
+        schema = TSODatasetSchema(
+            dataset_folders=["/data/ep1"],
+            zarr_path="/tmp/test.zarr",
+            metadata=valid_tso_metadata,
+            dataset_type=DatasetType.TSO.value,
+            rgb_image_crops={"${cameras:LEFT}": crop_params},
+        )
+
+        assert schema.rgb_image_crops == {Cameras.LEFT.value: crop_params}
+
+    @pytest.mark.parametrize(
+        "crop_params, expected_message",
+        [
+            (
+                {"x_min": 0, "y_min": 0, "x_max": 10},
+                "Crop for camera 'left' must contain exactly "
+                "['x_max', 'x_min', 'y_max', 'y_min']. "
+                "Missing=['y_max'], extra=[]",
+            ),
+            (
+                {"x_min": 0, "y_min": 0, "x_max": 10, "y_max": 10, "padding": 1},
+                "Crop for camera 'left' must contain exactly "
+                "['x_max', 'x_min', 'y_max', 'y_min']. "
+                "Missing=[], extra=['padding']",
+            ),
+            (
+                {"x_min": -1, "y_min": 0, "x_max": 10, "y_max": 10},
+                "Crop for camera 'left' must be non-negative",
+            ),
+            (
+                {"x_min": 5, "y_min": 0, "x_max": 5, "y_max": 10},
+                "Crop for camera 'left' must satisfy x_max > x_min and y_max > y_min",
+            ),
+        ],
+        ids=["missing_key", "extra_key", "negative_start", "invalid_bounds"],
+    )
+    def test_invalid_crop_params_raise(
+        self,
+        crop_params: dict[str, int],
+        expected_message: str,
+        valid_tso_metadata: DatasetMetadata,
+    ):
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
+                dataset_folders=["/data/ep1"],
+                zarr_path="/tmp/test.zarr",
+                metadata=valid_tso_metadata,
+                dataset_type=DatasetType.TSO.value,
+                rgb_image_crops={Cameras.LEFT.value: crop_params},
+            )
+
+    def test_read_rgb_image_applies_configured_crop(
+        self,
+        rng: np.random.Generator,
+        valid_tso_metadata: DatasetMetadata,
+    ):
+        image = rng.integers(0, 255, size=(4, 6, 3), dtype=np.uint8)
+        schema = TSODatasetSchema(
+            dataset_folders=["/data/ep1"],
+            zarr_path="/tmp/test.zarr",
+            metadata=valid_tso_metadata,
+            dataset_type=DatasetType.TSO.value,
+            rgb_image_crops={
+                Cameras.LEFT.value: {
+                    "x_min": 1,
+                    "y_min": 1,
+                    "x_max": 4,
+                    "y_max": 3,
+                }
+            },
+        )
+
+        with (
+            patch("versatil.data.raw.schemas.custom.tso.cv2") as mock_cv2,
+            patch(
+                "versatil.data.raw.schemas.custom.tso.A.Crop", wraps=A.Crop
+            ) as crop_spy,
+        ):
+            mock_cv2.imread.return_value = image
+            mock_cv2.cvtColor.return_value = image
+            mock_cv2.COLOR_BGR2RGB = cv2.COLOR_BGR2RGB
+
+            cropped = schema._read_rgb_image(
+                path="/data/framesLeft/frame_0001.png",
+                camera=Cameras.LEFT.value,
+            )
+
+        mock_cv2.imread.assert_called_once_with("/data/framesLeft/frame_0001.png")
+        mock_cv2.cvtColor.assert_called_once()
+        np.testing.assert_array_equal(mock_cv2.cvtColor.call_args.args[0], image)
+        assert mock_cv2.cvtColor.call_args.args[1] == cv2.COLOR_BGR2RGB
+        crop_spy.assert_called_once_with(
+            x_min=1,
+            y_min=1,
+            x_max=4,
+            y_max=3,
+            p=1.0,
+        )
+        np.testing.assert_array_equal(cropped, image[1:3, 1:4])
+
+    def test_read_rgb_image_rejects_crop_larger_than_image(
+        self,
+        rng: np.random.Generator,
+        valid_tso_metadata: DatasetMetadata,
+    ):
+        image = rng.integers(0, 255, size=(480, 640, 3), dtype=np.uint8)
+        crop_params = {"x_min": 0, "y_min": 0, "x_max": 641, "y_max": 480}
+        schema = TSODatasetSchema(
+            dataset_folders=["/data/ep1"],
+            zarr_path="/tmp/test.zarr",
+            metadata=valid_tso_metadata,
+            dataset_type=DatasetType.TSO.value,
+            rgb_image_crops={Cameras.LEFT.value: crop_params},
+        )
+        expected_message = (
+            "Crop for camera 'left' exceeds image size 640x480: "
+            "{'x_min': 0, 'y_min': 0, 'x_max': 641, 'y_max': 480}"
+        )
+
+        with patch("versatil.data.raw.schemas.custom.tso.cv2") as mock_cv2:
+            mock_cv2.imread.return_value = image
+            mock_cv2.cvtColor.return_value = image
+            mock_cv2.COLOR_BGR2RGB = cv2.COLOR_BGR2RGB
+
+            with pytest.raises(ValueError, match=re.escape(expected_message)):
+                schema._read_rgb_image(
+                    path="/data/framesLeft/frame_0001.png",
+                    camera=Cameras.LEFT.value,
+                )
+
+
+class TestTSOExtractEpisode:
     @pytest.fixture
-    def bowel_retraction_episode_factory(
+    def tso_episode_factory(
         self,
         rng: np.random.Generator,
     ) -> Callable:
-        """Factory for creating test DataFrames for BowelRetraction extract_episode."""
-
         def factory(
             num_rows: int = 5,
             extra_columns: dict = None,
@@ -734,14 +923,12 @@ class TestBowelRetractionExtractEpisode:
                 "x": rng.standard_normal(num_rows).astype(np.float32),
                 "y": rng.standard_normal(num_rows).astype(np.float32),
                 "z": rng.standard_normal(num_rows).astype(np.float32),
-                BOWEL_RETRACTION_GRIPPER_COL: rng.integers(0, 2, size=num_rows).astype(
-                    np.float32
-                ),
-                BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY: [
+                TSO_GRIPPER_COL: rng.integers(0, 2, size=num_rows).astype(np.float32),
+                TSO_RECTIFIED_LEFT_IMAGE_KEY: [
                     f"/img/framesLeftRectified/frame_{i:04d}.png"
                     for i in range(num_rows)
                 ],
-                BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY: [
+                TSO_RECTIFIED_RIGHT_IMAGE_KEY: [
                     f"/img/framesRightRectified/frame_{i:04d}.png"
                     for i in range(num_rows)
                 ],
@@ -754,8 +941,6 @@ class TestBowelRetractionExtractEpisode:
 
     @pytest.fixture
     def mock_cv2_factory(self, rng: np.random.Generator) -> Callable:
-        """Factory that returns a context manager patching cv2 with a mock image."""
-
         def factory(image_height: int = 480, image_width: int = 640):
             mock_image = rng.integers(
                 0, 255, size=(image_height, image_width, 3), dtype=np.uint8
@@ -766,9 +951,7 @@ class TestBowelRetractionExtractEpisode:
                     self.mock_image = mock_image
 
                 def __enter__(self):
-                    self._patcher = patch(
-                        "versatil.data.raw.schemas.custom.bowel_retraction.cv2"
-                    )
+                    self._patcher = patch("versatil.data.raw.schemas.custom.tso.cv2")
                     mock_cv2 = self._patcher.start()
                     mock_cv2.imread.return_value = self.mock_image
                     mock_cv2.cvtColor.return_value = self.mock_image
@@ -784,18 +967,18 @@ class TestBowelRetractionExtractEpisode:
 
     def test_extracts_non_camera_observation_from_dataframe(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
-        bowel_retraction_episode_factory: Callable,
+        valid_tso_metadata: DatasetMetadata,
+        tso_episode_factory: Callable,
         mock_cv2_factory: Callable,
         noop_resizer: A.NoOp,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
-        episode = bowel_retraction_episode_factory(num_rows=5)
+        episode = tso_episode_factory(num_rows=5)
 
         with mock_cv2_factory():
             data = schema.extract_episode(
@@ -810,18 +993,18 @@ class TestBowelRetractionExtractEpisode:
 
     def test_skips_camera_metadata_in_observation_loop(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
-        bowel_retraction_episode_factory: Callable,
+        valid_tso_metadata: DatasetMetadata,
+        tso_episode_factory: Callable,
         mock_cv2_factory: Callable,
         noop_resizer: A.NoOp,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
-        episode = bowel_retraction_episode_factory(num_rows=3)
+        episode = tso_episode_factory(num_rows=3)
 
         with mock_cv2_factory():
             data = schema.extract_episode(
@@ -834,10 +1017,10 @@ class TestBowelRetractionExtractEpisode:
     def test_extracts_precomputed_actions_from_dataframe(
         self,
         rng: np.random.Generator,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
-        bowel_retraction_episode_factory: Callable,
+        tso_episode_factory: Callable,
         mock_cv2_factory: Callable,
         noop_resizer: A.NoOp,
     ):
@@ -845,25 +1028,25 @@ class TestBowelRetractionExtractEpisode:
             TSOObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
                 storage_dimension=1,
                 prediction_dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_PHASE_COL],
+                raw_data_column_keys=[TSO_PHASE_COL],
                 dtype="int32",
                 is_numerical=True,
                 needs_normalization=False,
             ),
         }
         metadata = dataset_metadata_factory(
-            observations=dict(valid_bowel_retraction_metadata.observations),
+            observations=dict(valid_tso_metadata.observations),
             precomputed_actions=actions,
         )
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
             metadata=metadata,
             dataset_type=DatasetType.TSO.value,
         )
-        episode = bowel_retraction_episode_factory(
+        episode = tso_episode_factory(
             num_rows=4,
-            extra_columns={BOWEL_RETRACTION_PHASE_COL: rng.integers(0, 3, size=4)},
+            extra_columns={TSO_PHASE_COL: rng.integers(0, 3, size=4)},
         )
 
         with mock_cv2_factory():
@@ -907,13 +1090,13 @@ class TestBowelRetractionExtractEpisode:
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
-                raw_data_column_keys=[BOWEL_RETRACTION_GRIPPER_COL],
+                raw_data_column_keys=[TSO_GRIPPER_COL],
             ),
         }
         metadata = dataset_metadata_factory(
             observations=observations, precomputed_actions={}
         )
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
             metadata=metadata,
@@ -924,14 +1107,12 @@ class TestBowelRetractionExtractEpisode:
                 "x": rng.standard_normal(2).astype(np.float32),
                 "y": rng.standard_normal(2).astype(np.float32),
                 "z": rng.standard_normal(2).astype(np.float32),
-                BOWEL_RETRACTION_GRIPPER_COL: rng.integers(0, 2, size=2).astype(
-                    np.float32
-                ),
-                BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY: [
+                TSO_GRIPPER_COL: rng.integers(0, 2, size=2).astype(np.float32),
+                TSO_RECTIFIED_LEFT_IMAGE_KEY: [
                     "/data/framesLeftRectified/frame_0001.png",
                     "/data/framesLeftRectified/frame_0002.png",
                 ],
-                BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY: [
+                TSO_RECTIFIED_RIGHT_IMAGE_KEY: [
                     "/data/framesRightRectified/frame_0001.png",
                     "/data/framesRightRectified/frame_0002.png",
                 ],
@@ -940,12 +1121,12 @@ class TestBowelRetractionExtractEpisode:
         mock_rgb = rng.integers(0, 255, size=(64, 64, 3), dtype=np.uint8)
         mock_depth = rng.standard_normal((64, 64)).astype(np.float32)
 
-        with patch("versatil.data.raw.schemas.custom.bowel_retraction.cv2") as mock_cv2:
+        with patch("versatil.data.raw.schemas.custom.tso.cv2") as mock_cv2:
             mock_cv2.imread.return_value = mock_rgb
             mock_cv2.cvtColor.return_value = mock_rgb
             mock_cv2.COLOR_BGR2RGB = cv2.COLOR_BGR2RGB
             with patch(
-                "versatil.data.raw.schemas.custom.bowel_retraction.np.load",
+                "versatil.data.raw.schemas.custom.tso.np.load",
                 return_value=mock_depth,
             ):
                 data = schema.extract_episode(
@@ -956,14 +1137,14 @@ class TestBowelRetractionExtractEpisode:
         assert data[Cameras.DEPTH.value].shape == (2, 64, 64, 1)
 
 
-class TestBowelRetractionGetRgbColumn:
+class TestTSOGetRgbColumn:
     @pytest.mark.parametrize(
         "use_rectified, camera, expected_key",
         [
-            (True, Cameras.LEFT.value, BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY),
-            (False, Cameras.LEFT.value, BOWEL_RETRACTION_LEFT_IMAGE_KEY),
-            (True, Cameras.RIGHT.value, BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY),
-            (False, Cameras.RIGHT.value, BOWEL_RETRACTION_RIGHT_IMAGE_KEY),
+            (True, Cameras.LEFT.value, TSO_RECTIFIED_LEFT_IMAGE_KEY),
+            (False, Cameras.LEFT.value, TSO_LEFT_IMAGE_KEY),
+            (True, Cameras.RIGHT.value, TSO_RECTIFIED_RIGHT_IMAGE_KEY),
+            (False, Cameras.RIGHT.value, TSO_RIGHT_IMAGE_KEY),
         ],
         ids=[
             "left_rectified",
@@ -977,12 +1158,12 @@ class TestBowelRetractionGetRgbColumn:
         use_rectified: bool,
         camera: str,
         expected_key: str,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
         schema.use_rectified_images = use_rectified
@@ -991,20 +1172,21 @@ class TestBowelRetractionGetRgbColumn:
 
     def test_unknown_camera_raises(
         self,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
 
-        with pytest.raises(ValueError, match="Unknown RGB camera"):
+        expected_message = "Unknown RGB camera for TSO dataset: depth"
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
             schema._get_rgb_column(Cameras.DEPTH.value)
 
 
-class TestBowelRetractionComputeDepthPath:
+class TestTSOComputeDepthPath:
     @pytest.mark.parametrize(
         "use_rectified, base_path, expected_path",
         [
@@ -1026,14 +1208,30 @@ class TestBowelRetractionComputeDepthPath:
         use_rectified: bool,
         base_path: str,
         expected_path: str,
-        valid_bowel_retraction_metadata: DatasetMetadata,
+        valid_tso_metadata: DatasetMetadata,
     ):
-        schema = BowelRetractionSchema(
+        schema = TSODatasetSchema(
             dataset_folders=["/data/ep1"],
             zarr_path="/tmp/test.zarr",
-            metadata=valid_bowel_retraction_metadata,
+            metadata=valid_tso_metadata,
             dataset_type=DatasetType.TSO.value,
         )
         schema.use_rectified_images = use_rectified
 
         assert schema._compute_depth_path(base_path) == expected_path
+
+    def test_public_wrapper_returns_depth_path(
+        self,
+        valid_tso_metadata: DatasetMetadata,
+    ):
+        schema = TSODatasetSchema(
+            dataset_folders=["/data/ep1"],
+            zarr_path="/tmp/test.zarr",
+            metadata=valid_tso_metadata,
+            dataset_type=DatasetType.TSO.value,
+        )
+
+        assert (
+            schema.compute_depth_path("/data/framesLeftRectified/frame_0001.png")
+            == "/data/depth/frame_depth_0001.npy"
+        )

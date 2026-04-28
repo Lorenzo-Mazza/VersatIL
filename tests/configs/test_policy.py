@@ -43,6 +43,10 @@ class TestPolicyConfig:
         config = PolicyConfig(validate_loss_keys=validate_loss_keys)
         assert config.validate_loss_keys == validate_loss_keys
 
+    def test_metadata_passthrough_defaults_to_empty_dict(self):
+        config = PolicyConfig()
+        assert config.metadata_passthrough == {}
+
     def test_has_all_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(PolicyConfig)}
         expected = {
@@ -56,6 +60,7 @@ class TestPolicyConfig:
             "observation_horizon",
             "device",
             "loss",
+            "metadata_passthrough",
             "validate_loss_keys",
         }
         assert expected == field_names
