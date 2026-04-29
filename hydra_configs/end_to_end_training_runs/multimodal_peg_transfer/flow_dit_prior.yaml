@@ -33,7 +33,6 @@ task:
     num_workers: 16
     val_ratio: 0.0
     preload_data_in_memory: true
-    trailing_padded_actions: 0
 
 training:
   num_epochs: 1000
