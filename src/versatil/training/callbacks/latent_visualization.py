@@ -1,5 +1,6 @@
 """Latent-space visualization callback for variational policies."""
 
+import logging
 import re
 
 import matplotlib.pyplot as plt
@@ -15,6 +16,8 @@ from sklearn.manifold import TSNE
 from versatil.metrics.accumulators import MetricsAccumulator
 from versatil.metrics.constants import MetadataKey
 from versatil.training.callbacks.wandb_figure import figure_to_wandb_image
+
+logger = logging.getLogger(__name__)
 
 
 class LatentVisualizationCallback(Callback):
@@ -112,18 +115,27 @@ class LatentVisualizationCallback(Callback):
                 )
             )
 
-        latent_stats_table = self._create_latent_stats_table(
-            metrics_accumulator.metadata
-        )
-
-        if trainer.logger is not None:
-            metrics = {key: figure_to_wandb_image(fig) for key, fig in figures.items()}
-            if latent_stats_table is not None:
-                metrics[f"{split}_latent_space_statistics"] = latent_stats_table
-            trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
-
-        for fig in figures.values():
-            plt.close(fig)
+        try:
+            latent_stats_table = self._create_latent_stats_table(
+                metrics_accumulator.metadata
+            )
+            if trainer.logger is not None:
+                metrics = {
+                    key: figure_to_wandb_image(fig) for key, fig in figures.items()
+                }
+                if latent_stats_table is not None:
+                    metrics[f"{split}_latent_space_statistics"] = latent_stats_table
+                trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
+        except Exception:
+            logger.warning(
+                "Skipping %s latent visualization logging at epoch %s.",
+                split,
+                trainer.current_epoch,
+                exc_info=True,
+            )
+        finally:
+            for fig in figures.values():
+                plt.close(fig)
 
     def _build_latent_figures(
         self,

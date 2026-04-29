@@ -75,6 +75,15 @@ policy:
         action_key: ${proprio_key:ROBOT_FRAME_CARTESIAN_TIP_POS}
       denoising_prior:
         weight: 0.01
+      posterior_geometry:
+        _target_: versatil.metrics.components.PosteriorGeometryLoss
+        key: ${latent_key:POSTERIOR_MU}
+        mean_weight: 0.0
+        std_weight: 0.05
+        target_std: 1.0
+        max_std_weight: 0.1
+        max_std: 2.0
+        covariance_weight: 0.0
       maximum_mean_discrepancy:
         weight: 0.0
 
