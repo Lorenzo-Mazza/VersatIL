@@ -6,6 +6,7 @@ The codebook is shared from the VQ posterior encoder via wire_posterior().
 """
 
 import weakref
+from typing import Any
 
 import torch
 
@@ -62,6 +63,18 @@ class UniformCodebookPrior(PriorLatentEncoder):
         if self._residual_vq_ref is None:
             return None
         return self._residual_vq_ref()
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Return copy-safe state without the posterior weak reference.
+
+        Returns:
+            Module state with runtime wiring cleared. The owning
+            VariationalAlgorithm reconnects the copied prior to the copied
+            posterior after deepcopy or unpickling.
+        """
+        state = super().__getstate__()
+        state["_residual_vq_ref"] = None
+        return state
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Uniform prior outputs only the quantized latent and sampled indices."""

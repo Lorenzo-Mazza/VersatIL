@@ -32,6 +32,31 @@ def ema_callback_factory() -> Callable[..., EMACallback]:
     return factory
 
 
+class _WeightedLoss(torch.nn.Module):
+    def __init__(self, weight: float) -> None:
+        super().__init__()
+        self.weight = weight
+
+    @property
+    def weights(self) -> dict[str, float]:
+        return {"weight": self.weight}
+
+    def set_weights(self, new_weights: dict[str, float]) -> None:
+        self.weight = float(new_weights["weight"])
+
+
+class _PolicyWithLoss(torch.nn.Module):
+    def __init__(self, weight: float) -> None:
+        super().__init__()
+        self.loss_module = _WeightedLoss(weight)
+
+
+class _BufferedPolicy(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer("codebook_state", torch.zeros(3))
+
+
 @pytest.mark.unit
 class TestEMACallbackInitialization:
     @pytest.mark.parametrize("power", [0.5, 0.999])
@@ -276,6 +301,33 @@ class TestEMACallbackOnTrainBatchEnd:
         assert torch.allclose(ema_bn.running_mean, policy_bn.running_mean, atol=1e-6)
         assert torch.allclose(ema_bn.running_var, policy_bn.running_var, atol=1e-6)
 
+    def test_non_batchnorm_buffers_are_copied_directly(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        policy = _BufferedPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory(global_step=100)
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+        policy.codebook_state.copy_(torch.tensor([1.0, 2.0, 3.0]))
+
+        callback.on_train_batch_end(
+            trainer=trainer,
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=0,
+        )
+
+        torch.testing.assert_close(
+            callback.ema_model.codebook_state,
+            policy.codebook_state,
+        )
+
     def test_decay_uses_trainer_global_step(
         self,
         ema_callback_factory: Callable,
@@ -483,6 +535,24 @@ class TestEMACallbackValidationSwap:
 
         assert pl_module.policy is policy
         assert not hasattr(callback, "_original_policy")
+
+    def test_validation_swap_syncs_live_loss_weights_to_ema_model(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        policy = _PolicyWithLoss(weight=1.0)
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+        policy.loss_module.set_weights({"weight": 0.25})
+
+        callback.on_validation_start(trainer=trainer, pl_module=pl_module)
+
+        assert callback.ema_model.loss_module.weight == pytest.approx(0.25)
 
 
 @pytest.mark.unit

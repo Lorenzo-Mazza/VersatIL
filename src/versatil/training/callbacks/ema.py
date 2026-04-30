@@ -85,15 +85,19 @@ class EMACallback(Callback):
             for module, ema_module in zip(
                 pl_module.policy.modules(), self.ema_model.modules()
             ):
-                if isinstance(module, _BatchNorm):
-                    for buffer, ema_buffer in zip(
-                        module.buffers(), ema_module.buffers()
-                    ):
-                        ema_buffer.copy_(buffer)
+                for buffer, ema_buffer in zip(
+                    module.buffers(recurse=False),
+                    ema_module.buffers(recurse=False),
+                    strict=True,
+                ):
+                    ema_buffer.copy_(
+                        buffer.to(device=ema_buffer.device, dtype=ema_buffer.dtype)
+                    )
 
                 for param, ema_param in zip(
                     module.parameters(recurse=False),
                     ema_module.parameters(recurse=False),
+                    strict=True,
                 ):
                     if isinstance(param, dict):
                         raise RuntimeError("Dict parameter not supported")
@@ -159,6 +163,10 @@ class EMACallback(Callback):
         """
         if self.ema_model is not None:
             self._original_policy = pl_module.policy
+            self._sync_policy_runtime_state(
+                source_policy=pl_module.policy,
+                target_policy=self.ema_model,
+            )
             pl_module.policy = self.ema_model
 
     def on_validation_end(
@@ -173,3 +181,26 @@ class EMACallback(Callback):
         if hasattr(self, "_original_policy"):
             pl_module.policy = self._original_policy
             delattr(self, "_original_policy")
+
+    @staticmethod
+    def _sync_policy_runtime_state(
+        source_policy: torch.nn.Module,
+        target_policy: torch.nn.Module,
+    ) -> None:
+        """Copy non-state-dict runtime settings needed for validation.
+
+        Args:
+            source_policy: Live training policy that owns current runtime settings.
+            target_policy: EMA policy that will be used for validation.
+        """
+        source_loss_module = getattr(source_policy, "loss_module", None)
+        target_loss_module = getattr(target_policy, "loss_module", None)
+        if source_loss_module is None or target_loss_module is None:
+            return
+        set_weights = getattr(target_loss_module, "set_weights", None)
+        if not callable(set_weights):
+            return
+        weights = getattr(source_loss_module, "weights", None)
+        if weights is None:
+            return
+        set_weights(copy.deepcopy(weights))

@@ -12,6 +12,7 @@ Where:
 """
 
 import logging
+from typing import Any
 
 import torch
 
@@ -90,6 +91,19 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 f"Latent dimension mismatch: prior.latent_dim={self.prior.latent_dimension} "
                 f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dimension}"
             )
+        self._wire_prior_to_posterior()
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore module state and reconnect posterior-owned prior references.
+
+        Args:
+            state: Pickled or deep-copied module state produced by PyTorch.
+        """
+        super().__setstate__(state)
+        self._wire_prior_to_posterior()
+
+    def _wire_prior_to_posterior(self) -> None:
+        """Connect priors that depend on posterior-owned runtime state."""
         if isinstance(self.prior, RequiresPosteriorWiring):
             self.prior.wire_posterior(self.posterior_encoder)
 

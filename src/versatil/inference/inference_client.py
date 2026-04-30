@@ -229,6 +229,8 @@ class InferenceClient:
                     actions=step_actions,
                     action_metadata=action_metadata,
                 )
+                if self.update_rate_hz is not None:
+                    time.sleep(1.0 / self.update_rate_hz)
 
         if self.timing_log:
             postprocessing_duration = time.time() - postprocessing_start

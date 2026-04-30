@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.latent.prior.vamp_prior module."""
 
+import copy
 import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -11,6 +12,8 @@ import pytest
 import torch
 
 from versatil.data.constants import SampleKey
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
@@ -38,11 +41,10 @@ class _ModulePosterior(PosteriorLatentEncoder):
             if key != SampleKey.IS_PAD_ACTION.value
         )
         batch_size = first_action.size(0)
+        mean_value = self.projection.weight.flatten()[0].to(device=first_action.device)
         return {
-            LatentKey.POSTERIOR_MU.value: torch.zeros(
-                batch_size,
-                self.latent_dimension,
-                device=first_action.device,
+            LatentKey.POSTERIOR_MU.value: mean_value.expand(
+                batch_size, self.latent_dimension
             ),
             LatentKey.POSTERIOR_LOGVAR.value: torch.zeros(
                 batch_size,
@@ -92,6 +94,40 @@ def vamp_prior_factory(
         )
 
     return factory
+
+
+@pytest.mark.integration
+def test_algorithm_deepcopy_rewires_prior_to_copied_encoder(
+    vamp_prior_factory: Callable[..., VampPrior],
+) -> None:
+    prior = vamp_prior_factory(
+        latent_dimension=4,
+        num_components=2,
+        action_dim=2,
+        prediction_horizon=3,
+    )
+    posterior = _ModulePosterior(
+        latent_dimension=prior.latent_dimension,
+        device=str(prior.device),
+    )
+    algorithm = VariationalAlgorithm(
+        base_algorithm=MagicMock(spec=DecodingAlgorithm),
+        posterior_encoder=posterior,
+        prior=prior,
+    )
+    with torch.no_grad():
+        algorithm.posterior_encoder.projection.weight.fill_(0.0)
+
+    cloned_algorithm = copy.deepcopy(algorithm)
+    with torch.no_grad():
+        cloned_algorithm.prior.encoder.projection.weight.fill_(7.0)
+
+    observations = {"feature": torch.zeros(3, 1)}
+    original_mu, _ = algorithm.prior.get_mixture_params(observations=observations)
+    cloned_mu, _ = cloned_algorithm.prior.get_mixture_params(observations=observations)
+
+    torch.testing.assert_close(original_mu, torch.zeros_like(original_mu))
+    torch.testing.assert_close(cloned_mu, torch.full_like(cloned_mu, 7.0))
 
 
 @pytest.fixture

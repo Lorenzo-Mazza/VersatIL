@@ -75,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max_steps",
         type=int,
-        default=1000,
+        default=1000000,
         help="Maximum steps per episode.",
     )
     parser.add_argument(

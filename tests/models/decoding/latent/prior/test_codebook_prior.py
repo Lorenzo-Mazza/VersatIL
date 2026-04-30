@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.latent.prior.codebook_prior module."""
 
+import copy
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -7,8 +8,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent.prior.codebook_prior import CodebookPrior
+from versatil.models.decoding.latent.vq.residual_vq import ResidualVQ
 
 
 @pytest.fixture
@@ -45,6 +49,46 @@ def codebook_prior_factory() -> Callable[..., CodebookPrior]:
         )
 
     return factory
+
+
+class _PosteriorOwner(torch.nn.Module):
+    def __init__(self, residual_vq: ResidualVQ) -> None:
+        super().__init__()
+        self.latent_dimension = residual_vq.code_dim
+        self.residual_vq = residual_vq
+
+
+@pytest.mark.integration
+def test_algorithm_deepcopy_rewires_prior_to_copied_codebook(
+    codebook_prior_factory: Callable[..., CodebookPrior],
+) -> None:
+    prior = codebook_prior_factory(latent_dimension=8, num_codes=4)
+    posterior = _PosteriorOwner(
+        ResidualVQ(
+            input_dim=8,
+            code_dim=8,
+            num_codes=prior.num_codes,
+            num_layers=prior.num_residual_layers,
+            kmeans_init=True,
+        )
+    )
+    algorithm = VariationalAlgorithm(
+        base_algorithm=MagicMock(spec=DecodingAlgorithm),
+        posterior_encoder=posterior,
+        prior=prior,
+    )
+    cloned_algorithm = copy.deepcopy(algorithm)
+
+    original_embedding = algorithm.posterior_encoder.residual_vq.layers[
+        0
+    ].codebook.embed
+    cloned_embedding = cloned_algorithm.posterior_encoder.residual_vq.layers[
+        0
+    ].codebook.embed
+    cloned_algorithm.prior.residual_vq.layers[0].codebook.embed.fill_(7.0)
+
+    torch.testing.assert_close(cloned_embedding, torch.full_like(cloned_embedding, 7.0))
+    torch.testing.assert_close(original_embedding, torch.zeros_like(original_embedding))
 
 
 class TestCodebookPriorInit:

@@ -9,6 +9,7 @@ while maintaining the VAE framework.
 """
 
 import weakref
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -184,6 +185,18 @@ class VampPrior(PriorLatentEncoder):
             posterior: Posterior encoder that maps inputs to (mu, logvar).
         """
         self._encoder_ref = weakref.ref(posterior)
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Return copy-safe state without the posterior weak reference.
+
+        Returns:
+            Module state with runtime wiring cleared. The owning
+            VariationalAlgorithm reconnects the copied prior to the copied
+            posterior after deepcopy or unpickling.
+        """
+        state = super().__getstate__()
+        state["_encoder_ref"] = None
+        return state
 
     @property
     def encoder(self) -> PosteriorLatentEncoder:
