@@ -34,6 +34,7 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
         deterministic: bool = False,
         min_logvar: float | None = None,
         mu_tanh_bound: float | None = None,
+        max_logvar: float | None = None,
         exclude_keys: list[str] | None = None,
         attention_dropout: float = 0.0,
         normalization_type: str = "rmsnorm",
@@ -52,6 +53,7 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
             deterministic=deterministic,
             min_logvar=min_logvar,
             mu_tanh_bound=mu_tanh_bound,
+            max_logvar=max_logvar,
             exclude_keys=exclude_keys,
             attention_dropout=attention_dropout,
             normalization_type=normalization_type,
@@ -96,12 +98,30 @@ class TestVAETransformerEncoderInitialization:
         encoder = vae_encoder_factory(mu_tanh_bound=4.0)
         assert encoder.mu_tanh_bound == 4.0
 
+    def test_stores_logvar_bounds(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        encoder = vae_encoder_factory(min_logvar=-4.0, max_logvar=2.0)
+        assert encoder.min_logvar == -4.0
+        assert encoder.max_logvar == 2.0
+
     def test_rejects_non_positive_mu_tanh_bound(
         self,
         vae_encoder_factory: Callable[..., VAETransformerEncoder],
     ):
         with pytest.raises(ValueError, match="mu_tanh_bound must be positive"):
             vae_encoder_factory(mu_tanh_bound=0.0)
+
+    def test_rejects_logvar_bounds_when_max_is_less_than_min(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        with pytest.raises(
+            ValueError,
+            match="max_logvar must be greater than or equal to min_logvar",
+        ):
+            vae_encoder_factory(min_logvar=2.0, max_logvar=-1.0)
 
     @pytest.mark.parametrize(
         "deterministic, expected_multiplier",
@@ -272,6 +292,28 @@ class TestVAETransformerEncoderEncode:
         result = encoder.encode(actions=actions, observations=features)
         logvar = result[LatentKey.POSTERIOR_LOGVAR.value]
         assert torch.all(logvar >= min_logvar)
+
+    def test_max_logvar_clamps_logvar(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        max_logvar = 0.5
+        encoder = vae_encoder_factory(
+            deterministic=False,
+            max_logvar=max_logvar,
+        )
+        with torch.no_grad():
+            encoder.latent_projection.weight.zero_()
+            encoder.latent_projection.bias.zero_()
+            encoder.latent_projection.bias[encoder.latent_dimension :].fill_(100.0)
+
+        actions = action_dictionary_factory(prediction_horizon=8)
+        features = feature_dictionary_factory()
+        result = encoder.encode(actions=actions, observations=features)
+        logvar = result[LatentKey.POSTERIOR_LOGVAR.value]
+        assert torch.all(logvar <= max_logvar)
 
     @pytest.mark.parametrize("deterministic", [True, False])
     def test_mu_tanh_bound_limits_posterior_mu(

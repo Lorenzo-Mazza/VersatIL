@@ -64,6 +64,7 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     min_logvar: float | None = None
     deterministic: bool = False
     mu_tanh_bound: float | None = None
+    max_logvar: float | None = None
 
 
 @dataclass
@@ -100,6 +101,7 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     learn_variance: bool = True
     min_logvar: float | None = None
     deterministic: bool = False
+    max_logvar: float | None = None
 
 
 @dataclass

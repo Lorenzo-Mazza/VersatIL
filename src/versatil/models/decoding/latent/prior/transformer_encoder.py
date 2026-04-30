@@ -47,13 +47,24 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         learn_variance: bool = True,
         min_logvar: float | None = None,
         deterministic: bool = False,
+        max_logvar: float | None = None,
     ):
         super().__init__(
             latent_dimension=latent_dimension,
             device=device,
         )
+        if (
+            min_logvar is not None
+            and max_logvar is not None
+            and max_logvar < min_logvar
+        ):
+            raise ValueError(
+                "max_logvar must be greater than or equal to min_logvar when both "
+                f"are set, got min_logvar={min_logvar} and max_logvar={max_logvar}."
+            )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
+        self.max_logvar = max_logvar
         self.deterministic = deterministic
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
@@ -166,8 +177,8 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         else:
             mu = latent_stats  # (B, latent_dim)
             logvar = torch.zeros_like(mu)  # Fixed logvar = 0.0 (std = 1.0)
-        if self.min_logvar is not None:
-            logvar = torch.clamp(logvar, min=self.min_logvar)
+        if self.min_logvar is not None or self.max_logvar is not None:
+            logvar = torch.clamp(logvar, min=self.min_logvar, max=self.max_logvar)
         z = reparametrize(mu, logvar)  # (B, latent_dim)
         return {
             LatentKey.PRIOR_MU.value: mu,

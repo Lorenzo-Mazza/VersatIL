@@ -68,6 +68,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         min_logvar: float | None = None,
         deterministic: bool = False,
         mu_tanh_bound: float | None = None,
+        max_logvar: float | None = None,
     ):
         """Initialize VAE latent action encoder.
 
@@ -90,6 +91,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
                 Use with MMD or OT regularizers instead of KL divergence.
             mu_tanh_bound: Optional symmetric bound for posterior mu. When set, applies
                 ``bound * tanh(raw_mu / bound)`` before sampling/returning z.
+            max_logvar: Optional maximum log variance for avoiding variance explosion.
 
         """
         super().__init__(
@@ -98,8 +100,18 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )
         if mu_tanh_bound is not None and mu_tanh_bound <= 0:
             raise ValueError("mu_tanh_bound must be positive when set.")
+        if (
+            min_logvar is not None
+            and max_logvar is not None
+            and max_logvar < min_logvar
+        ):
+            raise ValueError(
+                "max_logvar must be greater than or equal to min_logvar when both "
+                f"are set, got min_logvar={min_logvar} and max_logvar={max_logvar}."
+            )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
+        self.max_logvar = max_logvar
         self.deterministic = deterministic
         self.mu_tanh_bound = mu_tanh_bound
         self.embedding_dimension = embedding_dimension
@@ -252,8 +264,8 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             }
         raw_mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
         mu = self._bound_mu(raw_mu)
-        if self.min_logvar is not None:
-            logvar = torch.clamp(logvar, min=self.min_logvar)
+        if self.min_logvar is not None or self.max_logvar is not None:
+            logvar = torch.clamp(logvar, min=self.min_logvar, max=self.max_logvar)
         z = reparametrize(mu, logvar)  # (B, latent_dim)
         return {
             LatentKey.POSTERIOR_LATENT.value: z,

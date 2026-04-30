@@ -85,6 +85,16 @@ class TestVAETransformerEncoderConfig:
         )
         assert config.deterministic == deterministic
 
+    def test_stores_logvar_bounds(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            min_logvar=-4.0,
+            max_logvar=2.0,
+        )
+        assert config.min_logvar == -4.0
+        assert config.max_logvar == 2.0
+
     def test_interpolation_references(self):
         config = VAETransformerEncoderConfig(
             latent_dimension=32, embedding_dimension=256
@@ -171,6 +181,16 @@ class TestPriorTransformerEncoderConfig:
             learn_variance=learn_variance,
         )
         assert config.learn_variance == learn_variance
+
+    def test_stores_logvar_bounds(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            min_logvar=-4.0,
+            max_logvar=2.0,
+        )
+        assert config.min_logvar == -4.0
+        assert config.max_logvar == 2.0
 
     def test_inherits_from_prior_config(self):
         config = PriorTransformerEncoderConfig(
