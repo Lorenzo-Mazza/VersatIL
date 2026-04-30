@@ -37,7 +37,7 @@ training:
   early_stopping_patience: null
   clip_gradient_norm: false
   lr_schedule: null
-  use_ema: true
+  use_ema: false
   optimizer:
     lr: 5.0e-4
     param_groups:
