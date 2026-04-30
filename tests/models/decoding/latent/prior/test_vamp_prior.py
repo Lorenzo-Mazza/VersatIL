@@ -19,6 +19,44 @@ from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior, log_normal_diag
 
 
+class _ModulePosterior(PosteriorLatentEncoder):
+    """Concrete posterior module for ownership tests."""
+
+    def __init__(self, latent_dimension: int = 16, device: str = "cpu") -> None:
+        super().__init__(latent_dimension=latent_dimension, device=device)
+        self.projection = torch.nn.Linear(1, 1)
+
+    def encode(
+        self,
+        actions: dict[str, torch.Tensor],
+        observations: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        del observations
+        first_action = next(
+            tensor
+            for key, tensor in actions.items()
+            if key != SampleKey.IS_PAD_ACTION.value
+        )
+        batch_size = first_action.size(0)
+        return {
+            LatentKey.POSTERIOR_MU.value: torch.zeros(
+                batch_size,
+                self.latent_dimension,
+                device=first_action.device,
+            ),
+            LatentKey.POSTERIOR_LOGVAR.value: torch.zeros(
+                batch_size,
+                self.latent_dimension,
+                device=first_action.device,
+            ),
+            LatentKey.POSTERIOR_LATENT.value: torch.zeros(
+                batch_size,
+                self.latent_dimension,
+                device=first_action.device,
+            ),
+        }
+
+
 @pytest.fixture
 def vamp_prior_factory(
     mock_action_space_factory: Callable[..., MagicMock],
@@ -334,7 +372,7 @@ class TestVampPriorEncoder:
         prior = vamp_prior_factory()
         encoder = mock_encoder_factory()
         prior.wire_posterior(posterior=encoder)
-        assert prior._encoder is encoder
+        assert prior.encoder is encoder
 
     @pytest.mark.unit
     def test_encoder_returns_stored_encoder(
@@ -346,6 +384,24 @@ class TestVampPriorEncoder:
         encoder = mock_encoder_factory()
         prior.wire_posterior(posterior=encoder)
         assert prior.encoder is encoder
+
+    @pytest.mark.unit
+    def test_wire_posterior_does_not_register_encoder_module(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+    ):
+        prior = vamp_prior_factory()
+        encoder = _ModulePosterior()
+        prior.wire_posterior(posterior=encoder)
+
+        module_names = {
+            name for name, module in prior.named_modules() if module is encoder
+        }
+        assert module_names == set()
+
+        encoder.train()
+        prior.eval()
+        assert encoder.training is True
 
 
 class TestVampPriorGetMixtureParams:

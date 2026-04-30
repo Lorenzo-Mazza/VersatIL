@@ -144,6 +144,23 @@ class TestCodebookPriorWirePosterior:
         assert prior.residual_vq is mock_posterior.residual_vq
 
     @pytest.mark.unit
+    def test_shared_residual_vq_is_not_registered_as_prior_child(
+        self,
+        codebook_prior_factory: Callable[..., CodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+    ) -> None:
+        prior = codebook_prior_factory(latent_dimension=8)
+        mock_posterior = mock_vq_posterior_factory(code_dim=8)
+        prior.wire_posterior(mock_posterior)
+
+        assert prior.residual_vq is mock_posterior.residual_vq
+        module_names = {name for name, _ in prior.named_modules()}
+        assert "residual_vq" not in module_names
+        assert all(not name.startswith("residual_vq.") for name in module_names)
+        prior.eval()
+        assert mock_posterior.residual_vq.training is True
+
+    @pytest.mark.unit
     def test_raises_on_code_dim_mismatch(
         self,
         codebook_prior_factory: Callable[..., CodebookPrior],
@@ -250,8 +267,8 @@ class TestCodebookPriorForward:
         with pytest.raises(
             RuntimeError,
             match=re.escape(
-                "CodebookPrior.residual_vq is not set. "
-                "Call wire_posterior() before forward()."
+                "CodebookPrior.residual_vq is not set or has been garbage-collected. "
+                "Call wire_posterior() before forward(), and keep the posterior alive."
             ),
         ):
             prior.forward(target_latents=target_latents, observations=observations)

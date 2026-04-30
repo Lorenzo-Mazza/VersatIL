@@ -5,6 +5,8 @@ uniformly and returns the corresponding embedding. No learnable parameters.
 The codebook is shared from the VQ posterior encoder via wire_posterior().
 """
 
+import weakref
+
 import torch
 
 from versatil.models.decoding.constants import LatentKey
@@ -50,9 +52,16 @@ class UniformCodebookPrior(PriorLatentEncoder):
         self.code_dim = latent_dimension
         self.num_codes = num_codes
         self.num_residual_layers = num_residual_layers
-        self.residual_vq: ResidualVQ | None = None
+        self._residual_vq_ref: weakref.ReferenceType[ResidualVQ] | None = None
         self.register_buffer("_device_tracker", torch.zeros(1))
         self.to(torch.device(device))
+
+    @property
+    def residual_vq(self) -> ResidualVQ | None:
+        """Return the posterior-owned VQ module without registering it as a child."""
+        if self._residual_vq_ref is None:
+            return None
+        return self._residual_vq_ref()
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Uniform prior outputs only the quantized latent and sampled indices."""
@@ -92,7 +101,7 @@ class UniformCodebookPrior(PriorLatentEncoder):
                 f"ResidualVQ num_layers ({residual_vq.num_layers}) does not match "
                 f"UniformCodebookPrior num_residual_layers ({self.num_residual_layers})"
             )
-        self.residual_vq = residual_vq
+        self._residual_vq_ref = weakref.ref(residual_vq)
 
     def forward(
         self,
@@ -114,10 +123,12 @@ class UniformCodebookPrior(PriorLatentEncoder):
                     distinct key from the posterior's VQ_INDICES so the two
                     do not collide when merged into the predictions dict.
         """
-        if self.residual_vq is None:
+        residual_vq = self.residual_vq
+        if residual_vq is None:
             raise RuntimeError(
-                "UniformCodebookPrior.residual_vq is not set. "
-                "Call wire_posterior() before forward()."
+                "UniformCodebookPrior.residual_vq is not set or has been "
+                "garbage-collected. Call wire_posterior() before forward(), "
+                "and keep the posterior alive."
             )
         if target_latents is not None:
             batch_size = target_latents.shape[0]
@@ -130,7 +141,7 @@ class UniformCodebookPrior(PriorLatentEncoder):
             for _ in range(self.num_residual_layers)
         ]
 
-        z_q = self.residual_vq.decode_from_indices(all_indices)  # (B, code_dim)
+        z_q = residual_vq.decode_from_indices(all_indices)  # (B, code_dim)
 
         return {
             LatentKey.PRIOR_LATENT.value: z_q,
@@ -151,14 +162,16 @@ class UniformCodebookPrior(PriorLatentEncoder):
         Returns:
             Quantized latent embedding, shape (batch_size, code_dim).
         """
-        if self.residual_vq is None:
+        residual_vq = self.residual_vq
+        if residual_vq is None:
             raise RuntimeError(
-                "UniformCodebookPrior.residual_vq is not set. "
-                "Call wire_posterior() before sample_prior()."
+                "UniformCodebookPrior.residual_vq is not set or has been "
+                "garbage-collected. Call wire_posterior() before sample_prior(), "
+                "and keep the posterior alive."
             )
         device = self._device_tracker.device
         all_indices = [
             torch.randint(0, self.num_codes, (batch_size,), device=device)  # (B,)
             for _ in range(self.num_residual_layers)
         ]
-        return self.residual_vq.decode_from_indices(all_indices)  # (B, code_dim)
+        return residual_vq.decode_from_indices(all_indices)  # (B, code_dim)

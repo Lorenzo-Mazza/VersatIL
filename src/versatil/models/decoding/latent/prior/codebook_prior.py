@@ -7,6 +7,8 @@ with the VQ posterior encoder — the codebook is set after construction
 via wire_posterior().
 """
 
+import weakref
+
 import torch
 from torch import nn
 
@@ -100,7 +102,7 @@ class CodebookPrior(PriorLatentEncoder):
         self.embedding_dimension = embedding_dimension
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.temperature = temperature
-        self.residual_vq: ResidualVQ | None = None
+        self._residual_vq_ref: weakref.ReferenceType[ResidualVQ] | None = None
 
         self.encoder = TransformerEncoder(
             number_of_layers=number_of_encoder_layers,
@@ -146,6 +148,13 @@ class CodebookPrior(PriorLatentEncoder):
 
         self.to(device)
 
+    @property
+    def residual_vq(self) -> ResidualVQ | None:
+        """Return the posterior-owned VQ module without registering it as a child."""
+        if self._residual_vq_ref is None:
+            return None
+        return self._residual_vq_ref()
+
     def get_auxiliary_output_keys(self) -> set[str]:
         """Codebook prior outputs quantized latent, sampled indices, and logits."""
         return {
@@ -189,7 +198,7 @@ class CodebookPrior(PriorLatentEncoder):
                 f"ResidualVQ num_layers ({residual_vq.num_layers}) does not match "
                 f"CodebookPrior num_residual_layers ({self.num_residual_layers})"
             )
-        self.residual_vq = residual_vq
+        self._residual_vq_ref = weakref.ref(residual_vq)
 
     def forward(
         self,
@@ -213,10 +222,11 @@ class CodebookPrior(PriorLatentEncoder):
                     over the K codebook entries, each shape (B, K).
                     Consumed by VQPriorCrossEntropyLoss.
         """
-        if self.residual_vq is None:
+        residual_vq = self.residual_vq
+        if residual_vq is None:
             raise RuntimeError(
-                "CodebookPrior.residual_vq is not set. "
-                "Call wire_posterior() before forward()."
+                "CodebookPrior.residual_vq is not set or has been garbage-collected. "
+                "Call wire_posterior() before forward(), and keep the posterior alive."
             )
 
         input_observations = {
@@ -249,7 +259,7 @@ class CodebookPrior(PriorLatentEncoder):
             indices = torch.multinomial(probs, num_samples=1).squeeze(-1)  # (B,)
             all_indices.append(indices)
 
-        z_q = self.residual_vq.decode_from_indices(all_indices)  # (B, code_dim)
+        z_q = residual_vq.decode_from_indices(all_indices)  # (B, code_dim)
 
         return {
             LatentKey.PRIOR_LATENT.value: z_q,
