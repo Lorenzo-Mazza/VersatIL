@@ -115,6 +115,7 @@ from versatil.configs.loss import (
     BinaryKLDivergenceLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
     CompositeLossConfig,
+    ConditionalMaximumMeanDiscrepancyLossConfig,
     GaussianEntropyLossConfig,
     GaussianMixtureNLLossConfig,
     GripperLossConfig,
@@ -128,6 +129,7 @@ from versatil.configs.loss import (
     PosteriorGeometryLossConfig,
     PriorDenoisingLossConfig,
     RegressionLossConfig,
+    RelaxedConditionalLatentOptimalTransportLossConfig,
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
     VICLatentLossConfig,
@@ -794,6 +796,11 @@ def register_configs():
     cs.store(group="policy/loss", name="mmd", node=MaximumMeanDiscrepancyLossConfig)
     cs.store(
         group="policy/loss",
+        name="conditional_mmd",
+        node=ConditionalMaximumMeanDiscrepancyLossConfig,
+    )
+    cs.store(
+        group="policy/loss",
         name="binary_mmd",
         node=BinaryMaximumMeanDiscrepancyLossConfig,
     )
@@ -831,6 +838,11 @@ def register_configs():
         group="policy/loss",
         name="latent_optimal_transport",
         node=LatentOptimalTransportLossConfig,
+    )
+    cs.store(
+        group="policy/loss",
+        name="relaxed_conditional_latent_ot",
+        node=RelaxedConditionalLatentOptimalTransportLossConfig,
     )
     cs.store(
         group="policy/encoding_pipeline",

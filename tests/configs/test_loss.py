@@ -10,6 +10,7 @@ from versatil.configs.loss import (
     BinaryKLDivergenceLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
     CompositeLossConfig,
+    ConditionalMaximumMeanDiscrepancyLossConfig,
     GaussianEntropyLossConfig,
     GaussianMixtureNLLossConfig,
     GripperLossConfig,
@@ -23,6 +24,7 @@ from versatil.configs.loss import (
     PosteriorGeometryLossConfig,
     PriorDenoisingLossConfig,
     RegressionLossConfig,
+    RelaxedConditionalLatentOptimalTransportLossConfig,
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
     VICLatentLossConfig,
@@ -135,6 +137,47 @@ class TestMaximumMeanDiscrepancyLossConfig:
         assert config.bandwidth_multipliers == bandwidth_multipliers
         assert config.use_median_heuristic is use_median_heuristic
         assert config.prior_target_key == prior_target_key
+
+
+@pytest.mark.unit
+class TestConditionalMaximumMeanDiscrepancyLossConfig:
+    def test_target_points_to_conditional_mmd_loss(self):
+        config = ConditionalMaximumMeanDiscrepancyLossConfig()
+        assert (
+            config._target_
+            == "versatil.metrics.components.ConditionalMaximumMeanDiscrepancyLoss"
+        )
+
+    @pytest.mark.parametrize("normalize_condition", [True, False])
+    @pytest.mark.parametrize(
+        "kernel_type", [KernelType.RBF.value, KernelType.IMQ.value]
+    )
+    def test_stores_configuration(
+        self,
+        kernel_type: str,
+        normalize_condition: bool,
+    ):
+        bandwidth_multipliers = [1.0, 2.0]
+        config = ConditionalMaximumMeanDiscrepancyLossConfig(
+            state_weight=2.0,
+            kernel_type=kernel_type,
+            bandwidth_multipliers=bandwidth_multipliers,
+            condition_kernel_type=KernelType.RBF.value,
+            condition_bandwidth_multipliers=[0.5, 1.0],
+            condition_use_median_heuristic=False,
+            prior_target_key="mu",
+            condition_key="prior_condition",
+            normalize_condition=normalize_condition,
+        )
+        assert config.state_weight == 2.0
+        assert config.kernel_type == kernel_type
+        assert config.bandwidth_multipliers == bandwidth_multipliers
+        assert config.condition_kernel_type == KernelType.RBF.value
+        assert config.condition_bandwidth_multipliers == [0.5, 1.0]
+        assert config.condition_use_median_heuristic is False
+        assert config.prior_target_key == "mu"
+        assert config.condition_key == "prior_condition"
+        assert config.normalize_condition is normalize_condition
 
 
 @pytest.mark.unit
@@ -303,6 +346,29 @@ class TestLatentOptimalTransportLossConfig:
         prior_target_key = "mu"
         config = LatentOptimalTransportLossConfig(prior_target_key=prior_target_key)
         assert config.prior_target_key == prior_target_key
+
+
+@pytest.mark.unit
+class TestRelaxedConditionalLatentOptimalTransportLossConfig:
+    def test_target_points_to_relaxed_conditional_latent_ot_loss(self):
+        config = RelaxedConditionalLatentOptimalTransportLossConfig()
+        assert (
+            config._target_
+            == "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss"
+        )
+
+    @pytest.mark.parametrize("normalize_condition", [True, False])
+    def test_stores_configuration(self, normalize_condition):
+        config = RelaxedConditionalLatentOptimalTransportLossConfig(
+            prior_target_key="mu",
+            condition_key="prior_condition",
+            state_weight=2.0,
+            normalize_condition=normalize_condition,
+        )
+        assert config.prior_target_key == "mu"
+        assert config.condition_key == "prior_condition"
+        assert config.state_weight == 2.0
+        assert config.normalize_condition is normalize_condition
 
 
 @pytest.mark.unit

@@ -9,7 +9,11 @@ import torch
 
 from versatil.metrics.base import LossOutput
 from versatil.metrics.constants import MetadataKey, MetricKey
-from versatil.metrics.ot_loss import LatentOptimalTransportLoss, OptimalTransportLoss
+from versatil.metrics.ot_loss import (
+    LatentOptimalTransportLoss,
+    OptimalTransportLoss,
+    RelaxedConditionalLatentOptimalTransportLoss,
+)
 from versatil.models.decoding.constants import LatentKey
 
 geomloss = pytest.importorskip("geomloss")
@@ -48,6 +52,8 @@ def latent_predictions_factory(rng):
         latent_dimension: int = 8,
         include_mu: bool = False,
         include_logvar: bool = False,
+        include_condition: bool = False,
+        condition_dimension: int = 3,
     ) -> dict[str, torch.Tensor]:
         result = {}
         data_posterior = rng.standard_normal((batch_size, latent_dimension)).astype(
@@ -76,6 +82,11 @@ def latent_predictions_factory(rng):
                 (batch_size, latent_dimension)
             ).astype(np.float32)
             result[LatentKey.PRIOR_LOGVAR.value] = torch.from_numpy(prior_logvar_data)
+        if include_condition:
+            condition_data = rng.standard_normal(
+                (batch_size, condition_dimension)
+            ).astype(np.float32)
+            result[LatentKey.PRIOR_CONDITION.value] = torch.from_numpy(condition_data)
         return result
 
     return factory
@@ -499,3 +510,255 @@ class TestLatentOptimalTransportLossForward:
         assert MetadataKey.PRIOR_MU.value not in result.metadata
         assert MetadataKey.POSTERIOR_LOGVAR.value not in result.metadata
         assert MetadataKey.PRIOR_LOGVAR.value not in result.metadata
+
+
+@pytest.mark.unit
+class TestRelaxedConditionalLatentOptimalTransportLossInit:
+    def test_raises_import_error_when_geomloss_missing(self):
+        with (
+            patch.dict("sys.modules", {"geomloss": None}),
+            pytest.raises(
+                ImportError,
+                match=("LatentOptimalTransportLoss requires geomloss and pykeops"),
+            ),
+        ):
+            RelaxedConditionalLatentOptimalTransportLoss(weight=1.0)
+
+    def test_rejects_negative_state_weight(self):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("state_weight must be non-negative, got -1.0."),
+        ):
+            RelaxedConditionalLatentOptimalTransportLoss(state_weight=-1.0)
+
+
+@pytest.mark.unit
+class TestRelaxedConditionalLatentOptimalTransportLossGetRequiredKeys:
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_returns_posterior_prior_and_condition_keys(self, mock_init):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+
+        required = instance.get_required_keys()
+
+        assert required == {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
+        }
+
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_returns_configured_keys(self, mock_init):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.prior_target_key = LatentKey.POSTERIOR_MU.value
+        instance.condition_key = "custom_condition"
+
+        required = instance.get_required_keys()
+
+        assert required == {
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.PRIOR_LATENT.value,
+            "custom_condition",
+        }
+
+
+@pytest.mark.unit
+class TestRelaxedConditionalLatentOptimalTransportLossForward:
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_raises_on_missing_keys(self, mock_init, latent_predictions_factory):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+        instance.ot = MagicMock()
+
+        predictions = latent_predictions_factory(batch_size=4, latent_dimension=8)
+
+        with pytest.raises(
+            ValueError,
+            match="for RelaxedConditionalLatentOptimalTransportLoss",
+        ):
+            instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_computes_relaxed_conditional_sinkhorn_loss(
+        self, mock_init, latent_predictions_factory
+    ):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.weight = 0.5
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+        instance.state_weight = 1.0
+        instance.normalize_condition = True
+
+        ot_value = 1.0
+        mock_ot = MagicMock()
+        mock_ot.return_value = torch.tensor([ot_value, ot_value, ot_value, ot_value])
+        instance.ot = mock_ot
+
+        predictions = latent_predictions_factory(
+            batch_size=4,
+            latent_dimension=8,
+            include_condition=True,
+        )
+
+        result = instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+        assert result.component_losses[
+            MetricKey.RELAXED_CONDITIONAL_SINKHORN_LOSS.value
+        ].item() == pytest.approx(ot_value)
+        assert result.total_loss.item() == pytest.approx(0.5 * ot_value)
+
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_passes_joint_state_latent_samples_to_sinkhorn(
+        self, mock_init, latent_predictions_factory
+    ):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+        instance.state_weight = 4.0
+        instance.normalize_condition = False
+        instance.ot = MagicMock(return_value=torch.tensor([0.1, 0.1]))
+
+        predictions = latent_predictions_factory(
+            batch_size=2,
+            latent_dimension=3,
+            include_condition=True,
+            condition_dimension=2,
+        )
+
+        instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+        posterior_joint, prior_joint = instance.ot.call_args.args
+        expected_condition = predictions[LatentKey.PRIOR_CONDITION.value] * 2.0
+        torch.testing.assert_close(posterior_joint[:, :2], expected_condition)
+        torch.testing.assert_close(prior_joint[:, :2], expected_condition)
+        torch.testing.assert_close(
+            posterior_joint[:, 2:],
+            predictions[LatentKey.POSTERIOR_LATENT.value],
+        )
+        torch.testing.assert_close(
+            prior_joint[:, 2:],
+            predictions[LatentKey.PRIOR_LATENT.value],
+        )
+
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_uses_configured_prior_target_key_for_matching(
+        self, mock_init, latent_predictions_factory
+    ):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_MU.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+        instance.state_weight = 0.0
+        instance.normalize_condition = False
+        instance.ot = MagicMock(return_value=torch.tensor([0.1, 0.1, 0.1, 0.1]))
+
+        predictions = latent_predictions_factory(
+            batch_size=4,
+            latent_dimension=8,
+            include_mu=True,
+            include_condition=True,
+        )
+
+        result = instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+        posterior_joint, _ = instance.ot.call_args.args
+        torch.testing.assert_close(
+            posterior_joint[:, -8:],
+            predictions[LatentKey.POSTERIOR_MU.value],
+        )
+        torch.testing.assert_close(
+            result.metadata[MetadataKey.POSTERIOR_Z.value],
+            predictions[LatentKey.POSTERIOR_LATENT.value],
+        )
+
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_includes_condition_metadata(self, mock_init, latent_predictions_factory):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+        instance.state_weight = 1.0
+        instance.normalize_condition = True
+        instance.ot = MagicMock(return_value=torch.tensor([0.1, 0.1, 0.1, 0.1]))
+
+        predictions = latent_predictions_factory(
+            batch_size=4,
+            latent_dimension=8,
+            include_condition=True,
+        )
+
+        result = instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+        torch.testing.assert_close(
+            result.metadata[MetadataKey.PRIOR_CONDITION.value],
+            predictions[LatentKey.PRIOR_CONDITION.value],
+        )
+
+    @patch(
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        return_value=None,
+    )
+    def test_rejects_batch_size_mismatch(self, mock_init, latent_predictions_factory):
+        instance = RelaxedConditionalLatentOptimalTransportLoss.__new__(
+            RelaxedConditionalLatentOptimalTransportLoss
+        )
+        instance.weight = 1.0
+        instance.prior_target_key = LatentKey.POSTERIOR_LATENT.value
+        instance.condition_key = LatentKey.PRIOR_CONDITION.value
+        instance.state_weight = 1.0
+        instance.normalize_condition = True
+        instance.ot = MagicMock()
+
+        predictions = latent_predictions_factory(
+            batch_size=4,
+            latent_dimension=8,
+            include_condition=True,
+        )
+        predictions[LatentKey.PRIOR_CONDITION.value] = torch.zeros(3, 2)
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Latent and condition samples must have the same batch size"
+            ),
+        ):
+            instance.forward(predictions=predictions, targets={}, is_pad=None)

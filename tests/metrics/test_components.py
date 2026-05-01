@@ -25,6 +25,7 @@ from versatil.metrics.components import (
     ActionTokenLoss,
     BinaryKLDivergenceLoss,
     BinaryMaximumMeanDiscrepancyLoss,
+    ConditionalMaximumMeanDiscrepancyLoss,
     GaussianEntropyLoss,
     GaussianMixtureNLLoss,
     GripperLoss,
@@ -808,6 +809,179 @@ class TestMaximumMeanDiscrepancyLossForward:
         )
         output = loss(predictions, {})
         assert output.total_loss.item() >= 0.0
+
+
+@pytest.mark.unit
+class TestConditionalMaximumMeanDiscrepancyLossGetRequiredKeys:
+    def test_returns_posterior_prior_and_condition_keys(self):
+        loss = ConditionalMaximumMeanDiscrepancyLoss()
+
+        assert loss.get_required_keys() == {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
+        }
+
+    def test_uses_configured_keys(self):
+        loss = ConditionalMaximumMeanDiscrepancyLoss(
+            prior_target_key=LatentKey.POSTERIOR_MU.value,
+            condition_key="custom_condition",
+        )
+
+        assert loss.get_required_keys() == {
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.PRIOR_LATENT.value,
+            "custom_condition",
+        }
+
+
+@pytest.mark.unit
+class TestConditionalMaximumMeanDiscrepancyLossForward:
+    def test_identical_conditioned_samples_produce_small_mmd(self, rng):
+        z = torch.from_numpy(rng.standard_normal((32, 4)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((32, 3)).astype(np.float32))
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: z,
+            LatentKey.PRIOR_LATENT.value: z.clone(),
+            LatentKey.PRIOR_CONDITION.value: condition,
+        }
+        loss = ConditionalMaximumMeanDiscrepancyLoss(weight=1.0)
+
+        output = loss(predictions, {})
+
+        assert output.total_loss.item() == pytest.approx(0.0, abs=0.01)
+
+    def test_detects_state_conditional_latent_swap(self):
+        condition = torch.tensor([[-1.0], [1.0]])
+        posterior_latents = torch.tensor([[-1.0], [1.0]])
+        prior_latents = torch.tensor([[1.0], [-1.0]])
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: posterior_latents,
+            LatentKey.PRIOR_LATENT.value: prior_latents,
+            LatentKey.PRIOR_CONDITION.value: condition,
+        }
+        loss = ConditionalMaximumMeanDiscrepancyLoss(
+            weight=1.0,
+            state_weight=1.0,
+            bandwidth_multipliers=[1.0],
+            use_median_heuristic=False,
+        )
+
+        output = loss(predictions, {})
+
+        assert output.total_loss.item() > 0.01
+
+    def test_uses_separate_condition_and_latent_kernels(self, rng):
+        posterior_latents = torch.from_numpy(
+            rng.standard_normal((8, 4)).astype(np.float32)
+        )
+        prior_latents = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((8, 3)).astype(np.float32))
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: posterior_latents,
+            LatentKey.PRIOR_LATENT.value: prior_latents,
+            LatentKey.PRIOR_CONDITION.value: condition,
+        }
+        loss = ConditionalMaximumMeanDiscrepancyLoss()
+
+        with (
+            patch.object(
+                loss.condition_kernel,
+                "forward",
+                wraps=loss.condition_kernel.forward,
+            ) as condition_kernel_spy,
+            patch.object(
+                loss.latent_kernel,
+                "forward",
+                wraps=loss.latent_kernel.forward,
+            ) as latent_kernel_spy,
+        ):
+            loss(predictions, {})
+
+        assert condition_kernel_spy.call_count == 1
+        assert latent_kernel_spy.call_count == 3
+
+    def test_uses_configured_prior_target_key_for_matching(self, rng):
+        posterior_latent = torch.from_numpy(
+            rng.standard_normal((16, 4)).astype(np.float32)
+        )
+        posterior_mu = torch.from_numpy(rng.standard_normal((16, 4)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((16, 3)).astype(np.float32))
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: posterior_latent,
+            LatentKey.POSTERIOR_MU.value: posterior_mu,
+            LatentKey.PRIOR_LATENT.value: posterior_mu.clone(),
+            LatentKey.PRIOR_CONDITION.value: condition,
+        }
+        loss = ConditionalMaximumMeanDiscrepancyLoss(
+            weight=1.0,
+            prior_target_key=LatentKey.POSTERIOR_MU.value,
+        )
+
+        output = loss(predictions, {})
+
+        assert output.total_loss.item() == pytest.approx(0.0, abs=0.01)
+        torch.testing.assert_close(
+            output.metadata[MetadataKey.POSTERIOR_Z.value],
+            posterior_latent,
+        )
+        torch.testing.assert_close(
+            output.metadata[MetadataKey.POSTERIOR_MU.value],
+            posterior_mu,
+        )
+
+    def test_includes_prior_condition_metadata(self, rng):
+        posterior_latent = torch.from_numpy(
+            rng.standard_normal((8, 4)).astype(np.float32)
+        )
+        prior_latent = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((8, 3)).astype(np.float32))
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: posterior_latent,
+            LatentKey.PRIOR_LATENT.value: prior_latent,
+            LatentKey.PRIOR_CONDITION.value: condition,
+        }
+        loss = ConditionalMaximumMeanDiscrepancyLoss()
+
+        output = loss(predictions, {})
+
+        torch.testing.assert_close(
+            output.metadata[MetadataKey.PRIOR_CONDITION.value],
+            condition,
+        )
+
+    def test_rejects_negative_state_weight(self):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("state_weight must be non-negative, got -1.0."),
+        ):
+            ConditionalMaximumMeanDiscrepancyLoss(state_weight=-1.0)
+
+    def test_raises_on_missing_keys(self):
+        loss = ConditionalMaximumMeanDiscrepancyLoss()
+        predictions = {LatentKey.POSTERIOR_LATENT.value: torch.zeros(4, 8)}
+
+        with pytest.raises(
+            ValueError,
+            match="for ConditionalMaximumMeanDiscrepancyLoss",
+        ):
+            loss(predictions, {})
+
+    def test_rejects_batch_size_mismatch(self):
+        loss = ConditionalMaximumMeanDiscrepancyLoss()
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: torch.zeros(4, 8),
+            LatentKey.PRIOR_LATENT.value: torch.zeros(4, 8),
+            LatentKey.PRIOR_CONDITION.value: torch.zeros(3, 2),
+        }
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Latent and condition samples must have the same batch size"
+            ),
+        ):
+            loss(predictions, {})
 
 
 @pytest.mark.unit

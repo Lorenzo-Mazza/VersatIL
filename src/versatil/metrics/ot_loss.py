@@ -3,7 +3,10 @@
 IMPORTANT: geomloss is imported lazily to avoid PyKeOps JIT compilation overhead.
 """
 
+import math
+
 import torch
+import torch.nn.functional as F
 
 from versatil.metrics.base import LossOutput, ScalarWeightedLoss
 from versatil.metrics.constants import MetadataKey, MetricKey
@@ -328,5 +331,127 @@ class LatentOptimalTransportLoss(ScalarWeightedLoss):
         return LossOutput(
             total_loss=self.weight * ot_loss,
             component_losses={MetricKey.SINKHORN_LOSS.value: ot_loss},
+            metadata=metadata,
+        )
+
+
+class RelaxedConditionalLatentOptimalTransportLoss(LatentOptimalTransportLoss):
+    """Relaxed conditional Sinkhorn loss over joint state-latent samples.
+
+    This matches empirical ``(s, z_posterior)`` samples to ``(s, z_prior)``
+    samples. A finite ``state_weight`` lets mass move across nearby state
+    vectors.
+    """
+
+    def __init__(
+        self,
+        weight: float = 1.0,
+        p: int = 2,
+        blur_fraction: float = 0.1,
+        reach_multiplier: float | None = None,
+        prior_target_key: str = LatentKey.POSTERIOR_LATENT.value,
+        condition_key: str = LatentKey.PRIOR_CONDITION.value,
+        state_weight: float = 1.0,
+        normalize_condition: bool = True,
+    ):
+        """Initialize relaxed conditional latent OT loss."""
+        if state_weight < 0.0:
+            raise ValueError(f"state_weight must be non-negative, got {state_weight}.")
+        super().__init__(
+            weight=weight,
+            p=p,
+            blur_fraction=blur_fraction,
+            reach_multiplier=reach_multiplier,
+            prior_target_key=prior_target_key,
+        )
+        self.condition_key = condition_key
+        self.state_weight = state_weight
+        self.normalize_condition = normalize_condition
+
+    def get_required_keys(self) -> set[str]:
+        """Get required prediction keys."""
+        return {
+            self.prior_target_key,
+            LatentKey.PRIOR_LATENT.value,
+            self.condition_key,
+        }
+
+    def _joint_samples(
+        self,
+        latents: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        if latents.ndim != 2:
+            raise ValueError(
+                f"Latent samples must have shape (batch, dimension), got {latents.shape}."
+            )
+        if condition.ndim != 2:
+            raise ValueError(
+                f"Condition samples must have shape (batch, dimension), got {condition.shape}."
+            )
+        if latents.shape[0] != condition.shape[0]:
+            raise ValueError(
+                "Latent and condition samples must have the same batch size, "
+                f"got {latents.shape[0]} and {condition.shape[0]}."
+            )
+        if self.normalize_condition:
+            condition = F.normalize(condition, p=2, dim=-1)
+        condition = condition.detach() * math.sqrt(self.state_weight)
+        return torch.cat([condition, latents], dim=-1)
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute relaxed conditional Sinkhorn divergence."""
+        required = self.get_required_keys()
+        if not all(k in predictions for k in required):
+            raise ValueError(
+                "Predictions must contain "
+                f"{required} for RelaxedConditionalLatentOptimalTransportLoss."
+            )
+        posterior_latents = predictions[self.prior_target_key].float()
+        prior_latents = predictions[LatentKey.PRIOR_LATENT.value].float()
+        condition = predictions[self.condition_key].float()
+        posterior_joint = self._joint_samples(
+            latents=posterior_latents,
+            condition=condition,
+        )
+        prior_joint = self._joint_samples(
+            latents=prior_latents,
+            condition=condition,
+        )
+
+        if self.ot is None:
+            self.ot = self._build_sinkhorn(dim=posterior_joint.shape[-1])
+
+        ot_loss = self.ot(posterior_joint, prior_joint).mean()
+
+        metadata: dict[str, torch.Tensor] = {
+            MetadataKey.PRIOR_Z.value: prior_latents,
+            MetadataKey.PRIOR_CONDITION.value: condition,
+        }
+        posterior_latent = predictions.get(LatentKey.POSTERIOR_LATENT.value)
+        if posterior_latent is not None:
+            metadata[MetadataKey.POSTERIOR_Z.value] = posterior_latent
+        posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
+        if posterior_mu is not None:
+            metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu
+        prior_mu = predictions.get(LatentKey.PRIOR_MU.value)
+        if prior_mu is not None:
+            metadata[MetadataKey.PRIOR_MU.value] = prior_mu
+        posterior_logvar = predictions.get(LatentKey.POSTERIOR_LOGVAR.value)
+        if posterior_logvar is not None:
+            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = posterior_logvar
+        prior_logvar = predictions.get(LatentKey.PRIOR_LOGVAR.value)
+        if prior_logvar is not None:
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = prior_logvar
+        return LossOutput(
+            total_loss=self.weight * ot_loss,
+            component_losses={
+                MetricKey.RELAXED_CONDITIONAL_SINKHORN_LOSS.value: ot_loss
+            },
             metadata=metadata,
         )

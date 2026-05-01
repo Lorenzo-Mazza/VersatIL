@@ -5,6 +5,9 @@ from torch import nn
 
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
+from versatil.models.decoding.latent.prior.state_condition_pool import (
+    StateConditionPool,
+)
 from versatil.models.decoding.latent.reparametrize import reparametrize
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
@@ -80,6 +83,9 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.attention_type = attention_type
         self.positional_encoding_type = positional_encoding_type
         self.learn_variance = learn_variance
+        self.state_condition_pool = StateConditionPool(
+            embedding_dimension=self.embedding_dimension
+        )
         self.encoder = TransformerEncoder(
             number_of_layers=self.number_of_encoder_layers,
             embedding_dimension=self.embedding_dimension,
@@ -128,6 +134,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         """Gaussian prior keys, excluding logvar when deterministic."""
         keys = {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.PRIOR_MU.value,
         }
         if not self.deterministic:
@@ -161,6 +168,17 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             input_observations
         )  # (B, seq_len, embedding_dimension)
         hidden_states = input_tokens + pos_encodings
+        # TransformerInputBuilder appends the CLS token as the final token.
+        # The conditional loss state must come from observation tokens only,
+        # so exclude that final CLS token from the pooled state vector.
+        condition_tokens = hidden_states[:, :-1, :]
+        condition_padding_mask = (
+            padding_mask[:, :-1] if padding_mask is not None else None
+        )
+        prior_condition = self.state_condition_pool(
+            tokens=condition_tokens,
+            padding_mask=condition_padding_mask,
+        ).detach()
         encoder_output = self.encoder(
             hidden_states=hidden_states,
             padding_mask=padding_mask,
@@ -170,6 +188,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             z = latent_stats  # (B, latent_dim)
             return {
                 LatentKey.PRIOR_LATENT.value: z,
+                LatentKey.PRIOR_CONDITION.value: prior_condition,
                 LatentKey.PRIOR_MU.value: z,
             }
         if self.learn_variance:
@@ -184,6 +203,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             LatentKey.PRIOR_MU.value: mu,
             LatentKey.PRIOR_LOGVAR.value: logvar,
             LatentKey.PRIOR_LATENT.value: z,
+            LatentKey.PRIOR_CONDITION.value: prior_condition,
         }
 
     def sample_prior(

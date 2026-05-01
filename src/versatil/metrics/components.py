@@ -829,6 +829,190 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         )
 
 
+class ConditionalMaximumMeanDiscrepancyLoss(BaseLoss):
+    """Product-kernel joint MMD for conditional aggregate matching.
+
+    This regularizes ``q(z|s)`` toward ``p(z|s)`` by matching the empirical
+    joint samples ``(s, z_posterior)`` and ``(s, z_prior)``. The state vector
+    is emitted by the prior and should be action-free. Separate kernels are
+    used for state and latent samples so their bandwidths can be controlled
+    independently.
+    """
+
+    def __init__(
+        self,
+        weight: float = 1.0,
+        state_weight: float = 1.0,
+        kernel_type: str = KernelType.RBF.value,
+        bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = True,
+        condition_kernel_type: str = KernelType.RBF.value,
+        condition_bandwidth_multipliers: list[float] | None = None,
+        condition_use_median_heuristic: bool = True,
+        prior_target_key: str = LatentKey.POSTERIOR_LATENT.value,
+        condition_key: str = LatentKey.PRIOR_CONDITION.value,
+        normalize_condition: bool = True,
+    ):
+        """Initialize conditional MMD loss."""
+        super().__init__()
+        if state_weight < 0.0:
+            raise ValueError(f"state_weight must be non-negative, got {state_weight}.")
+        self.weight = weight
+        self.state_weight = state_weight
+        self.prior_target_key = prior_target_key
+        self.condition_key = condition_key
+        self.normalize_condition = normalize_condition
+        self.latent_kernel = KernelType(kernel_type).to_kernel(
+            bandwidth_multipliers=bandwidth_multipliers,
+            use_median_heuristic=use_median_heuristic,
+        )
+        self.condition_kernel = KernelType(condition_kernel_type).to_kernel(
+            bandwidth_multipliers=condition_bandwidth_multipliers,
+            use_median_heuristic=condition_use_median_heuristic,
+        )
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+
+    def get_required_keys(self) -> set[str]:
+        """Get required keys for conditional MMD loss."""
+        return {
+            self.prior_target_key,
+            LatentKey.PRIOR_LATENT.value,
+            self.condition_key,
+        }
+
+    def _condition_samples(
+        self,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        if condition.ndim != 2:
+            raise ValueError(
+                f"Condition samples must have shape (batch, dimension), got {condition.shape}."
+            )
+        if self.normalize_condition:
+            condition = F.normalize(condition, p=2, dim=-1)
+        return condition.detach() * math.sqrt(self.state_weight)
+
+    def _validate_sample_shapes(
+        self,
+        posterior_latents: torch.Tensor,
+        prior_latents: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> None:
+        if posterior_latents.ndim != 2:
+            raise ValueError(
+                "Posterior latent samples must have shape "
+                f"(batch, dimension), got {posterior_latents.shape}."
+            )
+        if prior_latents.ndim != 2:
+            raise ValueError(
+                "Prior latent samples must have shape "
+                f"(batch, dimension), got {prior_latents.shape}."
+            )
+        if posterior_latents.shape != prior_latents.shape:
+            raise ValueError(
+                "Posterior and prior latent samples must have the same shape, "
+                f"got {posterior_latents.shape} and {prior_latents.shape}."
+            )
+        if condition.ndim != 2:
+            raise ValueError(
+                f"Condition samples must have shape (batch, dimension), got {condition.shape}."
+            )
+        if posterior_latents.shape[0] != condition.shape[0]:
+            raise ValueError(
+                "Latent and condition samples must have the same batch size, "
+                f"got {posterior_latents.shape[0]} and {condition.shape[0]}."
+            )
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute joint MMD between posterior and prior conditioned samples."""
+        required_keys = self.get_required_keys()
+        if not all(k in predictions for k in required_keys):
+            raise ValueError(
+                f"Predictions must contain '{required_keys}' for ConditionalMaximumMeanDiscrepancyLoss."
+            )
+
+        posterior_latents = predictions[self.prior_target_key].float()
+        prior_latents = predictions[LatentKey.PRIOR_LATENT.value].float()
+        condition = predictions[self.condition_key].float()
+        self._validate_sample_shapes(
+            posterior_latents=posterior_latents,
+            prior_latents=prior_latents,
+            condition=condition,
+        )
+        condition_samples = self._condition_samples(condition=condition)
+
+        condition_bandwidth = self.condition_kernel.resolve_base_bandwidth(
+            condition_samples
+        )
+        condition_kernel = self.condition_kernel(
+            condition_samples,
+            condition_samples,
+            bandwidth=condition_bandwidth,
+        )
+        latent_samples = torch.cat([posterior_latents, prior_latents], dim=0)
+        latent_bandwidth = self.latent_kernel.resolve_base_bandwidth(latent_samples)
+        latent_kernel_posterior = self.latent_kernel(
+            posterior_latents,
+            posterior_latents,
+            bandwidth=latent_bandwidth,
+        )
+        latent_kernel_prior = self.latent_kernel(
+            prior_latents,
+            prior_latents,
+            bandwidth=latent_bandwidth,
+        )
+        latent_kernel_cross = self.latent_kernel(
+            posterior_latents,
+            prior_latents,
+            bandwidth=latent_bandwidth,
+        )
+        conditional_mmd_sq = (
+            (condition_kernel * latent_kernel_posterior).mean()
+            + (condition_kernel * latent_kernel_prior).mean()
+            - 2 * (condition_kernel * latent_kernel_cross).mean()
+        )
+        conditional_mmd_sq = torch.clamp(conditional_mmd_sq, min=0.0)
+
+        metadata = {}
+        posterior_latent = predictions.get(LatentKey.POSTERIOR_LATENT.value)
+        if posterior_latent is not None:
+            metadata[MetadataKey.POSTERIOR_Z.value] = posterior_latent
+        posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
+        if posterior_mu is not None:
+            metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu
+        posterior_logvar = predictions.get(LatentKey.POSTERIOR_LOGVAR.value)
+        if posterior_logvar is not None:
+            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = posterior_logvar
+        metadata[MetadataKey.PRIOR_Z.value] = predictions[LatentKey.PRIOR_LATENT.value]
+        metadata[MetadataKey.PRIOR_CONDITION.value] = condition
+        prior_mu = predictions.get(LatentKey.PRIOR_MU.value)
+        if prior_mu is not None:
+            metadata[MetadataKey.PRIOR_MU.value] = prior_mu
+        prior_logvar = predictions.get(LatentKey.PRIOR_LOGVAR.value)
+        if prior_logvar is not None:
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = prior_logvar
+
+        return LossOutput(
+            total_loss=self.weight * conditional_mmd_sq,
+            component_losses={MetricKey.CONDITIONAL_MMD_LOSS.value: conditional_mmd_sq},
+            metadata=metadata,
+        )
+
+
 class BinaryMaximumMeanDiscrepancyLoss(ScalarWeightedLoss):
     """MMD loss for regularizing binary latent distributions toward a uniform prior.
 

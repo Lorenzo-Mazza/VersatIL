@@ -10,6 +10,7 @@ class LatentKey(enum.StrEnum):
     PRIOR_MU = "prior_mu"
     PRIOR_LOGVAR = "prior_logvar"
     PRIOR_LATENT = "prior_latent"
+    PRIOR_CONDITION = "prior_condition"
     PRIOR_PREDICTION = "prior_prediction"
     PRIOR_TARGET = "prior_target"
     PRIOR_LOG_PROB = "prior_log_prob"

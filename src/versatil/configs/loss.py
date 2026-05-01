@@ -86,6 +86,28 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
 
 
 @dataclass
+class ConditionalMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
+    """Configuration for conditional state-latent MMD loss."""
+
+    _target_: str = "versatil.metrics.components.ConditionalMaximumMeanDiscrepancyLoss"
+    weight: float = 1.0
+    state_weight: float = 1.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
+    condition_key: str = "${latent_key:PRIOR_CONDITION}"
+    kernel_type: str = KernelType.RBF.value
+    bandwidth_multipliers: list[float] | None = field(
+        default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
+    )
+    use_median_heuristic: bool = True
+    condition_kernel_type: str = KernelType.RBF.value
+    condition_bandwidth_multipliers: list[float] | None = field(
+        default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
+    )
+    condition_use_median_heuristic: bool = True
+    normalize_condition: bool = True
+
+
+@dataclass
 class VQCommitmentLossConfig(BaseLossConfig):
     """Configuration for VQ commitment loss."""
 
@@ -252,3 +274,20 @@ class LatentOptimalTransportLossConfig(BaseLossConfig):
     p: int = 2
     blur_fraction: float = 0.1
     reach_multiplier: float | None = None
+
+
+@dataclass
+class RelaxedConditionalLatentOptimalTransportLossConfig(BaseLossConfig):
+    """Configuration for relaxed conditional latent Sinkhorn divergence."""
+
+    _target_: str = (
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss"
+    )
+    weight: float = 1.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
+    condition_key: str = "${latent_key:PRIOR_CONDITION}"
+    p: int = 2
+    blur_fraction: float = 0.1
+    reach_multiplier: float | None = None
+    state_weight: float = 1.0
+    normalize_condition: bool = True

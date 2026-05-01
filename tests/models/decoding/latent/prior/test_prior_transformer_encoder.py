@@ -181,6 +181,7 @@ class TestPriorTransformerEncoderGetAuxiliaryOutputKeys:
         )
         keys = prior.get_auxiliary_output_keys()
         assert LatentKey.PRIOR_LATENT.value in keys
+        assert LatentKey.PRIOR_CONDITION.value in keys
         assert LatentKey.PRIOR_MU.value in keys
         assert (LatentKey.PRIOR_LOGVAR.value in keys) == expect_logvar
 
@@ -200,9 +201,11 @@ class TestPriorTransformerEncoderForward:
         assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.PRIOR_MU.value,
         }
         assert isinstance(result[LatentKey.PRIOR_LATENT.value], torch.Tensor)
+        assert isinstance(result[LatentKey.PRIOR_CONDITION.value], torch.Tensor)
         assert isinstance(result[LatentKey.PRIOR_MU.value], torch.Tensor)
 
     def test_learn_variance_returns_exact_keys(
@@ -222,10 +225,12 @@ class TestPriorTransformerEncoderForward:
         assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.PRIOR_MU.value,
             LatentKey.PRIOR_LOGVAR.value,
         }
         assert isinstance(result[LatentKey.PRIOR_LATENT.value], torch.Tensor)
+        assert isinstance(result[LatentKey.PRIOR_CONDITION.value], torch.Tensor)
         assert isinstance(result[LatentKey.PRIOR_MU.value], torch.Tensor)
         assert isinstance(result[LatentKey.PRIOR_LOGVAR.value], torch.Tensor)
 
@@ -246,6 +251,7 @@ class TestPriorTransformerEncoderForward:
         assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.PRIOR_MU.value,
             LatentKey.PRIOR_LOGVAR.value,
         }
@@ -285,6 +291,27 @@ class TestPriorTransformerEncoderForward:
             batch_size,
             latent_dimension,
         )
+        assert result[LatentKey.PRIOR_CONDITION.value].shape == (
+            batch_size,
+            embedding_dimension,
+        )
+
+    def test_prior_condition_is_detached(
+        self,
+        prior_transformer_factory: Callable[..., PriorTransformerEncoder],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        encoder = prior_transformer_factory()
+        features = feature_dictionary_factory()
+        for feature in features.values():
+            feature.requires_grad_(True)
+
+        result = encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
+
+        assert result[LatentKey.PRIOR_CONDITION.value].requires_grad is False
 
     def test_min_logvar_clamps_logvar(
         self,

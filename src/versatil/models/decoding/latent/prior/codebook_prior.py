@@ -16,6 +16,9 @@ from torch import nn
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.posterior.vq_encoder import VQPosteriorEncoder
+from versatil.models.decoding.latent.prior.state_condition_pool import (
+    StateConditionPool,
+)
 from versatil.models.decoding.latent.vq.residual_vq import ResidualVQ
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
@@ -104,6 +107,9 @@ class CodebookPrior(PriorLatentEncoder):
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.temperature = temperature
         self._residual_vq_ref: weakref.ReferenceType[ResidualVQ] | None = None
+        self.state_condition_pool = StateConditionPool(
+            embedding_dimension=embedding_dimension
+        )
 
         self.encoder = TransformerEncoder(
             number_of_layers=number_of_encoder_layers,
@@ -172,6 +178,7 @@ class CodebookPrior(PriorLatentEncoder):
         """Codebook prior outputs quantized latent, sampled indices, and logits."""
         return {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.VQ_PRIOR_INDICES.value,
             LatentKey.PRIOR_CODE_LOGITS.value,
         }
@@ -257,6 +264,17 @@ class CodebookPrior(PriorLatentEncoder):
         )  # (B, seq_len, emb_dim)
 
         hidden_states = input_tokens + pos_encodings
+        # TransformerInputBuilder appends the CLS token as the final token.
+        # The conditional loss state must come from observation tokens only,
+        # so exclude that final CLS token from the pooled state vector.
+        condition_tokens = hidden_states[:, :-1, :]
+        condition_padding_mask = (
+            padding_mask[:, :-1] if padding_mask is not None else None
+        )
+        prior_condition = self.state_condition_pool(
+            tokens=condition_tokens,
+            padding_mask=condition_padding_mask,
+        ).detach()
         encoder_output = self.encoder(
             hidden_states=hidden_states,
             padding_mask=padding_mask,
@@ -276,6 +294,7 @@ class CodebookPrior(PriorLatentEncoder):
 
         return {
             LatentKey.PRIOR_LATENT.value: z_q,
+            LatentKey.PRIOR_CONDITION.value: prior_condition,
             LatentKey.VQ_PRIOR_INDICES.value: all_indices,
             LatentKey.PRIOR_CODE_LOGITS.value: all_logits,
         }

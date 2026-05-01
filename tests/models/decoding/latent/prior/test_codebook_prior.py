@@ -280,6 +280,7 @@ class TestCodebookPriorGetAuxiliaryOutputKeys:
         keys = prior.get_auxiliary_output_keys()
         assert keys == {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.VQ_PRIOR_INDICES.value,
             LatentKey.PRIOR_CODE_LOGITS.value,
         }
@@ -353,6 +354,10 @@ class TestCodebookPriorForwardIntegration:
             batch_size,
             latent_dimension,
         )
+        assert result[LatentKey.PRIOR_CONDITION.value].shape == (
+            batch_size,
+            prior.embedding_dimension,
+        )
         assert LatentKey.VQ_INDICES.value not in result
         assert LatentKey.PRIOR_LOG_PROB.value not in result
         assert len(result[LatentKey.VQ_PRIOR_INDICES.value]) == num_residual_layers
@@ -388,10 +393,33 @@ class TestCodebookPriorForwardIntegration:
 
         expected_keys = {
             LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
             LatentKey.VQ_PRIOR_INDICES.value,
             LatentKey.PRIOR_CODE_LOGITS.value,
         }
         assert expected_keys.issubset(result.keys())
+
+    @pytest.mark.integration
+    def test_prior_condition_is_detached(
+        self,
+        codebook_prior_factory: Callable[..., CodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        target_latents_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        latent_dimension = 8
+        prior = codebook_prior_factory(latent_dimension=latent_dimension)
+        prior.wire_posterior(mock_vq_posterior_factory(code_dim=latent_dimension))
+        observations = observation_dictionary_factory(batch_size=4)
+        for observation in observations.values():
+            observation.requires_grad_(True)
+        target_latents = target_latents_factory(
+            batch_size=4, latent_dim=latent_dimension
+        )
+
+        result = prior.forward(target_latents=target_latents, observations=observations)
+
+        assert result[LatentKey.PRIOR_CONDITION.value].requires_grad is False
 
     @pytest.mark.integration
     def test_sample_prior_returns_correct_shape(
