@@ -1,5 +1,5 @@
 # @package _global_
-# BlockPush state-only LACT + learned DiT prior with the large PushT capacity.
+# Block Pushing state-only LACT with conditional MMD latent regularization and a learned Gaussian prior.
 _target_: versatil.configs.main.MainConfig
 
 defaults:
@@ -13,8 +13,8 @@ defaults:
   - /training: default
   - /policy/encoding_pipeline: block_pushing_state
   - /policy/decoder: lact
-  - /policy/algorithm: bc_with_dit_prior
-  - /policy/loss: regression_denoising_prior
+  - /policy/algorithm: bc_with_learned_prior
+  - /policy/loss: regression_conditional_MMD
   - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: block_pushing_2d
   - _self_
@@ -27,7 +27,7 @@ task:
     preload_data_in_memory: true
 
 experiment:
-  name: end_to_end_training_runs/block_pushing/robot_sweep/lact_dit_prior_state_large
+  name: end_to_end_training_runs/block_pushing/robot_sweep/lact_conditional_mmd_learned_prior_state_large
   checkpoint_folder: ${checkpoint_dir:block_pushing}
   checkpoint_every: 100
   save_checkpoints: true
@@ -55,14 +55,34 @@ policy:
 
   loss:
     loss_modules:
+      conditional_mmd:
+        weight: 1.0
+        state_weight: 1.0
+        prior_target_key: ${latent_key:POSTERIOR_MU}
+        condition_key: ${latent_key:PRIOR_CONDITION}
+        kernel_type: ${kernel_type:IMQ}
+        use_median_heuristic: false
+        bandwidth_multipliers:
+          - 16
+          - 32
+          - 64
+          - 128
+        condition_kernel_type: ${kernel_type:RBF}
+        condition_use_median_heuristic: false
+        condition_bandwidth_multipliers:
+          - 0.5
+          - 1.0
+          - 2.0
+        normalize_condition: true
       regression_loss:
         action_keys:
           - ${proprio_key:EE_POS_ACTION}
         mse_weight: 0.0
         l1_weight: 1.0
         huber_weight: 0.0
-      denoising_prior:
-        weight: 0.01
+      trajectory_length:
+        weight: 0.0
+        action_key: ${proprio_key:EE_POS_ACTION}
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
@@ -72,9 +92,6 @@ policy:
         max_std_weight: 0.1
         max_std: 2.0
         covariance_weight: 0.01
-      trajectory_length:
-        weight: 0.0
-        action_key: ${proprio_key:EE_POS_ACTION}
 
   decoder:
     input_keys:
@@ -89,8 +106,21 @@ policy:
 
   algorithm:
     sampling_from_prior_probability: 0.0
-    posterior_decoder_noise_std: 0.075
+    posterior_decoder_noise_std: 0.1
     posterior_encoder:
+      latent_dimension: 16
+      embedding_dimension: 256
+      number_of_heads: 8
+      feedforward_dimension: 1024
+      number_of_encoder_layers: 4
+      dropout_rate: 0.2
+      attention_dropout: 0.05
+      min_logvar: -6.0
+      max_logvar: 2.0
+      deterministic: false
+      mu_tanh_bound: null
+      device: ${policy.device}
+    prior:
       latent_dimension: 16
       embedding_dimension: 256
       number_of_heads: 8
@@ -98,23 +128,5 @@ policy:
       number_of_encoder_layers: 4
       dropout_rate: 0.1
       attention_dropout: 0.01
-      deterministic: true
-      mu_tanh_bound: null
       min_logvar: null
       device: ${policy.device}
-    prior:
-      latent_dimension: 16
-      embedding_dimension: 256
-      number_of_heads: 8
-      number_of_layers: 4
-      feedforward_dimension: 1024
-      dropout: 0.1
-      use_gating: true
-      algorithm_type: ${denoising_algorithm:FLOW_MATCHING}
-      prior_target_key: ${latent_key:POSTERIOR_MU}
-      sigma: 0.0
-      ode_solver: euler
-      timestep_sampler: ${timestep_sampler:BETA}
-      num_inference_steps: 10
-      latent_standardization_enabled: false
-      require_fitted_latent_standardization: false
