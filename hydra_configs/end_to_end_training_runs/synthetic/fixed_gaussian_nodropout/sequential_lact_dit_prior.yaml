@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/synthetic/fixed_gaussian_nodropout/lact_dit_prior
+  - /task_bundle/synthetic: sequential
+  - _self_
+
+experiment:
+  name: end_to_end_training_runs/synthetic/fixed_gaussian_nodropout/sequential_lact_dit_prior
+
+policy:
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 2
+    prior:
+      latent_dimension: 2
