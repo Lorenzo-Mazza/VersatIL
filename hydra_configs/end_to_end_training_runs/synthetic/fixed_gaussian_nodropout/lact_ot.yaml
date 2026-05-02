@@ -27,6 +27,8 @@ task:
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}
+  checkpoint_every: 100
+  save_checkpoints: true
 
 policy:
   metadata_passthrough:
