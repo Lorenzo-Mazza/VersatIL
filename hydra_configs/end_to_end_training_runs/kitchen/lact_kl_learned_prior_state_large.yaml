@@ -1,22 +1,22 @@
 # @package _global_
-# Block Pushing state-only LACT with conditional MMD latent regularization and a learned Gaussian prior.
+# Kitchen state-only LACT VAE-KL with a learned Gaussian prior and large capacity.
 _target_: versatil.configs.main.MainConfig
 
 defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: block_pushing
-  - /task/dataloader: block_pushing_state
-  - /task/action_space: block_pushing_precomputed
-  - /task/observation_space: block_pushing_state
+  - /task/dataset_schema: kitchen
+  - /task/dataloader: kitchen_state
+  - /task/action_space: kitchen_precomputed
+  - /task/observation_space: kitchen_state
   - /training: default
-  - /policy/encoding_pipeline: block_pushing_state
+  - /policy/encoding_pipeline: kitchen_state
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior
-  - /policy/loss: regression_conditional_MMD
+  - /policy/loss: regression_KL
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: block_pushing_2d
+  - override /policy/decoder/heads@policy.decoder.action_heads: kitchen_9d
   - _self_
 
 task:
@@ -27,14 +27,14 @@ task:
     preload_data_in_memory: true
 
 experiment:
-  name: end_to_end_training_runs/block_pushing/lact_conditional_mmd_learned_prior_state_large
-  checkpoint_folder: ${checkpoint_dir:block_pushing}
+  name: end_to_end_training_runs/kitchen/lact_kl_learned_prior_state_large
+  checkpoint_folder: ${checkpoint_dir:kitchen}
   checkpoint_every: 100
   save_checkpoints: true
   use_wandb: true
 
 training:
-  num_epochs: 1200
+  num_epochs: 1000
   early_stopping_patience: null
   clip_gradient_norm: false
   lr_schedule: null
@@ -55,34 +55,18 @@ policy:
 
   loss:
     loss_modules:
-      conditional_mmd:
-        weight: 1.0
-        state_weight: 1.0
-        prior_target_key: ${latent_key:POSTERIOR_MU}
-        condition_key: ${latent_key:PRIOR_CONDITION}
-        kernel_type: ${kernel_type:IMQ}
-        use_median_heuristic: false
-        bandwidth_multipliers:
-          - 16
-          - 32
-          - 64
-          - 128
-        condition_kernel_type: ${kernel_type:RBF}
-        condition_use_median_heuristic: false
-        condition_bandwidth_multipliers:
-          - 0.5
-          - 1.0
-          - 2.0
-        normalize_condition: true
       regression_loss:
         action_keys:
-          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:KITCHEN_ARM_ACTION}
         mse_weight: 0.0
         l1_weight: 1.0
         huber_weight: 0.0
+      kl_divergence:
+        weight: 0.01
+        prior_regularization_weight: 0.0
       trajectory_length:
         weight: 0.0
-        action_key: ${proprio_key:EE_POS_ACTION}
+        action_key: ${proprio_key:KITCHEN_ARM_ACTION}
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
@@ -106,17 +90,17 @@ policy:
 
   algorithm:
     sampling_from_prior_probability: 0.0
-    posterior_decoder_noise_std: 0.1
+    posterior_decoder_noise_std: 0.0
     posterior_encoder:
       latent_dimension: 16
       embedding_dimension: 256
       number_of_heads: 8
       feedforward_dimension: 1024
       number_of_encoder_layers: 4
-      dropout_rate: 0.2
-      attention_dropout: 0.05
-      min_logvar: null
-      deterministic: true
+      dropout_rate: 0.1
+      attention_dropout: 0.01
+      min_logvar: -6.0
+      deterministic: false
       mu_tanh_bound: null
       device: ${policy.device}
     prior:
@@ -127,5 +111,6 @@ policy:
       number_of_encoder_layers: 4
       dropout_rate: 0.1
       attention_dropout: 0.01
-      min_logvar: null
+      learn_variance: false
+      min_logvar: -6.0
       device: ${policy.device}

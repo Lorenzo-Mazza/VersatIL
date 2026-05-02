@@ -1,22 +1,22 @@
 # @package _global_
-# Block Pushing state-only LACT with conditional MMD latent regularization and a learned Gaussian prior.
+# Kitchen state-only LACT with conditional MMD latent regularization and a deterministic posterior.
 _target_: versatil.configs.main.MainConfig
 
 defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: block_pushing
-  - /task/dataloader: block_pushing_state
-  - /task/action_space: block_pushing_precomputed
-  - /task/observation_space: block_pushing_state
+  - /task/dataset_schema: kitchen
+  - /task/dataloader: kitchen_state
+  - /task/action_space: kitchen_precomputed
+  - /task/observation_space: kitchen_state
   - /training: default
-  - /policy/encoding_pipeline: block_pushing_state
+  - /policy/encoding_pipeline: kitchen_state
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior
   - /policy/loss: regression_conditional_MMD
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: block_pushing_2d
+  - override /policy/decoder/heads@policy.decoder.action_heads: kitchen_9d
   - _self_
 
 task:
@@ -27,14 +27,14 @@ task:
     preload_data_in_memory: true
 
 experiment:
-  name: end_to_end_training_runs/block_pushing/lact_conditional_mmd_learned_prior_state_large
-  checkpoint_folder: ${checkpoint_dir:block_pushing}
+  name: end_to_end_training_runs/kitchen/lact_conditional_mmd_learned_prior_state_large
+  checkpoint_folder: ${checkpoint_dir:kitchen}
   checkpoint_every: 100
   save_checkpoints: true
   use_wandb: true
 
 training:
-  num_epochs: 1200
+  num_epochs: 1000
   early_stopping_patience: null
   clip_gradient_norm: false
   lr_schedule: null
@@ -76,13 +76,13 @@ policy:
         normalize_condition: true
       regression_loss:
         action_keys:
-          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:KITCHEN_ARM_ACTION}
         mse_weight: 0.0
         l1_weight: 1.0
         huber_weight: 0.0
       trajectory_length:
         weight: 0.0
-        action_key: ${proprio_key:EE_POS_ACTION}
+        action_key: ${proprio_key:KITCHEN_ARM_ACTION}
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}

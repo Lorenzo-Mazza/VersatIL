@@ -68,12 +68,12 @@ policy:
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
-        mean_weight: 0.0
+        mean_weight: 0.01
         std_weight: 0.05
         target_std: 1.0
         max_std_weight: 0.1
         max_std: 2.0
-        covariance_weight: 0.0
+        covariance_weight: 0.01
 
   decoder:
     input_keys:
@@ -89,7 +89,7 @@ policy:
     sampling_from_prior_probability: 0.0
     posterior_decoder_noise_std: 0.075
     posterior_encoder:
-      latent_dimension: 8
+      latent_dimension: 16
       embedding_dimension: 256
       number_of_heads: 8
       feedforward_dimension: 1024
@@ -99,7 +99,7 @@ policy:
       min_logvar: null
       deterministic: true
     prior:
-      latent_dimension: 8
+      latent_dimension: 16
       embedding_dimension: 256
       number_of_heads: 8
       number_of_layers: 4

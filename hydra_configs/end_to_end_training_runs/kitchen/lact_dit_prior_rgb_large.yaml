@@ -1,22 +1,22 @@
 # @package _global_
-# Block Pushing state-only LACT with conditional MMD latent regularization and a learned Gaussian prior.
+# Kitchen RGB-only LACT with a learned DiT prior and large capacity.
 _target_: versatil.configs.main.MainConfig
 
 defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: block_pushing
-  - /task/dataloader: block_pushing_state
-  - /task/action_space: block_pushing_precomputed
-  - /task/observation_space: block_pushing_state
+  - /task/dataset_schema: kitchen
+  - /task/dataloader: kitchen_rgb
+  - /task/action_space: kitchen_precomputed
+  - /task/observation_space: kitchen_rgb
   - /training: default
-  - /policy/encoding_pipeline: block_pushing_state
+  - /policy/encoding_pipeline: kitchen_rgb
   - /policy/decoder: lact
-  - /policy/algorithm: bc_with_learned_prior
-  - /policy/loss: regression_conditional_MMD
+  - /policy/algorithm: bc_with_dit_prior
+  - /policy/loss: regression_denoising_prior
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: block_pushing_2d
+  - override /policy/decoder/heads@policy.decoder.action_heads: kitchen_9d
   - _self_
 
 task:
@@ -27,21 +27,25 @@ task:
     preload_data_in_memory: true
 
 experiment:
-  name: end_to_end_training_runs/block_pushing/lact_conditional_mmd_learned_prior_state_large
-  checkpoint_folder: ${checkpoint_dir:block_pushing}
+  name: end_to_end_training_runs/kitchen/lact_dit_prior_rgb_large
+  checkpoint_folder: ${checkpoint_dir:kitchen}
   checkpoint_every: 100
   save_checkpoints: true
   use_wandb: true
 
 training:
-  num_epochs: 1200
+  num_epochs: 1000
   early_stopping_patience: null
   clip_gradient_norm: false
   lr_schedule: null
   use_ema: true
   optimizer:
     lr: 5.0e-4
-    param_groups: []
+    param_groups:
+      - name: backbone
+        lr: 1.0e-5
+        weight_decay: 1.0e-3
+        params_pattern: encoding_pipeline.encoders.*.backbone
   stages: []
 
 policy:
@@ -55,34 +59,17 @@ policy:
 
   loss:
     loss_modules:
-      conditional_mmd:
-        weight: 1.0
-        state_weight: 1.0
-        prior_target_key: ${latent_key:POSTERIOR_MU}
-        condition_key: ${latent_key:PRIOR_CONDITION}
-        kernel_type: ${kernel_type:IMQ}
-        use_median_heuristic: false
-        bandwidth_multipliers:
-          - 16
-          - 32
-          - 64
-          - 128
-        condition_kernel_type: ${kernel_type:RBF}
-        condition_use_median_heuristic: false
-        condition_bandwidth_multipliers:
-          - 0.5
-          - 1.0
-          - 2.0
-        normalize_condition: true
       regression_loss:
         action_keys:
-          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:KITCHEN_ARM_ACTION}
         mse_weight: 0.0
         l1_weight: 1.0
         huber_weight: 0.0
+      denoising_prior:
+        weight: 0.01
       trajectory_length:
         weight: 0.0
-        action_key: ${proprio_key:EE_POS_ACTION}
+        action_key: ${proprio_key:KITCHEN_ARM_ACTION}
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
@@ -93,9 +80,15 @@ policy:
         max_std: 2.0
         covariance_weight: 0.01
 
+  encoding_pipeline:
+    encoders:
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+
   decoder:
     input_keys:
-      - robot_state_proprio
+      - left_rgb
     latent_dimension: ${policy.algorithm.posterior_encoder.latent_dimension}
     embedding_dimension: 256
     number_of_heads: 8
@@ -106,20 +99,8 @@ policy:
 
   algorithm:
     sampling_from_prior_probability: 0.0
-    posterior_decoder_noise_std: 0.1
+    posterior_decoder_noise_std: 0.075
     posterior_encoder:
-      latent_dimension: 16
-      embedding_dimension: 256
-      number_of_heads: 8
-      feedforward_dimension: 1024
-      number_of_encoder_layers: 4
-      dropout_rate: 0.2
-      attention_dropout: 0.05
-      min_logvar: null
-      deterministic: true
-      mu_tanh_bound: null
-      device: ${policy.device}
-    prior:
       latent_dimension: 16
       embedding_dimension: 256
       number_of_heads: 8
@@ -128,4 +109,32 @@ policy:
       dropout_rate: 0.1
       attention_dropout: 0.01
       min_logvar: null
+      deterministic: true
+      mu_tanh_bound: null
       device: ${policy.device}
+    prior:
+      latent_dimension: 16
+      embedding_dimension: 256
+      number_of_heads: 8
+      number_of_layers: 4
+      feedforward_dimension: 1024
+      algorithm_type: ${denoising_algorithm:FLOW_MATCHING}
+      sigma: 0.0
+      ode_solver: euler
+      timestep_sampler: ${timestep_sampler:BETA}
+      beta_alpha: 1.5
+      beta_beta: 1.0
+      max_timestep: 0.999
+      num_inference_steps: 10
+      dropout: 0.1
+      normalization_type: ${normalization:LAYER_NORM}
+      attention_type: ${attention:MULTI_HEAD}
+      number_of_key_value_heads: null
+      activation: ${activation_function:SILU}
+      use_gating: true
+      exclude_keys: null
+      prior_target_key: ${latent_key:POSTERIOR_MU}
+      latent_standardization_enabled: false
+      latent_standardization_eps: 1.0e-6
+      latent_standardization_max_batches: null
+      require_fitted_latent_standardization: false

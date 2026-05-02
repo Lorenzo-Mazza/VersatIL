@@ -1,0 +1,84 @@
+# @package _global_
+# Kitchen state-only MMDiT flow matching with large capacity.
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: kitchen
+  - /task/dataloader: kitchen_state
+  - /task/action_space: kitchen_precomputed
+  - /task/observation_space: kitchen_state
+  - /training: default
+  - /policy/encoding_pipeline: kitchen_state
+  - /policy/decoder: dit_multimodal
+  - /policy/algorithm: flow_matching
+  - /policy/loss: regression_synthetic
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: kitchen_9d
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+  dataloader:
+    val_ratio: 0.0
+    preload_data_in_memory: true
+
+experiment:
+  name: end_to_end_training_runs/kitchen/mmdit_flow_state_large
+  checkpoint_folder: ${checkpoint_dir:kitchen}
+  checkpoint_every: 100
+  save_checkpoints: true
+  use_wandb: true
+
+training:
+  num_epochs: 1000
+  early_stopping_patience: null
+  clip_gradient_norm: false
+  lr_schedule: null
+  use_ema: true
+  optimizer:
+    lr: 5.0e-4
+    param_groups: []
+  stages: []
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:KITCHEN_ARM_ACTION}
+        mse_weight: 1.0
+        l1_weight: 0.0
+        huber_weight: 0.0
+      trajectory_length:
+        weight: 0.0
+        action_key: ${proprio_key:KITCHEN_ARM_ACTION}
+
+  decoder:
+    input_keys:
+      - robot_state_proprio
+    diffusion_transformer_type: ${dit_type:MMDIT}
+    embedding_dimension: 256
+    timestep_embedding_dimension: 128
+    number_of_heads: 8
+    number_of_layers: 8
+    feedforward_dimension: 1024
+    dropout_rate: 0.1
+    attention_dropout: 0.01
+
+  algorithm:
+    sigma: 0.0
+    ode_solver: euler
+    num_inference_steps: 10
+    timestep_sampler: ${timestep_sampler:BETA}
