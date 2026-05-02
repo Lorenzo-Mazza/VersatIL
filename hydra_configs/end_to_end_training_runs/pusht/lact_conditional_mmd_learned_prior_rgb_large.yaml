@@ -122,9 +122,7 @@ policy:
       number_of_encoder_layers: 4
       dropout_rate: 0.2
       attention_dropout: 0.05
-      min_logvar: -6.0
-      max_logvar: 2.0
-      deterministic: false
+      deterministic: true
       device: ${policy.device}
     prior:
       latent_dimension: 16
