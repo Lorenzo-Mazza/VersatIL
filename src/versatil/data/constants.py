@@ -59,7 +59,7 @@ class RawCameraKey(enum.StrEnum):
     IMAGE_METAWORLD = "observation.image"
     # PushT LeRobot
     IMAGE_PUSHT = "observation.image"
-    # Q-FAT Kitchen LeRobot
+    # Kitchen LeRobot
     IMAGE_KITCHEN = "observation.image"
 
 
@@ -112,11 +112,24 @@ class ProprioKey(enum.StrEnum):
     PUSHT_KEYPOINTS = "pusht_keypoints"
     PUSHT_CONTACTS = "pusht_contacts"
 
-    # Q-FAT relay_kitchen data
+    # Relay kitchen data
     KITCHEN_ARM_QPOS = "kitchen_arm_qpos"
     KITCHEN_OBJECT_QPOS = "kitchen_object_qpos"
     KITCHEN_TASK_GOAL = "kitchen_task_goal"
     KITCHEN_ARM_ACTION = "kitchen_arm_action"
+
+    # Ant maze multimodal data
+    ANT_QPOS = "ant_qpos"
+    ANT_QVEL = "ant_qvel"
+    ANT_GOAL_COORDS = "ant_goal_coords"
+    ANT_ACHIEVED = "ant_achieved"
+    ANT_TORQUE_ACTION = "ant_torque_action"
+
+    # UR3 block-pushing data
+    UR3_EE_POS = "ur3_ee_pos"
+    UR3_BLOCK1_POS = "ur3_block1_pos"
+    UR3_BLOCK2_POS = "ur3_block2_pos"
+    UR3_EE_TARGET_ACTION = "ur3_ee_target_action"
 
     # Block pushing (multimodal_push_seed) data
     BLOCK_PUSH_BLOCK1_POS = "block_push_block1_pos"
@@ -191,6 +204,8 @@ class DatasetType(enum.StrEnum):
     PUSHT = "pusht"
     BLOCK_PUSHING = "block_pushing"
     KITCHEN = "kitchen"
+    ANT = "ant"
+    UR3 = "ur3"
 
 
 class LeRobotPathsV30(enum.StrEnum):

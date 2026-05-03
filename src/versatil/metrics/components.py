@@ -845,7 +845,7 @@ class ConditionalMaximumMeanDiscrepancyLoss(BaseLoss):
         state_weight: float = 1.0,
         kernel_type: str = KernelType.RBF.value,
         bandwidth_multipliers: list[float] | None = None,
-        use_median_heuristic: bool = True,
+        use_median_heuristic: bool = False,
         condition_kernel_type: str = KernelType.RBF.value,
         condition_bandwidth_multipliers: list[float] | None = None,
         condition_use_median_heuristic: bool = True,

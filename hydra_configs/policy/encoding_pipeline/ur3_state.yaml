@@ -1,0 +1,14 @@
+defaults:
+  - encoder/proprio@encoders.robot_state
+  - _self_
+
+# 6-dim state: ee + block1 + block2. Output dim is 128.
+encoders:
+  robot_state:
+    input_keys:
+      - ${proprio_key:UR3_EE_POS}
+      - ${proprio_key:UR3_BLOCK1_POS}
+      - ${proprio_key:UR3_BLOCK2_POS}
+    output_dim: 128
+
+fusion_stages: []

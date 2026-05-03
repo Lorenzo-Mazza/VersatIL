@@ -1,0 +1,14 @@
+defaults:
+  - encoder/proprio@encoders.robot_state
+  - _self_
+
+# No goal coords: unconditional ant excludes dims [29:37].
+encoders:
+  robot_state:
+    input_keys:
+      - ${proprio_key:ANT_QPOS}
+      - ${proprio_key:ANT_QVEL}
+      - ${proprio_key:ANT_ACHIEVED}
+    output_dim: 128
+
+fusion_stages: []

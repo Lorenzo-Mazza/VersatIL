@@ -1,6 +1,5 @@
 """
-This is the transformer posterior encoder used in the original Action-Chunking Transformer paper.
-It takes as input a chunk of actions plus observation tokens and uses a transformer encoder with a CLS token to produce
+Transformer encoder that takes as input a chunk of actions plus observation tokens and uses a transformer encoder with a CLS token to produce
 a latent embedding (split into mean and log variance), which is then reparameterized to produce a latent sample.
 """
 

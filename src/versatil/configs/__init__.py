@@ -603,6 +603,20 @@ def register_resolvers():
                 / subpath
             ),
         )
+    if not OmegaConf.has_resolver("ant_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "ant_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_ANT_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("ur3_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "ur3_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_UR3_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("multimodal_peg_transfer_dir"):
         OmegaConf.register_new_resolver(
             "multimodal_peg_transfer_dir",

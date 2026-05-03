@@ -1,0 +1,38 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+# The unconditional ant setup omits goal-coord dims [29:37], so the policy sees only qpos, qvel and the
+# 4 achievement bits. The goal-coord slice is therefore omitted from the obs space
+# (it stays in zarr_meta for completeness / goal-conditional variants).
+observations_metadata:
+  ${proprio_key:ANT_QPOS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 15
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 15
+
+  ${proprio_key:ANT_QVEL}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 14
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 15
+    slice_end: 29
+
+  ${proprio_key:ANT_ACHIEVED}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 4
+    is_numerical: true
+    needs_normalization: false
+    slice_start: 37
+    slice_end: 41

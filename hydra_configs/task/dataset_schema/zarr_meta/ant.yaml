@@ -1,0 +1,55 @@
+defaults:
+  - base
+
+_target_: versatil.data.raw.zarr_meta.DatasetMetadata
+
+observations:
+  ${proprio_key:ANT_QPOS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 15
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 15
+
+  ${proprio_key:ANT_QVEL}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 14
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 15
+    slice_end: 29
+
+  ${proprio_key:ANT_GOAL_COORDS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 8
+    is_numerical: true
+    needs_normalization: false
+    slice_start: 29
+    slice_end: 37
+
+  ${proprio_key:ANT_ACHIEVED}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 4
+    is_numerical: true
+    needs_normalization: false
+    slice_start: 37
+    slice_end: 41
+
+precomputed_actions:
+  ${proprio_key:ANT_TORQUE_ACTION}:
+    _target_: versatil.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:UNKNOWN}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 8
+    prediction_dimension: 8
+    needs_normalization: true
