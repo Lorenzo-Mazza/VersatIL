@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/mmd_cwae_fixed_gaussian
+  - /synthetic_presets: radial_k16
+  - _self_
+
+experiment:
+  name: end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/radial_k16_mmd_cwae_fixed_gaussian
+
+policy:
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 4
+    prior:
+      latent_dimension: 4

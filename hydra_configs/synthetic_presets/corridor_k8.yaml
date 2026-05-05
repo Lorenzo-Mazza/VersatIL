@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - override /task/dataset_schema: synthetic/corridor_navigation
+  - override /task/observation_space: synthetic_image_state
+  - override /policy/encoding_pipeline: mono_rgb
+
+task:
+  dataset_schema:
+    num_modes: 8
+
+policy:
+  metadata_passthrough:
+    ${metadata_passthrough_source:OBSERVATION}:
+      ${synthetic_obs_key:MODE_ID}: ${metadata_key:LATENT_COLOR_LABEL}
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 4
+    prior:
+      latent_dimension: 4
+
+training:
+  num_epochs: 1000
+
+experiment:
+  checkpoint_every: 1000
+  save_checkpoints: true

@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/sinkhorn_cwae_fixed_gaussian
+  - /synthetic_presets: circle
+  - _self_
+
+experiment:
+  name: end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/circle_sinkhorn_cwae_fixed_gaussian
+
+policy:
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 1
+    prior:
+      latent_dimension: 1
