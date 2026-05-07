@@ -131,6 +131,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.1
     attention_dropout: 0.01
+    activation: ${activation_function:RELU}
 
   algorithm:
     sampling_from_prior_probability: 0.0
@@ -146,6 +147,7 @@ policy:
       dropout_rate: 0.1
       attention_dropout: 0.01
       device: ${policy.device}
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 8
       num_codes: 16
@@ -157,3 +159,4 @@ policy:
       dropout_rate: 0.1
       attention_dropout: 0.01
       device: ${policy.device}
+      activation: ${activation_function:RELU}

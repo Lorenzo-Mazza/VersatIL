@@ -27,7 +27,6 @@ task:
     preload_data_in_memory: true
 
 experiment:
-  name: end_to_end_training_runs/block_pushing/act_flow_state
   checkpoint_folder: ${checkpoint_dir:block_pushing}
   checkpoint_every: 100
   save_checkpoints: true

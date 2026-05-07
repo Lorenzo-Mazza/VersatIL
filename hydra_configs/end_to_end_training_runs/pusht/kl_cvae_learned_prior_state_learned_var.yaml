@@ -23,7 +23,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 10
   dataloader:
-    val_ratio: 0.0
+    val_ratio: 0.05
     preload_data_in_memory: true
 
 experiment:
@@ -84,6 +84,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.1
     attention_dropout: 0.01
+    activation: ${activation_function:RELU}
 
   algorithm:
     sampling_from_prior_probability: 0.0
@@ -100,6 +101,7 @@ policy:
       max_logvar: 2.0
       deterministic: false
       device: ${policy.device}
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 16
       embedding_dimension: 256
@@ -112,3 +114,4 @@ policy:
       min_logvar: -6.0
       max_logvar: 2.0
       device: ${policy.device}
+      activation: ${activation_function:RELU}

@@ -21,6 +21,8 @@ defaults:
 task:
   observation_horizon: 1
   prediction_horizon: 60
+  dataloader:
+    val_ratio: 0.05
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}
@@ -50,5 +52,6 @@ policy:
     number_of_heads: 8
     feedforward_dimension: 512
     number_of_layers: 4
-    dropout_rate: 0.0
-    attention_dropout: 0.0
+    dropout_rate: 0.2
+    attention_dropout: 0.05
+    activation: ${activation_function:RELU}

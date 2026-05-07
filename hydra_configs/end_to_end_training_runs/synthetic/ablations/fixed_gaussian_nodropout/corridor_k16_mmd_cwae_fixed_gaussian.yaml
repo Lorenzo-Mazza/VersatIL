@@ -4,9 +4,6 @@ defaults:
   - /synthetic_presets: corridor_k16
   - _self_
 
-experiment:
-  name: end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/corridor_k16_mmd_cwae_fixed_gaussian
-
 policy:
   algorithm:
     posterior_encoder:

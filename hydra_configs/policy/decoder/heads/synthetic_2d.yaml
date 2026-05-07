@@ -7,5 +7,5 @@ ${proprio_key:SYNTHETIC_POSITION_ACTION}:
       hidden_dims:
         - 32
       output_dim: null
-      activation: ${activation_function:SILU}
+      activation: ${activation_function:RELU}
       dropout: ${policy.decoder.dropout_rate}

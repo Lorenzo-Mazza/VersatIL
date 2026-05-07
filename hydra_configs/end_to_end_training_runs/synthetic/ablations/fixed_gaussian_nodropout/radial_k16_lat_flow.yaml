@@ -4,9 +4,6 @@ defaults:
   - /synthetic_presets: radial_k16
   - _self_
 
-experiment:
-  name: end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/radial_k16_lat_flow
-
 policy:
   algorithm:
     posterior_encoder:

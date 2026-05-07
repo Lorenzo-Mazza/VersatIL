@@ -4,9 +4,6 @@ defaults:
   - /synthetic_presets: sequential
   - _self_
 
-experiment:
-  name: end_to_end_training_runs/synthetic/ablations/learned_prior_conditional/sequential_relaxed_conditional_sinkhorn_cwae
-
 policy:
   algorithm:
     posterior_encoder:

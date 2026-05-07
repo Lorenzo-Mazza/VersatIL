@@ -24,7 +24,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 10
   dataloader:
-    val_ratio: 0.0
+    val_ratio: 0.05
     preload_data_in_memory: true
 
 experiment:
@@ -72,12 +72,12 @@ policy:
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
-        mean_weight: 0.0
+        mean_weight: 0.01
         std_weight: 0.05
         target_std: 1.0
         max_std_weight: 0.1
         max_std: 2.0
-        covariance_weight: 0.0
+        covariance_weight: 0.01
 
   encoding_pipeline:
     encoders:
@@ -94,6 +94,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.1
     attention_dropout: 0.01
+    activation: ${activation_function:RELU}
 
   algorithm:
     sampling_from_prior_probability: 0.0
@@ -108,6 +109,7 @@ policy:
       attention_dropout: 0.01
       min_logvar: null
       deterministic: true
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 8
       embedding_dimension: 256
@@ -126,7 +128,7 @@ policy:
       normalization_type: ${normalization:LAYER_NORM}
       attention_type: ${attention:MULTI_HEAD}
       number_of_key_value_heads: null
-      activation: ${activation_function:SILU}
+      activation: ${activation_function:RELU}
       use_gating: true
       exclude_keys: null
       prior_target_key: ${latent_key:POSTERIOR_MU}

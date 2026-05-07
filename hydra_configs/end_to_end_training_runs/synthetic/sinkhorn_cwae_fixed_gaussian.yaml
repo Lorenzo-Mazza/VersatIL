@@ -55,6 +55,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.2
     attention_dropout: 0.05
+    activation: ${activation_function:RELU}
   algorithm:
     posterior_decoder_noise_std: 0.075
     posterior_encoder:
@@ -69,6 +70,7 @@ policy:
       deterministic: true
       mu_tanh_bound: null
       min_logvar: null
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 2
   loss:

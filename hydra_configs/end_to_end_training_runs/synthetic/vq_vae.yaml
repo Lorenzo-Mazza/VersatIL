@@ -54,6 +54,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.2
     attention_dropout: 0.05
+    activation: ${activation_function:RELU}
   algorithm:
     posterior_encoder:
       latent_dimension: 2
@@ -65,6 +66,7 @@ policy:
       number_of_encoder_layers: 4
       dropout_rate: 0.2
       attention_dropout: 0.05
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 2
       num_codes: ${task.dataset_schema.num_modes}

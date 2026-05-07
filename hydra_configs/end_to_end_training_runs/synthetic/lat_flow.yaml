@@ -57,6 +57,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.2
     attention_dropout: 0.05
+    activation: ${activation_function:RELU}
   algorithm:
     sampling_from_prior_probability: 0.0
     posterior_decoder_noise_std: 0.075
@@ -72,6 +73,7 @@ policy:
       deterministic: true
       mu_tanh_bound: null
       min_logvar: null
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 2
       embedding_dimension: 256
@@ -88,6 +90,7 @@ policy:
       timestep_sampler: ${timestep_sampler:BETA}
       latent_standardization_enabled: false
       require_fitted_latent_standardization: false
+      activation: ${activation_function:RELU}
   loss:
     loss_modules:
       denoising_prior:
@@ -95,9 +98,9 @@ policy:
       posterior_geometry:
         _target_: versatil.metrics.components.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
-        mean_weight: 0.0
+        mean_weight: 0.01
         std_weight: 0.05
         target_std: 1.0
         max_std_weight: 0.1
         max_std: 2.0
-        covariance_weight: 0.0
+        covariance_weight: 0.01

@@ -8,5 +8,5 @@ ${proprio_key:KITCHEN_ARM_ACTION}:
         - 256
         - 128
       output_dim: null
-      activation: ${activation_function:SILU}
+      activation: ${activation_function:RELU}
       dropout: ${policy.decoder.dropout_rate}

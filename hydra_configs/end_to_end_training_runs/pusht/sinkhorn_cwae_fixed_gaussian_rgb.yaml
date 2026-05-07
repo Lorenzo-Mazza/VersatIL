@@ -97,6 +97,7 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.1
     attention_dropout: 0.01
+    activation: ${activation_function:RELU}
 
   algorithm:
     sampling_from_prior_probability: 0.0
@@ -109,9 +110,9 @@ policy:
       number_of_encoder_layers: 4
       dropout_rate: 0.2
       attention_dropout: 0.05
-      min_logvar: -6.0
       deterministic: true
       device: ${policy.device}
+      activation: ${activation_function:RELU}
     prior:
       latent_dimension: 8
       device: ${policy.device}

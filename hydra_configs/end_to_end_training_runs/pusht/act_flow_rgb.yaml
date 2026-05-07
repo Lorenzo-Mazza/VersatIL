@@ -23,7 +23,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 10
   dataloader:
-    val_ratio: 0.0
+    val_ratio: 0.05
     preload_data_in_memory: true
 
 experiment:
@@ -83,3 +83,4 @@ policy:
     feedforward_dimension: 1024
     dropout_rate: 0.1
     attention_dropout: 0.01
+    activation: ${activation_function:RELU}

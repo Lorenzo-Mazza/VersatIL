@@ -4,9 +4,6 @@ defaults:
   - /synthetic_presets: sequential
   - _self_
 
-experiment:
-  name: end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/sequential_mmd_cwae_fixed_gaussian
-
 policy:
   algorithm:
     posterior_encoder:

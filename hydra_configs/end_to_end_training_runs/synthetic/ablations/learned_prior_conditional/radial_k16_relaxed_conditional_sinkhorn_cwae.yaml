@@ -4,9 +4,6 @@ defaults:
   - /synthetic_presets: radial_k16
   - _self_
 
-experiment:
-  name: end_to_end_training_runs/synthetic/ablations/learned_prior_conditional/radial_k16_relaxed_conditional_sinkhorn_cwae
-
 policy:
   algorithm:
     posterior_encoder:

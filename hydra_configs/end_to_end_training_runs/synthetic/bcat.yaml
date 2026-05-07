@@ -54,3 +54,4 @@ policy:
     number_of_layers: 8
     dropout_rate: 0.2
     attention_dropout: 0.05
+    activation: ${activation_function:RELU}

@@ -4,9 +4,6 @@ defaults:
   - /synthetic_presets: circle
   - _self_
 
-experiment:
-  name: end_to_end_training_runs/synthetic/ablations/fixed_gaussian_nodropout/circle_mmd_cwae_fixed_gaussian
-
 policy:
   algorithm:
     posterior_encoder:

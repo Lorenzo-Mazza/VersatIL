@@ -55,11 +55,12 @@ policy:
     number_of_layers: 4
     dropout_rate: 0.2
     attention_dropout: 0.05
+    activation: ${activation_function:RELU}
     num_mixture_components: 4
     gating_hidden_dims:
       - 64
       - 32
-    gating_activation: ${activation_function:SILU}
+    gating_activation: ${activation_function:RELU}
     gating_dropout: 0.2
     gating_normalization: true
     temperature: 1.0
