@@ -79,6 +79,12 @@ def parse_args() -> argparse.Namespace:
         help="Maximum steps per episode.",
     )
     parser.add_argument(
+        "--temporal_max_timesteps",
+        type=int,
+        default=800,
+        help="Maximum number of steps tracked by temporal aggregation.",
+    )
+    parser.add_argument(
         "--timing_log",
         action="store_true",
         help="Log per-step timing breakdown.",
@@ -170,6 +176,7 @@ def main() -> None:
         action_transport=action_transport,
         temporal_aggregation=args.temporal_aggregation,
         action_execution_horizon=args.action_execution_horizon,
+        max_timesteps=args.temporal_max_timesteps,
         timing_log=args.timing_log,
         update_rate_hz=args.update_frequency,
     )

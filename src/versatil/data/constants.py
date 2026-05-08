@@ -8,7 +8,11 @@ Note:
 
 import enum
 
-from versatil_constants.libero import LiberoCamera
+from versatil_constants.blockpush import BlockPushProprioKey
+from versatil_constants.kitchen import KitchenProprioKey
+from versatil_constants.libero import LiberoCamera, LiberoProprioKey
+from versatil_constants.multimodal_ant import MultimodalAntProprioKey
+from versatil_constants.pusht import PushTProprioKey
 from versatil_constants.shared import (  # noqa: F401
     ActionComponent,
     ActionComputationMethod,
@@ -19,7 +23,8 @@ from versatil_constants.shared import (  # noqa: F401
     ObsKey,
     OrientationRepresentation,
 )
-from versatil_constants.tso import TSOCamera
+from versatil_constants.tso import TSOCamera, TSOProprioKey
+from versatil_constants.ur3 import UR3ProprioKey
 
 
 class Cameras(enum.Enum):
@@ -88,59 +93,59 @@ class ProprioKey(enum.StrEnum):
     """Proprioceptive observation keys for all supported environments."""
 
     # TSO datasets proprioceptive keys
-    ROBOT_FRAME_CARTESIAN_TIP_POS = "proprio_robot_frame"
-    ROBOT_FRAME_CARTESIAN_TIP_ORI = "tip_ori_robot_frame"
-    CAMERA_FRAME_CARTESIAN_TIP_POS = "proprio_camera_frame"
-    CAMERA_FRAME_CARTESIAN_TIP_ORI = "tip_ori_camera_frame"
+    ROBOT_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+    ROBOT_FRAME_CARTESIAN_TIP_ORI = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value
+    CAMERA_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
+    CAMERA_FRAME_CARTESIAN_TIP_ORI = TSOProprioKey.CAMERA_FRAME_CARTESIAN_TIP_ORI.value
     # LIBERO/Metaworld proprioceptive keys
-    EE_POS = "ee_pos"
-    EE_ORI = "ee_ori"
-    EE_STATES = "ee_states"
-    JOINT_STATES = "joint_states"
-    EE_POS_ACTION = "ee_pos_action"
-    EE_ORI_ACTION = "ee_ori_action"
-    GRIPPER_STATE = "gripper_state_obs"
-    GRIPPER_STATE_ACTION = "gripper_state_action"
+    EE_POS = LiberoProprioKey.EE_POS.value
+    EE_ORI = LiberoProprioKey.EE_ORI.value
+    EE_STATES = LiberoProprioKey.EE_STATES.value
+    JOINT_STATES = LiberoProprioKey.JOINT_STATES.value
+    EE_POS_ACTION = LiberoProprioKey.EE_POS_ACTION.value
+    EE_ORI_ACTION = LiberoProprioKey.EE_ORI_ACTION.value
+    GRIPPER_STATE = LiberoProprioKey.GRIPPER_STATE.value
+    GRIPPER_STATE_ACTION = LiberoProprioKey.GRIPPER_STATE_ACTION.value
 
     # Synthetic data
     SYNTHETIC_POSITION = "synthetic_position"
     SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
 
     # PushT data
-    PUSHT_BLOCK_POS = "pusht_block_pos"
-    PUSHT_BLOCK_ANGLE = "pusht_block_angle"
-    PUSHT_KEYPOINTS = "pusht_keypoints"
-    PUSHT_CONTACTS = "pusht_contacts"
+    PUSHT_BLOCK_POS = PushTProprioKey.BLOCK_POS.value
+    PUSHT_BLOCK_ANGLE = PushTProprioKey.BLOCK_ANGLE.value
+    PUSHT_KEYPOINTS = PushTProprioKey.KEYPOINTS.value
+    PUSHT_CONTACTS = PushTProprioKey.CONTACTS.value
 
     # Relay kitchen data
-    KITCHEN_ARM_QPOS = "kitchen_arm_qpos"
-    KITCHEN_OBJECT_QPOS = "kitchen_object_qpos"
-    KITCHEN_TASK_GOAL = "kitchen_task_goal"
-    KITCHEN_ARM_ACTION = "kitchen_arm_action"
+    KITCHEN_ARM_QPOS = KitchenProprioKey.ARM_QPOS.value
+    KITCHEN_OBJECT_QPOS = KitchenProprioKey.OBJECT_QPOS.value
+    KITCHEN_TASK_GOAL = KitchenProprioKey.TASK_GOAL.value
+    KITCHEN_ARM_ACTION = KitchenProprioKey.ARM_ACTION.value
 
     # Ant maze multimodal data
-    ANT_QPOS = "ant_qpos"
-    ANT_QVEL = "ant_qvel"
-    ANT_GOAL_COORDS = "ant_goal_coords"
-    ANT_ACHIEVED = "ant_achieved"
-    ANT_TORQUE_ACTION = "ant_torque_action"
+    ANT_QPOS = MultimodalAntProprioKey.QPOS.value
+    ANT_QVEL = MultimodalAntProprioKey.QVEL.value
+    ANT_GOAL_COORDS = MultimodalAntProprioKey.GOAL_COORDS.value
+    ANT_ACHIEVED = MultimodalAntProprioKey.ACHIEVED.value
+    ANT_TORQUE_ACTION = MultimodalAntProprioKey.TORQUE_ACTION.value
 
     # UR3 block-pushing data
-    UR3_EE_POS = "ur3_ee_pos"
-    UR3_BLOCK1_POS = "ur3_block1_pos"
-    UR3_BLOCK2_POS = "ur3_block2_pos"
-    UR3_EE_TARGET_ACTION = "ur3_ee_target_action"
+    UR3_EE_POS = UR3ProprioKey.EE_POS.value
+    UR3_BLOCK1_POS = UR3ProprioKey.BLOCK1_POS.value
+    UR3_BLOCK2_POS = UR3ProprioKey.BLOCK2_POS.value
+    UR3_EE_TARGET_ACTION = UR3ProprioKey.EE_TARGET_ACTION.value
 
     # Block pushing (multimodal_push_seed) data
-    BLOCK_PUSH_BLOCK1_POS = "block_push_block1_pos"
-    BLOCK_PUSH_BLOCK1_ANGLE = "block_push_block1_angle"
-    BLOCK_PUSH_BLOCK2_POS = "block_push_block2_pos"
-    BLOCK_PUSH_BLOCK2_ANGLE = "block_push_block2_angle"
-    BLOCK_PUSH_EE_COMMANDED = "block_push_ee_commanded"
-    BLOCK_PUSH_TARGET1_POS = "block_push_target1_pos"
-    BLOCK_PUSH_TARGET1_ANGLE = "block_push_target1_angle"
-    BLOCK_PUSH_TARGET2_POS = "block_push_target2_pos"
-    BLOCK_PUSH_TARGET2_ANGLE = "block_push_target2_angle"
+    BLOCK_PUSH_BLOCK1_POS = BlockPushProprioKey.BLOCK1_POS.value
+    BLOCK_PUSH_BLOCK1_ANGLE = BlockPushProprioKey.BLOCK1_ANGLE.value
+    BLOCK_PUSH_BLOCK2_POS = BlockPushProprioKey.BLOCK2_POS.value
+    BLOCK_PUSH_BLOCK2_ANGLE = BlockPushProprioKey.BLOCK2_ANGLE.value
+    BLOCK_PUSH_EE_COMMANDED = BlockPushProprioKey.EE_COMMANDED.value
+    BLOCK_PUSH_TARGET1_POS = BlockPushProprioKey.TARGET1_POS.value
+    BLOCK_PUSH_TARGET1_ANGLE = BlockPushProprioKey.TARGET1_ANGLE.value
+    BLOCK_PUSH_TARGET2_POS = BlockPushProprioKey.TARGET2_POS.value
+    BLOCK_PUSH_TARGET2_ANGLE = BlockPushProprioKey.TARGET2_ANGLE.value
 
 
 class SyntheticObsKey(enum.StrEnum):
