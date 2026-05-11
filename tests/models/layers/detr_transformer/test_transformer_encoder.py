@@ -380,22 +380,33 @@ class TestTransformerEncoderForward:
     def test_final_normalization_applied_when_configured(
         self,
         transformer_encoder_factory: Callable[..., TransformerEncoder],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
         batch_size: int,
     ):
-        torch.manual_seed(0)
-        encoder_with_norm = transformer_encoder_factory(use_normalization=True)
-        torch.manual_seed(0)
-        encoder_without_norm = transformer_encoder_factory(use_normalization=False)
+        encoder_with_norm = transformer_encoder_factory(
+            number_of_layers=0,
+            use_normalization=True,
+        )
+        encoder_without_norm = transformer_encoder_factory(
+            number_of_layers=0,
+            use_normalization=False,
+        )
         encoder_with_norm.eval()
         encoder_without_norm.eval()
-        source = sequence_tensor_factory(
-            batch_size=batch_size,
-            sequence_length=SOURCE_LENGTH,
-            embedding_dimension=EMBEDDING_DIMENSION,
+        source = torch.arange(
+            batch_size * SOURCE_LENGTH * EMBEDDING_DIMENSION,
+            dtype=torch.float32,
+        ).reshape(batch_size, SOURCE_LENGTH, EMBEDDING_DIMENSION)
+        source = source / source.numel()
+
+        expected_output_with_norm = torch.nn.functional.layer_norm(
+            source,
+            normalized_shape=(EMBEDDING_DIMENSION,),
         )
         output_with = encoder_with_norm(source=source)
         output_without = encoder_without_norm(source=source)
+
+        assert torch.allclose(output_with, expected_output_with_norm)
+        assert torch.equal(output_without, source)
         assert not torch.allclose(output_with, output_without)
 
     def test_positional_encoding_passed_through_layers(
