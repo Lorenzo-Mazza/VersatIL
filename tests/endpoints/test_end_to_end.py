@@ -2,6 +2,7 @@
 
 import gc
 import os
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -54,6 +55,12 @@ NUM_EPISODES = 3
 TIMESTEPS_PER_EPISODE = 15
 
 E2E_CONFIGS = discover_e2e_configs()
+
+
+def _cleanup_temporary_artifacts(path: Path) -> None:
+    shutil.rmtree(path, ignore_errors=True)
+    gc.collect()
+    torch.cuda.empty_cache()
 
 
 def _create_synthetic_zarr(
@@ -111,97 +118,99 @@ def _create_synthetic_zarr(
     ids=[c.split("/")[-1] for c in E2E_CONFIGS],
 )
 def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
-    if "flow_unet" in config_name and "libero_hdf5" in config_name:
-        pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
-    if "pi0" in config_name and not os.environ.get("HF_TOKEN"):
-        pytest.skip("pi0 requires HF_TOKEN for gated PaliGemma model")
+    try:
+        if "flow_unet" in config_name and "libero_hdf5" in config_name:
+            pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
+        if "pi0" in config_name and not os.environ.get("HF_TOKEN"):
+            pytest.skip("pi0 requires HF_TOKEN for gated PaliGemma model")
 
-    dataset_type = resolve_dataset_type(config_name)
-    rng = np.random.default_rng(42)
-    zarr_path = str(tmp_path / "data.zarr")
-    checkpoint_dir = str(tmp_path / "checkpoints")
+        dataset_type = resolve_dataset_type(config_name)
+        rng = np.random.default_rng(42)
+        zarr_path = str(tmp_path / "data.zarr")
+        checkpoint_dir = str(tmp_path / "checkpoints")
 
-    _create_synthetic_zarr(
-        zarr_path=zarr_path,
-        dataset_type=dataset_type,
-        rng=rng,
-        timesteps_per_episode=80
-        if dataset_type == "synthetic"
-        else TIMESTEPS_PER_EPISODE,
-    )
-
-    decoder_overrides = build_tiny_overrides(config_name)
-    all_overrides = (
-        COMMON_OVERRIDES
-        + decoder_overrides
-        + [
-            f"experiment.checkpoint_folder={checkpoint_dir}",
-            f"task.dataset_schema.zarr_path={zarr_path}",
-        ]
-    )
-
-    with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
-        yaml_config = compose(
-            config_name=config_name,
-            overrides=all_overrides,
+        _create_synthetic_zarr(
+            zarr_path=zarr_path,
+            dataset_type=dataset_type,
+            rng=rng,
+            timesteps_per_episode=80
+            if dataset_type == "synthetic"
+            else TIMESTEPS_PER_EPISODE,
         )
+
+        decoder_overrides = build_tiny_overrides(config_name)
+        all_overrides = (
+            COMMON_OVERRIDES
+            + decoder_overrides
+            + [
+                f"experiment.checkpoint_folder={checkpoint_dir}",
+                f"task.dataset_schema.zarr_path={zarr_path}",
+            ]
+        )
+
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            yaml_config = compose(
+                config_name=config_name,
+                overrides=all_overrides,
+            )
+            with patch(
+                "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
+                lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
+            ):
+                config = hydra.utils.instantiate(yaml_config)
+
+        config.policy.to(E2E_DEVICE)
+
+        with patch("versatil.workspace.HydraConfig") as mock_hydra:
+            mock_hydra.get.return_value = MagicMock()
+            mock_hydra.get.return_value.job.config_name = "test_e2e"
+            workspace = Workspace(config, original_yaml_config=yaml_config)
+            workspace.run()
+
+        output_dir = Path(checkpoint_dir) / "test_e2e" / "e2e_test"
+        assert (output_dir / "last.ckpt").exists()
+        del workspace
+        gc.collect()
+        torch.cuda.empty_cache()
         with patch(
             "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
             lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
         ):
-            config = hydra.utils.instantiate(yaml_config)
+            policy_loader = PolicyLoader(
+                device=E2E_DEVICE,
+                checkpoint_path=str(output_dir),
+                checkpoint_name="last.ckpt",
+            )
 
-    config.policy.to(E2E_DEVICE)
-
-    with patch("versatil.workspace.HydraConfig") as mock_hydra:
-        mock_hydra.get.return_value = MagicMock()
-        mock_hydra.get.return_value.job.config_name = "test_e2e"
-        workspace = Workspace(config, original_yaml_config=yaml_config)
-        workspace.run()
-
-    output_dir = Path(checkpoint_dir) / "test_e2e" / "e2e_test"
-    assert (output_dir / "last.ckpt").exists()
-    del workspace
-    gc.collect()
-    torch.cuda.empty_cache()
-    # --- Reload checkpoint and run inference against mock server ---
-    with patch(
-        "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
-        lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
-    ):
-        policy_loader = PolicyLoader(
-            device=E2E_DEVICE,
-            checkpoint_path=str(output_dir),
-            checkpoint_name="last.ckpt",
+        port = get_free_port()
+        server = start_mock_observation_server(
+            observation_space=policy_loader.observation_space,
+            port=port,
         )
+        try:
+            observation_transport = SocketObservationTransport(
+                server_address="127.0.0.1",
+                server_port=port,
+            )
+            action_transport = SocketActionTransport(
+                server_address="127.0.0.1",
+                server_port=port,
+            )
+            client = InferenceClient(
+                policy_loader=policy_loader,
+                observation_transport=observation_transport,
+                action_transport=action_transport,
+                compression_type=CompressionType.RAW.value,
+            )
+            status = client.step()
+            assert status == "continue"
 
-    port = get_free_port()
-    server = start_mock_observation_server(
-        observation_space=policy_loader.observation_space,
-        port=port,
-    )
-    try:
-        observation_transport = SocketObservationTransport(
-            server_address="127.0.0.1",
-            server_port=port,
-        )
-        action_transport = SocketActionTransport(
-            server_address="127.0.0.1",
-            server_port=port,
-        )
-        client = InferenceClient(
-            policy_loader=policy_loader,
-            observation_transport=observation_transport,
-            action_transport=action_transport,
-            compression_type=CompressionType.RAW.value,
-        )
-        status = client.step()
-        assert status == "continue"
+            action_metadata = client.action_postprocessor.build_action_metadata()
+            assert len(action_metadata) > 0
+        finally:
+            server.stop()
 
-        action_metadata = client.action_postprocessor.build_action_metadata()
-        assert len(action_metadata) > 0
+        del policy_loader, client
+        gc.collect()
     finally:
-        server.stop()
-
-    del policy_loader, client
-    gc.collect()
+        _cleanup_temporary_artifacts(tmp_path)

@@ -139,6 +139,10 @@ jobs:
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v5
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h
       - name: Cache HuggingFace models
         uses: actions/cache@v4
         with:
@@ -159,6 +163,11 @@ jobs:
           source .venv/bin/activate
           uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchaudio==2.10.0 torchvision==0.25.0
           uv sync
+      - name: Clean dependency caches before e2e
+        run: |
+          uv cache clean || true
+          rm -rf ~/.cache/torch
+          df -h
       - name: Run e2e tests
         run: |
           source .venv/bin/activate
