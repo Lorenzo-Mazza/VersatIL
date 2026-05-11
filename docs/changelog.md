@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-11
+
 ### Added
 - End-to-end config families for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, Multimodal Peg Transfer, and synthetic multimodal benchmarks.
 - LIBERO/LIBERO+ configs for GPT-style action transformers, Pi0/SmolVLA-style VLA policies, and vision/language encoder sweeps.
