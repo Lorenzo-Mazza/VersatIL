@@ -5,7 +5,7 @@ defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: bowel_retraction_v4
+  - /task/dataset_schema: bowel_retraction_v3
   - /task/dataloader: bowel_retraction_language
   - /task/action_space: deltas_cf_pos_gripper_phase
   - /task/observation_space: stereo_rgb_language_proprio_cf

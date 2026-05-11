@@ -100,6 +100,9 @@ nav:
       - Data Pipeline: architecture/data.md
       - Inference: architecture/inference.md
       - Post-Training Compression: architecture/post_training_compression.md
+  - Papers Reproducibility Instructions:
+      - Overview: papers-reproducibility-instructions/index.md
+      - Supervised MoE Surgical Grasping: papers-reproducibility-instructions/supervised-moe-bowel-retraction.md
   - API Reference: reference/
   - Known Issues: known-issues.md
   - Changelog: changelog.md
