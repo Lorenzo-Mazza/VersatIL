@@ -611,11 +611,10 @@ Pre-commit hooks run ruff automatically on every `git commit`.
 - Verify CUDA 12.8 with `nvidia-smi`
 - Check `torch.cuda.is_available()` returns `True`
 
-### SLURM/NCCL Errors
-- Set `export NCCL_P2P_DISABLE=1` in SLURM script
-- Check `WORLD_SIZE` and `SLURM_PROCID` environment variables
-
 ### Data Loading
 - Verify Zarr dataset paths and permissions
 - Check dataset schema matches your data
 - Ensure sufficient disk space for Zarr cache
+
+### Python 3.14 Compatibility
+See [Known Issues](#known-issues).
