@@ -40,6 +40,9 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
         if (
             self.position_source == PositionSource.TENSOR_INDICES.value
             and input_values.numel() > 0
+            # torch.export/compile cannot trace the data-dependent Python int
+            # conversion below. Side effect: compiled/exported graphs skip this
+            # eager range check and clamp invalid positions instead of raising.
             and not torch.compiler.is_compiling()
         ):
             max_position = int(input_values.max())

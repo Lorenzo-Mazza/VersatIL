@@ -204,6 +204,40 @@ class TestLearnedPositionalEncoding1D:
         ):
             module(tensor, offset=offset)
 
+    def test_tensor_indices_export_clamps_out_of_range_positions(
+        self,
+        learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        maximum_length = 4
+        sequence_length = 8
+        embedding_dimension = 4
+        batch_size = 2
+        module = learned_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            maximum_length=maximum_length,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+
+        with pytest.raises(ValueError, match="out of range"):
+            module(tensor)
+
+        exported = torch.export.export(module, (tensor,), strict=False)
+        output = exported.module()(tensor)
+
+        clamped_positions = torch.tensor([0, 1, 2, 3, 3, 3, 3, 3], dtype=torch.long)
+        expected = (
+            module.learned_encoding(clamped_positions)
+            .unsqueeze(0)
+            .expand(batch_size, -1, -1)
+        )
+        torch.testing.assert_close(output, expected)
+
     def test_scalar_mode_clamps_out_of_range_without_raising(
         self,
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
