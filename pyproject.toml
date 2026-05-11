@@ -50,7 +50,6 @@ dependencies = [
   "torchvision==0.25.0",
   "tqdm==4.67.1",
   "transformers==5.2.0",
-  "triton==3.6.0",
   "tso-robotics-sockets",
   "versatil-constants>=0.2.0",
   "pre-commit",
