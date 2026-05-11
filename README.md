@@ -261,6 +261,9 @@ VERSATIL_PUSHT_LEROBOT_DIR=/path/to/pusht_lerobot
 VERSATIL_BLOCK_PUSHING_LEROBOT_DIR=/path/to/block_pushing_lerobot_rel
 VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR=/path/to/block_pushing_lerobot_abs
 VERSATIL_KITCHEN_LEROBOT_DIR=/path/to/kitchen_lerobot
+VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR=/path/to/multimodal_peg_transfer
+VERSATIL_ANT_LEROBOT_DIR=/path/to/ant_lerobot
+VERSATIL_UR3_LEROBOT_DIR=/path/to/ur3_lerobot
 
 # Weights & Biases (optional)
 WANDB_PROJECT=versatil
@@ -283,6 +286,9 @@ Ready-to-use end-to-end configs are organized by dataset under `hydra_configs/en
 | PushT | `pusht/` | Local/LeRobot-compatible data | 2D pushing benchmark configs. |
 | Block Pushing | `block_pushing/` | Local/LeRobot-compatible data | Relative and absolute action-space variants. |
 | Kitchen | `kitchen/` | Local/LeRobot-compatible data | Q-FAT relay kitchen configs. |
+| Multimodal Ant | `ant/` | Local/LeRobot-compatible data | State-only multimodal ant benchmark configs. |
+| UR3 Block Push | `ur3/` | Local/LeRobot-compatible data | State-only UR3 block-push benchmark configs. |
+| Multimodal Peg Transfer | `multimodal_peg_transfer/` | Local data | Peg-transfer surgical robot task configs. |
 | Synthetic | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs. |
 
 Each config is self-contained — just point to your data path and run.
@@ -428,12 +434,14 @@ The [`VariationalAlgorithm`](src/versatil/models/decoding/algorithm/variational.
 
 **Posterior Network types:**
 - [`VAETransformerEncoder`](src/versatil/models/decoding/latent/posterior/transformer_encoder.py#L32) - Transformer encoder that learns a CLS token to predict latent mean and logvar of a conditional Gaussian posterior
+- [`VQPosteriorEncoder`](src/versatil/models/decoding/latent/posterior/vq_encoder.py#L37) - Transformer posterior with residual vector quantization for discrete latent action codes
 
 **Prior Network types:**
 - [`GaussianPrior`](src/versatil/models/decoding/latent/prior/gaussian_prior.py#L17) - Fixed Gaussian N(0,I) (standard VAE prior)
 - [`PriorTransformerEncoder`](src/versatil/models/decoding/latent/prior/transformer_encoder.py#L23) - Learned conditional gaussian prior using a transformer encoder
 - [`DiTPrior`](src/versatil/models/decoding/latent/prior/dit_prior.py#L59) - Multimodal prior trained via diffusion/flow matching
 - [`VampPrior`](src/versatil/models/decoding/latent/prior/vamp_prior.py#L45) - Mixture of posteriors ([paper](https://arxiv.org/abs/1705.07120))
+- [`UniformCodebookPrior`](src/versatil/models/decoding/latent/prior/uniform_codebook_prior.py#L21) and [`CodebookPrior`](src/versatil/models/decoding/latent/prior/codebook_prior.py#L37) - Fixed or learned priors over VQ codebook indices
 
 Each decoder can customize how it integrates the latent `z` token into its architecture (e.g., prepended token, cross-attention, FiLM).
 

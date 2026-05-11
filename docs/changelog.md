@@ -5,6 +5,29 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- End-to-end config families for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, Multimodal Peg Transfer, and synthetic multimodal benchmarks.
+- LIBERO/LIBERO+ configs for GPT-style action transformers, Pi0/SmolVLA-style VLA policies, and vision/language encoder sweeps.
+- Dataset path resolvers and `.env` variables for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, and Multimodal Peg Transfer.
+- Dataset schema, Zarr metadata, observation/action-space configs, and LeRobot/local raw-data wiring for the new benchmark families.
+- Synthetic multimodal benchmark generation, presets, rollout metrics, and config families for mode-recovery experiments.
+- Variational latent-modeling components for multimodal action distributions: VQ posterior encoder, uniform/learned codebook priors, DiT latent priors, conditional MMD losses, and relaxed conditional Sinkhorn/OT losses.
+- Staged training support with epoch-indexed trainability, optimizer, and loss-weight overrides, plus prior-target standardization and richer latent/synthetic rollout callbacks.
+- VLA model support through `Pi0Decoder`, `SmolVLADecoder`, generative/two-tower VLM encoders, VLM backbone wiring, and VLA attention masks.
+- Transformer internals refactored into reusable attention/block/layer/cache packages with generation and conditioning caches.
+- `action_execution_horizon` in inference, allowing a policy to execute only part of each predicted action chunk before re-querying.
+
+### Changed
+- Encoder outputs now use `FeatureMetadata` and feature types to make decoder compatibility validation explicit.
+- Image preprocessing is centralized in `ImageProcessor`, with camera sizes taken from task metadata.
+- Training callbacks are split into focused modules and collected through a `CallbackProvider` protocol.
+
+### Fixed
+- Inference without temporal aggregation now respects action chunks instead of sending only the first action.
+- DiT latent prior target selection, EMA step counting, DataLoader worker persistence, trajectory padding metrics, and several VLM/tokenization edge cases.
+
 ## [0.1.1] - 2026-03-20
 
 Migrate to Python 3.13+ and PyTorch 2.10 with CUDA 12.8.

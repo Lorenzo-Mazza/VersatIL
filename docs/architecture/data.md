@@ -51,6 +51,9 @@ Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_r
 | PushT                                                                    | `pusht/` | Local/LeRobot-compatible data | 2D pushing benchmark configs.                                    |
 | Block Pushing                                                            | `block_pushing/` | Local/LeRobot-compatible data | Relative and absolute action-space variants.                     |
 | Kitchen                                                                  | `kitchen/` | Local/LeRobot-compatible data | Q-FAT relay kitchen configs.                                     |
+| Multimodal Ant                                                           | `ant/` | Local/LeRobot-compatible data | State-only multimodal ant benchmark configs.                     |
+| UR3 Block Push                                                           | `ur3/` | Local/LeRobot-compatible data | State-only UR3 block-push benchmark configs.                     |
+| Multimodal Peg Transfer                                                  | `multimodal_peg_transfer/` | Local data | Peg-transfer task configs.                                       |
 | Synthetic                                                                | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs.              |
 
 ### Zarr Store Creation
