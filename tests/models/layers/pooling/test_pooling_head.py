@@ -319,6 +319,41 @@ class TestTokenPoolingHead:
         expected = hidden_states[:, start:].mean(dim=1)
         assert torch.allclose(output, expected)
 
+    def test_average_ignores_padding_mask(self):
+        head = TokenPoolingHead(
+            input_dimension=2,
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        hidden_states = torch.tensor(
+            [
+                [[1.0, 3.0], [3.0, 5.0], [100.0, 100.0]],
+                [[2.0, 4.0], [100.0, 100.0], [100.0, 100.0]],
+            ]
+        )
+        padding_mask = torch.tensor(
+            [
+                [False, False, True],
+                [False, True, True],
+            ]
+        )
+        output = head(hidden_states=hidden_states, padding_mask=padding_mask)
+        expected = torch.tensor([[2.0, 4.0], [2.0, 4.0]])
+        torch.testing.assert_close(output, expected)
+
+    def test_average_slices_padding_mask_after_prefix_tokens(self):
+        head = TokenPoolingHead(
+            input_dimension=2,
+            pooling_method=PoolingMethod.AVERAGE.value,
+            num_prefix_tokens=1,
+        )
+        hidden_states = torch.tensor(
+            [[[1000.0, 1000.0], [1.0, 3.0], [3.0, 5.0], [100.0, 100.0]]]
+        )
+        padding_mask = torch.tensor([[False, False, False, True]])
+        output = head(hidden_states=hidden_states, padding_mask=padding_mask)
+        expected = torch.tensor([[2.0, 4.0]])
+        torch.testing.assert_close(output, expected)
+
     @pytest.mark.parametrize("num_prefix_tokens", [0, 1, 5])
     def test_learned_aggregation_produces_input_sensitive_output(
         self,
@@ -347,6 +382,34 @@ class TestTokenPoolingHead:
         output_b = head(hidden_states_b)
         assert output_a.shape == (batch_size, feature_dimension)
         assert not torch.allclose(output_a, output_b)
+
+    def test_learned_aggregation_ignores_padding_mask(
+        self,
+        rng: np.random.Generator,
+    ):
+        batch_size = 2
+        sequence_length = 8
+        feature_dimension = 16
+        head = TokenPoolingHead(
+            input_dimension=feature_dimension,
+            pooling_method=PoolingMethod.LEARNED_AGGREGATION.value,
+        )
+        hidden_states = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, sequence_length, feature_dimension)
+            ).astype(np.float32)
+        )
+        changed_hidden_states = hidden_states.clone()
+        changed_hidden_states[:, -2:, :] = 1000.0
+        padding_mask = torch.zeros(batch_size, sequence_length, dtype=torch.bool)
+        padding_mask[:, -2:] = True
+
+        output = head(hidden_states=hidden_states, padding_mask=padding_mask)
+        changed_output = head(
+            hidden_states=changed_hidden_states,
+            padding_mask=padding_mask,
+        )
+        torch.testing.assert_close(output, changed_output)
 
     @pytest.mark.parametrize("num_prefix_tokens", [0, 1, 5])
     def test_none_returns_sequence_with_prefix_tokens_stripped(

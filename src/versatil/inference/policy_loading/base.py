@@ -143,27 +143,25 @@ class BasePolicyLoader:
                         f"Matched: {matched}/{checkpoint_count}"
                     )
 
-        lazy_module_prefixes = [
+        lazy_module_patterns = [
             (
-                "policy.decoder.architecture.feature_projection.linear_projections.",
+                ".feature_projection.linear_projections.",
                 "FeatureProjection linear",
             ),
             (
-                "policy.decoder.architecture.feature_projection.spatial_projections.",
+                ".feature_projection.spatial_projections.",
                 "FeatureProjection spatial",
             ),
             (
-                "policy.decoder.architecture.camera_embeddings.embeddings.",
+                ".camera_embeddings.embeddings.",
                 "DynamicFeatureEmbedding",
             ),
         ]
-        for checkpoint_prefix, module_name in lazy_module_prefixes:
+        for lazy_pattern, module_name in lazy_module_patterns:
             checkpoint_keys_for_module = [
-                k for k in checkpoint_keys if k.startswith(checkpoint_prefix)
+                k for k in checkpoint_keys if lazy_pattern in k
             ]
-            model_keys_for_module = [
-                k for k in model_keys if k.startswith(checkpoint_prefix)
-            ]
+            model_keys_for_module = [k for k in model_keys if lazy_pattern in k]
             if len(checkpoint_keys_for_module) > 0 and len(model_keys_for_module) == 0:
                 errors.append(
                     f"CRITICAL: {module_name} failed to load. "

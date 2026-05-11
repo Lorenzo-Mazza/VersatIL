@@ -45,8 +45,14 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         model_dtype: str | None = None,
         max_text_length: int | None = None,
     ):
+        if isinstance(input_keys, str):
+            input_keys = [input_keys]
+        all_keys = list(input_keys) + [
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+            SampleKey.IS_PAD_OBSERVATION.value,
+        ]
         specification = EncoderInput(
-            keys=input_keys,
+            keys=all_keys,
             at_least_one_of_groups=[RGB_CAMERAS],
             required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,
@@ -71,8 +77,6 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
             )
         else:
             self.vlm = AutoModel.from_config(config, attn_implementation=attention_type)
-        if self.model_dtype is not None:
-            self.vlm = self.vlm.to(self.model_dtype)
         self.image_size: int = config.vision_config.image_size
         self.hidden_dim: int = config.text_config.hidden_size
         self.num_image_tokens_per_camera: int = self._compute_num_image_tokens(config)
@@ -84,6 +88,7 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         self.use_embeddings_only = use_embeddings_only
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     @property
     def total_image_tokens(self) -> int:
@@ -267,6 +272,41 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         cos, sin = rotary_embedding(hidden_states, position_ids)
         # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
         return cos.unsqueeze(1), sin.unsqueeze(1)
+
+    @staticmethod
+    def build_additive_attention_mask(
+        attention_mask: torch.Tensor | None,
+        dtype: torch.dtype,
+    ) -> torch.Tensor | None:
+        """Convert a bool mask to the additive mask expected by HF decoder layers.
+
+        Args:
+            attention_mask: Boolean attention mask where ``True`` means masked.
+                Accepts any broadcast-compatible shape used by HF decoder layers,
+                typically ``(B, 1, Q, K)``.
+            dtype: Floating dtype for the returned additive mask.
+
+        Returns:
+            Additive attention mask with ``0`` for valid locations and
+            ``torch.finfo(dtype).min`` for masked locations. Returns ``None``
+            when no mask is provided or when the mask has no masked entries.
+
+        Raises:
+            ValueError: If ``dtype`` is not a floating-point dtype.
+        """
+        if attention_mask is None:
+            return None
+        if not torch.empty((), dtype=dtype).is_floating_point():
+            raise ValueError(f"dtype must be floating point, got {dtype}.")
+        boolean_mask = attention_mask.to(dtype=torch.bool)
+        if not boolean_mask.any():
+            return None
+        additive_mask = torch.zeros(
+            boolean_mask.shape,
+            dtype=dtype,
+            device=boolean_mask.device,
+        )
+        return additive_mask.masked_fill(boolean_mask, torch.finfo(dtype).min)
 
     @staticmethod
     def extract_key_value_with_rope(

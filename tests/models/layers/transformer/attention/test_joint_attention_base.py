@@ -1,5 +1,6 @@
 """Tests for versatil.models.layers.transformer.attention.joint_attention_base module."""
 
+import re
 from collections.abc import Callable
 
 import pytest
@@ -20,6 +21,35 @@ def base_attention() -> JointAttentionBase:
         number_of_key_value_heads=NUMBER_OF_HEADS,
         head_dimension=HEAD_DIMENSION,
     )
+
+
+class TestJointAttentionBaseInitialization:
+    @pytest.mark.parametrize(
+        "number_of_heads, number_of_key_value_heads, error_message",
+        [
+            (0, 1, "number_of_heads must be positive, got 0."),
+            (4, 0, "number_of_key_value_heads must be positive, got 0."),
+            (
+                3,
+                2,
+                "number_of_heads (3) must be divisible by "
+                "number_of_key_value_heads (2).",
+            ),
+        ],
+        ids=["zero_heads", "zero_kv_heads", "non_divisible_gqa"],
+    )
+    def test_invalid_head_configuration_raises(
+        self,
+        number_of_heads: int,
+        number_of_key_value_heads: int,
+        error_message: str,
+    ):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            JointAttentionBase(
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                head_dimension=HEAD_DIMENSION,
+            )
 
 
 class TestReshapeMethods:

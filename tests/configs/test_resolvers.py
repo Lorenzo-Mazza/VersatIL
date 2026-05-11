@@ -76,6 +76,7 @@ ENUM_RESOLVER_CASES = [
     ("tokenizer_type", "FAST", TokenizerType.FAST.value),
     ("kinematics_norm_type", "MIN_MAX", KinematicsNormalizationType.MIN_MAX.value),
     ("image_norm_type", "ZERO_TO_ONE", ImageNormalizationType.ZERO_TO_ONE.value),
+    ("image_norm_type", "CLIP", ImageNormalizationType.CLIP.value),
     ("obs_key", "LANGUAGE", ObsKey.LANGUAGE.value),
     ("moe_routing_type", "SOFT", MoERoutingType.SOFT.value),
     ("coordinate_system", "ROBOT_BASE", CoordinateSystem.ROBOT_BASE.value),
@@ -206,3 +207,78 @@ class TestPathResolvers:
         with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
             cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
             assert cfg.dir == str(Path("/models/pretrained") / "resnet")
+
+    def test_bowel_retraction_dir_resolver_uses_env_variable(self):
+        with patch.dict(
+            os.environ,
+            {"VERSATIL_BOWEL_RETRACTION_DIR": "/data/bowel_retraction"},
+        ):
+            cfg = OmegaConf.create({"dir": "${bowel_retraction_dir:}"})
+            assert cfg.dir == "/data/bowel_retraction"
+
+    def test_bowel_retraction_dir_resolver_appends_subpath(self):
+        with patch.dict(
+            os.environ,
+            {"VERSATIL_BOWEL_RETRACTION_DIR": "/data/bowel_retraction"},
+        ):
+            cfg = OmegaConf.create({"dir": "${bowel_retraction_dir:v1}"})
+            assert cfg.dir == str(Path("/data/bowel_retraction") / "v1")
+
+    def test_multimodal_peg_transfer_dir_resolver_uses_env_variable(self):
+        with patch.dict(
+            os.environ,
+            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
+        ):
+            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:}"})
+            assert cfg.dir == "/data/multimodal_peg_transfer"
+
+    def test_multimodal_peg_transfer_dir_resolver_appends_subpath(self):
+        with patch.dict(
+            os.environ,
+            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
+        ):
+            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:session_1}"})
+            assert cfg.dir == str(Path("/data/multimodal_peg_transfer") / "session_1")
+
+
+@pytest.mark.unit
+class TestNumericResolvers:
+    @pytest.mark.parametrize(
+        "num_epochs, fraction, expected_epoch",
+        [
+            pytest.param(2000, 0.4, 800, id="synthetic-budget"),
+            pytest.param(50, 0.4, 20, id="short-budget"),
+            pytest.param(2, 0.8, 1, id="keeps-valid-order"),
+        ],
+    )
+    def test_stage_split_epoch_returns_valid_integer_boundary(
+        self,
+        num_epochs: int,
+        fraction: float,
+        expected_epoch: int,
+    ):
+        cfg = OmegaConf.create(
+            {"split": f"${{stage_split_epoch:{num_epochs},{fraction}}}"}
+        )
+
+        assert cfg.split == expected_epoch
+
+    @pytest.mark.parametrize(
+        "num_epochs, fraction",
+        [
+            pytest.param(0, 0.2, id="non-positive-epochs"),
+            pytest.param(10, 0.0, id="zero-fraction"),
+            pytest.param(10, 1.0, id="one-fraction"),
+        ],
+    )
+    def test_stage_split_epoch_rejects_invalid_inputs(
+        self,
+        num_epochs: int,
+        fraction: float,
+    ):
+        cfg = OmegaConf.create(
+            {"split": f"${{stage_split_epoch:{num_epochs},{fraction}}}"}
+        )
+
+        with pytest.raises(InterpolationResolutionError):
+            _ = cfg.split

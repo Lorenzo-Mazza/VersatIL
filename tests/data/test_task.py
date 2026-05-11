@@ -4,13 +4,14 @@ from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
+from versatil_constants.shared import ObsKey
+from versatil_constants.tso import TSOObsKey
 
 from versatil.data.constants import (
     ActionComputationMethod,
     Cameras,
     CoordinateSystem,
     GripperType,
-    ObsKey,
     OrientationRepresentation,
 )
 from versatil.data.metadata import (
@@ -352,6 +353,37 @@ class TestActionSpaceBooleanProperties:
         assert action_space.has_precomputed_actions
         assert not action_space.has_on_the_fly_actions
 
+    @pytest.mark.parametrize(
+        "case, expected",
+        [
+            ("empty", False),
+            ("only_precomputed", True),
+            ("only_on_the_fly", False),
+            ("mixed", False),
+        ],
+    )
+    def test_has_only_precomputed_actions(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+        precomputed_gripper: GripperActionMetadata,
+        case: str,
+        expected: bool,
+    ):
+        if case == "empty":
+            actions_metadata = {}
+        elif case == "only_precomputed":
+            actions_metadata = {"gripper": precomputed_gripper}
+        elif case == "only_on_the_fly":
+            actions_metadata = {"position": position_on_the_fly}
+        else:
+            actions_metadata = {
+                "position": position_on_the_fly,
+                "gripper": precomputed_gripper,
+            }
+        action_space = action_space_factory(actions_metadata=actions_metadata)
+        assert action_space.has_only_precomputed_actions is expected
+
     def test_has_delta_actions_true_when_delta_method(
         self,
         action_space_factory: Callable[..., ActionSpace],
@@ -397,7 +429,7 @@ class TestActionSpaceBooleanProperties:
         )
         action_space = action_space_factory(
             actions_metadata={
-                ObsKey.PHASE_LABEL.value: phase_metadata,
+                TSOObsKey.PHASE_LABEL.value: phase_metadata,
             }
         )
 
@@ -467,7 +499,7 @@ class TestObservationSpacePropertyFiltering:
         assert "position" in observation_space.position_observations
         assert "orientation" not in observation_space.position_observations
 
-    def test_proprioceptive_observations_includes_all_proprio_types(
+    def test_proprioceptive_observations_returns_only_robot_types(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         position_observation_metadata_factory: Callable[
@@ -479,17 +511,70 @@ class TestObservationSpacePropertyFiltering:
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         camera_metadata_factory: Callable[..., CameraMetadata],
     ):
+        custom_numerical = ObservationMetadata(
+            raw_data_column_keys=["feature_1"],
+            dimension=1,
+            dtype="float32",
+            is_numerical=True,
+            needs_normalization=True,
+        )
         observation_space = observation_space_factory(
             observations_metadata={
                 "position": position_observation_metadata_factory(),
                 "orientation": orientation_observation_metadata_factory(),
                 "gripper": gripper_observation_metadata_factory(),
+                "custom_numerical": custom_numerical,
                 Cameras.LEFT.value: camera_metadata_factory(),
             }
         )
 
         proprio = observation_space.proprioceptive_observations
         assert set(proprio.keys()) == {"position", "orientation", "gripper"}
+
+    def test_numerical_observations_includes_proprio_and_custom_numerical(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        custom_numerical = ObservationMetadata(
+            raw_data_column_keys=["object_pos"],
+            dimension=2,
+            dtype="float32",
+            is_numerical=True,
+            needs_normalization=True,
+        )
+        language = ObservationMetadata(
+            raw_data_column_keys=["language"],
+            dimension=1,
+            dtype="str",
+            is_numerical=False,
+            needs_normalization=False,
+        )
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+                "orientation": orientation_observation_metadata_factory(),
+                "gripper": gripper_observation_metadata_factory(),
+                "object_pos": custom_numerical,
+                ObsKey.LANGUAGE.value: language,
+                Cameras.LEFT.value: camera_metadata_factory(),
+            }
+        )
+
+        numerical = observation_space.numerical_observations
+        assert set(numerical.keys()) == {
+            "position",
+            "orientation",
+            "gripper",
+            "object_pos",
+        }
 
     def test_custom_observations_excludes_proprio_and_cameras(
         self,

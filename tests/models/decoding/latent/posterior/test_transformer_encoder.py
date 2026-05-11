@@ -15,6 +15,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 from versatil.models.decoding.latent.posterior.transformer_encoder import (
     VAETransformerEncoder,
 )
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
 @pytest.fixture
@@ -32,7 +33,13 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
         number_of_encoder_layers: int = 2,
         deterministic: bool = False,
         min_logvar: float | None = None,
+        mu_tanh_bound: float | None = None,
+        max_logvar: float | None = None,
         exclude_keys: list[str] | None = None,
+        attention_dropout: float = 0.0,
+        normalization_type: str = "rmsnorm",
+        attention_type: str = "mha",
+        positional_encoding_type: str | None = None,
     ) -> VAETransformerEncoder:
         return VAETransformerEncoder(
             embedding_dimension=embedding_dimension,
@@ -45,7 +52,13 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
             number_of_encoder_layers=number_of_encoder_layers,
             deterministic=deterministic,
             min_logvar=min_logvar,
+            mu_tanh_bound=mu_tanh_bound,
+            max_logvar=max_logvar,
             exclude_keys=exclude_keys,
+            attention_dropout=attention_dropout,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            positional_encoding_type=positional_encoding_type,
         )
 
     return factory
@@ -78,6 +91,38 @@ class TestVAETransformerEncoderInitialization:
         assert encoder.latent_dimension == latent_dimension
         assert encoder.deterministic is deterministic
 
+    def test_stores_mu_tanh_bound(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        encoder = vae_encoder_factory(mu_tanh_bound=4.0)
+        assert encoder.mu_tanh_bound == 4.0
+
+    def test_stores_logvar_bounds(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        encoder = vae_encoder_factory(min_logvar=-4.0, max_logvar=2.0)
+        assert encoder.min_logvar == -4.0
+        assert encoder.max_logvar == 2.0
+
+    def test_rejects_non_positive_mu_tanh_bound(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        with pytest.raises(ValueError, match="mu_tanh_bound must be positive"):
+            vae_encoder_factory(mu_tanh_bound=0.0)
+
+    def test_rejects_logvar_bounds_when_max_is_less_than_min(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        with pytest.raises(
+            ValueError,
+            match="max_logvar must be greater than or equal to min_logvar",
+        ):
+            vae_encoder_factory(min_logvar=2.0, max_logvar=-1.0)
+
     @pytest.mark.parametrize(
         "deterministic, expected_multiplier",
         [
@@ -100,6 +145,50 @@ class TestVAETransformerEncoderInitialization:
             encoder.latent_projection.out_features
             == latent_dimension * expected_multiplier
         )
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope"])
+    def test_positional_encoding_type_forwarded_to_transformer(
+        self,
+        positional_encoding_type: str | None,
+    ):
+        with patch(
+            "versatil.models.decoding.latent.posterior.transformer_encoder.TransformerEncoder"
+        ) as mock_encoder_cls:
+            VAETransformerEncoder(
+                embedding_dimension=64,
+                latent_dimension=16,
+                prediction_horizon=8,
+                observation_horizon=1,
+                device="cpu",
+                number_of_heads=4,
+                feedforward_dimension=128,
+                number_of_encoder_layers=2,
+                positional_encoding_type=positional_encoding_type,
+            )
+        assert (
+            mock_encoder_cls.call_args.kwargs["positional_encoding_type"]
+            == positional_encoding_type
+        )
+
+
+class TestVAETransformerEncoderGetAuxiliaryOutputKeys:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "deterministic, expect_logvar",
+        [(False, True), (True, False)],
+        ids=["stochastic_includes_logvar", "deterministic_excludes_logvar"],
+    )
+    def test_logvar_presence_depends_on_deterministic(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        deterministic: bool,
+        expect_logvar: bool,
+    ) -> None:
+        encoder = vae_encoder_factory(deterministic=deterministic, latent_dimension=8)
+        keys = encoder.get_auxiliary_output_keys()
+        assert LatentKey.POSTERIOR_LATENT.value in keys
+        assert LatentKey.POSTERIOR_MU.value in keys
+        assert (LatentKey.POSTERIOR_LOGVAR.value in keys) == expect_logvar
 
 
 class TestVAETransformerEncoderEncode:
@@ -204,6 +293,53 @@ class TestVAETransformerEncoderEncode:
         logvar = result[LatentKey.POSTERIOR_LOGVAR.value]
         assert torch.all(logvar >= min_logvar)
 
+    def test_max_logvar_clamps_logvar(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        max_logvar = 0.5
+        encoder = vae_encoder_factory(
+            deterministic=False,
+            max_logvar=max_logvar,
+        )
+        with torch.no_grad():
+            encoder.latent_projection.weight.zero_()
+            encoder.latent_projection.bias.zero_()
+            encoder.latent_projection.bias[encoder.latent_dimension :].fill_(100.0)
+
+        actions = action_dictionary_factory(prediction_horizon=8)
+        features = feature_dictionary_factory()
+        result = encoder.encode(actions=actions, observations=features)
+        logvar = result[LatentKey.POSTERIOR_LOGVAR.value]
+        assert torch.all(logvar <= max_logvar)
+
+    @pytest.mark.parametrize("deterministic", [True, False])
+    def test_mu_tanh_bound_limits_posterior_mu(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        deterministic: bool,
+    ):
+        bound = 4.0
+        encoder = vae_encoder_factory(
+            deterministic=deterministic,
+            mu_tanh_bound=bound,
+        )
+        with torch.no_grad():
+            encoder.latent_projection.weight.zero_()
+            encoder.latent_projection.bias.zero_()
+            encoder.latent_projection.bias[: encoder.latent_dimension].fill_(100.0)
+
+        actions = action_dictionary_factory(prediction_horizon=8)
+        features = feature_dictionary_factory()
+        result = encoder.encode(actions=actions, observations=features)
+        mu = result[LatentKey.POSTERIOR_MU.value]
+        assert torch.all(mu <= bound)
+        assert torch.all(mu >= -bound)
+
     def test_excludes_keys_from_observations(
         self,
         vae_encoder_factory: Callable[..., VAETransformerEncoder],
@@ -277,6 +413,36 @@ class TestVAETransformerEncoderEncode:
         assert captured_observations[pad_key].shape == (2, prediction_horizon)
         assert not captured_observations[pad_key].any()
         assert "No padding key found in actions" in caplog.text
+
+    def test_encode_attaches_padding_mask_per_action_feature(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        action_key = "proprio_robot_frame"
+        encoder = vae_encoder_factory(deterministic=False)
+        actions = action_dictionary_factory(
+            prediction_horizon=8,
+            action_keys=[action_key],
+        )
+        features = feature_dictionary_factory()
+        builder = encoder.input_sequence_builder
+        original_forward = builder.forward
+        captured_observations = {}
+
+        def capturing_forward(observations):
+            captured_observations.update(observations)
+            return original_forward(observations)
+
+        builder.forward = capturing_forward
+        encoder.encode(actions=actions, observations=features)
+        padding_key = f"{action_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        assert padding_key in captured_observations
+        assert torch.equal(
+            captured_observations[padding_key],
+            actions[SampleKey.IS_PAD_ACTION.value],
+        )
 
 
 class TestVAETransformerEncoderForward:

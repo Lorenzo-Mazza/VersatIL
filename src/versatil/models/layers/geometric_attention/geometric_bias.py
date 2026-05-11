@@ -1,12 +1,14 @@
 import torch
 from torch import nn
 
-from versatil.models.layers import RotaryPositionalEncoding2D
 from versatil.models.layers.constants import AttentionDecompositionMode
 from versatil.models.layers.geometric_attention.depth_decay import (
     DepthAwareDecayMask,
 )
 from versatil.models.layers.geometric_attention.spatial_decay import SpatialDecayMask
+from versatil.models.layers.positional_encoding.rotary import (
+    RotaryPositionalEncoding2D,
+)
 
 
 class GeometricAttentionBias(nn.Module):

@@ -1,0 +1,17 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ActionSpace
+use_gripper_class_weights: false
+denoise_actions: false
+
+actions_metadata:
+  ${proprio_key:EE_POS_ACTION}:
+    _target_: versatil.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:UNKNOWN}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 2
+    prediction_dimension: 2
+    needs_normalization: true
+    computation_method: ${action_computation:DELTA}

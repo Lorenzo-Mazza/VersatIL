@@ -130,6 +130,10 @@ class TestPositionActionMetadataConfig:
         config = PositionActionMetadataConfig()
         assert config.frame == MISSING
 
+    def test_computation_method_optional(self):
+        config = PositionActionMetadataConfig()
+        assert config.computation_method is None
+
     def test_inherits_from_precomputed_action_metadata_config(self):
         config = PositionActionMetadataConfig()
         assert isinstance(config, PrecomputedActionMetadataConfig)

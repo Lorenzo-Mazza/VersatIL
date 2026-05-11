@@ -10,6 +10,7 @@ import pytorch_lightning as pl
 import torch
 import wandb
 from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
     LearningRateMonitor,
@@ -27,13 +28,12 @@ from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.models.policy import Policy
-from versatil.training.callback_provider import CallbackProvider
-from versatil.training.callbacks import (
-    EMACallback,
-    GradientNormCallback,
-    ReduceLROnPlateauCallback,
-    ResumableEarlyStopping,
-)
+from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
+from versatil.training.callbacks.ema import EMACallback
+from versatil.training.callbacks.gradient_norm import GradientNormCallback
+from versatil.training.callbacks.provider import CallbackProvider
+from versatil.training.callbacks.reduce_lr_on_plateau import ReduceLROnPlateauCallback
+from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
@@ -64,13 +64,14 @@ class Workspace:
             hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
         )
         additional_exp_name = config.experiment.name
-        self.exp_name = f"{main_config_name}/{additional_exp_name}"
+        sweep_suffix = self._get_multirun_suffix(hydra_cfg)
+        self.exp_name = f"{main_config_name}/{additional_exp_name}{sweep_suffix}"
         self.config.experiment.name = self.exp_name
         self.original_yaml_config.experiment.name = self.exp_name
         self.output_dir = (
             Path(config.experiment.checkpoint_folder)
             / main_config_name
-            / additional_exp_name
+            / f"{additional_exp_name}{sweep_suffix}"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._set_seed()
@@ -86,6 +87,22 @@ class Workspace:
         logging.info(f"Workspace initialized for experiment: {self.exp_name}")
         logging.info(f"Output directory: {self.output_dir}")
         self.save_config()
+
+    @staticmethod
+    def _get_multirun_suffix(hydra_cfg: DictConfig) -> str:
+        """Build a unique suffix for Hydra multirun jobs.
+
+        Uses the job number to keep paths short while ensuring uniqueness.
+
+        Args:
+            hydra_cfg: HydraConfig for the current job.
+
+        Returns:
+            Empty string for single runs, "/job{num}" for multiruns.
+        """
+        if hydra_cfg.mode != RunMode.MULTIRUN:
+            return ""
+        return f"/job{hydra_cfg.job.num}"
 
     def save_config(self):
         """Save configuration to YAML file in output directory.
@@ -127,7 +144,11 @@ class Workspace:
         logging.info("Starting training...")
         if self.trainer is None:
             raise RuntimeError("Trainer should be initialized before training.")
-        self.trainer.fit(model=self.lightning_policy, ckpt_path=resume_checkpoint_path)
+        self.trainer.fit(
+            model=self.lightning_policy,
+            ckpt_path=resume_checkpoint_path,
+            weights_only=False,
+        )
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
     def _set_seed(self):
@@ -187,11 +208,15 @@ class Workspace:
         """Instantiate policy and wrap with Lightning."""
         logging.info("Instantiating policy...")
         self.policy: Policy = self.config.policy
+        pipeline_dtype = PrecisionType(
+            str(self.config.experiment.precision)
+        ).get_model_dtype()
+        self.policy.encoding_pipeline.set_output_dtype(pipeline_dtype)
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
         self.policy.set_gripper_class_weights(self.gripper_class_weights)
-        # Calculate total training steps for LR scheduling
+        # Calculate total training steps for learning-rate scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs
         steps_per_epoch = (
@@ -235,6 +260,7 @@ class Workspace:
             self.config.experiment.val_every if self.val_loader is not None else 0
         )
         limit_val_batches = 1.0 if self.val_loader is not None else 0
+        log_every_n_steps = self._get_log_every_n_steps()
 
         self.trainer = pl.Trainer(
             max_epochs=self.config.training.num_epochs,
@@ -247,14 +273,21 @@ class Workspace:
             accumulate_grad_batches=self.config.training.gradient_accumulate_every,
             check_val_every_n_epoch=val_every,
             limit_val_batches=limit_val_batches,
-            log_every_n_steps=50,
+            log_every_n_steps=log_every_n_steps,
             enable_progress_bar=True,
             enable_model_summary=True,
+            enable_checkpointing=self.config.experiment.save_checkpoints,
             deterministic=False,  # For performance
             precision=self.config.experiment.precision,
         )
 
         logging.info(f"Trainer created with {len(callbacks)} callbacks")
+
+    def _get_log_every_n_steps(self) -> int:
+        """Choose a logging interval that stays visible on small datasets."""
+        if self.train_loader is None:
+            return 50
+        return max(1, min(50, len(self.train_loader)))
 
     def _create_callbacks(self):
         """Create training callbacks.
@@ -272,63 +305,71 @@ class Workspace:
             callbacks.append(ema_callback)
             logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
 
-        if has_validation:
-            checkpoint_callback_best = ModelCheckpoint(
+        if self.config.experiment.save_checkpoints:
+            if has_validation:
+                checkpoint_callback_best = ModelCheckpoint(
+                    dirpath=self.output_dir,
+                    filename="best-{epoch:02d}-{val_loss:.4f}",
+                    monitor="val_loss",
+                    mode="min",
+                    save_top_k=3,
+                    save_last=True,
+                    verbose=True,
+                    auto_insert_metric_name=False,
+                )
+            else:
+                checkpoint_callback_best = ModelCheckpoint(
+                    dirpath=self.output_dir,
+                    filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
+                    monitor="train_loss_epoch",
+                    mode="min",
+                    save_top_k=3,
+                    save_last=True,
+                    verbose=True,
+                    auto_insert_metric_name=False,
+                )
+            callbacks.append(checkpoint_callback_best)
+            logging.info(
+                f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
+            )
+
+            checkpoint_callback_latest = ModelCheckpoint(
                 dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{val_loss:.4f}",
-                monitor="val_loss",
-                mode="min",
-                save_top_k=3,
+                filename="latest-{epoch:02d}",
+                monitor="epoch",
+                mode="max",
+                save_top_k=-1,
+                every_n_epochs=self.config.experiment.checkpoint_every,
                 save_last=True,
                 verbose=True,
                 auto_insert_metric_name=False,
+                save_on_train_epoch_end=not has_validation,
+            )
+            callbacks.append(checkpoint_callback_latest)
+            logging.info(
+                f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
             )
         else:
-            checkpoint_callback_best = ModelCheckpoint(
-                dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
-                monitor="train_loss_epoch",
-                mode="min",
-                save_top_k=3,
-                save_last=True,
-                verbose=True,
-                auto_insert_metric_name=False,
+            logging.info("Skipping ModelCheckpoint callbacks (save_checkpoints=False)")
+
+        early_stopping_patience = self.config.training.early_stopping_patience
+        if not has_validation:
+            logging.info("Skipping EarlyStopping callback (no validation data)")
+        elif early_stopping_patience is None:
+            logging.info(
+                "Skipping EarlyStopping callback (early_stopping_patience=None)"
             )
-        callbacks.append(checkpoint_callback_best)
-        logging.info(
-            f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
-        )
-
-        checkpoint_callback_latest = ModelCheckpoint(
-            dirpath=self.output_dir,
-            filename="latest-{epoch:02d}",
-            monitor="epoch",
-            mode="max",
-            save_top_k=-1,
-            every_n_epochs=self.config.experiment.checkpoint_every,
-            save_last=True,
-            verbose=True,
-            auto_insert_metric_name=False,
-            save_on_train_epoch_end=not has_validation,
-        )
-        callbacks.append(checkpoint_callback_latest)
-        logging.info(
-            f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
-        )
-
-        if has_validation:
+        else:
             early_stopping_callback = ResumableEarlyStopping(
                 monitor="val_loss",
                 mode="min",
-                patience=self.config.training.early_stopping_patience,
+                patience=early_stopping_patience,
                 verbose=True,
             )
             callbacks.append(early_stopping_callback)
             logging.info(
-                f"Added EarlyStopping callback (patience={self.config.training.early_stopping_patience})"
+                f"Added EarlyStopping callback (patience={early_stopping_patience})"
             )
-        else:
-            logging.info("Skipping EarlyStopping callback (no validation data)")
 
         gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
         callbacks.append(gradient_norm_callback)
@@ -350,8 +391,25 @@ class Workspace:
             )
             callbacks.append(swa_callback)
             logging.info(
-                f"Added SWA callback (lr={self.config.training.swa_lrs}, "
+                f"Added SWA callback (learning_rate={self.config.training.swa_lrs}, "
                 f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
+            )
+
+        training_stages = self.config.training.stages
+        if training_stages and self.config.training.reduce_lr_on_plateau:
+            raise ValueError(
+                "training.stages does not support reduce_lr_on_plateau in v1."
+            )
+        if training_stages:
+            training_stage_callback = TrainingStageCallback(
+                stages=training_stages,
+                learning_rate_schedule_active=(
+                    self.config.training.lr_schedule is not None
+                ),
+            )
+            callbacks.append(training_stage_callback)
+            logging.info(
+                f"Added TrainingStage callback ({len(training_stages)} stages)"
             )
 
         if self.config.training.reduce_lr_on_plateau:
@@ -386,6 +444,7 @@ class Workspace:
             self.policy.decoder,
             self.policy.algorithm,
             *self.policy.loss_module.loss_modules.values(),
+            self.config.task.dataset_schema,
         ]
         seen_types: set[type] = set()
         collected: list = []
@@ -419,6 +478,10 @@ class Workspace:
             logging.warning("WANDB_API_KEY not set, disabling wandb logging")
             self.config.experiment.use_wandb = False
             return None
+        # Close any prior wandb run lingering from a previous multirun job in
+        # the same process; otherwise WandbLogger silently reuses it.
+        if wandb.run is not None:
+            wandb.finish()
         wandb_logger = WandbLogger(
             project=self.config.experiment.wandb_project,
             entity=self.config.experiment.wandb_entity,
@@ -522,11 +585,13 @@ class Workspace:
                 num_training=100,
             )
 
-            suggested_lr = lr_finder_results.suggestion()
-            logging.info(f"Suggested learning rate: {suggested_lr}")
-            self.config.training.optimizer.lr = suggested_lr
-            self.original_yaml_config.training.optimizer.lr = suggested_lr
-            logging.info(f"Updated config with learning rate: {suggested_lr}")
+            suggested_learning_rate = lr_finder_results.suggestion()
+            logging.info(f"Suggested learning rate: {suggested_learning_rate}")
+            self.config.training.optimizer.lr = suggested_learning_rate
+            self.original_yaml_config.training.optimizer.lr = suggested_learning_rate
+            logging.info(
+                f"Updated config with learning rate: {suggested_learning_rate}"
+            )
 
         self.trainer.callbacks = original_callbacks
         if self.config.training.tune_lr:

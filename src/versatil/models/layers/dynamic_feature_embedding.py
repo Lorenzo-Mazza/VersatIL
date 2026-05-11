@@ -33,13 +33,14 @@ class DynamicFeatureEmbedding(nn.Module):
         """
         embeddings_prefix = prefix + "embeddings."
         device = self._device_tracker.device
+        dtype = self._device_tracker.dtype
         for key, value in state_dict.items():
             if key.startswith(embeddings_prefix):
                 feature_name = key[len(embeddings_prefix) :]
                 if feature_name not in self.embeddings:
                     # Create parameter with correct shape on the correct device
                     self.embeddings[feature_name] = nn.Parameter(
-                        torch.zeros(value.shape, device=device, dtype=value.dtype)
+                        torch.zeros(value.shape, device=device, dtype=dtype)
                     )
         # Now parent can load weights into the newly created embeddings
         super()._load_from_state_dict(
@@ -57,6 +58,13 @@ class DynamicFeatureEmbedding(nn.Module):
         key = name.replace(".", "_")
         if key not in self.embeddings:
             self.embeddings[key] = nn.Parameter(
-                torch.randn(1, 1, self.embedding_dim, device=device) * 0.02
+                torch.randn(
+                    1,
+                    1,
+                    self.embedding_dim,
+                    device=device,
+                    dtype=self._device_tracker.dtype,
+                )
+                * 0.02
             )
         return self.embeddings[key]

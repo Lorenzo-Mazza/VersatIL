@@ -22,10 +22,22 @@ from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     SmolVLMModelType,
 )
+from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
+    GenerativeVLMEncoder,
+)
 from versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm import (
     SmolVLMEncoder,
 )
 from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningLayerCache,
+)
+from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
+    PrecomputedDualStreamLayer,
+)
+from versatil.models.layers.transformer.layer.precomputed_kv_layer import (
+    PrecomputedKVCrossAttentionLayer,
+)
 
 VLM_HIDDEN_DIMENSION = 32
 NUM_ATTENTION_HEADS = 2
@@ -667,6 +679,32 @@ class TestSmolVLADecoderBehavior:
         )
         assert cross_mask.shape == (BATCH_SIZE, 1, action_len, prefix_len)
 
+    def test_vlm_prefix_padding_mask_converted_to_additive_mask(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory(include_padding_mask=True)
+        actions = noisy_actions_factory()
+        with patch.object(
+            decoder,
+            "_run_training_forward",
+            wraps=decoder._run_training_forward,
+        ) as spy:
+            decoder(features=features, actions=actions)
+        prefix_attention_mask = spy.call_args.kwargs["vlm_prefix_attention_mask"]
+        assert prefix_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_SEQUENCE_LENGTH,
+            PREFIX_SEQUENCE_LENGTH,
+        )
+        expected_masked_value = torch.finfo(features[FEATURE_KEY].dtype).min
+        assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
+        assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
+
     def test_cached_forward_passes_correct_mask_per_layer_type(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
@@ -700,6 +738,319 @@ class TestSmolVLADecoderBehavior:
             action_len + prefix_len,
         )
         assert cross_mask.shape == (BATCH_SIZE, 1, action_len, prefix_len)
+
+
+@pytest.mark.integration
+class TestSmolVLADecoderRoPERouting:
+    def test_training_forward_receives_distinct_action_and_cross_attn_ropes(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        with patch.object(
+            decoder, "_run_training_forward", wraps=decoder._run_training_forward
+        ) as spy:
+            decoder(features=features, actions=actions)
+        action_cos, action_sin = spy.call_args.kwargs["expert_action_rope"]
+        cross_cos, cross_sin = spy.call_args.kwargs["expert_cross_attn_rope"]
+        expected_shape = (BATCH_SIZE, 1, PREDICTION_HORIZON, HEAD_DIMENSION)
+        assert action_cos.shape == expected_shape
+        assert cross_cos.shape == expected_shape
+        assert not torch.allclose(action_cos, cross_cos)
+        assert not torch.allclose(action_sin, cross_sin)
+
+    def test_action_rope_uses_unshifted_joint_positions(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        with patch.object(
+            decoder, "_run_training_forward", wraps=decoder._run_training_forward
+        ) as spy:
+            decoder(features=features, actions=actions)
+        action_cos, action_sin = spy.call_args.kwargs["expert_action_rope"]
+        joint_positions = (
+            torch.arange(
+                PREFIX_SEQUENCE_LENGTH,
+                PREFIX_SEQUENCE_LENGTH + PREDICTION_HORIZON,
+            )
+            .unsqueeze(0)
+            .expand(BATCH_SIZE, -1)
+        )
+        expected_cos, expected_sin = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=decoder.vlm_rotary_embedding,
+            hidden_states=action_cos,
+            position_ids=joint_positions,
+        )
+        torch.testing.assert_close(action_cos, expected_cos)
+        torch.testing.assert_close(action_sin, expected_sin)
+
+    def test_cross_attn_rope_uses_positions_shifted_to_start_from_zero(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        with patch.object(
+            decoder, "_run_training_forward", wraps=decoder._run_training_forward
+        ) as spy:
+            decoder(features=features, actions=actions)
+        cross_cos, cross_sin = spy.call_args.kwargs["expert_cross_attn_rope"]
+        shifted_positions = (
+            torch.arange(PREDICTION_HORIZON).unsqueeze(0).expand(BATCH_SIZE, -1)
+        )
+        expected_cos, expected_sin = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=decoder.vlm_rotary_embedding,
+            hidden_states=cross_cos,
+            position_ids=shifted_positions,
+        )
+        torch.testing.assert_close(cross_cos, expected_cos)
+        torch.testing.assert_close(cross_sin, expected_sin)
+
+    def test_cross_attn_layer_receives_cross_attn_rope_in_training(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        cross_attn_layer = next(
+            layer
+            for layer in decoder.expert_layers
+            if isinstance(layer, PrecomputedKVCrossAttentionLayer)
+        )
+        with (
+            patch.object(
+                decoder, "_run_training_forward", wraps=decoder._run_training_forward
+            ) as outer_spy,
+            patch.object(
+                cross_attn_layer, "forward", wraps=cross_attn_layer.forward
+            ) as layer_spy,
+        ):
+            decoder(features=features, actions=actions)
+        expected_cos, expected_sin = outer_spy.call_args.kwargs[
+            "expert_cross_attn_rope"
+        ]
+        received_cos, received_sin = layer_spy.call_args.kwargs["precomputed_rope"]
+        torch.testing.assert_close(received_cos, expected_cos)
+        torch.testing.assert_close(received_sin, expected_sin)
+
+    def test_joint_attn_layer_receives_action_rope_in_training(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        joint_attn_layer = next(
+            layer
+            for layer in decoder.expert_layers
+            if isinstance(layer, PrecomputedDualStreamLayer)
+        )
+        with (
+            patch.object(
+                decoder, "_run_training_forward", wraps=decoder._run_training_forward
+            ) as outer_spy,
+            patch.object(
+                joint_attn_layer,
+                "forward_with_secondary",
+                wraps=joint_attn_layer.forward_with_secondary,
+            ) as layer_spy,
+        ):
+            decoder(features=features, actions=actions)
+        expected_cos, expected_sin = outer_spy.call_args.kwargs["expert_action_rope"]
+        received_cos, received_sin = layer_spy.call_args.kwargs[
+            "precomputed_primary_rope"
+        ]
+        torch.testing.assert_close(received_cos, expected_cos)
+        torch.testing.assert_close(received_sin, expected_sin)
+
+    def test_cached_forward_receives_both_ropes(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        with (
+            patch.object(
+                decoder,
+                "_run_expert_with_cache",
+                wraps=decoder._run_expert_with_cache,
+            ) as spy,
+            torch.no_grad(),
+        ):
+            decoder(features=features, actions=actions)
+        action_cos, _ = spy.call_args.kwargs["expert_action_rope"]
+        cross_cos, _ = spy.call_args.kwargs["expert_cross_attn_rope"]
+        expected_shape = (BATCH_SIZE, 1, PREDICTION_HORIZON, HEAD_DIMENSION)
+        assert action_cos.shape == expected_shape
+        assert cross_cos.shape == expected_shape
+        assert not torch.allclose(action_cos, cross_cos)
+
+    def test_cross_attn_layer_output_invariant_to_prefix_length(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        rng: np.random.Generator,
+    ):
+        decoder = initialized_decoder_factory()
+        cross_attn_layer = next(
+            layer
+            for layer in decoder.expert_layers
+            if isinstance(layer, PrecomputedKVCrossAttentionLayer)
+        )
+        cross_attn_layer.eval()
+        key_value_dim = NUM_KEY_VALUE_HEADS * HEAD_DIMENSION
+        expert_hidden = torch.from_numpy(
+            rng.standard_normal(
+                (BATCH_SIZE, PREDICTION_HORIZON, EXPERT_HIDDEN_SIZE)
+            ).astype(np.float32)
+        )
+        vlm_keys = torch.from_numpy(
+            rng.standard_normal(
+                (BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, key_value_dim)
+            ).astype(np.float32)
+        )
+        vlm_values = torch.from_numpy(
+            rng.standard_normal(
+                (BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, key_value_dim)
+            ).astype(np.float32)
+        )
+        cache = ConditioningLayerCache(keys=vlm_keys, values=vlm_values)
+        # Simulate the SmolVLA forward: with the fix, expert positions are
+        # shifted so they always start from 0, regardless of prefix length.
+        prefix_length_short = 64
+        prefix_length_long = 128
+        positions_short_unshifted = (
+            torch.arange(
+                prefix_length_short,
+                prefix_length_short + PREDICTION_HORIZON,
+            )
+            .unsqueeze(0)
+            .expand(BATCH_SIZE, -1)
+        )
+        positions_long_unshifted = (
+            torch.arange(
+                prefix_length_long,
+                prefix_length_long + PREDICTION_HORIZON,
+            )
+            .unsqueeze(0)
+            .expand(BATCH_SIZE, -1)
+        )
+        positions_short_shifted = (
+            positions_short_unshifted
+            - positions_short_unshifted.min(dim=1, keepdim=True).values
+        )
+        positions_long_shifted = (
+            positions_long_unshifted
+            - positions_long_unshifted.min(dim=1, keepdim=True).values
+        )
+        rope_short = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=decoder.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=positions_short_shifted,
+        )
+        rope_long = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=decoder.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=positions_long_shifted,
+        )
+        # Sanity: post-fix shifted positions are identical → ropes are identical
+        torch.testing.assert_close(rope_short[0], rope_long[0])
+        torch.testing.assert_close(rope_short[1], rope_long[1])
+        with torch.no_grad():
+            output_short = cross_attn_layer(
+                hidden_states=expert_hidden,
+                conditioning_cache=cache,
+                attention_mask=None,
+                precomputed_rope=rope_short,
+            )
+            output_long = cross_attn_layer(
+                hidden_states=expert_hidden,
+                conditioning_cache=cache,
+                attention_mask=None,
+                precomputed_rope=rope_long,
+            )
+        torch.testing.assert_close(output_short, output_long)
+        # Confirm the bug case (unshifted positions) would have produced different output
+        rope_unshifted_short = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=decoder.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=positions_short_unshifted,
+        )
+        rope_unshifted_long = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=decoder.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=positions_long_unshifted,
+        )
+        with torch.no_grad():
+            output_buggy_short = cross_attn_layer(
+                hidden_states=expert_hidden,
+                conditioning_cache=cache,
+                attention_mask=None,
+                precomputed_rope=rope_unshifted_short,
+            )
+            output_buggy_long = cross_attn_layer(
+                hidden_states=expert_hidden,
+                conditioning_cache=cache,
+                attention_mask=None,
+                precomputed_rope=rope_unshifted_long,
+            )
+        assert not torch.allclose(output_buggy_short, output_buggy_long)
+
+    def test_cross_attn_rope_invariant_to_prefix_length(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        actions = noisy_actions_factory()
+        features_short = prefix_features_factory(sequence_length=PREFIX_SEQUENCE_LENGTH)
+        features_long = prefix_features_factory(
+            sequence_length=PREFIX_SEQUENCE_LENGTH * 2
+        )
+        features_long[DecoderOutputKey.TIMESTEP.value] = features_short[
+            DecoderOutputKey.TIMESTEP.value
+        ].clone()
+        with patch.object(
+            decoder, "_run_training_forward", wraps=decoder._run_training_forward
+        ) as spy:
+            decoder(features=features_short, actions=actions)
+        cross_cos_short, cross_sin_short = spy.call_args.kwargs[
+            "expert_cross_attn_rope"
+        ]
+        action_cos_short, _ = spy.call_args.kwargs["expert_action_rope"]
+        with patch.object(
+            decoder, "_run_training_forward", wraps=decoder._run_training_forward
+        ) as spy:
+            decoder(features=features_long, actions=actions)
+        cross_cos_long, cross_sin_long = spy.call_args.kwargs["expert_cross_attn_rope"]
+        action_cos_long, _ = spy.call_args.kwargs["expert_action_rope"]
+        torch.testing.assert_close(cross_cos_short, cross_cos_long)
+        torch.testing.assert_close(cross_sin_short, cross_sin_long)
+        assert not torch.allclose(action_cos_short, action_cos_long)
 
 
 @pytest.mark.integration
@@ -788,6 +1139,37 @@ class TestSmolVLADecoderCaching:
                 PREDICTION_HORIZON,
                 decoder.action_heads[action_key].output_dim,
             )
+
+    def test_cached_forward_passes_additive_prefix_attention_mask(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = prefix_features_factory(include_padding_mask=True)
+        actions = noisy_actions_factory()
+        with (
+            patch.object(
+                decoder,
+                "_fill_prefix_cache",
+                wraps=decoder._fill_prefix_cache,
+            ) as spy,
+            torch.no_grad(),
+        ):
+            decoder(features=features, actions=actions)
+        prefix_attention_mask = spy.call_args.kwargs["prefix_attention_mask"]
+        assert prefix_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_SEQUENCE_LENGTH,
+            PREFIX_SEQUENCE_LENGTH,
+        )
+        expected_masked_value = torch.finfo(features[FEATURE_KEY].dtype).min
+        assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
+        assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
 
     def test_cached_forwards_are_self_consistent(
         self,

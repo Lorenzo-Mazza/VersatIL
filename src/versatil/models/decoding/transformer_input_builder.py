@@ -54,6 +54,14 @@ class TransformerInputBuilder(nn.Module):
         Features may have different spatial sizes (H, W) or temporal lengths (T),
          as long as batch dims are consistent within each feature.
 
+        Positional encoding contract:
+            Callers must always pre-add the returned ``pos_encodings`` to ``input_tokens``
+            before passing them to the transformer (``hidden_states = tokens + pos_encodings``).
+            This ensures cross-attention keys carry absolute position information regardless
+            of the transformer's internal PE setting. When ``positional_encoding_type`` on
+            the transformer is not None (e.g. RoPE), the internal PE applies to self-attention
+            Q/K only and complements — not replaces — the pre-added additive PE.
+
     Example:
         >>> pos_enc = SinusoidalPositionalEncoding2D(embedding_dimension=256)
         >>> input_builder = TransformerInputBuilder(embedding_dim=256, spatial_positional_encoding_layer=pos_enc)
@@ -168,6 +176,10 @@ class TransformerInputBuilder(nn.Module):
         projected = self.projection(
             clean_features
         )  # Project all features to common embedding dim
+        if not projected:
+            raise ValueError(
+                "TransformerInputBuilder received no features to build tokens from."
+            )
         spatial_tokens_list = []
         spatial_positional_encodings = []
         spatial_mask_list = []
@@ -216,7 +228,9 @@ class TransformerInputBuilder(nn.Module):
             else:
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
-            padding_mask = features.get(f"{name}_padding_mask")
+            padding_mask = features.get(
+                f"{name}_{EncoderOutputKeys.PADDING_MASK.value}"
+            )
             if (
                 padding_mask is None
                 and SampleKey.ACTION.value in name
@@ -224,7 +238,7 @@ class TransformerInputBuilder(nn.Module):
             ):
                 padding_mask = action_padding_mask.clone()
             if padding_mask is not None:
-                padding_mask = padding_mask.to(torch.bool)
+                padding_mask = padding_mask.to(device=x.device, dtype=torch.bool)
                 match padding_mask.ndim:
                     case 1:  # (B,), comes from a pooled feature
                         reshaped_mask = padding_mask.unsqueeze(1)  # (B, 1)
@@ -237,6 +251,13 @@ class TransformerInputBuilder(nn.Module):
                             f"Padding masks not supported for spatial features, "
                             f"got {padding_mask.ndim} for {name}"
                         )
+                expected_mask_shape = (B, T * tokens_per_frame)
+                if reshaped_mask.shape != expected_mask_shape:
+                    raise ValueError(
+                        f"Padding mask for feature '{name}' must have shape "
+                        f"{expected_mask_shape} after flattening, got "
+                        f"{reshaped_mask.shape}."
+                    )
             else:
                 reshaped_mask = torch.zeros(
                     B, T * tokens_per_frame, dtype=torch.bool, device=x.device

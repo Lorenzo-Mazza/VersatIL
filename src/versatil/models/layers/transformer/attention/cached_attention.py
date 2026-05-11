@@ -47,10 +47,16 @@ class CachedAttention(nn.Module):
             ValueError: If dimensions don't match or invalid attention type
         """
         super().__init__()
+        if number_of_heads <= 0:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
+        if head_dimension is not None and head_dimension <= 0:
+            raise ValueError(f"head_dimension must be positive, got {head_dimension}.")
         if head_dimension is None and embedding_dimension % number_of_heads != 0:
             raise ValueError(
                 f"embedding_dimension ({embedding_dimension}) must be divisible "
-                f"by number_of_heads ({number_of_heads})"
+                f"by number_of_heads ({number_of_heads})."
             )
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -64,14 +70,28 @@ class CachedAttention(nn.Module):
         if attention_type == AttentionType.GROUPED_QUERY.value:
             if number_of_key_value_heads is None:
                 raise ValueError("number_of_key_value_heads required for GQA")
+            if number_of_key_value_heads <= 0:
+                raise ValueError(
+                    "number_of_key_value_heads must be positive, "
+                    f"got {number_of_key_value_heads}."
+                )
             if number_of_heads % number_of_key_value_heads != 0:
                 raise ValueError(
                     f"number_of_heads ({number_of_heads}) must be divisible "
-                    f"by number_of_key_value_heads ({number_of_key_value_heads})"
+                    f"by number_of_key_value_heads ({number_of_key_value_heads})."
                 )
             self.number_of_key_value_heads = number_of_key_value_heads
             self.group_size = number_of_heads // number_of_key_value_heads
         elif attention_type == AttentionType.MULTI_HEAD.value:
+            if (
+                number_of_key_value_heads is not None
+                and number_of_key_value_heads != number_of_heads
+            ):
+                raise ValueError(
+                    "number_of_key_value_heads must be None or equal to "
+                    "number_of_heads for multi-head attention, got "
+                    f"{number_of_key_value_heads}."
+                )
             self.number_of_key_value_heads = number_of_heads
             self.group_size = 1
         else:

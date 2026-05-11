@@ -13,8 +13,3 @@ loss_modules:
     weight: 10.0
   denoising_prior:
     weight: 0.05
-
-weights:
-  token_loss: 1.0
-  kl_divergence: 1.0
-  denoising_prior: 1.0

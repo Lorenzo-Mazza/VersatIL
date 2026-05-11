@@ -16,11 +16,15 @@ from versatil.configs.decoding.latent import (
 from versatil.models.decoding.constants import (
     BetaSchedule,
     DenoisingAlgorithm,
+    LatentKey,
     ODESolver,
     PredictionType,
 )
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
+from versatil.models.layers.normalization.constants import NormalizationType
 
 
 @pytest.mark.unit
@@ -81,6 +85,16 @@ class TestVAETransformerEncoderConfig:
         )
         assert config.deterministic == deterministic
 
+    def test_stores_logvar_bounds(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            min_logvar=-4.0,
+            max_logvar=2.0,
+        )
+        assert config.min_logvar == -4.0
+        assert config.max_logvar == 2.0
+
     def test_interpolation_references(self):
         config = VAETransformerEncoderConfig(
             latent_dimension=32, embedding_dimension=256
@@ -94,6 +108,39 @@ class TestVAETransformerEncoderConfig:
             latent_dimension=32, embedding_dimension=256
         )
         assert isinstance(config, PosteriorLatentEncoderConfig)
+
+    def test_attention_dropout_default(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_dropout == 0.0
+
+    def test_normalization_type_default_is_rms_norm(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.normalization_type == NormalizationType.RMS_NORM.value
+
+    def test_attention_type_default_is_multi_head(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_type == AttentionType.MULTI_HEAD.value
+
+    def test_positional_encoding_type_default_is_none(self):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.positional_encoding_type is None
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope", "sinusoidal"])
+    def test_stores_positional_encoding_type(self, positional_encoding_type):
+        config = VAETransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            positional_encoding_type=positional_encoding_type,
+        )
+        assert config.positional_encoding_type == positional_encoding_type
 
 
 @pytest.mark.unit
@@ -135,11 +182,54 @@ class TestPriorTransformerEncoderConfig:
         )
         assert config.learn_variance == learn_variance
 
+    def test_stores_logvar_bounds(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            min_logvar=-4.0,
+            max_logvar=2.0,
+        )
+        assert config.min_logvar == -4.0
+        assert config.max_logvar == 2.0
+
     def test_inherits_from_prior_config(self):
         config = PriorTransformerEncoderConfig(
             latent_dimension=32, embedding_dimension=256
         )
         assert isinstance(config, PriorLatentEncoderConfig)
+
+    def test_attention_dropout_default(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_dropout == 0.0
+
+    def test_normalization_type_default_is_rms_norm(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.normalization_type == NormalizationType.RMS_NORM.value
+
+    def test_attention_type_default_is_multi_head(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.attention_type == AttentionType.MULTI_HEAD.value
+
+    def test_positional_encoding_type_default_is_none(self):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32, embedding_dimension=256
+        )
+        assert config.positional_encoding_type is None
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope", "sinusoidal"])
+    def test_stores_positional_encoding_type(self, positional_encoding_type):
+        config = PriorTransformerEncoderConfig(
+            latent_dimension=32,
+            embedding_dimension=256,
+            positional_encoding_type=positional_encoding_type,
+        )
+        assert config.positional_encoding_type == positional_encoding_type
 
 
 @pytest.mark.unit
@@ -177,6 +267,44 @@ class TestDiTPriorConfig:
     def test_ode_solver_default_is_euler_string(self):
         config = DiTPriorConfig(latent_dimension=32)
         assert config.ode_solver == ODESolver.EULER.value
+
+    def test_timestep_sampler_default_is_beta_string(self):
+        config = DiTPriorConfig(latent_dimension=32)
+        assert config.timestep_sampler == TimestepSampler.BETA.value
+
+    def test_stores_timestep_sampling_fields(self):
+        config = DiTPriorConfig(
+            latent_dimension=32,
+            timestep_sampler=TimestepSampler.LOGIT_NORMAL.value,
+            logit_mean=0.25,
+            logit_std=0.5,
+            beta_alpha=1.25,
+            beta_beta=0.75,
+            max_timestep=0.9,
+        )
+        assert config.timestep_sampler == TimestepSampler.LOGIT_NORMAL.value
+        assert config.logit_mean == 0.25
+        assert config.logit_std == 0.5
+        assert config.beta_alpha == 1.25
+        assert config.beta_beta == 0.75
+        assert config.max_timestep == 0.9
+
+    def test_prior_target_default_is_posterior_mu(self):
+        config = DiTPriorConfig(latent_dimension=32)
+        assert config.prior_target_key == LatentKey.POSTERIOR_MU.value
+
+    def test_stores_latent_standardization_fields(self):
+        config = DiTPriorConfig(
+            latent_dimension=32,
+            latent_standardization_enabled=False,
+            latent_standardization_eps=1e-5,
+            latent_standardization_max_batches=7,
+            require_fitted_latent_standardization=True,
+        )
+        assert config.latent_standardization_enabled is False
+        assert config.latent_standardization_eps == pytest.approx(1e-5)
+        assert config.latent_standardization_max_batches == 7
+        assert config.require_fitted_latent_standardization is True
 
     def test_beta_schedule_default_is_squaredcos_string(self):
         config = DiTPriorConfig(latent_dimension=32)

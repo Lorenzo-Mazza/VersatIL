@@ -10,6 +10,7 @@ from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.models.decoding.constants import (
     DiTType,
     GMMInitStrategy,
+    MixtureSamplingMode,
     MoERoutingType,
     TimeConditioning,
 )
@@ -197,7 +198,7 @@ class MixtureOfDensitiesActionTransformerConfig(DecodingNetworkConfig):
     learnable_temperature: bool = False
     gating_feature_key: str | None = None
     gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value
-    deterministic_inference: bool = True
+    inference_sampling_mode: str = MixtureSamplingMode.STOCHASTIC_MEAN.value
 
 
 @dataclass

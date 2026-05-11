@@ -4,7 +4,7 @@ import logging
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -37,6 +37,7 @@ def light_geometric_encoder_factory() -> Callable[..., GeometricRGBDEncoder]:
         pooling_method: str = PoolingMethod.AVERAGE.value,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ) -> GeometricRGBDEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
@@ -52,6 +53,7 @@ def light_geometric_encoder_factory() -> Callable[..., GeometricRGBDEncoder]:
             pooling_method=pooling_method,
             pretrained=pretrained,
             frozen=frozen,
+            model_dtype=model_dtype,
         )
 
     return factory
@@ -415,3 +417,53 @@ class TestGeometricRGBDEncoderIntegration:
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGBD.value]
         assert features.shape == (batch_size, time_steps, encoder.output_dim)
+
+
+class TestGeometricRGBDEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_once_in_init(self):
+        with patch.object(GeometricRGBDEncoder, "_apply_model_dtype") as mock_apply:
+            GeometricRGBDEncoder(
+                input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+                embedding_dimension=32,
+                num_heads=2,
+                ffn_dimension=64,
+                patch_size=16,
+                pretrained=False,
+            )
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_all_parameters_share_model_dtype_after_init(
+        self,
+        light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = light_geometric_encoder_factory(model_dtype=model_dtype)
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [("32", torch.float32), ("bf16-mixed", torch.bfloat16)],
+    )
+    def test_set_image_size_preserves_model_dtype(
+        self,
+        light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
+        model_dtype: str,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = light_geometric_encoder_factory(model_dtype=model_dtype)
+        encoder.set_image_size(image_height=224, image_width=224)
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype

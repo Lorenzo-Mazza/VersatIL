@@ -51,6 +51,32 @@ class TestSinusoidalPositionalEncoding1DInit:
         ):
             SinusoidalPositionalEncoding1D(embedding_dimension=63)
 
+    def test_half_minus_one_denominator_requires_positive_denominator(self):
+        embedding_dimension = 2
+        denominator_mode = DenominatorMode.HALF_MINUS_ONE.value
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"denominator must be positive for embedding_dimension "
+                f"{embedding_dimension} and denominator_mode {denominator_mode}."
+            ),
+        ):
+            SinusoidalPositionalEncoding1D(
+                embedding_dimension=embedding_dimension,
+                denominator_mode=denominator_mode,
+            )
+
+    def test_non_positive_temperature_raises(self):
+        temperature = 0.0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"temperature must be positive, got {temperature}."),
+        ):
+            SinusoidalPositionalEncoding1D(
+                embedding_dimension=64,
+                temperature=temperature,
+            )
+
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("temperature", [10000.0, 5000.0])
     @pytest.mark.parametrize(
@@ -144,6 +170,20 @@ class TestSinusoidalPositionalEncoding1DInit:
         )
         assert module.frequencies.requires_grad == learnable_frequencies
 
+    def test_learnable_frequencies_disable_precomputed_buffer(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+    ):
+        module = sinusoidal_1d_factory(
+            embedding_dimension=64,
+            learnable_frequencies=True,
+            precompute_encodings=True,
+            maximum_length=100,
+        )
+        buffers = dict(module.named_buffers())
+        assert module.precompute_encodings is False
+        assert "precomputed_encodings" not in buffers
+
 
 class TestSinusoidalPositionalEncoding1DForward:
     @pytest.mark.parametrize(
@@ -231,6 +271,28 @@ class TestSinusoidalPositionalEncoding1DForward:
         output_non_precomputed = non_precomputed(tensor)
         assert torch.allclose(output_precomputed, output_non_precomputed, atol=1e-6)
 
+    def test_learnable_frequencies_receive_gradient_when_precompute_requested(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            learnable_frequencies=True,
+            precompute_encodings=True,
+            maximum_length=100,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=8,
+            embedding_dimension=embedding_dimension,
+        )
+        output = module(tensor)
+        output[:, 1:, 0].sum().backward()
+        assert module.frequencies.grad is not None
+        assert torch.any(module.frequencies.grad != 0.0)
+
 
 class TestCreateEncodingTable:
     @pytest.mark.parametrize(
@@ -268,6 +330,24 @@ class TestSinusoidalPositionalEncoding2D:
             match=re.escape("embedding_dimension must be even"),
         ):
             SinusoidalPositionalEncoding2D(embedding_dimension=63)
+
+    def test_embedding_dimension_not_divisible_by_four_raises(self):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("embedding_dimension must be divisible by 4"),
+        ):
+            SinusoidalPositionalEncoding2D(embedding_dimension=6)
+
+    def test_non_positive_temperature_raises(self):
+        temperature = 0.0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"temperature must be positive, got {temperature}."),
+        ):
+            SinusoidalPositionalEncoding2D(
+                embedding_dimension=64,
+                temperature=temperature,
+            )
 
     @pytest.mark.parametrize(
         "batch_size, embedding_dimension, height, width",
@@ -536,6 +616,44 @@ class TestPeriodInterpolationPositionalEncoding1D:
             match=re.escape("embedding_dimension must be even"),
         ):
             PeriodInterpolationPositionalEncoding1D(embedding_dimension=7)
+
+    def test_non_positive_min_period_raises(self):
+        min_period = 0.0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"min_period must be positive, got {min_period}."),
+        ):
+            PeriodInterpolationPositionalEncoding1D(
+                embedding_dimension=32,
+                min_period=min_period,
+            )
+
+    def test_non_positive_max_period_raises(self):
+        max_period = 0.0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"max_period must be positive, got {max_period}."),
+        ):
+            PeriodInterpolationPositionalEncoding1D(
+                embedding_dimension=32,
+                max_period=max_period,
+            )
+
+    def test_max_period_less_than_min_period_raises(self):
+        min_period = 4.0
+        max_period = 1.0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"max_period must be greater than or equal to min_period, "
+                f"got max_period={max_period} and min_period={min_period}."
+            ),
+        ):
+            PeriodInterpolationPositionalEncoding1D(
+                embedding_dimension=32,
+                min_period=min_period,
+                max_period=max_period,
+            )
 
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     def test_output_shape_for_scalar_input(self, embedding_dimension: int):

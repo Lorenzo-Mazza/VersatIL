@@ -368,10 +368,7 @@ class ActionTokenizer:
         else:
             tokens_arr = tokens
 
-        valid_mask = (tokens_arr != self.pad_token_id) & (
-            tokens_arr != self.eos_token_id
-        )
-        valid_tokens = tokens_arr[valid_mask]
+        valid_tokens = self._strip_decode_special_tokens(tokens_arr)
         if self.language_tokenizer is not None:
             fast_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
         else:
@@ -410,10 +407,7 @@ class ActionTokenizer:
         tokens_list_of_lists = []
         for i in range(tokens_arr.shape[0]):
             sample_tokens = tokens_arr[i]
-            valid_mask = (sample_tokens != self.pad_token_id) & (
-                sample_tokens != self.eos_token_id
-            )
-            valid_tokens = sample_tokens[valid_mask]
+            valid_tokens = self._strip_decode_special_tokens(sample_tokens)
             if self.language_tokenizer is not None:
                 valid_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
             tokens_list_of_lists.append(valid_tokens.tolist())
@@ -427,6 +421,19 @@ class ActionTokenizer:
             return decoded_actions
 
         raise RuntimeError("Cannot decode without FAST processor")
+
+    def _strip_decode_special_tokens(self, tokens: np.ndarray) -> np.ndarray:
+        """Remove EOS and padding without dropping valid FAST token IDs."""
+        tokens_arr = np.asarray(tokens)
+        if self.eos_token_id is not None:
+            eos_indices = np.flatnonzero(tokens_arr == self.eos_token_id)
+            if eos_indices.size > 0:
+                return tokens_arr[: eos_indices[0]]
+
+        end_index = tokens_arr.shape[0]
+        while end_index > 0 and tokens_arr[end_index - 1] == self.pad_token_id:
+            end_index -= 1
+        return tokens_arr[:end_index]
 
     def decode(self, tokens: torch.Tensor | list[int] | np.ndarray) -> np.ndarray:
         """Decode discrete tokens back to action chunks, automatically adapting on the input shape."""

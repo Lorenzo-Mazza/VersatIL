@@ -36,7 +36,24 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
     def _compute_encodings(self, input_values: torch.Tensor) -> torch.Tensor:
         if self.maximum_length is None:
             raise RuntimeError("maximum_length must be set for learned encoding")
-        input_values = input_values.long().clamp(0, self.maximum_length - 1)
+        input_values = input_values.long()
+        if (
+            self.position_source == PositionSource.TENSOR_INDICES.value
+            and input_values.numel() > 0
+            # torch.export/compile cannot trace the data-dependent Python int
+            # conversion below. Side effect: compiled/exported graphs skip this
+            # eager range check and clamp invalid positions instead of raising.
+            and not torch.compiler.is_compiling()
+        ):
+            max_position = int(input_values.max())
+            min_position = int(input_values.min())
+            if min_position < 0 or max_position >= self.maximum_length:
+                raise ValueError(
+                    f"Position indices [{min_position}, {max_position}] out of range "
+                    f"[0, {self.maximum_length - 1}]. Increase maximum_length."
+                )
+        else:
+            input_values = input_values.clamp(0, self.maximum_length - 1)
         result: torch.Tensor = self.learned_encoding(input_values)
         return result
 

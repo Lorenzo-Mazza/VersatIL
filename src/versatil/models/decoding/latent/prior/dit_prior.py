@@ -7,6 +7,7 @@ or flow matching, where z is the latent variable and s is the conditioning (obse
 import torch
 import torch.nn as nn
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.constants import (
     BetaSchedule,
     DecoderOutputKey,
@@ -16,9 +17,13 @@ from versatil.models.decoding.constants import (
     PredictionType,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
+from versatil.models.decoding.latent.prior.latent_standardizer import LatentStandardizer
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.denoising.conditional_flow_matching import (
+    ConditionalFlowMatcher,
+)
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     SchedulerType,
@@ -28,10 +33,16 @@ from versatil.models.layers.denoising.diffusion_process import (
     setup_inference_timesteps,
 )
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
+from versatil.models.layers.denoising.timestep_sampling import (
+    TimestepSampler,
+    TimestepSamplingConfig,
+    sample_timesteps_from_config,
+)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
 from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -41,6 +52,9 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 )
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
+)
+from versatil.training.callbacks.prior_target_standardization import (
+    PriorTargetStandardizationCallback,
 )
 
 
@@ -78,6 +92,12 @@ class DiTPrior(PriorLatentEncoder):
         activation: Activation function name.
         use_gating: Whether to use AdaLN-Zero gating in DiT layers.
         exclude_keys: Keys to exclude from observations.
+        prior_target_key: Posterior output key used as denoising target.
+        latent_standardization_enabled: Whether to standardize DiT target latents.
+        latent_standardization_eps: Numerical epsilon used in latent standardization.
+        latent_standardization_max_batches: Maximum train batches to scan when
+            fitting latent standardization stats. ``None`` scans the full train loader.
+        require_fitted_latent_standardization: Whether missing latent stats should raise.
     """
 
     def __init__(
@@ -92,6 +112,12 @@ class DiTPrior(PriorLatentEncoder):
         algorithm_type: str = DenoisingAlgorithm.FLOW_MATCHING.value,
         sigma: float = 0.0,
         ode_solver: str = ODESolver.EULER.value,
+        timestep_sampler: str = TimestepSampler.BETA.value,
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        beta_alpha: float = 1.5,
+        beta_beta: float = 1.0,
+        max_timestep: float = 0.999,
         num_train_timesteps: int = 100,
         num_inference_steps: int = 10,
         beta_start: float = 0.0001,
@@ -108,6 +134,11 @@ class DiTPrior(PriorLatentEncoder):
         activation: str = ActivationFunction.SILU.value,
         use_gating: bool = True,
         exclude_keys: list[str] | None = None,
+        prior_target_key: str = LatentKey.POSTERIOR_MU.value,
+        latent_standardization_enabled: bool = True,
+        latent_standardization_eps: float = 1e-6,
+        latent_standardization_max_batches: int | None = None,
+        require_fitted_latent_standardization: bool = False,
     ):
         super().__init__(latent_dimension=latent_dimension, device=device)
         self.embedding_dimension = embedding_dimension
@@ -116,13 +147,41 @@ class DiTPrior(PriorLatentEncoder):
         self.num_train_timesteps = num_train_timesteps
         self.num_inference_steps = num_inference_steps
         self.exclude_keys = exclude_keys or []
+        if prior_target_key not in {
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.POSTERIOR_LATENT.value,
+        }:
+            raise ValueError(
+                f"Unsupported DiTPrior prior_target_key: {prior_target_key}. "
+                f"Expected one of "
+                f"{[LatentKey.POSTERIOR_MU.value, LatentKey.POSTERIOR_LATENT.value]}"
+            )
+        self.prior_target_key = prior_target_key
+        self.timestep_sampling_config = TimestepSamplingConfig(
+            sampler=timestep_sampler,
+            logit_mean=logit_mean,
+            logit_std=logit_std,
+            beta_alpha=beta_alpha,
+            beta_beta=beta_beta,
+            max_timestep=max_timestep,
+        )
+        self.latent_standardizer = LatentStandardizer(
+            latent_dimension=latent_dimension,
+            enabled=latent_standardization_enabled,
+            eps=latent_standardization_eps,
+            require_fitted=require_fitted_latent_standardization,
+        )
+        if (
+            latent_standardization_max_batches is not None
+            and latent_standardization_max_batches <= 0
+        ):
+            raise ValueError(
+                "latent_standardization_max_batches must be positive when set, "
+                f"got {latent_standardization_max_batches}."
+            )
+        self.latent_standardization_max_batches = latent_standardization_max_batches
 
         if algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
-            # Lazy import: torchcfm → ot → geomloss → pykeops triggers CUDA JIT at import time.
-            from torchcfm.conditional_flow_matching import (  # noqa: PLC0415
-                ConditionalFlowMatcher,
-            )
-
             self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
             self.ode_solver = ode_solver
             self.noise_scheduler = None
@@ -150,7 +209,8 @@ class DiTPrior(PriorLatentEncoder):
 
         self.timestep_embed = SinusoidalPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            maximum_length=num_train_timesteps,
+            position_source=PositionSource.SCALAR.value,
+            precompute_encodings=False,
         )
         self.timestep_mlp = nn.Sequential(
             nn.Linear(embedding_dimension, embedding_dimension),
@@ -196,7 +256,48 @@ class DiTPrior(PriorLatentEncoder):
             use_gating=use_gating,
             use_final_normalization=False,  # FinalPredictionLayer has its own AdaNorm
         )
+
+        def _init_module(module: nn.Module) -> None:
+            if getattr(module, "_is_modulation_layer", False):
+                return
+            if isinstance(module, nn.Linear):
+                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+        self.latent_input_proj.apply(_init_module)
+        self.timestep_mlp.apply(_init_module)
         self.to(torch.device(device))
+
+    @property
+    def timestep_sampler(self) -> str:
+        """Configured flow-matching timestep sampler name."""
+        return self.timestep_sampling_config.sampler
+
+    @property
+    def logit_mean(self) -> float:
+        """Configured logit-normal sampler mean."""
+        return self.timestep_sampling_config.logit_mean
+
+    @property
+    def logit_std(self) -> float:
+        """Configured logit-normal sampler standard deviation."""
+        return self.timestep_sampling_config.logit_std
+
+    @property
+    def beta_alpha(self) -> float:
+        """Configured beta sampler alpha parameter."""
+        return self.timestep_sampling_config.beta_alpha
+
+    @property
+    def beta_beta(self) -> float:
+        """Configured beta sampler beta parameter."""
+        return self.timestep_sampling_config.beta_beta
+
+    @property
+    def max_timestep(self) -> float:
+        """Configured maximum sampled timestep."""
+        return self.timestep_sampling_config.max_timestep
 
     def _filter_observations(
         self, observations: dict[str, torch.Tensor]
@@ -208,13 +309,14 @@ class DiTPrior(PriorLatentEncoder):
         """Compute timestep embedding.
 
         Args:
-            timesteps: Timestep indices (B,).
+            timesteps: Timestep indices (B,) or (B,1).
 
         Returns:
             Timestep embeddings (B, D).
         """
-        timestep_embedding = self.timestep_embed(timesteps.unsqueeze(-1))  # (B, 1, D)
-        timestep_embedding = timestep_embedding.squeeze(1)  # (B, D)
+        if timesteps.dim() == 2 and timesteps.shape[-1] == 1:  # (B, 1)
+            timesteps = timesteps.squeeze(-1)
+        timestep_embedding = self.timestep_embed(timesteps.float())  # (B, D)
         return self.timestep_mlp(timestep_embedding)  # (B, D)
 
     def _get_timestep_embedding_continuous(
@@ -230,7 +332,7 @@ class DiTPrior(PriorLatentEncoder):
         """
         scaled_timesteps = (
             continuous_time * (self.num_train_timesteps - 1)
-        ).long()  # (B,)
+        ).float()  # (B,)
         return self._get_timestep_embedding(scaled_timesteps)  # (B, D)
 
     def _predict_from_tokens(
@@ -269,9 +371,47 @@ class DiTPrior(PriorLatentEncoder):
         )  # (B, 1, latent_dim)
         return output.squeeze(1)  # (B, latent_dim)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """DiT prior outputs denoising predictions and targets."""
+        return {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_PREDICTION.value,
+            LatentKey.PRIOR_TARGET.value,
+        }
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide DiT prior training callbacks.
+
+        Args:
+            experiment_config: Experiment-level callback configuration.
+
+        Returns:
+            Prior target standardization callback when enabled, otherwise no callbacks.
+        """
+        if not self.latent_standardizer.enabled:
+            return []
+        return [
+            PriorTargetStandardizationCallback(
+                max_batches=self.latent_standardization_max_batches
+            )
+        ]
+
+    def build_training_target(
+        self, posterior_output: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """Select and detach the configured posterior target for DiT training.
+
+        Args:
+            posterior_output: Posterior encoder output dictionary.
+
+        Returns:
+            Detached latent target selected by ``prior_target_key``.
+        """
+        return posterior_output[self.prior_target_key].detach()
+
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Compute denoising predictions for training.
@@ -283,18 +423,31 @@ class DiTPrior(PriorLatentEncoder):
         Returns:
             Dictionary with LatentKey.PRIOR_PREDICTION.value and LatentKey.PRIOR_TARGET.value.
         """
-        batch_size = target_latents.shape[0]
-        device = target_latents.device
+        if target_latents is None:
+            raise ValueError(
+                "DiTPrior.forward() requires target_latents for denoising "
+                "training. Use sample_prior() for inference."
+            )
+        standardized_target_latents = self.latent_standardizer.standardize(
+            target_latents
+        )
+        batch_size = standardized_target_latents.shape[0]
+        device = standardized_target_latents.device
         filtered_obs = self._filter_observations(observations)
 
         if self.algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
-            noise = torch.randn_like(target_latents)  # (B, latent_dim)
+            noise = torch.randn_like(standardized_target_latents)  # (B, latent_dim)
+            sampled_time = sample_timesteps_from_config(
+                config=self.timestep_sampling_config,
+                batch_size=batch_size,
+                device=device,
+            )  # (B,)
             (
                 time,
                 interpolated_latent,
                 target_velocity,
             ) = self.flow_matcher.sample_location_and_conditional_flow(
-                x0=noise, x1=target_latents
+                x0=noise, x1=standardized_target_latents, t=sampled_time
             )  # time: (B,), interpolated_latent: (B, latent_dim), target_velocity: (B, latent_dim)
             timestep_embedding = self._get_timestep_embedding_continuous(time)  # (B, D)
             predicted_velocity = self._predict_from_tokens(
@@ -313,7 +466,7 @@ class DiTPrior(PriorLatentEncoder):
             device=device,
         )  # (B,)
         noisy_latents, noise = add_noise_to_tensor(
-            clean=target_latents,
+            clean=standardized_target_latents,
             noise_scheduler=self.noise_scheduler,
             timesteps=timesteps,
         )  # noisy_latents: (B, latent_dim), noise: (B, latent_dim)
@@ -326,10 +479,10 @@ class DiTPrior(PriorLatentEncoder):
         if self.prediction_type == PredictionType.EPSILON.value:
             target = noise
         elif self.prediction_type == PredictionType.SAMPLE.value:
-            target = target_latents
+            target = standardized_target_latents
         elif self.prediction_type == PredictionType.VELOCITY.value:
             target = self.noise_scheduler.get_velocity(
-                sample=target_latents, noise=noise, timesteps=timesteps
+                sample=standardized_target_latents, noise=noise, timesteps=timesteps
             )
         else:
             raise ValueError(
@@ -377,12 +530,13 @@ class DiTPrior(PriorLatentEncoder):
                     timestep_embedding=timestep_embedding,
                 )  # (B, latent_dim)
 
-            return integrate_ode(
+            standardized_sample = integrate_ode(
                 z_init=z,
                 velocity_fn=velocity_fn,
                 num_steps=self.num_inference_steps,
                 solver=self.ode_solver,
             )  # (B, latent_dim)
+            return self.latent_standardizer.unstandardize(standardized_sample)
 
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
         for t in self.noise_scheduler.timesteps:
@@ -398,4 +552,4 @@ class DiTPrior(PriorLatentEncoder):
             z = self.noise_scheduler.step(
                 model_output=model_output, timestep=t, sample=z
             ).prev_sample  # (B, latent_dim)
-        return z
+        return self.latent_standardizer.unstandardize(z)

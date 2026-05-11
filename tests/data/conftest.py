@@ -369,6 +369,8 @@ def real_dataset_factory(
         obs_horizon: int = 2,
         train: bool = True,
         val_ratio: float = 0.1,
+        trailing_padded_actions: int | None = None,
+        action_backward_shift: int = 1,
     ) -> EpisodicDataset:
         if cameras is None:
             cameras = []
@@ -434,12 +436,13 @@ def real_dataset_factory(
         config.total_ratio = 1.0
         config.downsample_factor = 1
         config.skip_initial_episode_steps = 0
-        config.action_backward_shift = 1
+        config.action_backward_shift = action_backward_shift
         config.preload_data_in_memory = False
         config.image_height = image_height
         config.image_width = image_width
         config.color_augmentation = None
         config.spatial_augmentation = None
+        config.trailing_padded_actions = trailing_padded_actions
 
         dataset = EpisodicDataset(
             zarr_path=zarr_path,

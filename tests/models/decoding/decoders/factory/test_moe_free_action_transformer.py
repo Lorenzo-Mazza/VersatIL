@@ -21,7 +21,7 @@ from versatil.models.decoding.decoders.factory.free_action_transformer import (
 from versatil.models.decoding.decoders.factory.moe_free_action_transformer import (
     MoEFreeActionTransformer,
 )
-from versatil.training.callbacks import LatentVisualizationCallback
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2

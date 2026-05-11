@@ -26,6 +26,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
         init_strategy: str = "zero",
+        feature_axis: int = -1,
     ) -> ConditionalModulation:
         return ConditionalModulation(
             condition_dim=condition_dim,
@@ -34,6 +35,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
             use_gate=use_gate,
             activation=activation,
             init_strategy=init_strategy,
+            feature_axis=feature_axis,
         )
 
     return factory
@@ -62,6 +64,14 @@ class TestConditionalModulationInitialization:
         assert module.use_shift == use_shift
         assert module.use_gate == use_gate
         assert module.output_dim == feature_dim * (1 + use_shift + use_gate)
+
+    def test_invalid_feature_axis_raises(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+    ):
+        error_message = "feature_axis must be one of [-1, 1], got 0."
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            modulation_factory(feature_axis=0)
 
     @pytest.mark.parametrize(
         "init_strategy, expectation",
@@ -295,6 +305,7 @@ class TestConditionalModulationForward:
         module = modulation_factory(
             condition_dim=32,
             feature_dim=feature_dim,
+            feature_axis=1,
         )
         # (B=2, C=16, T=20) — C matches feature_dim → Conv1D path
         tensor = conv1d_tensor_factory(
@@ -327,7 +338,34 @@ class TestConditionalModulationForward:
         output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
-    def test_3d_batch_in_dim_1_path(
+    def test_3d_transformer_path_when_sequence_length_matches_feature_dim(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32,
+            feature_dim=feature_dim,
+            init_strategy="xavier",
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=feature_dim,
+            embedding_dimension=feature_dim,
+        )
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        with torch.no_grad():
+            projected = module.projection(condition)
+            chunks = projected.split(feature_dim, dim=-1)
+            gamma = chunks[0].unsqueeze(1)
+            beta = chunks[1].unsqueeze(1)
+            expected = tensor * (1 + gamma) + beta
+            output, _ = module(x=tensor, condition=condition)
+        assert torch.allclose(output, expected, atol=1e-5)
+
+    def test_3d_sequence_first_layout_raises(
         self,
         rng: np.random.Generator,
         modulation_factory: Callable[..., ConditionalModulation],
@@ -343,8 +381,13 @@ class TestConditionalModulationForward:
         data = rng.standard_normal((5, batch_size, feature_dim)).astype(np.float32)
         tensor = torch.from_numpy(data)
         condition = condition_factory(batch_size=batch_size, condition_dim=32)
-        output, _ = module(x=tensor, condition=condition)
-        assert output.shape == tensor.shape
+        error_message = (
+            f"Cannot match batch dimension: x.shape={tensor.shape}, "
+            f"condition.shape={condition.shape}. Expected x.size(0) to equal "
+            f"condition.size(0)={condition.size(0)}."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            module(x=tensor, condition=condition)
 
     def test_gate_returns_tuple_with_correct_shapes(
         self,
@@ -366,6 +409,27 @@ class TestConditionalModulationForward:
         assert len(result) == 2
         modulated, gate = result
         assert modulated.shape == tensor.shape
+        assert gate.shape == (2, feature_dim, 1, 1)
+
+    def test_4d_gate_shape_without_shift(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_shift=False,
+            use_gate=True,
+        )
+        tensor = nchw_tensor_factory(
+            batch_size=2, channels=feature_dim, height=8, width=8
+        )
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        output, gate = module(x=tensor, condition=condition)
+        assert output.shape == tensor.shape
         assert gate.shape == (2, feature_dim, 1, 1)
 
     def test_no_gate_returns_ones_gate(
@@ -405,9 +469,9 @@ class TestConditionalModulationForward:
             ValueError,
             match=re.escape(
                 f"Cannot match batch dimension: x.shape={tensor.shape}, "
-                f"condition.shape={condition.shape}. "
-                f"Expected x.size(0) or x.size(1) to equal "
+                f"condition.shape={condition.shape}. Expected x.size(0) to equal "
                 f"condition.size(0)={condition.size(0)}"
+                "."
             ),
         ):
             module(x=tensor, condition=condition)

@@ -89,10 +89,7 @@ def smolvlm_encoder_factory(
         use_embeddings_only: bool = False,
     ) -> SmolVLMEncoder:
         if input_keys is None:
-            input_keys = [
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ]
+            input_keys = [Cameras.LEFT.value]
         mock_config = _create_mock_config()
         camera_count = sum(1 for k in input_keys if k in RGB_CAMERAS)
         mock_vlm = mock_vlm_factory(num_cameras=max(camera_count, 1))
@@ -190,15 +187,8 @@ class TestSmolVLMEncoderInitialization:
     @pytest.mark.parametrize(
         "input_keys, expected_camera_count",
         [
-            ([Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value], 1),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2,
-            ),
+            ([Cameras.LEFT.value], 1),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2),
         ],
     )
     @pytest.mark.parametrize("frozen", [True, False])
@@ -221,6 +211,7 @@ class TestSmolVLMEncoderInitialization:
         assert encoder.max_text_length == MAX_TEXT_LENGTH
         assert encoder.num_image_tokens_per_camera == NUM_IMAGE_TOKENS
         assert len(encoder.camera_keys) == expected_camera_count
+        assert SampleKey.IS_PAD_OBSERVATION.value in encoder.input_specification.keys
         assert encoder.use_embeddings_only is use_embeddings_only
         if frozen:
             for parameter in encoder.parameters():
@@ -378,6 +369,27 @@ class TestSmolVLMEncoderForward:
         # Single camera → (B, 1, C, H, W)
         assert pixel_values.ndim == 5
         assert pixel_values.shape[1] == 1
+
+    def test_text_model_attention_mask_marks_auto_padded_text_tokens(
+        self,
+        smolvlm_encoder_factory: Callable[..., SmolVLMEncoder],
+        smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        sequence_length = 5
+        encoder = smolvlm_encoder_factory()
+        _setup_mock_vlm_for_batch(encoder, batch_size)
+        inputs = smolvlm_input_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+        )
+        encoder(inputs=inputs)
+        attention_mask = encoder.vlm.text_model.call_args.kwargs["attention_mask"]
+        image_attention = attention_mask[:, :NUM_IMAGE_TOKENS]
+        text_attention = attention_mask[:, NUM_IMAGE_TOKENS:]
+        assert image_attention.all()
+        assert text_attention[:, :sequence_length].all()
+        assert not text_attention[:, sequence_length:].any()
 
     def test_multi_camera_stacks_all_cameras_in_single_call(
         self,
@@ -543,18 +555,8 @@ class TestSmolVLMEncoderGetOutputSpecification:
     @pytest.mark.parametrize(
         "input_keys, expected_total_image_tokens",
         [
-            (
-                [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-                NUM_IMAGE_TOKENS,
-            ),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2 * NUM_IMAGE_TOKENS,
-            ),
+            ([Cameras.LEFT.value], NUM_IMAGE_TOKENS),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2 * NUM_IMAGE_TOKENS),
         ],
     )
     def test_fused_dimension_scales_with_cameras(

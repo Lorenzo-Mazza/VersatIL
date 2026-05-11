@@ -5,13 +5,14 @@ from torch import nn
 
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
+from versatil.models.decoding.latent.prior.state_condition_pool import (
+    StateConditionPool,
+)
 from versatil.models.decoding.latent.reparametrize import reparametrize
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.detr_transformer import (
-    TransformerEncoder,
-    TransformerEncoderLayer,
-)
+from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -19,6 +20,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.models.layers.transformer.encoder import TransformerEncoder
 
 
 class PriorTransformerEncoder(PriorLatentEncoder):
@@ -39,19 +41,33 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         number_of_encoder_layers: int = 4,
         activation: str = ActivationFunction.SWIGLU.value,
         dropout_rate: float = 0.1,
-        normalize_before: bool = False,
+        attention_dropout: float = 0.0,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
+        attention_type: str = AttentionType.MULTI_HEAD.value,
+        positional_encoding_type: str | None = None,
         use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         learn_variance: bool = True,
         min_logvar: float | None = None,
         deterministic: bool = False,
+        max_logvar: float | None = None,
     ):
         super().__init__(
             latent_dimension=latent_dimension,
             device=device,
         )
+        if (
+            min_logvar is not None
+            and max_logvar is not None
+            and max_logvar < min_logvar
+        ):
+            raise ValueError(
+                "max_logvar must be greater than or equal to min_logvar when both "
+                f"are set, got min_logvar={min_logvar} and max_logvar={max_logvar}."
+            )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
+        self.max_logvar = max_logvar
         self.deterministic = deterministic
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
@@ -62,21 +78,25 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.number_of_encoder_layers = number_of_encoder_layers
         self.activation = activation
         self.dropout_rate = dropout_rate
-        self.normalize_before = normalize_before
+        self.attention_dropout = attention_dropout
+        self.normalization_type = normalization_type
+        self.attention_type = attention_type
+        self.positional_encoding_type = positional_encoding_type
         self.learn_variance = learn_variance
+        self.state_condition_pool = StateConditionPool(
+            embedding_dimension=self.embedding_dimension
+        )
         self.encoder = TransformerEncoder(
-            encoder_layer=TransformerEncoderLayer(
-                embedding_dimension=self.embedding_dimension,
-                number_of_heads=self.number_of_heads,
-                feedforward_dimension=self.feedforward_dimension,
-                activation=self.activation,
-                dropout=self.dropout_rate,
-                normalize_before=self.normalize_before,
-            ),
             number_of_layers=self.number_of_encoder_layers,
-            normalization=nn.LayerNorm(self.embedding_dimension)
-            if self.normalize_before
-            else None,
+            embedding_dimension=self.embedding_dimension,
+            number_of_heads=self.number_of_heads,
+            feedforward_dimension=self.feedforward_dimension,
+            activation=self.activation,
+            dropout=self.dropout_rate,
+            attention_dropout=self.attention_dropout,
+            normalization_type=self.normalization_type,
+            attention_type=self.attention_type,
+            positional_encoding_type=self.positional_encoding_type,
         )
 
         image_positional_encoding = SinusoidalPositionalEncoding2D(
@@ -110,9 +130,20 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         )
         self.to(device)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Gaussian prior keys, excluding logvar when deterministic."""
+        keys = {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_CONDITION.value,
+            LatentKey.PRIOR_MU.value,
+        }
+        if not self.deterministic:
+            keys.add(LatentKey.PRIOR_LOGVAR.value)
+        return keys
+
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Encode observation features to latent space z embedding using Variational Inference.
@@ -136,17 +167,28 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension)
-        # input_tokens contains the CLS token at the end of the sequence
+        hidden_states = input_tokens + pos_encodings
+        # TransformerInputBuilder appends the CLS token as the final token.
+        # The conditional loss state must come from observation tokens only,
+        # so exclude that final CLS token from the pooled state vector.
+        condition_tokens = hidden_states[:, :-1, :]
+        condition_padding_mask = (
+            padding_mask[:, :-1] if padding_mask is not None else None
+        )
+        prior_condition = self.state_condition_pool(
+            tokens=condition_tokens,
+            padding_mask=condition_padding_mask,
+        ).detach()
         encoder_output = self.encoder(
-            input_tokens,
-            positional_encoding=pos_encodings,
-            source_key_padding_mask=padding_mask,
+            hidden_states=hidden_states,
+            padding_mask=padding_mask,
         )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = latent_stats  # (B, latent_dim)
             return {
                 LatentKey.PRIOR_LATENT.value: z,
+                LatentKey.PRIOR_CONDITION.value: prior_condition,
                 LatentKey.PRIOR_MU.value: z,
             }
         if self.learn_variance:
@@ -154,13 +196,14 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         else:
             mu = latent_stats  # (B, latent_dim)
             logvar = torch.zeros_like(mu)  # Fixed logvar = 0.0 (std = 1.0)
-        if self.min_logvar is not None:
-            logvar = torch.clamp(logvar, min=self.min_logvar)
+        if self.min_logvar is not None or self.max_logvar is not None:
+            logvar = torch.clamp(logvar, min=self.min_logvar, max=self.max_logvar)
         z = reparametrize(mu, logvar)  # (B, latent_dim)
         return {
             LatentKey.PRIOR_MU.value: mu,
             LatentKey.PRIOR_LOGVAR.value: logvar,
             LatentKey.PRIOR_LATENT.value: z,
+            LatentKey.PRIOR_CONDITION.value: prior_condition,
         }
 
     def sample_prior(

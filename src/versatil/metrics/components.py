@@ -19,14 +19,20 @@ from versatil.data.metadata import (
     GripperObservationMetadata,
     OnTheFlyActionMetadata,
 )
-from versatil.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
+from versatil.metrics.base import (
+    BaseLoss,
+    LossOutput,
+    ScalarWeightedLoss,
+    WeightsDictionary,
+    reduce_loss_with_padding,
+)
 from versatil.metrics.constants import (
     MetadataKey,
     MetricKey,
 )
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-from versatil.training.callbacks import ExpertUsageCallback
+from versatil.training.callbacks.expert_usage import ExpertUsageCallback
 
 
 class RegressionLoss(BaseLoss):
@@ -61,6 +67,22 @@ class RegressionLoss(BaseLoss):
         self.huber_weight = huber_weight
         self.huber_delta = huber_delta
         self.per_key_weights = per_key_weights or {}
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "mse_weight": self.mse_weight,
+            "l1_weight": self.l1_weight,
+            "huber_weight": self.huber_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.mse_weight = new_weights["mse_weight"]
+        self.l1_weight = new_weights["l1_weight"]
+        self.huber_weight = new_weights["huber_weight"]
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys for regression loss.
@@ -180,6 +202,17 @@ class GripperLoss(BaseLoss):
     def requires_action_space_targets(self) -> bool:
         return self.bce_weight > 0
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"bce_weight": self.bce_weight, "mse_weight": self.mse_weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.bce_weight = new_weights["bce_weight"]
+        self.mse_weight = new_weights["mse_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required target keys for gripper loss.
 
@@ -269,6 +302,17 @@ class GaussianEntropyLoss(BaseLoss):
         self.logvar_max = logvar_max
         self.bound_weight = bound_weight
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight, "bound_weight": self.bound_weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.bound_weight = new_weights["bound_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys."""
         return {self.key}
@@ -342,6 +386,22 @@ class KLDivergenceLoss(BaseLoss):
         self.weight = weight
         self.prior_entropy_weight = prior_entropy_weight
         self.prior_regularization_weight = prior_regularization_weight
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "weight": self.weight,
+            "prior_entropy_weight": self.prior_entropy_weight,
+            "prior_regularization_weight": self.prior_regularization_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.prior_entropy_weight = new_weights["prior_entropy_weight"]
+        self.prior_regularization_weight = new_weights["prior_regularization_weight"]
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for KL divergence loss."""
@@ -483,6 +543,17 @@ class BinaryKLDivergenceLoss(BaseLoss):
         self.free_bits = free_bits
         self.latent_bits = latent_bits
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight, "entropy_weight": self.entropy_weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.entropy_weight = new_weights["entropy_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required keys for binary KL divergence loss.
 
@@ -584,13 +655,29 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
     Ref: [Info-VAE / MMD-VAE](https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
     """
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "weight": self.weight,
+            "prior_regularization_weight": self.prior_regularization_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+        self.prior_regularization_weight = new_weights["prior_regularization_weight"]
+
     def __init__(
         self,
         weight: float = 1.0,
         prior_regularization_weight: float = 0.0,
         kernel_type: str = KernelType.RBF.value,
         bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = True,
         use_fixed_gaussian_as_prior: bool = False,
+        prior_target_key: str = LatentKey.POSTERIOR_LATENT.value,
     ):
         """Initialize MMD loss.
 
@@ -599,20 +686,29 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
                 Only meaningful for learned priors.
             kernel_type: Kernel type for MMD computation (see KernelType enum).
-            bandwidth_multipliers: Scale factors for the median heuristic bandwidth.
+            bandwidth_multipliers: Scale factors for bandwidth. When
+                use_median_heuristic=True these scale the adaptive median.
+                When False these are absolute bandwidth values. WAE
+                recommends [2 * latent_dim] with use_median_heuristic=False.
+            use_median_heuristic: Adaptive bandwidth via median heuristic
+                (True) or fixed absolute bandwidths (False).
             use_fixed_gaussian_as_prior: If True, always use standard Gaussian as prior.
+            prior_target_key: Posterior output key used as aggregate prior-matching samples.
+                Use ``LatentKey.POSTERIOR_MU`` for deterministic WAE-style matching.
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
+        self.prior_target_key = prior_target_key
         self.kernel = KernelType(kernel_type).to_kernel(
-            bandwidth_multipliers=bandwidth_multipliers
+            bandwidth_multipliers=bandwidth_multipliers,
+            use_median_heuristic=use_median_heuristic,
         )
         self.use_fixed_gaussian_as_prior = use_fixed_gaussian_as_prior
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
-        keys = {LatentKey.POSTERIOR_LATENT.value}
+        keys = {self.prior_target_key}
         if not self.use_fixed_gaussian_as_prior:
             keys.add(LatentKey.PRIOR_LATENT.value)
         return keys
@@ -637,7 +733,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
                 f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss."
             )
 
-        z_posterior = predictions[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
+        z_posterior = predictions[self.prior_target_key]  # (B, latent_dim)
         original_z_prior = predictions.get(
             LatentKey.PRIOR_LATENT.value
         )  # (B, latent_dim) or None
@@ -650,11 +746,26 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
                 )
             z_prior = original_z_prior  # (B, latent_dim)
 
-        k_zz = self.kernel(z_posterior, z_posterior)
-        k_pp = self.kernel(z_prior, z_prior)
-        k_zp = self.kernel(z_posterior, z_prior)
+        # Resolve one bandwidth from the combined (posterior, prior) samples
+        # and reuse it for all three MMD terms. Letting the kernel resolve a
+        # fresh bandwidth per call would compute the three terms under
+        # different kernels, breaking the MMD^2 definition.
+        posterior_prior_samples = torch.cat([z_posterior, z_prior], dim=0)
+        shared_bandwidth = self.kernel.resolve_base_bandwidth(posterior_prior_samples)
 
-        mmd_sq = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+        k_posterior_posterior = self.kernel(
+            z_posterior, z_posterior, bandwidth=shared_bandwidth
+        )
+        k_prior_prior = self.kernel(z_prior, z_prior, bandwidth=shared_bandwidth)
+        k_posterior_prior = self.kernel(
+            z_posterior, z_prior, bandwidth=shared_bandwidth
+        )
+
+        mmd_sq = (
+            k_posterior_posterior.mean()
+            + k_prior_prior.mean()
+            - 2 * k_posterior_prior.mean()
+        )
         mmd_sq = torch.clamp(mmd_sq, min=0.0)
 
         component_losses = {MetricKey.MMD_LOSS.value: mmd_sq}
@@ -663,11 +774,26 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         if self.prior_regularization_weight > 0.0:
             z_standard = torch.randn_like(z_prior)  # (B, latent_dim)
 
-            k_pp_reg = self.kernel(z_prior, z_prior)
-            k_ss = self.kernel(z_standard, z_standard)
-            k_ps = self.kernel(z_prior, z_standard)
+            prior_standard_samples = torch.cat([z_prior, z_standard], dim=0)
+            regularization_bandwidth = self.kernel.resolve_base_bandwidth(
+                prior_standard_samples
+            )
 
-            prior_mmd_sq = k_pp_reg.mean() + k_ss.mean() - 2 * k_ps.mean()
+            k_prior_prior_regularization = self.kernel(
+                z_prior, z_prior, bandwidth=regularization_bandwidth
+            )
+            k_standard_standard = self.kernel(
+                z_standard, z_standard, bandwidth=regularization_bandwidth
+            )
+            k_prior_standard = self.kernel(
+                z_prior, z_standard, bandwidth=regularization_bandwidth
+            )
+
+            prior_mmd_sq = (
+                k_prior_prior_regularization.mean()
+                + k_standard_standard.mean()
+                - 2 * k_prior_standard.mean()
+            )
             prior_mmd_sq = torch.clamp(prior_mmd_sq, min=0.0)
 
             component_losses[MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value] = (
@@ -675,7 +801,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             )
             total_loss = total_loss + self.prior_regularization_weight * prior_mmd_sq
 
-        metadata = {MetadataKey.POSTERIOR_Z.value: z_posterior}
+        metadata = {}
+        posterior_latent = predictions.get(LatentKey.POSTERIOR_LATENT.value)
+        if posterior_latent is not None:
+            metadata[MetadataKey.POSTERIOR_Z.value] = posterior_latent
         posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
         if posterior_mu is not None:
             metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu
@@ -700,7 +829,191 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         )
 
 
-class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
+class ConditionalMaximumMeanDiscrepancyLoss(BaseLoss):
+    """Product-kernel joint MMD for conditional aggregate matching.
+
+    This regularizes ``q(z|s)`` toward ``p(z|s)`` by matching the empirical
+    joint samples ``(s, z_posterior)`` and ``(s, z_prior)``. The state vector
+    is emitted by the prior and should be action-free. Separate kernels are
+    used for state and latent samples so their bandwidths can be controlled
+    independently.
+    """
+
+    def __init__(
+        self,
+        weight: float = 1.0,
+        state_weight: float = 1.0,
+        kernel_type: str = KernelType.RBF.value,
+        bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = False,
+        condition_kernel_type: str = KernelType.RBF.value,
+        condition_bandwidth_multipliers: list[float] | None = None,
+        condition_use_median_heuristic: bool = True,
+        prior_target_key: str = LatentKey.POSTERIOR_LATENT.value,
+        condition_key: str = LatentKey.PRIOR_CONDITION.value,
+        normalize_condition: bool = True,
+    ):
+        """Initialize conditional MMD loss."""
+        super().__init__()
+        if state_weight < 0.0:
+            raise ValueError(f"state_weight must be non-negative, got {state_weight}.")
+        self.weight = weight
+        self.state_weight = state_weight
+        self.prior_target_key = prior_target_key
+        self.condition_key = condition_key
+        self.normalize_condition = normalize_condition
+        self.latent_kernel = KernelType(kernel_type).to_kernel(
+            bandwidth_multipliers=bandwidth_multipliers,
+            use_median_heuristic=use_median_heuristic,
+        )
+        self.condition_kernel = KernelType(condition_kernel_type).to_kernel(
+            bandwidth_multipliers=condition_bandwidth_multipliers,
+            use_median_heuristic=condition_use_median_heuristic,
+        )
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
+
+    def get_required_keys(self) -> set[str]:
+        """Get required keys for conditional MMD loss."""
+        return {
+            self.prior_target_key,
+            LatentKey.PRIOR_LATENT.value,
+            self.condition_key,
+        }
+
+    def _condition_samples(
+        self,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        if condition.ndim != 2:
+            raise ValueError(
+                f"Condition samples must have shape (batch, dimension), got {condition.shape}."
+            )
+        if self.normalize_condition:
+            condition = F.normalize(condition, p=2, dim=-1)
+        return condition.detach() * math.sqrt(self.state_weight)
+
+    def _validate_sample_shapes(
+        self,
+        posterior_latents: torch.Tensor,
+        prior_latents: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> None:
+        if posterior_latents.ndim != 2:
+            raise ValueError(
+                "Posterior latent samples must have shape "
+                f"(batch, dimension), got {posterior_latents.shape}."
+            )
+        if prior_latents.ndim != 2:
+            raise ValueError(
+                "Prior latent samples must have shape "
+                f"(batch, dimension), got {prior_latents.shape}."
+            )
+        if posterior_latents.shape != prior_latents.shape:
+            raise ValueError(
+                "Posterior and prior latent samples must have the same shape, "
+                f"got {posterior_latents.shape} and {prior_latents.shape}."
+            )
+        if condition.ndim != 2:
+            raise ValueError(
+                f"Condition samples must have shape (batch, dimension), got {condition.shape}."
+            )
+        if posterior_latents.shape[0] != condition.shape[0]:
+            raise ValueError(
+                "Latent and condition samples must have the same batch size, "
+                f"got {posterior_latents.shape[0]} and {condition.shape[0]}."
+            )
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute joint MMD between posterior and prior conditioned samples."""
+        required_keys = self.get_required_keys()
+        if not all(k in predictions for k in required_keys):
+            raise ValueError(
+                f"Predictions must contain '{required_keys}' for ConditionalMaximumMeanDiscrepancyLoss."
+            )
+
+        posterior_latents = predictions[self.prior_target_key].float()
+        prior_latents = predictions[LatentKey.PRIOR_LATENT.value].float()
+        condition = predictions[self.condition_key].float()
+        self._validate_sample_shapes(
+            posterior_latents=posterior_latents,
+            prior_latents=prior_latents,
+            condition=condition,
+        )
+        condition_samples = self._condition_samples(condition=condition)
+
+        condition_bandwidth = self.condition_kernel.resolve_base_bandwidth(
+            condition_samples
+        )
+        condition_kernel = self.condition_kernel(
+            condition_samples,
+            condition_samples,
+            bandwidth=condition_bandwidth,
+        )
+        latent_samples = torch.cat([posterior_latents, prior_latents], dim=0)
+        latent_bandwidth = self.latent_kernel.resolve_base_bandwidth(latent_samples)
+        latent_kernel_posterior = self.latent_kernel(
+            posterior_latents,
+            posterior_latents,
+            bandwidth=latent_bandwidth,
+        )
+        latent_kernel_prior = self.latent_kernel(
+            prior_latents,
+            prior_latents,
+            bandwidth=latent_bandwidth,
+        )
+        latent_kernel_cross = self.latent_kernel(
+            posterior_latents,
+            prior_latents,
+            bandwidth=latent_bandwidth,
+        )
+        conditional_mmd_sq = (
+            (condition_kernel * latent_kernel_posterior).mean()
+            + (condition_kernel * latent_kernel_prior).mean()
+            - 2 * (condition_kernel * latent_kernel_cross).mean()
+        )
+        conditional_mmd_sq = torch.clamp(conditional_mmd_sq, min=0.0)
+
+        metadata = {}
+        posterior_latent = predictions.get(LatentKey.POSTERIOR_LATENT.value)
+        if posterior_latent is not None:
+            metadata[MetadataKey.POSTERIOR_Z.value] = posterior_latent
+        posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
+        if posterior_mu is not None:
+            metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu
+        posterior_logvar = predictions.get(LatentKey.POSTERIOR_LOGVAR.value)
+        if posterior_logvar is not None:
+            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = posterior_logvar
+        metadata[MetadataKey.PRIOR_Z.value] = predictions[LatentKey.PRIOR_LATENT.value]
+        metadata[MetadataKey.PRIOR_CONDITION.value] = condition
+        prior_mu = predictions.get(LatentKey.PRIOR_MU.value)
+        if prior_mu is not None:
+            metadata[MetadataKey.PRIOR_MU.value] = prior_mu
+        prior_logvar = predictions.get(LatentKey.PRIOR_LOGVAR.value)
+        if prior_logvar is not None:
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = prior_logvar
+
+        return LossOutput(
+            total_loss=self.weight * conditional_mmd_sq,
+            component_losses={MetricKey.CONDITIONAL_MMD_LOSS.value: conditional_mmd_sq},
+            metadata=metadata,
+        )
+
+
+class BinaryMaximumMeanDiscrepancyLoss(ScalarWeightedLoss):
     """MMD loss for regularizing binary latent distributions toward a uniform prior.
 
     Encourages q(b|x) ≈ p(b) where p(b) = Bernoulli(0.5) independent for each bit.
@@ -759,11 +1072,20 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         z_prior = torch.bernoulli(
             0.5 * torch.ones_like(z)
         )  # samples from Bernoulli(0.5)
-        k_zz = self.kernel(z, z)
-        k_pp = self.kernel(z_prior, z_prior)
-        k_zp = self.kernel(z, z_prior)
-        # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
-        mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+
+        # Share bandwidth across the three MMD terms (see MaximumMeanDiscrepancyLoss).
+        posterior_prior_samples = torch.cat([z, z_prior], dim=0)
+        shared_bandwidth = self.kernel.resolve_base_bandwidth(posterior_prior_samples)
+
+        k_posterior_posterior = self.kernel(z, z, bandwidth=shared_bandwidth)
+        k_prior_prior = self.kernel(z_prior, z_prior, bandwidth=shared_bandwidth)
+        k_posterior_prior = self.kernel(z, z_prior, bandwidth=shared_bandwidth)
+        # MMD^2 = E[k(z, z')] + E[k(p, p')] - 2 E[k(z, p)]
+        mmd = (
+            k_posterior_posterior.mean()
+            + k_prior_prior.mean()
+            - 2 * k_posterior_prior.mean()
+        )
         metadata = {
             MetadataKey.POSTERIOR_Z.value: z,
         }
@@ -774,7 +1096,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         )
 
 
-class TrajectoryLengthLoss(BaseLoss):
+class TrajectoryLengthLoss(ScalarWeightedLoss):
     """Loss for trajectory length consistency.
 
     Penalizes differences between predicted and ground truth trajectory lengths.
@@ -846,7 +1168,7 @@ class TrajectoryLengthLoss(BaseLoss):
         )
 
 
-class TrajectorySmoothness(BaseLoss):
+class TrajectorySmoothness(ScalarWeightedLoss):
     """Loss for trajectory smoothness (acceleration regularization)."""
 
     def __init__(self, action_key: str, weight: float = 0.001):
@@ -944,6 +1266,20 @@ class PhaseClassificationLoss(BaseLoss):
         self.entropy_weight = entropy_weight
         self.label_smoothing = label_smoothing
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "cross_entropy_weight": self.cross_entropy_weight,
+            "entropy_weight": self.entropy_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.cross_entropy_weight = new_weights["cross_entropy_weight"]
+        self.entropy_weight = new_weights["entropy_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required target keys for phase classification loss.
 
@@ -1019,19 +1355,22 @@ class PhaseClassificationLoss(BaseLoss):
         )
 
 
-class ActionTokenLoss(BaseLoss):
+class ActionTokenLoss(ScalarWeightedLoss):
     """Cross-entropy loss for tokenized actions."""
 
     def __init__(
         self,
+        weight: float = 1.0,
         label_smoothing: float = 0.2,
     ):
         """Initialize action token loss.
 
         Args:
+            weight: Scalar multiplier applied to the cross-entropy term.
             label_smoothing: Label smoothing factor [0, 1]
         """
         super().__init__()
+        self.weight = weight
         self.label_smoothing = label_smoothing
 
     def get_required_keys(self) -> set[str]:
@@ -1088,9 +1427,10 @@ class ActionTokenLoss(BaseLoss):
         accuracy = reduce_loss_with_padding(
             correct, is_pad, reduction="mean"
         )  # Scalar %
-        perplexity = torch.exp(ce_loss)  # Scalar
+        perplexity = torch.exp(ce_loss)
+        weighted_loss = ce_loss * self.weight
         return LossOutput(
-            total_loss=ce_loss,
+            total_loss=weighted_loss,
             component_losses={
                 MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss,
                 MetricKey.PERPLEXITY.value: perplexity,
@@ -1099,7 +1439,7 @@ class ActionTokenLoss(BaseLoss):
         )
 
 
-class PriorDenoisingLoss(BaseLoss):
+class PriorDenoisingLoss(ScalarWeightedLoss):
     """Denoising loss for learned diffusion prior.
 
     Computes MSE loss between predicted noise and target noise from the
@@ -1151,6 +1491,11 @@ class PriorDenoisingLoss(BaseLoss):
             predictions[LatentKey.PRIOR_PREDICTION.value],
             predictions[LatentKey.PRIOR_TARGET.value],
         )
+        target = predictions[LatentKey.PRIOR_TARGET.value].float()
+        target_var = target.var(unbiased=False)
+        target_std = torch.sqrt(target_var + 1e-8)
+        normalized_mse = prior_loss / (target_var + 1e-8)
+        normalized_rmse = torch.sqrt(prior_loss) / target_std
         metadata: dict[str, torch.Tensor] = {}
         if LatentKey.POSTERIOR_LATENT.value in predictions:
             metadata[MetadataKey.POSTERIOR_Z.value] = predictions[
@@ -1177,17 +1522,85 @@ class PriorDenoisingLoss(BaseLoss):
 
         return LossOutput(
             total_loss=self.weight * prior_loss,
-            component_losses={MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss},
+            component_losses={
+                MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss,
+                MetricKey.PRIOR_DENOISING_TARGET_STD.value: target_std,
+                MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value: normalized_mse,
+                MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value: normalized_rmse,
+            },
             metadata=metadata,
         )
 
 
-class GaussianMixtureNLLoss(BaseLoss):
+def _aggregate_mixture_nll(
+    log_component: torch.Tensor,
+    mixing_probs: torch.Tensor,
+    is_pad: torch.Tensor | None,
+) -> torch.Tensor:
+    """Combine per-step per-component log densities into per-batch NLL.
+
+    Both regimes return a per-step-averaged NLL so the loss magnitude is
+    independent of the prediction horizon. This keeps gradients balanced
+    against other terms (e.g. routing entropy) and prevents the trajectory
+    log-likelihood from drowning the gating signal at long horizons.
+
+    Dispatch on routing shape:
+        (B, K)    → trajectory-level mixture: sum_t log p_k inside logsumexp_k,
+                    then divide by the number of valid timesteps.
+                    Components are full trajectories selected once per batch.
+        (B, T, K) → per-step mixture: logsumexp_k inside, then average over
+                    valid timesteps.
+                    Components are selected independently at each timestep.
+
+    Args:
+        log_component: (B, T, K) per-component per-timestep log-pdf.
+        mixing_probs: (B, K) or (B, T, K) mixture weights summing to 1 along K.
+        is_pad: (B, T) boolean mask, True for padded positions (excluded).
+
+    Returns:
+        (B,) per-batch NLL averaged over valid timesteps.
+    """
+    horizon = log_component.shape[1]
+    if mixing_probs.dim() == 2:
+        if is_pad is not None:
+            log_component = log_component.masked_fill(is_pad.unsqueeze(-1), 0.0)
+            valid_count = (~is_pad).float().sum(dim=-1).clamp(min=1.0)  # (B,)
+        else:
+            valid_count = torch.full(
+                (log_component.shape[0],),
+                float(horizon),
+                device=log_component.device,
+                dtype=log_component.dtype,
+            )
+        log_traj_per_component = log_component.sum(dim=1)  # (B, K)
+        log_pi = torch.log(mixing_probs + 1e-8)  # (B, K)
+        joint_nll = -torch.logsumexp(log_pi + log_traj_per_component, dim=-1)  # (B,)
+        return joint_nll / valid_count
+    log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)
+    log_step_mix = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
+    if is_pad is not None:
+        log_step_mix = log_step_mix.masked_fill(is_pad, 0.0)
+        valid_count = (~is_pad).float().sum(dim=-1).clamp(min=1.0)
+        return -log_step_mix.sum(dim=-1) / valid_count  # (B,)
+    return -log_step_mix.mean(dim=-1)  # (B,)
+
+
+class GaussianMixtureNLLoss(ScalarWeightedLoss):
     """Negative Log-Likelihood loss for Gaussian Mixture Model.
 
     Supports both learned variance (from logvar predictions) and fixed variance (sigma parameter).
 
-    The loss computes: NLL = -log Σ_k π_k · N(a | μ_k, σ_k²)
+    Two regimes are supported, dispatched on the shape of routing_weights:
+
+    Per-trajectory routing (B, K) — one mixture component is selected for the entire
+    chunk (e.g., MoDEACT). The joint trajectory likelihood is:
+        log p(a_{1:T}|s) = logsumexp_k [log π_k + Σ_t log N(a_t | μ_k(t), σ_k(t)²)]
+    Components are forced to model coherent trajectories; without this formulation the
+    gating collapses to one component that averages distinct trajectory modes.
+
+    Per-timestep routing (B, T, K) — a component is selected per timestep (e.g.,
+    PhaseACT). The per-step mixture likelihood applies:
+        log p(a_t|s, t) = logsumexp_k [log π_kt + log N(a_t | μ_kt, σ_kt²)]
     """
 
     def __init__(
@@ -1233,7 +1646,7 @@ class GaussianMixtureNLLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - routing_weights: (B, K) or (B, T, K)
+                - routing_weights: (B, K) for per-trajectory or (B, T, K) for per-timestep.
                 - If learned_variance: {action_key}_mean (B, T, K, D), {action_key}_logvar (B, T, K, D)
                 - If fixed variance: {action_key} (B, T, K, D) stacked expert means
             targets: Dictionary with action_key targets (B, T, D).
@@ -1242,77 +1655,102 @@ class GaussianMixtureNLLoss(BaseLoss):
         Returns:
             LossOutput with Gaussian mixture NLL.
         """
-        component_losses = {}
-        total_loss = 0.0
+        component_losses: dict[str, torch.Tensor] = {}
+        log_components_by_key: dict[str, torch.Tensor] = {}
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
         for action_key in self.action_keys:
             target = targets[action_key]  # (B, T, D)
+            mean_key = f"{action_key}_{DecoderOutputKey.MEAN.value}"
+            means = predictions.get(
+                mean_key, predictions.get(action_key)
+            )  # (B, T, K, D)
             if self.learned_variance:
-                mean_key = f"{action_key}_{DecoderOutputKey.MEAN.value}"
                 logvar_key = f"{action_key}_{DecoderOutputKey.LOGVAR.value}"
-                means = predictions[mean_key]  # (B, T, K, D)
                 logvars = predictions[logvar_key]  # (B, T, K, D)
-                nll = self._compute_learned_variance_nll(
-                    target, mixing_probs, means, logvars
+                log_component = self._compute_learned_variance_log_pdf(
+                    target, means, logvars
                 )
             else:
-                means = predictions[action_key]  # (B, T, K, D)
                 sigma = self.sigmas.get(action_key, 0.5)
-                nll = self._compute_fixed_variance_nll(
-                    target, mixing_probs, means, sigma
+                log_component = self._compute_fixed_variance_log_pdf(
+                    target, means, sigma
                 )
-            nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
-            key_weight = self.per_key_weights.get(action_key, 1.0)
+            log_components_by_key[action_key] = log_component
+            per_key_nll = _aggregate_mixture_nll(
+                log_component=log_component,
+                mixing_probs=mixing_probs,
+                is_pad=is_pad,
+            )  # (B,)
+            per_key_nll_reduced = per_key_nll.mean()
             component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = (
-                nll_reduced
+                per_key_nll_reduced
             )
-            total_loss = total_loss + key_weight * nll_reduced
+
+        if len(self.action_keys) == 1:
+            action_key = self.action_keys[0]
+            joint_nll_reduced = component_losses[
+                f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"
+            ]
+            total_loss = self.per_key_weights.get(action_key, 1.0) * joint_nll_reduced
+        else:
+            weighted_log_components = [
+                self.per_key_weights.get(action_key, 1.0)
+                * log_components_by_key[action_key]
+                for action_key in self.action_keys
+            ]
+            # A shared mixture component represents the full action tuple.
+            joint_log_component = torch.stack(weighted_log_components, dim=0).sum(dim=0)
+            joint_nll = _aggregate_mixture_nll(
+                log_component=joint_log_component,
+                mixing_probs=mixing_probs,
+                is_pad=is_pad,
+            )
+            joint_nll_reduced = joint_nll.mean()
+            total_loss = joint_nll_reduced
+
+        component_losses[MetricKey.GAUSSIAN_MIXTURE_NLL.value] = joint_nll_reduced
         return LossOutput(
             total_loss=self.weight * total_loss, component_losses=component_losses
         )
 
-    def _compute_learned_variance_nll(
+    def _compute_learned_variance_log_pdf(
         self,
         target: torch.Tensor,
-        mixing_probs: torch.Tensor,
         means: torch.Tensor,
         logvars: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute NLL with learned variance from logvar predictions."""
+        """Per-component Gaussian log-pdf with learned variance.
+
+        Returns:
+            (B, T, K) tensor of log N(a_t | μ_kt, σ_kt²) per component per timestep.
+        """
         action_dimension = target.shape[-1]
         logvars = logvars.clamp(min=math.log(self.min_variance))
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
         scaled_squared_error = (difference**2) * torch.exp(-logvars)  # (B, T, K, D)
         log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
-        log_gaussian = log_normalization - 0.5 * (logvars + scaled_squared_error).sum(
-            dim=-1
-        )
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
-        return -log_mixture_prob
+        return log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
 
-    def _compute_fixed_variance_nll(
-        self,
+    @staticmethod
+    def _compute_fixed_variance_log_pdf(
         target: torch.Tensor,
-        mixing_probs: torch.Tensor,
         means: torch.Tensor,
         sigma: float,
     ) -> torch.Tensor:
-        """Compute NLL with fixed variance (sigma parameter)."""
+        """Per-component Gaussian log-pdf with fixed variance.
+
+        The constant log normalization is omitted (it cancels in logsumexp_k).
+
+        Returns:
+            (B, T, K) tensor of log-pdf up to a per-component-shared constant.
+        """
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
-        log_gaussian = -0.5 * (difference**2).sum(-1) / (sigma**2)  # (B, T, K)
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
-        return -log_mixture_prob
+        return -0.5 * (difference**2).sum(-1) / (sigma**2)
 
 
-class GripperMixtureNLLoss(BaseLoss):
+class GripperMixtureNLLoss(ScalarWeightedLoss):
     """Negative Log-Likelihood loss for gripper with mixture distribution.
 
     Binary gripper: p(a|z) = Σ_k π_k(z) · Bernoulli(a | p_k(z))
@@ -1400,17 +1838,16 @@ class GripperMixtureNLLoss(BaseLoss):
             )
         target = targets[self.key]
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
         if self.gripper_type == GripperType.BINARY.value:
             log_component = self._compute_binary_log_component(predictions, target)
         else:
             log_component = self._compute_continuous_log_component(predictions, target)
-
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_component, dim=-1)
-        nll = -log_mixture_prob
-        nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
+        nll_per_batch = _aggregate_mixture_nll(
+            log_component=log_component,
+            mixing_probs=mixing_probs,
+            is_pad=is_pad,
+        )
+        nll_reduced = nll_per_batch.mean()
         return LossOutput(
             total_loss=self.weight * nll_reduced,
             component_losses={MetricKey.GRIPPER_NLL.value: nll_reduced},
@@ -1466,19 +1903,48 @@ class MoELoss(BaseLoss):
         self,
         base_loss: BaseLoss,
         entropy_weight: float = 0.0,
+        load_balance_weight: float = 0.0,
     ):
         """Initialize MoE wrapper.
 
         Args:
             base_loss: Any BaseLoss instance to wrap (e.g., RegressionLoss(...))
-            entropy_weight: Weight for entropy regularization on global routing weights.
-
-        Note: The entropy term enforces the use of multiple experts and tries to prevent the model
-         to only select a few of the available experts.
+            entropy_weight: Weight for per-example routing entropy.
+                Penalizes peaky-per-example routing. Pushes each example's routing
+                distribution toward uniform, which prevents one example from being
+                routed to a single expert with probability 1.
+            load_balance_weight: Weight for Switch-Transformer-style load-balancing
+                term. Penalizes batch-level imbalance in expert usage. The term is
+                ``K * sum_k f_k * P_k`` where ``f_k`` is the fraction of examples
+                whose argmax routes to expert k and ``P_k`` is the mean routing
+                weight for expert k across the batch. Minimum value 1.0 is reached
+                when usage is uniform across the batch. Crucially, this allows
+                per-example routing to be peaky (so experts can specialize) while
+                still forcing every expert to be used by some examples (so no
+                expert dies). Use this when entropy alone produces dead experts.
         """
         super().__init__()
         self.base_loss = base_loss
         self.entropy_weight = entropy_weight
+        self.load_balance_weight = load_balance_weight
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients,
+        plus the wrapped ``base_loss`` weight structure nested under ``base_loss``."""
+        return {
+            "entropy_weight": self.entropy_weight,
+            "load_balance_weight": self.load_balance_weight,
+            "base_loss": self.base_loss.weights,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients and delegates
+        ``base_loss`` to the wrapped loss."""
+        self._validate_weights(new_weights)
+        self.entropy_weight = new_weights["entropy_weight"]
+        self.load_balance_weight = new_weights["load_balance_weight"]
+        self.base_loss.set_weights(new_weights["base_loss"])
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
         """Provide expert usage monitoring callback."""
@@ -1524,36 +1990,77 @@ class MoELoss(BaseLoss):
         targets: dict[str, torch.Tensor],
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
-        """Passthrough base loss, then add expert_usage from routing weights and optionally add entropy term."""
+        """Passthrough base loss, then add expert_usage and optional entropy/load-balance terms."""
         predictions = self._add_weighted_mean_predictions(predictions)
         base_output: LossOutput = self.base_loss(predictions, targets, is_pad)
         metadata = base_output.metadata if base_output.metadata is not None else {}
         component_losses = dict(base_output.component_losses)
-        entropy_loss = 0.0
         pi = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]  # (B, K) or (B, T, K)
+        total_loss = base_output.total_loss
         if self.entropy_weight != 0.0:
-            entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
+            entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B,) or (B, T)
             if entropy.dim() == 2:
-                # (B, T) -> reduce with padding
                 entropy_mean = reduce_loss_with_padding(
                     entropy, is_pad, reduction="mean"
                 )
             else:
-                # if we have B only (when the experts are not chunk-dependent)
                 entropy_mean = entropy.mean()
             component_losses[f"{MetricKey.EXPERTS_ENTROPY.value}"] = entropy_mean
-            # We want to maximize the entropy of the expert usage distribution
-            # Entropy is always positive, so we subtract it to the loss to maximize it.
-            entropy_loss = -self.entropy_weight * entropy_mean
+            total_loss = total_loss - self.entropy_weight * entropy_mean
+        if self.load_balance_weight != 0.0:
+            load_balance = self._compute_load_balance(pi=pi, is_pad=is_pad)
+            component_losses[f"{MetricKey.EXPERTS_LOAD_BALANCE.value}"] = load_balance
+            total_loss = total_loss + self.load_balance_weight * load_balance
         expert_usage = pi.mean(
             dim=list(range(pi.ndim - 1))
         )  # Mean over all but last dim, which is num_experts
         metadata[MetadataKey.EXPERT_USAGE.value] = expert_usage
         return LossOutput(
-            total_loss=base_output.total_loss + entropy_loss,
+            total_loss=total_loss,
             component_losses=component_losses,
             metadata=metadata,
         )
+
+    @staticmethod
+    def _compute_load_balance(
+        pi: torch.Tensor,
+        is_pad: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Switch-Transformer load-balancing loss on routing weights.
+
+        L = K * sum_k f_k * P_k
+            f_k: fraction of examples whose top-1 route is k (no gradient).
+            P_k: mean routing weight for k across batch (carries gradient).
+
+        Reaches its minimum of 1.0 when usage is uniform across the batch.
+        With ``pi`` of shape (B, K), the average is over B; with shape (B, T, K),
+        the average is over (B, T) excluding padded timesteps.
+        """
+        num_experts = pi.shape[-1]
+        if pi.dim() == 2:
+            # (B, K) — per-trajectory routing.
+            argmax_indices = pi.argmax(dim=-1)
+            f = (
+                torch.nn.functional.one_hot(argmax_indices, num_classes=num_experts)
+                .to(pi.dtype)
+                .mean(dim=0)
+            )  # (K,)
+            mean_routing = pi.mean(dim=0)  # (K,)
+        else:
+            # (B, T, K) — per-step routing; respect padding.
+            argmax_indices = pi.argmax(dim=-1)
+            one_hot = torch.nn.functional.one_hot(
+                argmax_indices, num_classes=num_experts
+            ).to(pi.dtype)  # (B, T, K)
+            if is_pad is not None:
+                valid = (~is_pad).to(pi.dtype).unsqueeze(-1)  # (B, T, 1)
+                valid_count = valid.sum().clamp(min=1.0)
+                f = (one_hot * valid).sum(dim=(0, 1)) / valid_count
+                mean_routing = (pi * valid).sum(dim=(0, 1)) / valid_count
+            else:
+                f = one_hot.mean(dim=(0, 1))
+                mean_routing = pi.mean(dim=(0, 1))
+        return num_experts * (f * mean_routing).sum()
 
 
 class MetadataPassthrough(BaseLoss):
@@ -1628,6 +2135,20 @@ class VICLatentLoss(BaseLoss):
         self.variance_weight = variance_weight
         self.gamma = gamma
 
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "covariance_weight": self.covariance_weight,
+            "variance_weight": self.variance_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.covariance_weight = new_weights["covariance_weight"]
+        self.variance_weight = new_weights["variance_weight"]
+
     def get_required_keys(self) -> set[str]:
         """Get required prediction keys."""
         return {self.key}
@@ -1671,5 +2192,350 @@ class VICLatentLoss(BaseLoss):
                 MetricKey.COVARIANCE_LOSS.value: self.covariance_weight
                 * covariance_loss,
                 MetricKey.VARIANCE_LOSS.value: self.variance_weight * variance_loss,
+            },
+        )
+
+
+class PosteriorGeometryLoss(BaseLoss):
+    """Moment regularizer for posterior latent geometry.
+
+    The loss keeps posterior means centered, controls per-dimension latent
+    scale, optionally caps large standard deviations, and decorrelates latent
+    dimensions. Unlike ``VICLatentLoss``, this regularizer penalizes excessive
+    posterior spread.
+    """
+
+    def __init__(
+        self,
+        key: str = LatentKey.POSTERIOR_MU.value,
+        mean_weight: float = 0.0,
+        std_weight: float = 0.0,
+        target_std: float = 1.0,
+        max_std_weight: float = 0.0,
+        max_std: float = 2.0,
+        covariance_weight: float = 0.0,
+        eps: float = 1e-6,
+    ):
+        """Initialize posterior geometry loss.
+
+        Args:
+            key: Prediction key for latent vectors.
+            mean_weight: Weight for squared batch-mean penalty.
+            std_weight: Weight for squared deviation from ``target_std``.
+            target_std: Desired per-dimension posterior standard deviation.
+            max_std_weight: Weight for hinge penalty above ``max_std``.
+            max_std: Maximum tolerated per-dimension standard deviation.
+            covariance_weight: Weight for off-diagonal covariance penalty.
+            eps: Numerical epsilon for standard deviation.
+        """
+        super().__init__()
+        if target_std <= 0.0:
+            raise ValueError(f"target_std must be positive, got {target_std}.")
+        if max_std <= 0.0:
+            raise ValueError(f"max_std must be positive, got {max_std}.")
+        if eps <= 0.0:
+            raise ValueError(f"eps must be positive, got {eps}.")
+        self.key = key
+        self.mean_weight = mean_weight
+        self.std_weight = std_weight
+        self.target_std = target_std
+        self.max_std_weight = max_std_weight
+        self.max_std = max_std
+        self.covariance_weight = covariance_weight
+        self.eps = eps
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {
+            "mean_weight": self.mean_weight,
+            "std_weight": self.std_weight,
+            "max_std_weight": self.max_std_weight,
+            "covariance_weight": self.covariance_weight,
+        }
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.mean_weight = new_weights["mean_weight"]
+        self.std_weight = new_weights["std_weight"]
+        self.max_std_weight = new_weights["max_std_weight"]
+        self.covariance_weight = new_weights["covariance_weight"]
+
+    def get_required_keys(self) -> set[str]:
+        """Get required prediction keys."""
+        return {self.key}
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute posterior moment and covariance penalties."""
+        del targets, is_pad
+        if self.key not in predictions:
+            raise ValueError(
+                f"Predictions must contain '{self.key}' for PosteriorGeometryLoss."
+            )
+        latent_vectors = predictions[self.key].float()
+        if latent_vectors.ndim != 2:
+            raise ValueError(
+                f"PosteriorGeometryLoss expects '{self.key}' with shape "
+                f"(batch_size, latent_dimension), got {tuple(latent_vectors.shape)}."
+            )
+
+        batch_size, latent_dimension = latent_vectors.shape
+        mean = latent_vectors.mean(dim=0)
+        centered = latent_vectors - mean
+        standard_deviation = torch.sqrt(centered.square().mean(dim=0) + self.eps)
+
+        mean_loss = mean.square().mean()
+        std_loss = (standard_deviation - self.target_std).square().mean()
+        max_std_loss = F.relu(standard_deviation - self.max_std).square().mean()
+        covariance_denominator = max(batch_size - 1, 1)
+        covariance = (centered.T @ centered) / covariance_denominator
+        diagonal_mask = torch.eye(latent_dimension, device=latent_vectors.device)
+        off_diagonal_covariance = covariance * (1 - diagonal_mask)
+        covariance_loss = off_diagonal_covariance.square().sum() / latent_dimension
+
+        weighted_mean_loss = self.mean_weight * mean_loss
+        weighted_std_loss = self.std_weight * std_loss
+        weighted_max_std_loss = self.max_std_weight * max_std_loss
+        weighted_covariance_loss = self.covariance_weight * covariance_loss
+        total_loss = (
+            weighted_mean_loss
+            + weighted_std_loss
+            + weighted_max_std_loss
+            + weighted_covariance_loss
+        )
+        return LossOutput(
+            total_loss=total_loss,
+            component_losses={
+                MetricKey.POSTERIOR_GEOMETRY_MEAN_LOSS.value: weighted_mean_loss,
+                MetricKey.POSTERIOR_GEOMETRY_STD_LOSS.value: weighted_std_loss,
+                MetricKey.POSTERIOR_GEOMETRY_MAX_STD_LOSS.value: weighted_max_std_loss,
+                MetricKey.POSTERIOR_GEOMETRY_COVARIANCE_LOSS.value: weighted_covariance_loss,
+            },
+        )
+
+
+class VQCommitmentLoss(ScalarWeightedLoss):
+    """Commitment loss for vector-quantized latent variable models.
+
+    Penalizes the distance between the continuous encoder output and
+    the quantized codebook vectors, preventing encoder outputs from
+    drifting away from codebook entries. Reads pre-computed tensors
+    from the predictions dict (put there by VQPosteriorEncoder).
+
+    Ref: van den Oord et al., "Neural Discrete Representation Learning" (2017)
+    """
+
+    def __init__(
+        self,
+        num_codes: int,
+        num_residual_layers: int,
+        weight: float = 1.0,
+    ):
+        """Initialize VQ commitment loss.
+
+        Args:
+            num_codes: Number of codebook entries per residual layer (K).
+                Must match the VQ posterior's ResidualVQ configuration.
+            num_residual_layers: Number of residual VQ layers.
+                Must match the VQ posterior's ResidualVQ configuration.
+            weight: Loss weight for the commitment term
+                ||z_continuous - sg(z_quantized)||^2.
+        """
+        super().__init__()
+        if num_codes <= 0:
+            raise ValueError(f"num_codes must be positive, got {num_codes}.")
+        if num_residual_layers <= 0:
+            raise ValueError(
+                f"num_residual_layers must be positive, got {num_residual_layers}."
+            )
+        self.num_codes = num_codes
+        self.num_residual_layers = num_residual_layers
+        self.weight = weight
+
+    def get_required_keys(self) -> set[str]:
+        """Get required prediction keys."""
+        return {
+            LatentKey.VQ_Z_CONTINUOUS.value,
+            LatentKey.VQ_QUANTIZED.value,
+        }
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute per-layer commitment loss between encoder outputs and
+        quantized codebook vectors.
+
+        Args:
+            predictions: Must contain:
+                - LatentKey.VQ_Z_CONTINUOUS (L, B, code_dim): per-layer
+                    pre-quantization encoder outputs in code space.
+                - LatentKey.VQ_QUANTIZED (L, B, code_dim, detached):
+                    per-layer hard-quantized codebook vectors.
+                May also contain LatentKey.VQ_INDICES (list of L tensors
+                shape (B,) with posterior choices) for codebook usage
+                logging.
+            targets: Unused.
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with weighted commitment loss averaged across layers
+            (VQ-BeT style). Codebook usage metadata reports the
+            fraction of total codebook capacity (num_codes * num_residual_layers)
+            exercised across all layers in the batch.
+        """
+        required_keys = self.get_required_keys()
+        if not all(k in predictions for k in required_keys):
+            raise ValueError(
+                f"Predictions must contain {required_keys} for VQCommitmentLoss."
+            )
+
+        z_continuous = predictions[
+            LatentKey.VQ_Z_CONTINUOUS.value
+        ].float()  # (L, B, code_dim)
+        z_quantized = predictions[
+            LatentKey.VQ_QUANTIZED.value
+        ].float()  # (L, B, code_dim) — already detached
+
+        commitment_loss = F.mse_loss(z_continuous, z_quantized)  # scalar
+
+        posterior_indices = predictions.get(LatentKey.VQ_INDICES.value)
+        metadata = {}
+        if posterior_indices is not None:
+            # Per-layer distinct counts summed, divided by total capacity K*L.
+            # Counting distinct indices per layer separately (not over cat)
+            # because layer L's code 0 is a different codebook entry than
+            # layer L+1's code 0 — they index separate codebooks.
+            unique_codes_total = sum(
+                layer_indices.unique().numel() for layer_indices in posterior_indices
+            )
+            codebook_capacity = self.num_codes * self.num_residual_layers
+            metadata[MetricKey.VQ_CODEBOOK_USAGE.value] = (
+                unique_codes_total / codebook_capacity
+            )
+            metadata[MetadataKey.VQ_CODE_INDICES.value] = torch.stack(
+                [
+                    layer_indices.long() for layer_indices in posterior_indices
+                ],  # list[L] of (B,)
+                dim=0,
+            )  # (L, B)
+            metadata[MetadataKey.VQ_NUM_CODES.value] = torch.tensor(
+                self.num_codes,
+                device=z_continuous.device,
+            )  # ()
+
+        return LossOutput(
+            total_loss=self.weight * commitment_loss,
+            component_losses={
+                MetricKey.VQ_COMMITMENT_LOSS.value: commitment_loss,
+            },
+            metadata=metadata,
+        )
+
+
+class VQPriorCrossEntropyLoss(ScalarWeightedLoss):
+    """Cross-entropy loss training a learned categorical prior to predict
+    the posterior's codebook index choices.
+
+    Computes -log p(k*|s) summed over residual VQ layers, where k* is
+    the index the posterior chose and p(k|s) is the prior's predicted
+    categorical. This is the KL term in the ELBO for a delta posterior
+    against a categorical prior.
+
+    Ref: van den Oord et al. (2017) train the prior in a second stage;
+    this loss enables end-to-end joint training as a tighter ELBO.
+    """
+
+    def __init__(
+        self,
+        weight: float = 1.0,
+    ):
+        """Initialize VQ prior cross-entropy loss.
+
+        Args:
+            weight: Loss weight for the cross-entropy term.
+        """
+        super().__init__()
+        self.weight = weight
+
+    def get_required_keys(self) -> set[str]:
+        """Get required prediction keys."""
+        return {
+            LatentKey.VQ_INDICES.value,
+            LatentKey.PRIOR_CODE_LOGITS.value,
+        }
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute cross-entropy between prior logits and posterior indices.
+
+        Args:
+            predictions: Must contain:
+                - LatentKey.VQ_INDICES: list of (B,) long tensors (posterior choices)
+                - LatentKey.PRIOR_CODE_LOGITS: list of (B, K) float tensors (prior logits)
+            targets: Unused.
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with weighted cross-entropy loss.
+        """
+        required_keys = self.get_required_keys()
+        if not all(k in predictions for k in required_keys):
+            raise ValueError(
+                f"Predictions must contain {required_keys} for VQPriorCrossEntropyLoss."
+            )
+
+        posterior_indices = predictions[LatentKey.VQ_INDICES.value]
+        prior_logits = predictions[LatentKey.PRIOR_CODE_LOGITS.value]
+        if len(prior_logits) == 0:
+            raise ValueError("VQPriorCrossEntropyLoss received no prior logits.")
+        if len(prior_logits) != len(posterior_indices):
+            raise ValueError(
+                f"VQPriorCrossEntropyLoss expected the same number of prior logit "
+                f"layers and posterior index layers, got {len(prior_logits)} "
+                f"and {len(posterior_indices)}."
+            )
+
+        total_ce = torch.tensor(0.0, device=prior_logits[0].device)
+        for layer_index, (layer_logits, layer_indices) in enumerate(
+            zip(prior_logits, posterior_indices, strict=True)
+        ):
+            # layer_logits: (B, K), layer_indices: (B,)
+            if layer_logits.ndim != 2:
+                raise ValueError(
+                    f"Prior logits for VQ layer {layer_index} must have shape "
+                    f"(B, K), got {tuple(layer_logits.shape)}."
+                )
+            if layer_indices.ndim != 1:
+                raise ValueError(
+                    f"Posterior indices for VQ layer {layer_index} must have shape "
+                    f"(B,), got {tuple(layer_indices.shape)}."
+                )
+            if layer_logits.shape[0] != layer_indices.shape[0]:
+                raise ValueError(
+                    f"Prior logits and posterior indices for VQ layer {layer_index} "
+                    f"must have the same batch size, got {layer_logits.shape[0]} "
+                    f"and {layer_indices.shape[0]}."
+                )
+            total_ce = total_ce + F.cross_entropy(
+                layer_logits, layer_indices.long()
+            )  # scalar, averaged over batch
+
+        return LossOutput(
+            total_loss=self.weight * total_ce,
+            component_losses={
+                MetricKey.VQ_PRIOR_CROSS_ENTROPY.value: total_ce,
             },
         )

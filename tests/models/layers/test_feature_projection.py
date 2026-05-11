@@ -438,6 +438,45 @@ class TestFeatureProjectionForward:
             "Second call should use the same (mutated) projection layer"
         )
 
+    def test_lazy_linear_projection_uses_parent_dtype(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        projection = feature_projection_factory(embedding_dim=64).to(
+            dtype=torch.float64
+        )
+        features = {
+            "flat_feature": torch.from_numpy(
+                rng.standard_normal((2, 32)).astype(np.float64)
+            )
+        }
+        output = projection(features)
+        assert output["flat_feature"].dtype == torch.float64
+        assert (
+            projection.linear_projections["flat_feature"].weight.dtype == torch.float64
+        )
+
+    def test_lazy_spatial_projection_uses_parent_dtype(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        projection = feature_projection_factory(embedding_dim=64).to(
+            dtype=torch.float64
+        )
+        features = {
+            "spatial_feature": torch.from_numpy(
+                rng.standard_normal((2, 32, 7, 7)).astype(np.float64)
+            )
+        }
+        output = projection(features)
+        assert output["spatial_feature"].dtype == torch.float64
+        assert (
+            projection.spatial_projections["spatial_feature"].weight.dtype
+            == torch.float64
+        )
+
 
 class TestFeatureProjectionProjectAndConcatenate:
     def test_concatenates_along_specified_dimension(
@@ -599,4 +638,38 @@ class TestFeatureProjectionLoadFromStateDict:
         target_output = target_projection(features)
         torch.testing.assert_close(
             target_output["flat_feature"], source_output["flat_feature"]
+        )
+
+    def test_load_state_dict_creates_linear_projection_with_parent_dtype(
+        self,
+        feature_projection_factory: Callable[..., FeatureProjection],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        source_projection = feature_projection_factory(embedding_dim=64)
+        features = flat_feature_factory(channel_dim=32)
+        source_projection(features)
+        target_projection = feature_projection_factory(embedding_dim=64).to(
+            dtype=torch.float64
+        )
+        target_projection.load_state_dict(source_projection.state_dict())
+        assert (
+            target_projection.linear_projections["flat_feature"].weight.dtype
+            == torch.float64
+        )
+
+    def test_load_state_dict_creates_spatial_projection_with_parent_dtype(
+        self,
+        feature_projection_factory: Callable[..., FeatureProjection],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        source_projection = feature_projection_factory(embedding_dim=64)
+        features = spatial_feature_factory(channel_dim=32)
+        source_projection(features)
+        target_projection = feature_projection_factory(embedding_dim=64).to(
+            dtype=torch.float64
+        )
+        target_projection.load_state_dict(source_projection.state_dict())
+        assert (
+            target_projection.spatial_projections["spatial_feature"].weight.dtype
+            == torch.float64
         )

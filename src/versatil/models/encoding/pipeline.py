@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from versatil.common.tensor_ops import dict_apply
+from versatil.data.constants import SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
@@ -43,9 +44,36 @@ class EncodingPipeline(nn.Module):
         #: all feature_name (both encoders and fusion layers) -> FeatureMetadata
         self._feature_registry: dict[str, FeatureMetadata] = {}
         self._encoder_feature_keys: dict[str, list[str]] = {}
+        #: Set by the workspace from experiment.precision via set_output_dtype.
+        self.output_dtype: torch.dtype | None = None
         self._setup_encoders(encoders=encoders)
         self._setup_fusion_modules(fusion_stages=fusion_stages)
         self._validate_pipeline()
+
+    @staticmethod
+    def _get_encoder_runtime_inputs(
+        input_keys: list[str],
+        flat_observation: dict[str, torch.Tensor],
+    ) -> tuple[list[str], dict[str, torch.Tensor]]:
+        """Return missing required keys and the available input slice for an encoder."""
+        optional_input_keys = {SampleKey.IS_PAD_OBSERVATION.value}
+        missing_keys = [
+            key
+            for key in input_keys
+            if key not in flat_observation and key not in optional_input_keys
+        ]
+        encoder_input = {
+            key: flat_observation[key] for key in input_keys if key in flat_observation
+        }
+        return missing_keys, encoder_input
+
+    def set_output_dtype(self, output_dtype: torch.dtype | None) -> None:
+        """Pin the dtype of features emitted by ``forward``.
+
+        Called once by the workspace after Hydra instantiation, with the
+        pipeline-wide precision (``experiment.precision``).
+        """
+        self.output_dtype = output_dtype
 
     def _setup_encoders(self, encoders: dict[str, EncodingMixin]):
         """Register encoders and set per-camera image sizes from observation space.
@@ -249,13 +277,15 @@ class EncodingPipeline(nn.Module):
         features = {}
         for encoder_name, encoder in self.encoders.items():
             input_keys = encoder.input_specification.keys
-            missing_keys = [key for key in input_keys if key not in flat_obs]
+            missing_keys, encoder_input = self._get_encoder_runtime_inputs(
+                input_keys=input_keys,
+                flat_observation=flat_obs,
+            )
             if missing_keys:
                 logging.warning(
                     f"Encoder '{encoder_name}' skipped: missing {missing_keys}"
                 )
                 continue
-            encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input)
             for feature_key in self._encoder_feature_keys[encoder_name]:
                 if feature_key in encoded:
@@ -263,14 +293,16 @@ class EncodingPipeline(nn.Module):
 
         for encoder_name, encoder in self.conditional_encoders.items():
             input_keys = encoder.input_specification.keys
-            missing_keys = [key for key in input_keys if key not in flat_obs]
+            missing_keys, encoder_input = self._get_encoder_runtime_inputs(
+                input_keys=input_keys,
+                flat_observation=flat_obs,
+            )
             if missing_keys:
                 logging.warning(
                     f"Conditional encoder '{encoder_name}' skipped: missing {missing_keys}"
                 )
                 continue
             condition_key = encoder.condition_key
-            encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input, features[condition_key])
             for feature_key in self._encoder_feature_keys[encoder_name]:
                 if feature_key in encoded:
@@ -285,6 +317,11 @@ class EncodingPipeline(nn.Module):
         features = dict_apply(
             features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x
         )
+        if self.output_dtype is not None:
+            features = dict_apply(
+                features,
+                lambda x: x.to(self.output_dtype) if torch.is_floating_point(x) else x,
+            )
         return features
 
     def get_feature_names(self) -> list[str]:
@@ -318,12 +355,23 @@ class EncodingPipeline(nn.Module):
                     f"but no observation tokenizer is available."
                 )
             data_vocab_size = tokenizer.observation_tokenizer.vocab_size
+            base_vocab_size = (
+                tokenizer.observation_tokenizer.language_tokenizer.vocab_size
+            )
             encoder_vocab_size = encoder.get_vocab_size()
-            if encoder_vocab_size < data_vocab_size:
+            # Accept if the encoder covers either the total tokenizer vocab
+            # (base + added) or at least the base vocabulary. Some tokenizers
+            # (e.g. EmbeddingGemma) can add extra tokens that never appear in
+            # text prompts, so tolerating the gap is safe.
+            if (
+                encoder_vocab_size < data_vocab_size
+                and encoder_vocab_size < base_vocab_size
+            ):
                 raise ValueError(
-                    f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
-                    f"but encoder '{encoder_name}' only supports vocab_size={encoder_vocab_size}. "
-                    f"The encoder's embedding matrix must be at least as large as the tokenizer's vocabulary. "
+                    f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size} "
+                    f"(base={base_vocab_size}), but encoder '{encoder_name}' only supports "
+                    f"vocab_size={encoder_vocab_size}. The encoder's embedding matrix must be "
+                    f"at least as large as the tokenizer's base vocabulary. "
                     f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
                 )
 

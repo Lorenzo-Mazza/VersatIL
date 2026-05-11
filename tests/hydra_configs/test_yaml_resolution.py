@@ -1,14 +1,19 @@
 """Tests for Hydra YAML configuration composition and validation."""
 
 import glob
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
+from omegaconf import ListConfig, OmegaConf
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
+from versatil.configs.training import TrainingConfig, TrainingStageConfig
+from versatil.data.constants import ImageNormalizationType
+from versatil.models.decoding.constants import LatentKey
 
 HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
 
@@ -19,9 +24,56 @@ ALL_YAML_FILES = sorted(
     )
 )
 
+# Partial configs that use `override /x: y` in defaults or place a list at the
+# primary config's top level (via ``# @package path.to.list``) cannot be
+# composed standalone — Hydra only accepts DictConfig as a primary. They are
+# composed transitively through a consuming parent (e.g. sweeps).
+_PARTIAL_CONFIG_PREFIXES = (
+    "synthetic_presets/",
+    "training/multistage/",
+    "training/optimizer/param_groups/",
+)
+
 ALL_CONFIG_IDS = [
-    str(Path(p).relative_to(HYDRA_CONFIGS_ROOT)).removesuffix(".yaml")
-    for p in ALL_YAML_FILES
+    config_id
+    for config_id in (
+        str(Path(p).relative_to(HYDRA_CONFIGS_ROOT)).removesuffix(".yaml")
+        for p in ALL_YAML_FILES
+    )
+    if not config_id.startswith(_PARTIAL_CONFIG_PREFIXES)
+]
+
+DIT_PRIOR_ALGORITHM_CONFIGS = [
+    "policy/algorithm/bc_with_dit_prior",
+    "policy/algorithm/flow_matching_with_dit_prior",
+    "policy/algorithm/bc_with_denoising_flow_matching_prior",
+]
+
+VLM_IMAGE_NORM_CONFIGS = [
+    pytest.param(
+        "end_to_end_training_runs/libero_plus/vision_sweep/clip_vitb32",
+        ImageNormalizationType.CLIP.value,
+        "clip",
+        id="clip-vlm",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_plus/vision_sweep/siglip2_base",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "siglip",
+        id="siglip-vlm",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/pi0",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "paligemma",
+        id="paligemma-pi0",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/smolvla",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "smolvlm",
+        id="smolvlm-smolvla",
+    ),
 ]
 
 
@@ -33,199 +85,267 @@ class TestHydraComposition:
             config = compose(config_name=config_name)
             assert config is not None
 
+    def test_synthetic_dit_prior_uses_joint_dropout_fix_recipe(self) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name="end_to_end_training_runs/synthetic/lat_flow")
 
-@pytest.mark.unit
-class TestHydraConfigValidation:
-    @pytest.mark.parametrize(
-        "config_name, overrides, expectation",
-        [
-            # --- VALID OVERRIDES: training ---
-            pytest.param(
-                "training/default",
-                ["++num_epochs=5"],
-                does_not_raise(),
-                id="training-valid-num_epochs",
-            ),
-            pytest.param(
-                "training/default",
-                ["++use_ema=true"],
-                does_not_raise(),
-                id="training-valid-use_ema",
-            ),
-            pytest.param(
-                "training/default",
-                ["++clip_gradient_norm=true"],
-                does_not_raise(),
-                id="training-valid-clip_gradient_norm",
-            ),
-            pytest.param(
-                "training/default",
-                ["++clip_max_norm=5.0"],
-                does_not_raise(),
-                id="training-valid-clip_max_norm",
-            ),
-            # --- VALID OVERRIDES: algorithm/diffusion ---
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["++num_train_timesteps=200"],
-                does_not_raise(),
-                id="diffusion-valid-num_train_timesteps",
-            ),
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["++num_inference_steps=50"],
-                does_not_raise(),
-                id="diffusion-valid-num_inference_steps",
-            ),
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["++clip_sample=false"],
-                does_not_raise(),
-                id="diffusion-valid-clip_sample",
-            ),
-            # --- VALID OVERRIDES: algorithm/flow_matching ---
-            pytest.param(
-                "policy/algorithm/flow_matching",
-                ["++num_inference_steps=20"],
-                does_not_raise(),
-                id="flow_matching-valid-num_inference_steps",
-            ),
-            pytest.param(
-                "policy/algorithm/flow_matching",
-                ["++sigma=0.1"],
-                does_not_raise(),
-                id="flow_matching-valid-sigma",
-            ),
-            # --- VALID OVERRIDES: optimizer/adamw ---
-            pytest.param(
-                "training/optimizer/adamw",
-                ["++lr=0.01"],
-                does_not_raise(),
-                id="adamw-valid-lr",
-            ),
-            pytest.param(
-                "training/optimizer/adamw",
-                ["++weight_decay=0.001"],
-                does_not_raise(),
-                id="adamw-valid-weight_decay",
-            ),
-            # --- VALID OVERRIDES: optimizer/adam ---
-            pytest.param(
-                "training/optimizer/adam",
-                ["++lr=0.001"],
-                does_not_raise(),
-                id="adam-valid-lr",
-            ),
-            # --- VALID OVERRIDES: optimizer/sgd ---
-            pytest.param(
-                "training/optimizer/sgd",
-                ["++lr=0.05"],
-                does_not_raise(),
-                id="sgd-valid-lr",
-            ),
-            pytest.param(
-                "training/optimizer/sgd",
-                ["++momentum=0.99"],
-                does_not_raise(),
-                id="sgd-valid-momentum",
-            ),
-            # --- INVALID OVERRIDES: unknown keys ---
-            pytest.param(
-                "training/default",
-                ["fake_key=1"],
-                pytest.raises(ConfigCompositionException),
-                id="training_default-unknown_key-fake_key",
-            ),
-            pytest.param(
-                "training/ema_cosine_schedule",
-                ["bogus=true"],
-                pytest.raises(ConfigCompositionException),
-                id="training_ema_cosine-unknown_key-bogus",
-            ),
-            pytest.param(
-                "policy/algorithm/behavioral_cloning",
-                ["nonexistent=5"],
-                pytest.raises(ConfigCompositionException),
-                id="behavioral_cloning-unknown_key-nonexistent",
-            ),
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["wrong_param=10"],
-                pytest.raises(ConfigCompositionException),
-                id="diffusion-unknown_key-wrong_param",
-            ),
-            pytest.param(
-                "policy/algorithm/flow_matching",
-                ["bad_key=0.5"],
-                pytest.raises(ConfigCompositionException),
-                id="flow_matching-unknown_key-bad_key",
-            ),
-            pytest.param(
-                "training/optimizer/adamw",
-                ["invalid_field=0.1"],
-                pytest.raises(ConfigCompositionException),
-                id="adamw-unknown_key-invalid_field",
-            ),
-            pytest.param(
-                "training/optimizer/sgd",
-                ["unknown=true"],
-                pytest.raises(ConfigCompositionException),
-                id="sgd-unknown_key-unknown",
-            ),
-            # --- INVALID OVERRIDES: wrong types ---
-            pytest.param(
-                "training/default",
-                ["use_ema=not_a_bool"],
-                pytest.raises(ConfigCompositionException),
-                id="training-wrong_type-use_ema_not_bool",
-            ),
-            pytest.param(
-                "training/default",
-                ["num_epochs=not_an_int"],
-                pytest.raises(ConfigCompositionException),
-                id="training-wrong_type-num_epochs_not_int",
-            ),
-            pytest.param(
-                "training/default",
-                ["clip_max_norm=not_a_float"],
-                pytest.raises(ConfigCompositionException),
-                id="training-wrong_type-clip_max_norm_not_float",
-            ),
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["num_train_timesteps=abc"],
-                pytest.raises(ConfigCompositionException),
-                id="diffusion-wrong_type-num_train_timesteps_not_int",
-            ),
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["clip_sample=maybe"],
-                pytest.raises(ConfigCompositionException),
-                id="diffusion-wrong_type-clip_sample_not_bool",
-            ),
-            # --- INVALID OVERRIDES: wrong enum values ---
-            pytest.param(
-                "policy/algorithm/diffusion",
-                ["scheduler_type=nonexistent_scheduler"],
-                pytest.raises(ConfigCompositionException),
-                id="diffusion-wrong_enum-scheduler_type",
-            ),
-            pytest.param(
-                "policy/algorithm/flow_matching",
-                ["ode_solver=invalid_solver"],
-                pytest.raises(ConfigCompositionException),
-                id="flow_matching-wrong_enum-ode_solver",
-            ),
-        ],
-    )
-    def test_override_validation(
+        prior = config.policy.algorithm.prior
+
+        assert config.training.stages == []
+        assert prior.prior_target_key == LatentKey.POSTERIOR_MU.value
+        assert prior.latent_standardization_enabled is False
+        assert prior.require_fitted_latent_standardization is False
+        assert config.policy.loss.loss_modules.denoising_prior.weight == pytest.approx(
+            0.01
+        )
+        assert (
+            config.policy.loss.loss_modules.posterior_geometry.std_weight
+            == pytest.approx(0.05)
+        )
+
+    @pytest.mark.parametrize("config_name", DIT_PRIOR_ALGORITHM_CONFIGS)
+    def test_dit_prior_algorithm_configs_use_standardized_mu_targets(
         self,
         config_name: str,
-        overrides: list[str],
-        expectation: object,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name=config_name)
+
+        prior = OmegaConf.select(config, "policy.algorithm.prior")
+
+        assert prior is not None
+
+        assert prior.prior_target_key == LatentKey.POSTERIOR_MU.value
+        assert prior.latent_standardization_enabled is True
+        assert prior.latent_standardization_eps == pytest.approx(1.0e-6)
+        assert prior.latent_standardization_max_batches is None
+        assert prior.require_fitted_latent_standardization is False
+
+    @pytest.mark.parametrize(
+        "config_name, expected_image_norm_type, expected_model_identifier",
+        VLM_IMAGE_NORM_CONFIGS,
+    )
+    def test_vlm_runs_use_matching_image_normalization(
+        self,
+        config_name: str,
+        expected_image_norm_type: str,
+        expected_model_identifier: str,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name=config_name)
+
+        assert config.task.dataloader.image_norm_type == expected_image_norm_type
+
+        model_identifiers = []
+        for encoder in config.policy.encoding_pipeline.encoders.values():
+            for field in ("model_name", "backbone_name"):
+                value = encoder.get(field)
+                if isinstance(value, str):
+                    model_identifiers.append(value.lower())
+        assert any(
+            expected_model_identifier in identifier for identifier in model_identifiers
+        )
+
+    @pytest.mark.parametrize(
+        "preset_name", ["vae_frozen_prior", "vae_frozen_prior_with_backbone"]
+    )
+    def test_multistage_preset_validates_against_training_stage_config(
+        self, preset_name: str
+    ) -> None:
+        preset_path = (
+            Path(HYDRA_CONFIGS_ROOT) / "training" / "multistage" / f"{preset_name}.yaml"
+        )
+        raw = OmegaConf.load(preset_path)
+        assert isinstance(raw, ListConfig)
+
+        typed_parent = OmegaConf.structured(TrainingConfig())
+        merged = OmegaConf.merge(typed_parent, OmegaConf.create({"stages": list(raw)}))
+
+        for stage in merged.stages:
+            assert OmegaConf.get_type(stage) is TrainingStageConfig
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config_name, overrides, expectation",
+    [
+        pytest.param(
+            "training/default",
+            ["++num_epochs=5"],
+            does_not_raise(),
+            id="training-valid-num_epochs",
+        ),
+        pytest.param(
+            "training/default",
+            ["++use_ema=true"],
+            does_not_raise(),
+            id="training-valid-use_ema",
+        ),
+        pytest.param(
+            "training/default",
+            ["++clip_gradient_norm=true"],
+            does_not_raise(),
+            id="training-valid-clip_gradient_norm",
+        ),
+        pytest.param(
+            "training/default",
+            ["++clip_max_norm=5.0"],
+            does_not_raise(),
+            id="training-valid-clip_max_norm",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["++num_train_timesteps=200"],
+            does_not_raise(),
+            id="diffusion-valid-num_train_timesteps",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["++num_inference_steps=50"],
+            does_not_raise(),
+            id="diffusion-valid-num_inference_steps",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["++clip_sample=false"],
+            does_not_raise(),
+            id="diffusion-valid-clip_sample",
+        ),
+        pytest.param(
+            "policy/algorithm/flow_matching",
+            ["++num_inference_steps=20"],
+            does_not_raise(),
+            id="flow_matching-valid-num_inference_steps",
+        ),
+        pytest.param(
+            "policy/algorithm/flow_matching",
+            ["++sigma=0.1"],
+            does_not_raise(),
+            id="flow_matching-valid-sigma",
+        ),
+        pytest.param(
+            "training/optimizer/adamw",
+            ["++lr=0.01"],
+            does_not_raise(),
+            id="adamw-valid-lr",
+        ),
+        pytest.param(
+            "training/optimizer/adamw",
+            ["++weight_decay=0.001"],
+            does_not_raise(),
+            id="adamw-valid-weight_decay",
+        ),
+        pytest.param(
+            "training/optimizer/adam",
+            ["++lr=0.001"],
+            does_not_raise(),
+            id="adam-valid-lr",
+        ),
+        pytest.param(
+            "training/optimizer/sgd",
+            ["++lr=0.05"],
+            does_not_raise(),
+            id="sgd-valid-lr",
+        ),
+        pytest.param(
+            "training/optimizer/sgd",
+            ["++momentum=0.99"],
+            does_not_raise(),
+            id="sgd-valid-momentum",
+        ),
+        pytest.param(
+            "training/default",
+            ["fake_key=1"],
+            pytest.raises(ConfigCompositionException),
+            id="training_default-unknown_key-fake_key",
+        ),
+        pytest.param(
+            "training/ema_cosine_schedule",
+            ["bogus=true"],
+            pytest.raises(ConfigCompositionException),
+            id="training_ema_cosine-unknown_key-bogus",
+        ),
+        pytest.param(
+            "policy/algorithm/behavioral_cloning",
+            ["nonexistent=5"],
+            pytest.raises(ConfigCompositionException),
+            id="behavioral_cloning-unknown_key-nonexistent",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["wrong_param=10"],
+            pytest.raises(ConfigCompositionException),
+            id="diffusion-unknown_key-wrong_param",
+        ),
+        pytest.param(
+            "policy/algorithm/flow_matching",
+            ["bad_key=0.5"],
+            pytest.raises(ConfigCompositionException),
+            id="flow_matching-unknown_key-bad_key",
+        ),
+        pytest.param(
+            "training/optimizer/adamw",
+            ["invalid_field=0.1"],
+            pytest.raises(ConfigCompositionException),
+            id="adamw-unknown_key-invalid_field",
+        ),
+        pytest.param(
+            "training/optimizer/sgd",
+            ["unknown=true"],
+            pytest.raises(ConfigCompositionException),
+            id="sgd-unknown_key-unknown",
+        ),
+        pytest.param(
+            "training/default",
+            ["use_ema=not_a_bool"],
+            pytest.raises(ConfigCompositionException),
+            id="training-wrong_type-use_ema_not_bool",
+        ),
+        pytest.param(
+            "training/default",
+            ["num_epochs=not_an_int"],
+            pytest.raises(ConfigCompositionException),
+            id="training-wrong_type-num_epochs_not_int",
+        ),
+        pytest.param(
+            "training/default",
+            ["clip_max_norm=not_a_float"],
+            pytest.raises(ConfigCompositionException),
+            id="training-wrong_type-clip_max_norm_not_float",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["num_train_timesteps=abc"],
+            pytest.raises(ConfigCompositionException),
+            id="diffusion-wrong_type-num_train_timesteps_not_int",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["clip_sample=maybe"],
+            pytest.raises(ConfigCompositionException),
+            id="diffusion-wrong_type-clip_sample_not_bool",
+        ),
+        pytest.param(
+            "policy/algorithm/diffusion",
+            ["scheduler_type=nonexistent_scheduler"],
+            pytest.raises(ConfigCompositionException),
+            id="diffusion-wrong_enum-scheduler_type",
+        ),
+        pytest.param(
+            "policy/algorithm/flow_matching",
+            ["ode_solver=invalid_solver"],
+            pytest.raises(ConfigCompositionException),
+            id="flow_matching-wrong_enum-ode_solver",
+        ),
+    ],
+)
+def test_override_validation(
+    config_name: str,
+    overrides: list[str],
+    expectation: AbstractContextManager[None],
+):
+    with (
+        initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None),
+        expectation,
     ):
-        with (
-            initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None),
-            expectation,
-        ):
-            compose(config_name=config_name, overrides=overrides)
+        compose(config_name=config_name, overrides=overrides)

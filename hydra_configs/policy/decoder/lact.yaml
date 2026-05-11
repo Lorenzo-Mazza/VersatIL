@@ -9,7 +9,7 @@ input_keys:
 latent_dimension: ${policy.algorithm.posterior_encoder.latent_dimension}
 embedding_dimension: 128
 number_of_heads: 8
-number_of_key_value_heads: 2
+number_of_key_value_heads: null
 feedforward_dimension: 1024
 number_of_layers: 3
 activation: ${activation_function:SWIGLU}

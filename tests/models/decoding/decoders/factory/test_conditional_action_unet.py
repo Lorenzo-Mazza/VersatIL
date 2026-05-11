@@ -125,6 +125,13 @@ class TestConditionalActionUNetInitialization:
         decoder = unet_decoder_factory()
         assert decoder._unet is None
 
+    def test_device_tracker_is_persisted(
+        self,
+        unet_decoder_factory: Callable[..., ConditionalActionUNet],
+    ):
+        decoder = unet_decoder_factory()
+        assert "_device_tracker" in decoder.state_dict()
+
     def test_local_conditioning_raises_not_implemented(
         self,
         unet_decoder_factory: Callable[..., ConditionalActionUNet],
@@ -211,7 +218,10 @@ class TestConditionalActionUNetForward:
         actions = noisy_actions_factory()
         with pytest.raises(
             ValueError,
-            match=f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. The algorithm should inject timesteps into features.",
+            match=re.escape(
+                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                "The algorithm should inject timesteps into features."
+            ),
         ):
             decoder(features=features, actions=actions)
 
@@ -227,6 +237,31 @@ class TestConditionalActionUNetForward:
         actions = noisy_actions_factory()
         decoder(features=features, actions=actions)
         assert decoder._unet is not None
+
+    def test_load_state_dict_initializes_lazy_unet_from_checkpoint(
+        self,
+        unet_decoder_factory: Callable[..., ConditionalActionUNet],
+        flat_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        source_decoder = unet_decoder_factory()
+        source_decoder.eval()
+        features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            source_output = source_decoder(features=features, actions=actions)
+
+        target_decoder = unet_decoder_factory()
+        target_decoder.eval()
+        assert target_decoder._unet is None
+        target_decoder.load_state_dict(source_decoder.state_dict())
+        with torch.no_grad():
+            target_output = target_decoder(features=features, actions=actions)
+
+        for action_key in source_output:
+            torch.testing.assert_close(
+                target_output[action_key], source_output[action_key]
+            )
 
     def test_output_keys_match_action_heads(
         self,
@@ -268,6 +303,22 @@ class TestConditionalActionUNetForward:
         output = decoder(features=features, actions=actions)
         for action_key, action_tensor in actions.items():
             assert output[action_key].shape == action_tensor.shape
+
+    def test_forward_does_not_mutate_features(
+        self,
+        unet_decoder_factory: Callable[..., ConditionalActionUNet],
+        flat_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = unet_decoder_factory()
+        decoder.eval()
+        features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
+        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)
+        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
 
     def test_with_multiple_action_heads(
         self,

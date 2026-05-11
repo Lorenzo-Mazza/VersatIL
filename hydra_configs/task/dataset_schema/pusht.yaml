@@ -1,0 +1,8 @@
+defaults:
+  - lerobot
+  - zarr_meta/pusht@metadata
+
+_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
+dataset_type: ${dataset_type:PUSHT}
+dataset_path: ${pusht_lerobot_dir:}
+zarr_path: ${zarr_dir:pusht.zarr}

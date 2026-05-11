@@ -11,14 +11,21 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, DiTType
+from versatil.models.decoding.constants import DiTType
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.timestep_conditioning import (
+    extract_timestep_conditioning,
+    filter_timestep_feature,
+    validate_noisy_action_tensors,
+)
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.diffusion_transformer import (
+from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
     CrossAttentionDiT,
+)
+from versatil.models.layers.diffusion_transformer.mmdit_transformer import (
     MMDiTTransformer,
 )
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -151,7 +158,7 @@ class DiffusionActionTransformer(ActionDecoder):
         self._caching_enabled = False
         self._conditioning_cache = None
 
-    def _build_transformer_components(self):
+    def _build_transformer_components(self) -> None:
         """Build transformer and input processing layers."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
             embedding_dimension=self.embedding_dimension, normalize=True
@@ -270,19 +277,23 @@ class DiffusionActionTransformer(ActionDecoder):
                 "DiffusionActionTransformer requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
-        if DecoderOutputKey.TIMESTEP.value not in features:
-            raise ValueError(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
-                "The algorithm should inject timesteps into features."
-            )
-        timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)
-        if len(timesteps.shape) == 2:
-            timesteps = timesteps.squeeze(-1)
+        batch_size, action_device = validate_noisy_action_tensors(
+            actions=actions,
+            action_heads=self.action_heads,
+            prediction_horizon=self.prediction_horizon,
+            decoder_name=self.__class__.__name__,
+        )
+        timesteps = extract_timestep_conditioning(
+            features=features,
+            batch_size=batch_size,
+            action_device=action_device,
+        )
+        observation_features = filter_timestep_feature(features=features)
         (
             observation_tokens,
             observation_positional_encodings,
             observation_padding_mask,
-        ) = self._prepare_observation_tokens(features)
+        ) = self._prepare_observation_tokens(observation_features)
         if observation_positional_encodings is not None:
             observation_tokens = observation_tokens + observation_positional_encodings
         action_tensors = []

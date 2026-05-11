@@ -62,6 +62,15 @@ def dit_block_factory() -> Callable[..., DiTBlock]:
     return factory
 
 
+class _IdentityEncoder(torch.nn.Module):
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return hidden_states
+
+
 class TestDiTBlockInitialization:
     @pytest.mark.parametrize("number_of_encoder_layers", [1, 2])
     @pytest.mark.parametrize("number_of_decoder_layers", [1, 3])
@@ -251,6 +260,57 @@ class TestDiTBlockForward:
         # Verify forward_encoder produces the same result
         direct_mean = block.forward_encoder(encoder_hidden)
         assert torch.allclose(encoder_output_mean, direct_mean)
+
+    def test_forward_encoder_excludes_padded_tokens_from_mean(
+        self,
+        dit_block_factory: Callable[..., DiTBlock],
+    ):
+        block = dit_block_factory(embedding_dimension=4, number_of_heads=2)
+        block.encoder = _IdentityEncoder()
+        encoder_hidden = torch.tensor(
+            [
+                [
+                    [1.0, 1.0, 1.0, 1.0],
+                    [3.0, 3.0, 3.0, 3.0],
+                    [100.0, 100.0, 100.0, 100.0],
+                ],
+                [[2.0, 0.0, 2.0, 0.0], [6.0, 0.0, 6.0, 0.0], [10.0, 0.0, 10.0, 0.0]],
+            ]
+        )
+        padding_mask = torch.tensor(
+            [
+                [False, False, True],
+                [False, True, True],
+            ]
+        )
+        encoder_output_mean = block.forward_encoder(
+            hidden_states=encoder_hidden,
+            padding_mask=padding_mask,
+        )
+        expected = torch.tensor(
+            [
+                [2.0, 2.0, 2.0, 2.0],
+                [2.0, 0.0, 2.0, 0.0],
+            ]
+        )
+        torch.testing.assert_close(encoder_output_mean, expected)
+
+    def test_forward_encoder_all_padded_tokens_returns_zero_mean(
+        self,
+        dit_block_factory: Callable[..., DiTBlock],
+    ):
+        block = dit_block_factory(embedding_dimension=4, number_of_heads=2)
+        block.encoder = _IdentityEncoder()
+        encoder_hidden = torch.tensor([[[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]]])
+        padding_mask = torch.tensor([[True, True]])
+        encoder_output_mean = block.forward_encoder(
+            hidden_states=encoder_hidden,
+            padding_mask=padding_mask,
+        )
+        torch.testing.assert_close(
+            encoder_output_mean,
+            torch.zeros(1, 4),
+        )
 
     def test_gradient_flows_through_full_model(
         self,

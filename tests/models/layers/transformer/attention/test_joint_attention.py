@@ -1,5 +1,6 @@
 """Tests for versatil.models.layers.transformer.attention.joint_attention module."""
 
+import re
 import unittest.mock
 from collections.abc import Callable
 
@@ -87,6 +88,20 @@ class TestJointAttentionInitialization:
         params_without = sum(p.numel() for p in attention_without_norm.parameters())
         # QK-norm adds learnable parameters; without it there should be fewer
         assert params_without < params_with
+
+    def test_invalid_default_head_dimension_raises(
+        self,
+        joint_attention_factory: Callable[..., JointAttention],
+    ):
+        error_message = (
+            "primary_embedding_dimension (30) must be divisible by "
+            "number_of_heads (8) when head_dimension is not provided."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            joint_attention_factory(
+                primary_embedding_dimension=30,
+                number_of_heads=8,
+            )
 
 
 class TestJointAttentionForward:

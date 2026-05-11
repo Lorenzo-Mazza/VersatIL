@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
+from versatil_constants.tso import TSOObsKey
 
 from versatil.configs.experiment import ExperimentConfig
-from versatil.data.constants import ObsKey
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey
@@ -19,7 +19,7 @@ from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.training.callbacks import ConfusionMatrixCallback
+from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -45,7 +45,7 @@ def phase_action_space_factory(
         num_phases: int = NUM_PHASES,
     ) -> MagicMock:
         action_space = mock_action_space_factory(position_dim=position_dim)
-        action_space.actions_metadata[ObsKey.PHASE_LABEL.value] = SimpleNamespace(
+        action_space.actions_metadata[TSOObsKey.PHASE_LABEL.value] = SimpleNamespace(
             requires_prediction_head=True,
             prediction_dimension=num_phases,
         )
@@ -85,7 +85,7 @@ def phase_act_factory(
         num_phases: int = NUM_PHASES,
         prediction_horizon: int = PREDICTION_HORIZON,
         observation_horizon: int = 1,
-        phase_routing_key: str = ObsKey.PHASE_LABEL.value,
+        phase_routing_key: str = TSOObsKey.PHASE_LABEL.value,
     ) -> PhaseACT:
         action_space = phase_action_space_factory(
             position_dim=position_dim,
@@ -95,7 +95,7 @@ def phase_act_factory(
         phase_head = action_head_factory(input_dim=embedding_dimension)
         moe_position_head = lazy_moe_head_factory(input_dim=embedding_dimension)
         action_heads = {
-            ObsKey.PHASE_LABEL.value: phase_head,
+            TSOObsKey.PHASE_LABEL.value: phase_head,
             "position_action": moe_position_head,
         }
         return PhaseACT(
@@ -137,7 +137,7 @@ class TestPhaseACTInitialization:
             num_phases=num_phases,
             embedding_dimension=embedding_dimension,
         )
-        assert decoder.phase_routing_key == ObsKey.PHASE_LABEL.value
+        assert decoder.phase_routing_key == TSOObsKey.PHASE_LABEL.value
         assert decoder.embedding_dimension == embedding_dimension
 
     def test_raises_without_phase_head(
@@ -152,7 +152,7 @@ class TestPhaseACTInitialization:
         action_heads = {
             "position_action": moe_position_head,
         }
-        missing_heads = {ObsKey.PHASE_LABEL.value}
+        missing_heads = {TSOObsKey.PHASE_LABEL.value}
         configured_heads = {"position_action"}
         with pytest.raises(
             ValueError,
@@ -174,7 +174,7 @@ class TestPhaseACTInitialization:
                 number_of_encoder_layers=NUMBER_OF_ENCODER_LAYERS,
                 number_of_decoder_layers=NUMBER_OF_DECODER_LAYERS,
                 feedforward_dimension=FEEDFORWARD_DIMENSION,
-                phase_routing_key=ObsKey.PHASE_LABEL.value,
+                phase_routing_key=TSOObsKey.PHASE_LABEL.value,
             )
 
     def test_raises_without_moe_head(
@@ -188,7 +188,7 @@ class TestPhaseACTInitialization:
         phase_head = action_head_factory(input_dim=EMBEDDING_DIMENSION)
         position_head = action_head_factory(input_dim=EMBEDDING_DIMENSION)
         action_heads = {
-            ObsKey.PHASE_LABEL.value: phase_head,
+            TSOObsKey.PHASE_LABEL.value: phase_head,
             "position_action": position_head,
         }
         with pytest.raises(
@@ -210,7 +210,7 @@ class TestPhaseACTInitialization:
                 number_of_encoder_layers=NUMBER_OF_ENCODER_LAYERS,
                 number_of_decoder_layers=NUMBER_OF_DECODER_LAYERS,
                 feedforward_dimension=FEEDFORWARD_DIMENSION,
-                phase_routing_key=ObsKey.PHASE_LABEL.value,
+                phase_routing_key=TSOObsKey.PHASE_LABEL.value,
             )
 
     def test_initializes_lazy_moe_experts(
@@ -247,7 +247,7 @@ class TestPhaseACTForward:
         )
         predictions = decoder(features=features)
         expected_keys = {
-            ObsKey.PHASE_LABEL.value,
+            TSOObsKey.PHASE_LABEL.value,
             "position_action",
             DecoderOutputKey.ROUTING_WEIGHTS.value,
             f"position_action_{DecoderOutputKey.EXPERT_OUTPUTS.value}",
@@ -269,7 +269,7 @@ class TestPhaseACTForward:
             width=SPATIAL_WIDTH,
         )
         predictions = decoder(features=features)
-        assert predictions[ObsKey.PHASE_LABEL.value].shape == (
+        assert predictions[TSOObsKey.PHASE_LABEL.value].shape == (
             BATCH_SIZE,
             prediction_horizon,
             NUM_PHASES,
@@ -311,7 +311,7 @@ class TestPhaseACTForward:
     ):
         decoder = phase_act_factory()
         decoder.eval()
-        phase_head = decoder.action_heads[ObsKey.PHASE_LABEL.value]
+        phase_head = decoder.action_heads[TSOObsKey.PHASE_LABEL.value]
         with torch.no_grad():
             phase_head.output_proj.weight.data.zero_()
             phase_head.output_proj.bias.data.zero_()

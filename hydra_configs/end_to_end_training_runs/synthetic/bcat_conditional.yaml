@@ -1,0 +1,57 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: synthetic
+  - /task/dataset_schema: synthetic/conditional_circle
+  - /task/dataloader: synthetic_default
+  - /task/action_space: synthetic_2d
+  - /task/observation_space: synthetic_image_state_context
+  - /training: synthetic
+  - /policy/encoding_pipeline: mono_rgb_context
+  - /policy/decoder: action_transformer
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: regression_synthetic
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: synthetic_2d
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 60
+  dataloader:
+    val_ratio: 0.05
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:synthetic}
+
+policy:
+  metadata_passthrough:
+    ${metadata_passthrough_source:OBSERVATION}:
+      ${synthetic_obs_key:MODE_ID}: ${metadata_key:LATENT_COLOR_LABEL}
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  encoding_pipeline:
+    encoders:
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+        backbone: ${rgb_backbone:MOBILENETV4_SMALL_050}
+  decoder:
+    input_keys:
+      - left_rgb
+      - context_proprio
+    embedding_dimension: 256
+    number_of_heads: 8
+    feedforward_dimension: 512
+    number_of_layers: 4
+    dropout_rate: 0.2
+    attention_dropout: 0.05
+    activation: ${activation_function:RELU}

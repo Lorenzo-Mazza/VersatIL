@@ -17,9 +17,13 @@ from versatil.data.preprocessing.create_zarr_from_hdf5 import (
 from versatil.data.preprocessing.create_zarr_from_lerobot import (
     create_replay_buffer_from_lerobot,
 )
+from versatil.data.preprocessing.create_zarr_from_synthetic import (
+    create_replay_buffer_from_synthetic,
+)
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.raw.schemas import CsvDatasetSchema
 from versatil.data.raw.schemas.base import DatasetSchema
+from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
 from versatil.data.raw.schemas.hdf5 import Hdf5DatasetSchema
 from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -82,6 +86,7 @@ def get_dataloaders(
         clamp_kinematics_range=dataloader_config.clamp_kinematics_range,
         min_kinematics_std=dataloader_config.min_kinematics_std,
         min_kinematics_range=dataloader_config.min_kinematics_range,
+        action_sample_size=dataloader_config.action_sample_size,
         device=torch.device("cpu"),  # Keep on CPU for DataLoader workers
     )
     train_dataset.set_normalizer(normalizer)
@@ -239,6 +244,8 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
             create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
         elif isinstance(schema, LeRobotDatasetSchemaV30):
             create_replay_buffer_from_lerobot(schema=schema)
+        elif isinstance(schema, SyntheticSchema):
+            create_replay_buffer_from_synthetic(schema=schema)
         else:
             raise NotImplementedError(
                 f"Zarr creation not implemented for schema type: {type(schema)}"

@@ -285,6 +285,7 @@ def policy_factory(
         observation_horizon: int = 2,
         loss: BaseLoss | None = None,
         device: str = "cpu",
+        metadata_passthrough: dict[str, dict[str, str]] | None = None,
         feature_return_value: dict[str, torch.Tensor] | None = None,
         algorithm_forward_return: dict[str, torch.Tensor] | None = None,
         algorithm_predict_return: dict[str, torch.Tensor] | None = None,
@@ -323,6 +324,7 @@ def policy_factory(
             observation_horizon=observation_horizon,
             loss=loss,
             device=device,
+            metadata_passthrough=metadata_passthrough,
         )
 
     return factory

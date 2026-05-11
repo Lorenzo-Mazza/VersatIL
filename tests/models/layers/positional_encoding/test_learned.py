@@ -147,6 +147,118 @@ class TestLearnedPositionalEncoding1D:
         output = module(tensor)
         assert output.shape == (batch_size, embedding_dimension)
 
+    def test_position_index_out_of_range_raises(
+        self,
+        learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        maximum_length = 16
+        sequence_length = maximum_length + 1
+        embedding_dimension = 32
+        module = learned_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            maximum_length=maximum_length,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+        max_position = sequence_length - 1
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Position indices [0, {max_position}] out of range "
+                f"[0, {maximum_length - 1}]. Increase maximum_length."
+            ),
+        ):
+            module(tensor)
+
+    def test_offset_pushes_positions_out_of_range_raises(
+        self,
+        learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        maximum_length = 16
+        sequence_length = 4
+        offset = 14
+        embedding_dimension = 32
+        module = learned_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            maximum_length=maximum_length,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+        max_position = offset + sequence_length - 1
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Position indices [{offset}, {max_position}] out of range "
+                f"[0, {maximum_length - 1}]. Increase maximum_length."
+            ),
+        ):
+            module(tensor, offset=offset)
+
+    def test_tensor_indices_export_clamps_out_of_range_positions(
+        self,
+        learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        maximum_length = 4
+        sequence_length = 8
+        embedding_dimension = 4
+        batch_size = 2
+        module = learned_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            maximum_length=maximum_length,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+
+        with pytest.raises(ValueError, match="out of range"):
+            module(tensor)
+
+        exported = torch.export.export(module, (tensor,), strict=False)
+        output = exported.module()(tensor)
+
+        clamped_positions = torch.tensor([0, 1, 2, 3, 3, 3, 3, 3], dtype=torch.long)
+        expected = (
+            module.learned_encoding(clamped_positions)
+            .unsqueeze(0)
+            .expand(batch_size, -1, -1)
+        )
+        torch.testing.assert_close(output, expected)
+
+    def test_scalar_mode_clamps_out_of_range_without_raising(
+        self,
+        learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
+    ):
+        maximum_length = 16
+        embedding_dimension = 32
+        batch_size = 2
+        module = learned_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.SCALAR.value,
+            maximum_length=maximum_length,
+        )
+        out_of_range = torch.tensor(
+            [-5.0, float(maximum_length + 10)], dtype=torch.float32
+        )
+        clamped = torch.tensor([0, maximum_length - 1], dtype=torch.long)
+        output = module(out_of_range)
+        expected = module.learned_encoding(clamped)
+        assert output.shape == (batch_size, embedding_dimension)
+        assert torch.equal(output, expected)
+
 
 class TestLearnedPositionalEncoding2D:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])

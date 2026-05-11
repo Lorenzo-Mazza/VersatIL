@@ -10,6 +10,8 @@ from versatil.data.constants import (
 
 @dataclass
 class DataLoaderConfig:
+    """Hydra config for dataset loading, normalization, augmentation, and sampling behavior."""
+
     preload_data_in_memory: bool = False  # Whether to preload the entire zarr into RAM, speeds up training considerably but works only for small datasets.
     # Batching
     batch_size: int = 64
@@ -41,8 +43,18 @@ class DataLoaderConfig:
     #: Whether to downsample each dataset episode by taking every n-th step.
     downsample_factor: int = 1
     #: Number of steps to shift actions backward in the sequence, to compensate for hardware latency.
-    action_backward_shift: int = 1
+    action_backward_shift: int = 0
+    #: Max trailing padding allowed per sampled window. Valid starts per episode:
+    #: ``episode_length - sequence_length + trailing_padded_actions + 1``. If 0, only windows that fit
+    #: entirely within the episode are sampled (no right-side padding). When None (default), resolves
+    #: to ``pred_horizon - 1``.
+    trailing_padded_actions: int | None = None
     #: Ratio of dataset episodes to use for validation.
     val_ratio: float = 0.1
     #: Ratio of total dataset episodes to use (for ablation studies on varying dataset sizes).
     total_ratio: float = 1.0
+    #: Number of action rows to stash on the normalizer per action key for downstream
+    #: data-aware initialization (e.g. mixture-density head k-means++). Set to 0 to
+    #: disable. Memory cost per action key is ``action_sample_size * action_dim *
+    #: bytes_per_element``.
+    action_sample_size: int = 2048

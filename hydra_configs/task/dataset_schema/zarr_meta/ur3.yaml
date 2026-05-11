@@ -1,0 +1,48 @@
+defaults:
+  - base
+
+_target_: versatil.data.raw.zarr_meta.DatasetMetadata
+
+# UR3 layout: state is [ee_x, ee_y, block1_x, block1_y, block2_x, block2_y].
+# Both states and actions are min-max normalized. Goal-coordinate behavior from
+# `include_goals=True` is irrelevant for this unconditional `ur3.yaml`.
+observations:
+  ${proprio_key:UR3_EE_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 2
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:UR3_BLOCK1_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 2
+    slice_end: 4
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:UR3_BLOCK2_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 4
+    slice_end: 6
+    frame: ${coordinate_system:UNKNOWN}
+
+precomputed_actions:
+  ${proprio_key:UR3_EE_TARGET_ACTION}:
+    _target_: versatil.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:UNKNOWN}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 2
+    prediction_dimension: 2
+    needs_normalization: true

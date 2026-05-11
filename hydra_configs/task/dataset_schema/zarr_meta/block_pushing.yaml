@@ -1,0 +1,120 @@
+defaults:
+  - base
+
+_target_: versatil.data.raw.zarr_meta.DatasetMetadata
+
+observations:
+  ${proprio_key:BLOCK_PUSH_BLOCK1_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 2
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:BLOCK_PUSH_BLOCK1_ANGLE}:
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    needs_normalization: true
+    slice_start: 2
+    slice_end: 3
+    frame: ${coordinate_system:UNKNOWN}
+    orientation_representation: ${orientation:ROLL}
+
+  ${proprio_key:BLOCK_PUSH_BLOCK2_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 3
+    slice_end: 5
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:BLOCK_PUSH_BLOCK2_ANGLE}:
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    needs_normalization: true
+    slice_start: 5
+    slice_end: 6
+    frame: ${coordinate_system:UNKNOWN}
+    orientation_representation: ${orientation:ROLL}
+
+  ${proprio_key:EE_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 6
+    slice_end: 8
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:BLOCK_PUSH_EE_COMMANDED}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 8
+    slice_end: 10
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:BLOCK_PUSH_TARGET1_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 10
+    slice_end: 12
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:BLOCK_PUSH_TARGET1_ANGLE}:
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    needs_normalization: true
+    slice_start: 12
+    slice_end: 13
+    frame: ${coordinate_system:UNKNOWN}
+    orientation_representation: ${orientation:ROLL}
+
+  ${proprio_key:BLOCK_PUSH_TARGET2_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 13
+    slice_end: 15
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:BLOCK_PUSH_TARGET2_ANGLE}:
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    needs_normalization: true
+    slice_start: 15
+    slice_end: 16
+    frame: ${coordinate_system:UNKNOWN}
+    orientation_representation: ${orientation:ROLL}
+
+precomputed_actions:
+  ${proprio_key:EE_POS_ACTION}:
+    _target_: versatil.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:UNKNOWN}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 2
+    prediction_dimension: 2
+    needs_normalization: true
+    computation_method: ${action_computation:DELTA}

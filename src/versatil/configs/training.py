@@ -1,8 +1,13 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from omegaconf import MISSING
 
-from versatil.training.constants import CompileMode
+from versatil.training.constants import (
+    OPTIMIZER_UNMATCHED_GROUPS_NAME,
+    CompileMode,
+)
 
 
 @dataclass
@@ -14,6 +19,44 @@ class ParameterGroupConfig:
     weight_decay: float | None = None  # Override global weight decay
     params_pattern: str | None = None  # Pattern to match parameter names
 
+    def __post_init__(self) -> None:
+        """Reject names owned by the optimizer grouping runtime."""
+        if self.name == OPTIMIZER_UNMATCHED_GROUPS_NAME:
+            raise ValueError(
+                f"'{OPTIMIZER_UNMATCHED_GROUPS_NAME}' is reserved for unmatched "
+                "parameters."
+            )
+
+
+@dataclass
+class TrainingStageConfig:
+    """Hydra schema for one declarative multi-stage training snapshot.
+
+    ``training.stages`` is ordered by ``start_epoch`` and interpreted as a
+    sequence of deltas layered on top of the base training config. A stage may
+    independently override parameter trainability, optimizer hyperparameters,
+    and loss weights, while any omitted field falls back to the cached base
+    regime.
+
+    ``loss_weights`` is a nested patch that must match the structure exposed by
+    ``policy.loss_module.weights``. Cross-object checks such as stage ordering,
+    optimizer-group existence, and loss-weight path validation run later in
+    ``versatil.validation.validate_experiment`` once the full policy and
+    optimizer layout exist. The instantiated runtime object validates only
+    self-contained invariants.
+    """
+
+    _target_: str = "versatil.training.stage.TrainingStage"
+    name: str = MISSING
+    start_epoch: int = MISSING
+    end_epoch: int | None = None
+    trainable_groups: list[str] = field(default_factory=list)
+    frozen_groups: list[str] = field(default_factory=list)
+    group_lrs: dict[str, float] = field(default_factory=dict)
+    group_weight_decays: dict[str, float] = field(default_factory=dict)
+    loss_weights: dict[str, Any] = field(default_factory=dict)
+    eval_frozen_modules: bool = True
+
 
 @dataclass
 class OptimizerConfig:
@@ -22,9 +65,22 @@ class OptimizerConfig:
     target_class: str = MISSING
     # Base learning rate (required by all optimizers)
     lr: float = 1e-4
-
     # Parameter groups with different learning rates
     param_groups: list[ParameterGroupConfig] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validate named optimizer groups used by training stages."""
+        group_names = [group.name for group in self.param_groups]
+        duplicates = _duplicates(group_names)
+        if duplicates:
+            raise ValueError(
+                f"Optimizer parameter group names must be unique: {duplicates}."
+            )
+        if OPTIMIZER_UNMATCHED_GROUPS_NAME in group_names:
+            raise ValueError(
+                f"'{OPTIMIZER_UNMATCHED_GROUPS_NAME}' is reserved for unmatched "
+                "parameters."
+            )
 
 
 @dataclass
@@ -65,7 +121,13 @@ class SGDConfig(OptimizerConfig):
 
 @dataclass
 class TrainingConfig:
-    """Training hyperparameters."""
+    """Training hyperparameters.
+
+    The optional ``stages`` list enables declarative multi-stage training.
+    Each stage is applied as a delta over the init-time base regime cached by
+    ``TrainingStageCallback``. Epochs that belong to no stage explicitly fall
+    back to that base regime.
+    """
 
     num_epochs: int = 100
     gradient_accumulate_every: int = 1
@@ -102,8 +164,8 @@ class TrainingConfig:
     tune_lr: bool = (
         False  # If True, automatically find optimal learning rate before training
     )
-    early_stopping_patience: int = (
-        10  # Number of validation checks with no improvement to stop training
+    early_stopping_patience: int | None = (
+        10  # Validation checks with no improvement before stopping. None disables early stopping.
     )
 
     # ReduceLROnPlateau - reduce learning rate when validation loss plateaus
@@ -112,3 +174,22 @@ class TrainingConfig:
         10  # Number of epochs with no improvement before reducing LR
     )
     reduce_lr_cooldown: int = 10  # Number of epochs to wait after LR reduction before resuming normal operation
+
+    # Ordered training stage "delta" regimes applied on top of the base training regime.
+    stages: list[TrainingStageConfig] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validate training knobs that are incompatible with staged control."""
+        if self.stages and self.reduce_lr_on_plateau:
+            raise ValueError("training.stages does not support reduce_lr_on_plateau.")
+
+
+def _duplicates(values: Sequence[Any]) -> list[Any]:
+    """Return duplicate values while preserving their first repeated order."""
+    seen: set[Any] = set()
+    duplicates: list[Any] = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return duplicates

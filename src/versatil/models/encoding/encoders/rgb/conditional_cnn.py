@@ -94,6 +94,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         self.output_dim: int | tuple[int, ...] = self.feature_dim
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _build_filmed_backbone(self):
         """Build FiLMed ResNet backbone."""
@@ -309,9 +310,12 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             image_height: Target image height.
             image_width: Target image width.
         """
+        probe_dtype = (
+            self.model_dtype if self.model_dtype is not None else torch.float32
+        )
         with torch.no_grad():
-            mock_input = torch.zeros(1, 3, image_height, image_width)
-            mock_condition = torch.zeros(1, self.condition_dim)
+            mock_input = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
+            mock_condition = torch.zeros(1, self.condition_dim, dtype=probe_dtype)
             x = self.conv1(mock_input)
             x = self.bn1(x)
             x = self.relu(x)
@@ -328,6 +332,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         if self.frozen:
             self._freeze_weights()
+        self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that input metadata is RGB camera metadata.

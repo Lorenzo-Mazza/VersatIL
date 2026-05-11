@@ -1,0 +1,25 @@
+defaults:
+  - gaussian_mixture_nll@loss_modules.moe_loss.base_loss.loss_modules.action_nll
+  - traj_len@loss_modules.moe_loss.base_loss.loss_modules.trajectory_length
+  - _self_
+
+_target_: versatil.metrics.composite.CompositeLoss
+loss_modules:
+  moe_loss:
+    _target_: versatil.metrics.components.MoELoss
+    entropy_weight: 0.05
+    load_balance_weight: 0.2
+    base_loss:
+      _target_: versatil.metrics.composite.CompositeLoss
+      loss_modules:
+        action_nll:
+          action_keys:
+            - ${proprio_key:SYNTHETIC_POSITION_ACTION}
+          weight: 1.0
+          learned_variance: true
+          #sigmas:
+          #  ${proprio_key:SYNTHETIC_POSITION_ACTION}: 0.1
+
+        trajectory_length:
+          weight: 0.0
+          action_key: ${proprio_key:SYNTHETIC_POSITION_ACTION}

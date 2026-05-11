@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 
 from versatil.configs.main import MainConfig
+from versatil.configs.training import TrainingConfig
 from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.metrics.base import BaseLoss
+from versatil.metrics.base import BaseLoss, _merge_weights
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import LatentKey
@@ -17,6 +18,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
+from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
 class ExperimentValidationError(Exception):
@@ -30,6 +32,7 @@ class ExperimentValidator:
 
     Validates encoder-observation consistency, decoder-encoder compatibility,
     and loss key validation.
+    When ``training_config.stages`` is provided, the validator also owns checks required by multi-stage training:
     """
 
     def __init__(
@@ -44,6 +47,7 @@ class ExperimentValidator:
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
         quantization_config: object | None = None,
+        training_config: TrainingConfig | None = None,
     ):
         """Initialize validator with policy components.
 
@@ -56,8 +60,12 @@ class ExperimentValidator:
             loss: The loss module for training.
             is_tokenized: Whether observations are tokenized.
             tokenized_obs_keys: Keys of observations that are tokenized.
-            image_norm_type: Image normalization type for DINOv3 validation.
+            image_norm_type: RGB image normalization type for pretrained vision
+                encoder validation.
             quantization_config: Optional quantization configuration to validate.
+            training_config: Training configuration. When provided with
+                ``stages``, the validator also checks stage ordering, optimizer
+                group references, and loss-weight paths against the loss tree.
         """
         self.encoding_pipeline = encoding_pipeline
         self.algorithm = algorithm
@@ -69,6 +77,7 @@ class ExperimentValidator:
         self.tokenized_obs_keys = tokenized_obs_keys or set()
         self.image_norm_type = image_norm_type
         self.quantization_config = quantization_config
+        self.training_config = training_config
         self.errors: list[str] = []
         self.warnings: list[str] = []
 
@@ -85,6 +94,10 @@ class ExperimentValidator:
             self.validate_loss_keys()
         if self.quantization_config is not None:
             self.validate_quantization()
+        if self.training_config is not None and self.training_config.stages:
+            self.validate_stage_ordering()
+            self.validate_stage_group_references()
+            self.validate_stage_loss_paths()
         if self.errors:
             error_msg = "\n".join([f"  - {err}" for err in self.errors])
             raise ExperimentValidationError(
@@ -95,6 +108,68 @@ class ExperimentValidator:
             logging.warning(
                 msg=f"Policy validation warnings ({len(self.warnings)}):\n{warning_msg}"
             )
+
+    @staticmethod
+    def _encoder_image_model_identifier(encoder: EncodingMixin) -> str:
+        """Return normalized model identifiers exposed by image encoders."""
+        identifiers = []
+        for attribute_name in ("backbone_name", "model_name"):
+            value = getattr(encoder, attribute_name, None)
+            if isinstance(value, str):
+                identifiers.append(value.lower())
+        return " ".join(identifiers)
+
+    def _validate_encoder_image_normalization(
+        self, encoder_name: str, encoder: EncodingMixin
+    ) -> None:
+        """Validate image normalization for pretrained vision-family identifiers."""
+        identifier = self._encoder_image_model_identifier(encoder)
+        if not identifier:
+            return
+        if "dinov3" in identifier:
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="DINOv3 backbone",
+                required_norm_types={ImageNormalizationType.IMAGENET.value},
+                requirement_description="ImageNet normalization",
+                suggestion="'imagenet'",
+            )
+        if "clip" in identifier and "siglip" not in identifier:
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="CLIP image backbone",
+                required_norm_types={ImageNormalizationType.CLIP.value},
+                requirement_description="CLIP normalization",
+                suggestion="'clip'",
+            )
+        if any(
+            model_family in identifier
+            for model_family in ("siglip", "paligemma", "smolvlm", "idefics")
+        ):
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="SigLIP image backbone",
+                required_norm_types={ImageNormalizationType.MINUS_ONE_TO_ONE.value},
+                requirement_description="minus-one-to-one normalization",
+                suggestion="'minus_one_to_one'",
+            )
+
+    def _require_image_norm_type(
+        self,
+        encoder_name: str,
+        model_description: str,
+        required_norm_types: set[str],
+        requirement_description: str,
+        suggestion: str,
+    ) -> None:
+        """Append an error when the configured image normalization is incompatible."""
+        if self.image_norm_type in required_norm_types:
+            return
+        self.errors.append(
+            f"Encoder '{encoder_name}' uses {model_description} which requires "
+            f"{requirement_description}, but image_norm_type is set to "
+            f"'{self.image_norm_type}'. Set it to {suggestion}."
+        )
 
     def validate_encoder_observation_consistency(self) -> None:
         """Validate that encoder inputs match available observations."""
@@ -136,16 +211,10 @@ class ExperimentValidator:
         configured_encoder_inputs = set()
         for encoder_name, encoder in self.encoding_pipeline.encoders.items():
             encoder: EncodingMixin
-            if (
-                hasattr(encoder, "backbone_name")
-                and "dinov3" in encoder.backbone_name.lower()
-                and self.image_norm_type != ImageNormalizationType.IMAGENET.value
-            ):
-                self.errors.append(
-                    f"Encoder '{encoder_name}' uses DINOv3 backbone which requires "
-                    f"ImageNet normalization, but image_norm_type is set to "
-                    f"'{self.image_norm_type}'. Set it to 'imagenet'."
-                )
+            self._validate_encoder_image_normalization(
+                encoder_name=encoder_name,
+                encoder=encoder,
+            )
 
             input_keys = encoder.input_specification.keys
             if isinstance(input_keys, str):
@@ -268,6 +337,87 @@ class ExperimentValidator:
                 f"This may indicate incorrect Hydra instantiation."
             )
 
+    def validate_stage_ordering(self) -> None:
+        """Validate stage names are unique and start epochs are strictly ordered.
+
+        Note:
+            Gaps between stages are allowed. Those epochs fall back to the cached
+            base regime at runtime.
+        """
+        stages = self.training_config.stages
+        names = [stage.name for stage in stages]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            self.errors.append(f"Training stage names must be unique: {duplicates}.")
+        for previous, current in zip(stages, stages[1:]):
+            if current.start_epoch <= previous.start_epoch:
+                self.errors.append(
+                    "training.stages must be listed in strictly increasing "
+                    "start_epoch order."
+                )
+                break
+        for previous, current in zip(stages, stages[1:]):
+            if (
+                previous.end_epoch is not None
+                and previous.end_epoch > current.start_epoch
+            ):
+                self.errors.append("training.stages intervals must not overlap.")
+                break
+
+    def validate_stage_group_references(self) -> None:
+        """Validate that every staged group name exists in the optimizer layout.
+
+        The reserved unmatched group is always considered available because
+        ``LightningPolicy`` injects it when building optimizer parameter groups.
+        """
+        available_groups = {OPTIMIZER_UNMATCHED_GROUPS_NAME}
+        available_groups.update(
+            group.name for group in self.training_config.optimizer.param_groups
+        )
+        for stage in self.training_config.stages:
+            referenced = (
+                set(stage.trainable_groups)
+                | set(stage.frozen_groups)
+                | set(stage.group_lrs)
+                | set(stage.group_weight_decays)
+            )
+            missing = sorted(referenced - available_groups)
+            if missing:
+                self.errors.append(
+                    f"Training stage '{stage.name}' references unknown optimizer "
+                    f"groups {missing}. Available groups: "
+                    f"{sorted(available_groups)}."
+                )
+
+    def validate_stage_loss_paths(self) -> None:
+        """Validate every staged ``loss_weights`` patch against the loss tree.
+
+        ``stage.loss_weights`` must be a nested partial tree compatible with
+        ``policy.loss_module.weights``. Unknown keys and dict/scalar shape
+        mismatches are rejected here so training fails before the callback ever
+        mutates runtime state.
+        """
+        loss_tree = self.loss.weights
+        uses_loss_weights = any(
+            stage.loss_weights for stage in self.training_config.stages
+        )
+        if uses_loss_weights and not loss_tree:
+            self.errors.append(
+                "training.stages declare loss_weights overrides but the loss "
+                "module exposes no tunable weights."
+            )
+            return
+        for stage in self.training_config.stages:
+            if not stage.loss_weights:
+                continue
+            try:
+                _merge_weights(
+                    existing_weights=loss_tree,
+                    override_weights=stage.loss_weights,
+                )
+            except (KeyError, TypeError) as exc:
+                self.errors.append(f"Training stage '{stage.name}' loss_weights: {exc}")
+
 
 def validate_experiment(config: MainConfig) -> None:
     """Validate experiment configuration from instantiated MainConfig.
@@ -298,5 +448,6 @@ def validate_experiment(config: MainConfig) -> None:
         tokenized_obs_keys=tokenized_obs_keys,
         image_norm_type=dataloader.image_norm_type,
         quantization_config=config.quantization,
+        training_config=config.training,
     )
     validator.validate_all(validate_loss_keys=config.experiment.validate_loss_keys)

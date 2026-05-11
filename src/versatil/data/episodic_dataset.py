@@ -110,13 +110,26 @@ class EpisodicDataset(data.Dataset):
             self._apply_downsampling(episode_mask, dataloader_config.downsample_factor)
             episode_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.episode_ends = self.replay_buffer.episode_ends[:]
+        trailing_padded_actions = dataloader_config.trailing_padded_actions
+        if trailing_padded_actions is None:
+            trailing_padded_actions = self.pred_horizon - 1
+        # Precomputed actions live in zarr at action_positions[t].
+        # On-the-fly actions additionally require action_positions[t]+1 to exist.
+        # Action backward shift is a "realtime hack" introduced by ACT to
+        # compensate for latency in sensor data recording, but defaults to 0.
+        next_position_slot = 0 if action_space.has_only_precomputed_actions else 1
+        sequence_length = (
+            self.obs_horizon
+            + self.pred_horizon
+            - 1
+            + next_position_slot
+            + self.action_backward_shift
+        )
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
-            sequence_length=self.obs_horizon
-            + self.pred_horizon
-            + self.action_backward_shift,
+            sequence_length=sequence_length,
             pad_before=0,
-            pad_after=self.pred_horizon - 1,
+            pad_after=trailing_padded_actions,
             episode_mask=episode_mask,
             key_first_k=dict.fromkeys(
                 observation_space.cameras.keys(),
@@ -260,6 +273,7 @@ class EpisodicDataset(data.Dataset):
         clamp_kinematics_range: bool = True,
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
+        action_sample_size: int = 2048,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Get normalizer and optionally tokenizer for this dataset.
 
@@ -273,6 +287,8 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
+            action_sample_size: Number of action rows to stash on the normalizer per
+                action key for downstream data-aware initialization. Set to 0 to disable.
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
@@ -296,6 +312,7 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range=clamp_kinematics_range,
             min_kinematics_std=min_kinematics_std,
             min_kinematics_range=min_kinematics_range,
+            action_sample_size=action_sample_size,
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(

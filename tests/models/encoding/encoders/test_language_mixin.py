@@ -179,7 +179,7 @@ class TestPadTextInputs:
         assert result_ids.shape[1] == 10
         assert result_mask is None
 
-    def test_none_mask_stays_none_on_pad(
+    def test_none_mask_marks_added_padding(
         self,
         language_mixin_factory: Callable[..., ConcreteLanguageEncoder],
         token_ids_factory: Callable[..., torch.Tensor],
@@ -190,7 +190,9 @@ class TestPadTextInputs:
             text_input_ids=token_ids, language_mask=None, max_length=10
         )
         assert result_ids.shape[1] == 10
-        assert result_mask is None
+        assert result_mask.shape == (2, 10)
+        assert not result_mask[:, :5].any()
+        assert result_mask[:, 5:].all()
 
 
 class TestBuildAttentionMask:

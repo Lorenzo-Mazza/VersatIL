@@ -1,0 +1,55 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+observations_metadata:
+  ${proprio_key:EE_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 2
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:PUSHT_BLOCK_POS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 2
+    slice_end: 4
+
+  ${proprio_key:PUSHT_BLOCK_ANGLE}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 4
+    slice_end: 5
+
+  ${proprio_key:PUSHT_KEYPOINTS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 18
+    is_numerical: true
+    needs_normalization: true
+    slice_start: 5
+    slice_end: 23
+
+  ${proprio_key:PUSHT_CONTACTS}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    is_numerical: true
+    needs_normalization: false
+    slice_start: 23
+    slice_end: 24

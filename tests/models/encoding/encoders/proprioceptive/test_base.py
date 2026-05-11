@@ -50,6 +50,7 @@ def proprioceptive_encoder_factory() -> Callable[..., ProprioceptiveEncoder]:
         dropout: float = 0.0,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ) -> ProprioceptiveEncoder:
         return ProprioceptiveEncoder(
             input_keys=input_keys,
@@ -59,6 +60,7 @@ def proprioceptive_encoder_factory() -> Callable[..., ProprioceptiveEncoder]:
             dropout=dropout,
             pretrained=pretrained,
             frozen=frozen,
+            model_dtype=model_dtype,
         )
 
     return factory
@@ -301,3 +303,49 @@ class TestProprioceptiveEncoderGetOutputDims:
         encoder = proprioceptive_encoder_factory(output_dimension=128)
         output_dims = encoder.get_output_dims()
         assert output_dims == {EncoderOutputKeys.PROPRIOCEPTIVE.value: 128}
+
+
+class TestProprioceptiveEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_in_build_network(
+        self,
+        proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
+    ):
+        encoder = proprioceptive_encoder_factory(
+            hidden_dimensions=[32],
+            output_dimension=8,
+        )
+        with patch.object(ProprioceptiveEncoder, "_apply_model_dtype") as mock_apply:
+            encoder._build_network(input_dim=7)
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_deferred_mlp_build_respects_model_dtype(
+        self,
+        proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
+        proprioceptive_input_factory: Callable[..., dict[str, torch.Tensor]],
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = proprioceptive_encoder_factory(
+            hidden_dimensions=[32, 16],
+            output_dimension=8,
+            model_dtype=model_dtype,
+        )
+        assert encoder.network is None
+        inputs = proprioceptive_input_factory(
+            keys=["proprio_robot_frame"], input_dimension=7
+        )
+        inputs["proprio_robot_frame"] = inputs["proprio_robot_frame"].to(expected_dtype)
+        encoder(inputs)
+        assert encoder.network is not None
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype

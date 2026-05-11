@@ -62,7 +62,7 @@ observations:
     needs_normalization: false
 
 precomputed_actions:
-  ${obs_key:PHASE_LABEL}:
+  ${tso_obs_key:PHASE_LABEL}:
     _target_: versatil.data.metadata.PrecomputedActionMetadata
     raw_data_column_keys: [task_phase]
     dtype: uint8

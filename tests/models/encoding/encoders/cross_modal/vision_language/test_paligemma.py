@@ -87,10 +87,7 @@ def paligemma_encoder_factory(
         use_embeddings_only: bool = False,
     ) -> PaliGemmaEncoder:
         if input_keys is None:
-            input_keys = [
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ]
+            input_keys = [Cameras.LEFT.value]
         mock_config = _create_mock_config()
         mock_vlm = mock_vlm_factory()
 
@@ -179,15 +176,8 @@ class TestPaliGemmaEncoderInitialization:
     @pytest.mark.parametrize(
         "input_keys, expected_camera_count",
         [
-            ([Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value], 1),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2,
-            ),
+            ([Cameras.LEFT.value], 1),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2),
         ],
     )
     @pytest.mark.parametrize("frozen", [True, False])
@@ -211,6 +201,7 @@ class TestPaliGemmaEncoderInitialization:
         assert encoder.num_image_tokens_per_camera == NUM_IMAGE_TOKENS
         assert len(encoder.camera_keys) == expected_camera_count
         assert encoder.input_specification.requires_tokenized is True
+        assert SampleKey.IS_PAD_OBSERVATION.value in encoder.input_specification.keys
         assert encoder.use_embeddings_only is use_embeddings_only
         if frozen:
             for parameter in encoder.parameters():
@@ -222,15 +213,8 @@ class TestPaliGemmaEncoderForward:
     @pytest.mark.parametrize(
         "input_keys, num_cameras",
         [
-            ([Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value], 1),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2,
-            ),
+            ([Cameras.LEFT.value], 1),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2),
         ],
     )
     def test_output_shape_scales_with_cameras_and_time(
@@ -317,6 +301,27 @@ class TestPaliGemmaEncoderForward:
             expected_seq_length,
             HIDDEN_DIM,
         )
+
+    def test_language_model_attention_mask_marks_auto_padded_text_tokens(
+        self,
+        paligemma_encoder_factory: Callable[..., PaliGemmaEncoder],
+        paligemma_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        sequence_length = 5
+        encoder = paligemma_encoder_factory()
+        _setup_mock_vlm_for_batch(encoder, batch_size)
+        inputs = paligemma_input_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+        )
+        encoder(inputs=inputs)
+        attention_mask = encoder.vlm.language_model.call_args.kwargs["attention_mask"]
+        image_attention = attention_mask[:, :NUM_IMAGE_TOKENS]
+        text_attention = attention_mask[:, NUM_IMAGE_TOKENS:]
+        assert image_attention.all()
+        assert text_attention[:, :sequence_length].all()
+        assert not text_attention[:, sequence_length:].any()
 
     def test_different_images_produce_different_vision_tower_inputs(
         self,
@@ -497,18 +502,8 @@ class TestPaliGemmaEncoderGetOutputSpecification:
     @pytest.mark.parametrize(
         "input_keys, expected_total_image_tokens",
         [
-            (
-                [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-                NUM_IMAGE_TOKENS,
-            ),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2 * NUM_IMAGE_TOKENS,
-            ),
+            ([Cameras.LEFT.value], NUM_IMAGE_TOKENS),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2 * NUM_IMAGE_TOKENS),
         ],
     )
     def test_fused_dimension_scales_with_cameras(

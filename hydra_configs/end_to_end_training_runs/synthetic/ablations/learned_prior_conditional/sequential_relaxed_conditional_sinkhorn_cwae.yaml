@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/synthetic/ablations/learned_prior_conditional/relaxed_conditional_sinkhorn_cwae
+  - /synthetic_presets: sequential
+  - _self_
+
+policy:
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 2
+    prior:
+      latent_dimension: 2

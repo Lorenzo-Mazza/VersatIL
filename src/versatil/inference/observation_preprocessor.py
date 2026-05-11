@@ -22,7 +22,7 @@ class ObservationPreprocessor:
     def __init__(
         self,
         camera_keys: list[str],
-        proprioceptive_keys: list[str],
+        state_keys: list[str],
         has_language: bool,
         camera_metadata: dict[str, CameraMetadata],
         compression_type: str = CompressionType.RAW.value,
@@ -33,7 +33,7 @@ class ObservationPreprocessor:
 
         Args:
             camera_keys: Camera observation keys (RGB + optional depth).
-            proprioceptive_keys: Proprioceptive observation keys.
+            state_keys: Numerical non-image observation keys.
             has_language: Whether language instructions are expected.
             camera_metadata: Per-camera metadata with training-time image dimensions.
             compression_type: Compression format used by the server for images.
@@ -41,7 +41,7 @@ class ObservationPreprocessor:
             depth_clamp_range: Optional (min, max) for depth clamping.
         """
         self.camera_keys = camera_keys
-        self.proprioceptive_keys = proprioceptive_keys
+        self.state_keys = state_keys
         self.has_language = has_language
         self.compression_type = compression_type
         self.rotate_images = rotate_images
@@ -67,7 +67,7 @@ class ObservationPreprocessor:
         Returns:
             Dict mapping environment index to observation dict.
         """
-        observation_keys = self.camera_keys + self.proprioceptive_keys
+        observation_keys = self.camera_keys + self.state_keys
         if self.has_language:
             observation_keys = observation_keys + [ObsKey.LANGUAGE.value]
         missing_keys = [key for key in observation_keys if key not in response]
@@ -100,7 +100,7 @@ class ObservationPreprocessor:
             if self.rotate_images:
                 image = np.ascontiguousarray(image[::-1, ::-1])
             observations[camera_key] = image
-        for key in self.proprioceptive_keys:
+        for key in self.state_keys:
             observations[key] = np.array(response[key], dtype=np.float32)
         if self.has_language:
             observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value]
@@ -117,7 +117,7 @@ class ObservationPreprocessor:
         Returns:
             Dict mapping each environment index to observation dict.
         """
-        observation_keys = self.camera_keys + self.proprioceptive_keys
+        observation_keys = self.camera_keys + self.state_keys
         if self.has_language:
             observation_keys = observation_keys + [ObsKey.LANGUAGE.value]
         first_observation_key = next(
@@ -136,7 +136,7 @@ class ObservationPreprocessor:
                 if self.rotate_images:
                     image = np.ascontiguousarray(image[::-1, ::-1])
                 observations[camera_key] = image
-            for key in self.proprioceptive_keys:
+            for key in self.state_keys:
                 observations[key] = np.array(
                     response[key][index_string], dtype=np.float32
                 )

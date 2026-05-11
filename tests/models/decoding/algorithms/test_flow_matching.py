@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
@@ -154,7 +153,7 @@ class TestFlowMatchingInitialization:
         assert fm.max_timestep == max_timestep
         assert fm.reverse_flow_convention == reverse_flow_convention
         assert fm.predicts_in_action_space is False
-        assert isinstance(fm.flow_matcher, ConditionalFlowMatcher)
+        assert fm.flow_matcher.sigma == sigma
 
     @pytest.mark.parametrize(
         "ode_solver, expectation",

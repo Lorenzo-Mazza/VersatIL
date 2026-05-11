@@ -1,0 +1,25 @@
+defaults:
+  - base
+
+num_epochs: 2000
+gradient_accumulate_every: 1
+
+optimizer:
+  target_class: "torch.optim.AdamW"
+  lr: 5.0e-4
+  weight_decay: 2e-2
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  param_groups:
+    - name: backbone
+      lr: 1.0e-5
+      weight_decay: 1.0e-3
+      params_pattern: "encoding_pipeline.encoders.*.backbone"
+
+clip_gradient_norm: true
+clip_max_norm: 10.0
+lr_schedule: null
+lr_warmup_steps: 0
+use_ema: false
+swa_lrs: null
+early_stopping_patience: 100

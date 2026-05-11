@@ -1,0 +1,86 @@
+# @package _global_
+# Kitchen RGB-only behavioral cloning Action Transformer with large capacity.
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: kitchen
+  - /task/dataloader: kitchen_rgb
+  - /task/action_space: kitchen_precomputed
+  - /task/observation_space: kitchen_rgb
+  - /training: default
+  - /policy/encoding_pipeline: kitchen_rgb
+  - /policy/decoder: action_transformer
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: regression_synthetic
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: kitchen_9d
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+  dataloader:
+    val_ratio: 0.05
+    preload_data_in_memory: true
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:kitchen}
+  checkpoint_every: 100
+  save_checkpoints: true
+  use_wandb: true
+
+training:
+  num_epochs: 1000
+  early_stopping_patience: null
+  clip_gradient_norm: false
+  lr_schedule: null
+  use_ema: true
+  optimizer:
+    lr: 5.0e-4
+    param_groups:
+      - name: backbone
+        lr: 1.0e-5
+        weight_decay: 1.0e-3
+        params_pattern: encoding_pipeline.encoders.*.backbone
+  stages: []
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:KITCHEN_ARM_ACTION}
+        mse_weight: 0.0
+        l1_weight: 1.0
+        huber_weight: 0.0
+      trajectory_length:
+        weight: 0.0
+        action_key: ${proprio_key:KITCHEN_ARM_ACTION}
+
+  encoding_pipeline:
+    encoders:
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+
+  decoder:
+    input_keys:
+      - left_rgb
+    embedding_dimension: 256
+    number_of_heads: 8
+    feedforward_dimension: 1024
+    number_of_layers: 8
+    dropout_rate: 0.1
+    attention_dropout: 0.01
+    activation: ${activation_function:RELU}

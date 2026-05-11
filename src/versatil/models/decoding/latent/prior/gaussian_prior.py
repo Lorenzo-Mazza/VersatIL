@@ -61,10 +61,15 @@ class GaussianPrior(PriorLatentEncoder):
 
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Forward pass for a fixed Gaussian prior, returning zero mu and unit logvar."""
+        if target_latents is None:
+            raise ValueError(
+                "GaussianPrior.forward() requires target_latents to infer "
+                "shape. Use sample_prior() for unconditional sampling."
+            )
         mu = torch.zeros_like(target_latents, device=self._device_tracker.device)
         logvar = torch.zeros_like(target_latents, device=self._device_tracker.device)
         z = torch.randn(

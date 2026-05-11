@@ -3,12 +3,13 @@
 This module defines what data an experiment uses at runtime:
 """
 
+from versatil_constants.tso import TSOObsKey
+
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.data.constants import (
     VALID_CAMERAS,
     ActionComputationMethod,
-    ObsKey,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -22,6 +23,7 @@ from versatil.data.metadata import (
     PositionActionMetadata,
     PositionObservationMetadata,
     PrecomputedActionMetadata,
+    ProprioceptiveObservationMetadata,
 )
 from versatil.data.raw.schemas.base import DatasetSchema
 
@@ -171,6 +173,11 @@ class ActionSpace:
         return len(self.precomputed_actions) > 0
 
     @property
+    def has_only_precomputed_actions(self) -> bool:
+        """Check if every action in the space is precomputed (no on-the-fly computation)."""
+        return self.has_precomputed_actions and not self.has_on_the_fly_actions
+
+    @property
     def has_delta_actions(self) -> bool:
         """Check if any actions are computed as deltas."""
         return any(
@@ -196,7 +203,7 @@ class ActionSpace:
     @property
     def task_has_phases(self) -> bool:
         """Check if the task has phase labels."""
-        return ObsKey.PHASE_LABEL.value in self.actions_metadata
+        return TSOObsKey.PHASE_LABEL.value in self.actions_metadata
 
     def get_required_zarr_keys(self) -> list[str]:
         """Get zarr keys needed for this action space.
@@ -261,24 +268,21 @@ class ObservationSpace:
     @property
     def proprioceptive_observations(
         self,
-    ) -> dict[
-        str,
-        PositionObservationMetadata
-        | OrientationObservationMetadata
-        | GripperObservationMetadata,
-    ]:
-        """Get all proprioceptive observations (position, orientation, gripper)."""
+    ) -> dict[str, ProprioceptiveObservationMetadata]:
+        """Get robot proprioceptive observations (position, orientation, gripper)."""
         return {
             k: v
             for k, v in self.observations_metadata.items()
-            if isinstance(
-                v,
-                (
-                    PositionObservationMetadata,
-                    OrientationObservationMetadata,
-                    GripperObservationMetadata,
-                ),
-            )
+            if isinstance(v, ProprioceptiveObservationMetadata)
+        }
+
+    @property
+    def numerical_observations(self) -> dict[str, ObservationMetadata]:
+        """Get all numerical non-image observations."""
+        return {
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(v, ObservationMetadata) and v.is_numerical
         }
 
     @property
@@ -288,14 +292,7 @@ class ObservationSpace:
             k: v
             for k, v in self.observations_metadata.items()
             if isinstance(v, ObservationMetadata)
-            and not isinstance(
-                v,
-                (
-                    PositionObservationMetadata,
-                    OrientationObservationMetadata,
-                    GripperObservationMetadata,
-                ),
-            )
+            and not isinstance(v, ProprioceptiveObservationMetadata)
         }
 
     @property

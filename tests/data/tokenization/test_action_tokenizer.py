@@ -548,6 +548,29 @@ class TestActionTokenizerDecodeChunk:
         call_args = tokenizer.fast_processor.decode.call_args[0][0]
         assert call_args == [[10, 20, 30]]
 
+    def test_decode_chunk_preserves_valid_zero_tokens_before_eos(
+        self, action_tokenizer_factory
+    ):
+        tokenizer = action_tokenizer_factory(pad_token_id=0)
+        eos_id = tokenizer.eos_token_id
+        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
+        tokenizer.fast_processor.decode.return_value = decoded_array
+        tokens = torch.tensor([0, 10, 0, 20, eos_id, 0])
+        tokenizer.decode_chunk(tokens)
+        call_args = tokenizer.fast_processor.decode.call_args[0][0]
+        assert call_args == [[0, 10, 0, 20]]
+
+    def test_decode_chunk_only_strips_trailing_pad_tokens_without_eos(
+        self, action_tokenizer_factory
+    ):
+        tokenizer = action_tokenizer_factory(pad_token_id=0)
+        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
+        tokenizer.fast_processor.decode.return_value = decoded_array
+        tokens = torch.tensor([0, 10, 0, 20, 0, 0])
+        tokenizer.decode_chunk(tokens)
+        call_args = tokenizer.fast_processor.decode.call_args[0][0]
+        assert call_args == [[0, 10, 0, 20]]
+
     def test_decode_chunk_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         tokenizer.fast_processor = None
@@ -608,6 +631,18 @@ class TestActionTokenizerDecodeBatch:
         call_args = tokenizer.fast_processor.decode.call_args[0][0]
         assert call_args[0] == [10, 20]
         assert call_args[1] == [30]
+
+    def test_decode_batch_preserves_valid_zero_tokens(self, action_tokenizer_factory):
+        tokenizer = action_tokenizer_factory(pad_token_id=0)
+        eos_id = tokenizer.eos_token_id
+        tokenizer.fast_processor.decode.return_value = np.zeros(
+            (2, 5, 7), dtype=np.float32
+        )
+        tokens = torch.tensor([[0, 20, eos_id, 0], [30, 0, 40, 0]])
+        tokenizer.decode_batch(tokens)
+        call_args = tokenizer.fast_processor.decode.call_args[0][0]
+        assert call_args[0] == [0, 20]
+        assert call_args[1] == [30, 0, 40]
 
     def test_decode_batch_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()

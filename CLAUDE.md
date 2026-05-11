@@ -120,6 +120,12 @@ python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
     task.dataloader.batch_size=64 training.optimizer.lr=1e-4
 
+# Override a defaults list entry (e.g. swap dataset schema)
+# Use slash syntax (group override), NOT dot syntax (value override)
+python -m versatil.endpoints.train \
+    --config-name end_to_end_training_runs/synthetic/action_transformer \
+    task/dataset_schema=synthetic/conditional_circle
+
 # Resume from checkpoint
 python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
@@ -213,7 +219,21 @@ Where:
 
 **Validation** happens at Policy instantiation: the encoding pipeline's output features are checked against `DecoderInput.validate_feature_types()`, ensuring all required features are available and have compatible types (spatial, flat, sequential). This catches configuration errors early, not during training.
 
-#### 2. Algorithm / Architecture / Loss Separation
+#### 2. Positional Encoding Contract
+
+All decoder factories and latent encoders follow a unified PE pattern:
+
+1. **`TransformerInputBuilder`** computes additive PE (spatial 2D sinusoidal, temporal learned, flat 1D) and returns `(input_tokens, pos_encodings, padding_mask)`.
+2. **Always pre-add**: `hidden_states = input_tokens + pos_encodings` before calling the transformer. This ensures cross-attention keys carry absolute position information regardless of the transformer's internal PE setting.
+3. **`positional_encoding_type`** on the transformer controls self-attention PE only:
+   - `None`: no internal PE (additive-only from step 2).
+   - `rope`: RoPE applied to Q/K in self-attention layers, on top of the pre-added additive PE.
+   - `sinusoidal` or `learned`: an extra absolute PE is added inside the transformer.
+4. **Cross-attention** never applies RoPE. Keys get position info solely from the pre-added additive PE. This avoids position-space collisions between query and key sequences.
+
+When implementing a new decoder factory: always pre-add `pos_encodings` from the input builder, and pass `positional_encoding_type` through to the transformer constructor.
+
+#### 3. Algorithm / Architecture / Loss Separation
 
 **Algorithm** defines the learning paradigm (how to train/predict):
 - Behavioral Cloning: direct supervision
@@ -233,7 +253,7 @@ Decoder(
 )
 ```
 
-#### 3. Variational Inference Pattern (NEW)
+#### 4. Variational Inference Pattern (NEW)
 
 **VariationalAlgorithm** provides compositional variational inference for multi-modal action prediction.
 
@@ -301,7 +321,7 @@ The old variational APIs have been **completely removed** (no deprecation warnin
 
 All algorithms are now **pure** (no latent variables). Use `VariationalAlgorithm` wrapper for variational inference.
 
-#### 4. Observation and Action Spaces
+#### 5. Observation and Action Spaces
 
 **TaskConfig** defines what data the experiment uses at runtime:
 
@@ -320,7 +340,7 @@ All algorithms are now **pure** (no latent variables). Use `VariationalAlgorithm
 - Whether task has phases (for PhaseACT)
 - Returns required Zarr keys and total action dimension
 
-#### 5. Data Pipeline Flow
+#### 6. Data Pipeline Flow
 
 ```
 Raw Episodes (CSV)
@@ -342,7 +362,7 @@ Raw Episodes (CSV)
 - **ActionProcessor** (`src/versatil/data/processing/action_processor.py`): Computes actions from proprioceptive data
 - **Normalizer** (`src/versatil/data/normalization/normalizer.py`): Per-key min-max normalization
 
-#### 6. Hydra Configuration System
+#### 7. Hydra Configuration System
 
 Configs use OmegaConf with variable interpolation:
 
@@ -360,7 +380,7 @@ Use `hydra.utils.instantiate()` to build objects from configs:
 encoder = instantiate(encoder_config)
 ```
 
-#### 7. Inference Architecture
+#### 8. Inference Architecture
 
 The inference package connects trained policies to environments (simulation or real robot) via pluggable transports.
 
@@ -395,7 +415,7 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 - `tso-robotics-sockets`: Generic socket transport + protocol keys (`ServerRoute`, `InferenceRequestKey`, etc.)
 - `versatil-constants`: Shared domain constants (`ActionComponent`, `ActionMetadataField`, `TSOCamera`, `ObsKey`, etc.)
 
-#### 8. Post-Training Compression
+#### 9. Post-Training Compression
 
 The post-training compression (PTC) package reduces model size and improves CPU inference efficiency for deployment on edge or resource-constrained hardware, without retraining.
 

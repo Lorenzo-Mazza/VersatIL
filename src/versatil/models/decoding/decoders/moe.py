@@ -128,17 +128,22 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         mixing_probabilities = self.compute_routing_weights(
             gating_feature
         )  # (B, num_experts)
-        features.pop(gating_key)
+        expert_features = {
+            key: value for key, value in features.items() if key != gating_key
+        }
         expert_outputs = [None] * len(self.expert_decoders)
-        if torch.cuda.is_available() and features[next(iter(features))].is_cuda:
+        if (
+            torch.cuda.is_available()
+            and expert_features[next(iter(expert_features))].is_cuda
+        ):
             streams = [torch.cuda.Stream() for _ in self.expert_decoders]
             for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
                 with torch.cuda.stream(stream):
-                    expert_outputs[i] = expert(features, actions)
+                    expert_outputs[i] = expert(expert_features, actions)
             torch.cuda.synchronize()
         else:
             for i, expert in enumerate(self.expert_decoders):
-                expert_outputs[i] = expert(features, actions)
+                expert_outputs[i] = expert(expert_features, actions)
         combined_outputs = self._combine_expert_outputs(
             expert_outputs=expert_outputs, weights=mixing_probabilities
         )

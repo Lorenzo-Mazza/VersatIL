@@ -1,5 +1,6 @@
 """Tests for versatil.models.layers.transformer.attention.precomputed_joint_attention module."""
 
+import re
 import unittest.mock
 from collections.abc import Callable
 
@@ -78,6 +79,22 @@ class TestPrecomputedPrimaryJointAttentionInitialization:
     ):
         attention = precomputed_joint_attention_factory()
         assert attention.output_projection_primary.SQUARE_ROOT_WEIGHT is True
+
+    def test_invalid_default_head_dimension_raises(
+        self,
+        precomputed_joint_attention_factory: Callable[
+            ..., PrecomputedPrimaryJointAttention
+        ],
+    ):
+        error_message = (
+            "secondary_embedding_dimension (26) must be divisible by "
+            "number_of_heads (4) when head_dimension is not provided."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            precomputed_joint_attention_factory(
+                secondary_embedding_dimension=26,
+                number_of_heads=4,
+            )
 
 
 class TestPrecomputedPrimaryJointAttentionForward:
@@ -275,3 +292,33 @@ class TestPrecomputedPrimaryJointAttentionForward:
                 positional_encoding_primary=unittest.mock.MagicMock(),
             )
         assert not torch.allclose(output_no_rope, output_with_rope)
+
+    def test_missing_precomputed_secondary_queries_raises(
+        self,
+        precomputed_joint_attention_factory: Callable[
+            ..., PrecomputedPrimaryJointAttention
+        ],
+        conditioning_cache_factory: Callable[..., ConditioningLayerCache],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        attention = precomputed_joint_attention_factory()
+        conditioning_cache = conditioning_cache_factory(
+            batch_size=2,
+            number_of_key_value_heads=NUMBER_OF_HEADS,
+            memory_length=6,
+            head_dimension=HEAD_DIMENSION,
+        )
+        primary = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+        error_message = (
+            "conditioning_cache.queries must be provided for precomputed "
+            "joint attention."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            attention(
+                conditioning_cache=conditioning_cache,
+                hidden_states_primary=primary,
+            )

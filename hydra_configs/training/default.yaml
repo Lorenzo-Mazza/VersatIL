@@ -34,3 +34,5 @@ compile_mode: ${compile_mode:DEFAULT}
 tune_lr: false  # Automatically find optimal learning rate
 
 early_stopping_patience: 200
+
+stages: []

@@ -1,5 +1,6 @@
 """Base classes for loss computation and metrics tracking."""
 
+import abc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -8,6 +9,8 @@ import torch
 import torch.nn as nn
 
 from versatil.metrics.constants import MetricKey
+
+type WeightsDictionary = dict[str, float | WeightsDictionary]
 
 
 @dataclass
@@ -66,28 +69,77 @@ class LossOutput:
             metadata={**self.metadata, **other.metadata},
         )
 
-    def scale(self, factor: float) -> "LossOutput":
-        """Scale all losses by a constant factor.
 
-        Args:
-            factor: Scaling factor
+def _merge_weights(
+    existing_weights: WeightsDictionary,
+    override_weights: WeightsDictionary,
+) -> WeightsDictionary:
+    """Deep-merge ``override_weights`` onto ``existing_weights``.
 
-        Returns:
-            New LossOutput with scaled losses
-        """
-        return LossOutput(
-            total_loss=self.total_loss * factor,
-            component_losses={k: v * factor for k, v in self.component_losses.items()},
-            metadata=self.metadata,
-        )
+    Every key in ``override_weights`` must exist in ``existing_weights`` at
+    the matching depth; unknown keys raise ``KeyError``. Structure mismatches
+    (dict subtree replaced by scalar, or scalar replaced by dict) raise
+    ``TypeError``.
+    """
+    merged = existing_weights
+    for key, value in override_weights.items():
+        if key not in existing_weights:
+            raise KeyError(
+                f"Unknown weight key {key!r}; available: {sorted(existing_weights)}."
+            )
+        current = existing_weights[key]
+        if isinstance(current, dict):
+            if not isinstance(value, dict):
+                raise TypeError(
+                    f"Weight override for {key!r} expects a dict subtree, got "
+                    f"{type(value).__name__}."
+                )
+            merged[key] = _merge_weights(
+                existing_weights=current, override_weights=value
+            )
+            continue
+        if isinstance(value, dict):
+            raise TypeError(
+                f"Weight override for {key!r} expects a scalar, got a dict subtree."
+            )
+        merged[key] = value
+    return merged
 
 
 class BaseLoss(nn.Module, ABC):
     """Abstract base class for loss computation modules.
 
-    All loss modules should inherit from this class and implement the forward method.
-    Loss modules can be composed together to create complex loss functions.
+    Subclasses override ``weights`` and ``set_weights`` to expose their
+    tunable scalars.
     """
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Current public weight structure. Default: no tunables."""
+        return {}
+
+    def _validate_weights(self, new_weights: WeightsDictionary) -> None:
+        """Require ``new_weights`` to have exactly the keys of ``self.weights``."""
+        expected = set(self.weights.keys())
+        received = set(new_weights.keys())
+        if expected != received:
+            missing = sorted(expected - received)
+            extra = sorted(received - expected)
+            raise KeyError(
+                f"{type(self).__name__}.set_weights: missing={missing}, extra={extra}."
+            )
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Replace the full weight structure for this node."""
+        self._validate_weights(new_weights)
+
+    def update_weights(self, override_weights: WeightsDictionary) -> None:
+        """Apply a partial override by merging onto the current structure."""
+        self.set_weights(
+            _merge_weights(
+                existing_weights=self.weights, override_weights=override_weights
+            )
+        )
 
     @property
     def requires_action_space_targets(self) -> bool:
@@ -133,6 +185,22 @@ class BaseLoss(nn.Module, ABC):
             Set of target dictionary keys required by this loss
         """
         raise NotImplementedError
+
+
+class ScalarWeightedLoss(BaseLoss, abc.ABC):
+    """A ``BaseLoss`` with exactly one tunable scalar weight stored as ``self.weight``."""
+
+    weight: float
+
+    @property
+    def weights(self) -> WeightsDictionary:
+        """Getter that returns dictionary with weight keys and scalar coefficients."""
+        return {"weight": self.weight}
+
+    def set_weights(self, new_weights: WeightsDictionary) -> None:
+        """Setter that updates the weight scalar coefficients."""
+        self._validate_weights(new_weights)
+        self.weight = new_weights["weight"]
 
 
 def reduce_loss_with_padding(

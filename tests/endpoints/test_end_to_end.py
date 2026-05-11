@@ -41,6 +41,8 @@ COMMON_OVERRIDES = [
     "task.dataloader.num_workers=1",
     "task.dataloader.val_ratio=0.0",
     "training.num_epochs=1",
+    "training.optimizer.param_groups=[]",
+    "training.stages=[]",
     "experiment.use_wandb=false",
     "experiment.name=e2e_test",
     f"experiment.device={E2E_DEVICE.type}",
@@ -58,9 +60,10 @@ def _create_synthetic_zarr(
     zarr_path: str,
     dataset_type: str,
     rng: np.random.Generator,
+    timesteps_per_episode: int = TIMESTEPS_PER_EPISODE,
 ) -> None:
     spec = DATASET_SPECS[dataset_type]
-    total_timesteps = NUM_EPISODES * TIMESTEPS_PER_EPISODE
+    total_timesteps = NUM_EPISODES * timesteps_per_episode
 
     store = zarr.storage.LocalStore(zarr_path)
     root = zarr.open_group(store=store, mode="w")
@@ -90,7 +93,7 @@ def _create_synthetic_zarr(
             )
 
     episode_ends = np.array(
-        [(i + 1) * TIMESTEPS_PER_EPISODE for i in range(NUM_EPISODES)],
+        [(i + 1) * timesteps_per_episode for i in range(NUM_EPISODES)],
         dtype=np.int64,
     )
     meta_group.create_array(
@@ -101,6 +104,7 @@ def _create_synthetic_zarr(
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "config_name",
     E2E_CONFIGS,
@@ -121,6 +125,9 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
         zarr_path=zarr_path,
         dataset_type=dataset_type,
         rng=rng,
+        timesteps_per_episode=80
+        if dataset_type == "synthetic"
+        else TIMESTEPS_PER_EPISODE,
     )
 
     decoder_overrides = build_tiny_overrides(config_name)

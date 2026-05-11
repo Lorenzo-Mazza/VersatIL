@@ -113,6 +113,38 @@ def tiny_hidden_factory(rng: np.random.Generator) -> Callable[..., torch.Tensor]
 
 
 class TestGenerativeVLMStaticMethods:
+    def test_build_additive_attention_mask_maps_masked_entries_to_min_value(self):
+        attention_mask = torch.tensor(
+            [[[[False, True, False], [False, False, True]]]],
+            dtype=torch.bool,
+        )
+        result = GenerativeVLMEncoder.build_additive_attention_mask(
+            attention_mask=attention_mask,
+            dtype=torch.float32,
+        )
+        expected = torch.zeros_like(attention_mask, dtype=torch.float32)
+        expected = expected.masked_fill(attention_mask, torch.finfo(torch.float32).min)
+        torch.testing.assert_close(result, expected)
+
+    def test_build_additive_attention_mask_returns_none_when_all_entries_valid(self):
+        attention_mask = torch.zeros(2, 1, 4, 4, dtype=torch.bool)
+        result = GenerativeVLMEncoder.build_additive_attention_mask(
+            attention_mask=attention_mask,
+            dtype=torch.float32,
+        )
+        assert result is None
+
+    def test_build_additive_attention_mask_rejects_non_float_dtype(self):
+        attention_mask = torch.ones(1, 1, 1, 1, dtype=torch.bool)
+        with pytest.raises(
+            ValueError,
+            match="dtype must be floating point, got torch.int64.",
+        ):
+            GenerativeVLMEncoder.build_additive_attention_mask(
+                attention_mask=attention_mask,
+                dtype=torch.int64,
+            )
+
     @pytest.mark.integration
     def test_compute_rope_unsqueezes_for_head_broadcast(
         self,

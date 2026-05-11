@@ -32,9 +32,6 @@ from versatil.models.layers.transformer.layer.decoder_layer import (
     TransformerDecoderLayer,
 )
 from versatil.models.layers.transformer.masking import create_full_padding_mask
-from versatil.models.layers.transformer.positional_encoding import (
-    create_positional_encoding,
-)
 from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
 
 
@@ -61,6 +58,23 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
         normalization_epsilon: float = 1e-6,
         autoregressive: bool = True,
     ):
+        """Initialize a decoder layer with midpoint latent K/V conditioning.
+
+        Args:
+            embedding_dimension: Decoder hidden dimension.
+            number_of_heads: Number of query attention heads.
+            latent_dim: Dimension of the one-hot latent code.
+            number_of_key_value_heads: Number of key/value heads for GQA.
+            feedforward_dimension: Feedforward hidden dimension.
+            dropout: Residual dropout probability.
+            attention_dropout: Attention dropout probability.
+            activation: Feedforward activation name.
+            normalization_type: Normalization type name.
+            attention_type: Attention implementation name.
+            bias: Whether linear projections use bias.
+            normalization_epsilon: Epsilon for normalization layers.
+            autoregressive: Whether self-attention uses autoregressive caching.
+        """
         super().__init__(
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
@@ -113,10 +127,25 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
         residual = hidden_states
         hidden_states, gate = normalization(x=hidden_states, condition=None)
         if latent is not None:
+            if latent.dim() != 3:
+                raise ValueError(
+                    f"latent must have shape (B, T, latent_dim), got {latent.shape}."
+                )
+            if latent.shape[-1] != self.latent_proj.in_features:
+                raise ValueError(
+                    f"latent last dimension must be {self.latent_proj.in_features}, "
+                    f"got {latent.shape[-1]}."
+                )
+            latent = latent.to(device=hidden_states.device, dtype=hidden_states.dtype)
             projected_latent = self.latent_proj(latent)
             if projected_latent.shape[1] == 1 and hidden_states.shape[1] > 1:
                 projected_latent = projected_latent.expand(
                     -1, hidden_states.shape[1], -1
+                )
+            if projected_latent.shape[1] != hidden_states.shape[1]:
+                raise ValueError(
+                    "latent sequence length must be 1 or match hidden_states, got "
+                    f"{projected_latent.shape[1]} and {hidden_states.shape[1]}."
                 )
             kv_residual = residual + projected_latent
             norm_kv, _ = normalization(x=kv_residual, condition=None)
@@ -166,6 +195,23 @@ class FreeTransformerLatentEncoder(nn.Module):
         normalization_epsilon: float = 1e-6,
         use_global_latent: bool = False,
     ):
+        """Initialize the training posterior latent encoder.
+
+        Args:
+            embedding_dimension: Hidden dimension of mid-decoder features.
+            number_of_layers: Number of cross-attention encoder layers.
+            number_of_heads: Number of query attention heads.
+            number_of_key_value_heads: Number of key/value heads for GQA.
+            feedforward_dimension: Feedforward hidden dimension.
+            dropout: Residual dropout probability.
+            attention_dropout: Attention dropout probability.
+            activation: Feedforward activation name.
+            normalization_type: Normalization type name.
+            attention_type: Attention implementation name.
+            bias: Whether linear projections use bias.
+            normalization_epsilon: Epsilon for normalization layers.
+            use_global_latent: Whether to predict one latent for the sequence.
+        """
         super().__init__()
         self.learned_query = nn.Parameter(torch.randn(1, 1, embedding_dimension))
         layer = TransformerDecoderLayer(
@@ -208,11 +254,15 @@ class FreeTransformerLatentEncoder(nn.Module):
         Returns:
             Output target tensor with shape (B, T, embedding_dimension), representing latent embeddings.
         """
-        B, T, D = mid_features.shape
+        batch_size, sequence_length, _ = mid_features.shape
         if self.use_global_latent:
-            target = self.learned_query.expand(B, 1, -1)  # (B, 1, embedding_dimension)
+            target = self.learned_query.expand(
+                batch_size, 1, -1
+            )  # (B, 1, embedding_dimension)
         else:
-            target = self.learned_query.expand(B, T, -1)  # (B, T, embedding_dimension)
+            target = self.learned_query.expand(
+                batch_size, sequence_length, -1
+            )  # (B, T, embedding_dimension)
         if mid_features_mask is not None:
             # Expand (B, T) -> (B, 1, 1, T) for broadcast in cross-attn (Q=T, K=T)
             mid_features_mask = mid_features_mask.unsqueeze(1).unsqueeze(2)
@@ -261,13 +311,55 @@ class FreeTransformer(TransformerMixin, nn.Module):
         normalization_epsilon: float = 1e-6,
         initializer_range: float = 0.02,
     ):
+        """Initialize the Free Transformer.
+
+        Args:
+            latent_bits: Number of binary latent bits.
+            latent_dim: Optional explicit latent dimension. Must equal
+                ``2 ** latent_bits`` when provided.
+            number_of_decoder_layers: Number of autoregressive decoder layers.
+            number_of_encoder_layers: Number of latent encoder layers.
+            embedding_dimension: Transformer hidden dimension.
+            number_of_heads: Number of query attention heads.
+            number_of_key_value_heads: Number of key/value heads for GQA.
+            feedforward_dimension: Feedforward hidden dimension.
+            dropout: Residual dropout probability.
+            attention_dropout: Attention dropout probability.
+            attention_type: Attention implementation name.
+            activation: Feedforward activation name.
+            normalization_type: Normalization type name.
+            positional_encoding_type: Optional positional encoding type.
+            maximum_sequence_length: Maximum sequence length for positional encoding.
+            bias: Whether linear projections use bias.
+            use_global_latent: Whether to sample one latent for the sequence.
+            normalization_epsilon: Epsilon for normalization layers.
+            initializer_range: Standard deviation for weight initialization.
+
+        Raises:
+            ValueError: If layer counts or latent dimensions are invalid.
+        """
         super().__init__()
 
-        latent_dim = latent_dim or (
-            1 << latent_bits
-        )  # bitwise left-shift operator, equivalent to 2 ** latent_bits
-        if number_of_decoder_layers % 2 != 0:
-            raise ValueError("number_of_layers must be even")
+        if latent_bits <= 0:
+            raise ValueError(f"latent_bits must be positive, got {latent_bits}.")
+        expected_latent_dim = 1 << latent_bits
+        if latent_dim is None:
+            latent_dim = expected_latent_dim
+        elif latent_dim != expected_latent_dim:
+            raise ValueError(
+                f"latent_dim must equal 2 ** latent_bits ({expected_latent_dim}), "
+                f"got {latent_dim}."
+            )
+        if number_of_decoder_layers <= 0 or number_of_decoder_layers % 2 != 0:
+            raise ValueError(
+                "number_of_decoder_layers must be a positive even integer, "
+                f"got {number_of_decoder_layers}."
+            )
+        if number_of_encoder_layers < 0:
+            raise ValueError(
+                "number_of_encoder_layers must be non-negative, "
+                f"got {number_of_encoder_layers}."
+            )
 
         self.number_of_decoder_layers = number_of_decoder_layers
         self.number_of_encoder_layers = number_of_encoder_layers
@@ -278,26 +370,24 @@ class FreeTransformer(TransformerMixin, nn.Module):
         self.number_of_heads = number_of_heads
         self.maximum_sequence_length = maximum_sequence_length
         self.initializer_range = initializer_range
-        if attention_type == AttentionType.GROUPED_QUERY.value:
-            if number_of_key_value_heads is None:
-                raise ValueError("number_of_key_value_heads required for GQA")
-            self.number_of_key_value_heads = number_of_key_value_heads
-        else:
-            self.number_of_key_value_heads = number_of_heads
-
-        self.head_dimension = embedding_dimension // number_of_heads
-        self.positional_encoding = None
-        if positional_encoding_type is not None:
-            self.positional_encoding = create_positional_encoding(
-                encoding_type=positional_encoding_type,
+        self.number_of_key_value_heads, self.head_dimension = (
+            self._resolve_attention_dimensions(
                 embedding_dimension=embedding_dimension,
-                maximum_length=maximum_sequence_length,
-                num_heads=number_of_heads,
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                attention_type=attention_type,
             )
+        )
+        self._setup_positional_encoding(
+            positional_encoding_type=positional_encoding_type,
+            embedding_dimension=embedding_dimension,
+            maximum_sequence_length=maximum_sequence_length,
+            number_of_heads=number_of_heads,
+        )
         decoder_layer = TransformerDecoderLayer(
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
-            number_of_key_value_heads=number_of_key_value_heads,
+            number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=feedforward_dimension,
             dropout=dropout,
             attention_dropout=attention_dropout,
@@ -319,7 +409,7 @@ class FreeTransformer(TransformerMixin, nn.Module):
                         embedding_dimension=embedding_dimension,
                         number_of_heads=number_of_heads,
                         latent_dim=latent_dim,
-                        number_of_key_value_heads=number_of_key_value_heads,
+                        number_of_key_value_heads=self.number_of_key_value_heads,
                         feedforward_dimension=feedforward_dimension,
                         dropout=dropout,
                         attention_dropout=attention_dropout,
@@ -336,14 +426,14 @@ class FreeTransformer(TransformerMixin, nn.Module):
         self.final_normalization = create_normalization_layer(
             normalization_type=normalization_type,
             dimension=embedding_dimension,
-            epsilon=1e-6,
+            epsilon=normalization_epsilon,
         )
         self.latent_encoder = FreeTransformerLatentEncoder(
             embedding_dimension=embedding_dimension,
             number_of_layers=number_of_encoder_layers,
             number_of_heads=number_of_heads,
             normalization_type=normalization_type,
-            number_of_key_value_heads=number_of_key_value_heads,
+            number_of_key_value_heads=self.number_of_key_value_heads,
             dropout=dropout,
             attention_dropout=attention_dropout,
             activation=activation,
@@ -430,7 +520,8 @@ class FreeTransformer(TransformerMixin, nn.Module):
             If return_latent_embeddings is True, also returns latent embeddings with shape (B, query_len, D).
 
         Note:
-            If self.use_global_latent is True, bit logits, latent codes and latent embeddings have all shape (B, 1, D).
+            If self.use_global_latent is True, bit logits, latent codes and
+            latent embeddings use one sequence position.
         """
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
@@ -499,9 +590,9 @@ class FreeTransformer(TransformerMixin, nn.Module):
                 device=device,
                 dtype=torch.long,
             )
-            latent_codes = F.one_hot(
-                uniform_indices, num_classes=self.latent_dim
-            ).float()  # (B, query_length or 1, 2^H)
+            latent_codes = F.one_hot(uniform_indices, num_classes=self.latent_dim).to(
+                dtype=mid_features.dtype
+            )  # (B, query_length or 1, 2^H)
             bit_logits = None
 
         # Forward pass through latent-conditioned mid decoder layer

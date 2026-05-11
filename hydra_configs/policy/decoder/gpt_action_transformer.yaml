@@ -18,12 +18,12 @@ number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 1024
 number_of_layers: 4
-activation: ${activation_function:SWIGLU}
+activation: ${activation_function:RELU}
 normalization_type: ${normalization:RMS_NORM}
-attention_type: ${attention:GROUPED_QUERY}
-dropout_rate: 0.2
+attention_type: ${attention:MULTI_HEAD}
+dropout_rate: 0.1
 attention_dropout: 0.1
-positional_encoding_type: ${pos_encoding:ROPE}
+positional_encoding_type: ${pos_encoding:SINUSOIDAL}
 temperature: 10.0
 learnable_temperature: true
 deterministic: true

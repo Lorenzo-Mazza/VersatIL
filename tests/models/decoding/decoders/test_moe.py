@@ -399,7 +399,7 @@ class TestMoEDecoderForward:
         routing_weights = outputs[DecoderOutputKey.ROUTING_WEIGHTS.value]
         assert routing_weights.shape == (BATCH_SIZE, num_experts)
 
-    def test_pops_gating_key_from_features(
+    def test_forward_does_not_mutate_features(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
@@ -414,7 +414,7 @@ class TestMoEDecoderForward:
         )
         assert GATING_FEATURE_KEY in features
         decoder(features=features, actions=None)
-        assert GATING_FEATURE_KEY not in features
+        assert GATING_FEATURE_KEY in features
 
     @pytest.mark.parametrize(
         "routing_type",

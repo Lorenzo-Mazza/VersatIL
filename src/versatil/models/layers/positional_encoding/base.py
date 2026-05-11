@@ -117,6 +117,15 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
             batch_size = input_tensor.size(0)
             seq_len = input_tensor.size(1)
             if self.precompute_encodings:
+                if (
+                    self.maximum_length is not None
+                    and offset + seq_len > self.maximum_length
+                ):
+                    raise ValueError(
+                        f"Requested positions [{offset}, {offset + seq_len}) exceed "
+                        f"precomputed maximum_length {self.maximum_length}. "
+                        f"Increase maximum_length."
+                    )
                 encodings = self.precomputed_encodings[
                     :, offset : offset + seq_len, :
                 ]  # [1, seq_len, embedding_dimension]

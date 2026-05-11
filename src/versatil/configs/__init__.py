@@ -5,6 +5,7 @@ from pathlib import Path
 
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
+from versatil_constants.tso import TSOObsKey
 
 from versatil.configs.data.augmentations import AugmentationPipelineConfig
 from versatil.configs.data.dataloader import DataLoaderConfig
@@ -25,6 +26,7 @@ from versatil.configs.data.raw import (
     DatasetSchemaConfig,
     Hdf5DatasetSchemaConfig,
     LeRobotDatasetSchemaConfig,
+    SyntheticDatasetSchemaConfig,
 )
 from versatil.configs.data.task import (
     ActionSpaceConfig,
@@ -71,13 +73,16 @@ from versatil.configs.decoding.decoder import (
     SmolVLADecoderConfig,
 )
 from versatil.configs.decoding.latent import (
+    CodebookPriorConfig,
     DiTPriorConfig,
     GaussianPriorConfig,
     PosteriorLatentEncoderConfig,
     PriorLatentEncoderConfig,
     PriorTransformerEncoderConfig,
+    UniformCodebookPriorConfig,
     VAETransformerEncoderConfig,
     VampPriorConfig,
+    VQPosteriorEncoderConfig,
 )
 from versatil.configs.encoding.encoder import (
     ConditionalCNNEncoderConfig,
@@ -110,6 +115,7 @@ from versatil.configs.loss import (
     BinaryKLDivergenceLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
     CompositeLossConfig,
+    ConditionalMaximumMeanDiscrepancyLossConfig,
     GaussianEntropyLossConfig,
     GaussianMixtureNLLossConfig,
     GripperLossConfig,
@@ -120,11 +126,15 @@ from versatil.configs.loss import (
     MoELossConfig,
     OptimalTransportLossConfig,
     PhaseClassificationLossConfig,
+    PosteriorGeometryLossConfig,
     PriorDenoisingLossConfig,
     RegressionLossConfig,
+    RelaxedConditionalLatentOptimalTransportLossConfig,
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
     VICLatentLossConfig,
+    VQCommitmentLossConfig,
+    VQPriorCrossEntropyLossConfig,
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
@@ -151,8 +161,10 @@ from versatil.configs.training import (
     ParameterGroupConfig,
     SGDConfig,
     TrainingConfig,
+    TrainingStageConfig,
 )
 from versatil.data.constants import (
+    ActionComputationMethod,
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
@@ -160,21 +172,25 @@ from versatil.data.constants import (
     GripperType,
     ImageNormalizationType,
     KinematicsNormalizationType,
+    MetadataPassthroughSource,
     ObsKey,
     OrientationRepresentation,
     ProprioKey,
     RawCameraKey,
     SampleKey,
+    SyntheticObsKey,
     TokenizerType,
     TokenPaddingStrategy,
 )
+from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import (
-    DecoderOutputKey,
     DenoisingAlgorithm,
     DiTType,
+    GMMInitStrategy,
     LatentKey,
+    MixtureSamplingMode,
     MoERoutingType,
     TimeConditioning,
 )
@@ -182,8 +198,10 @@ from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     ImageTextModelType,
     LanguageEncoderType,
+    PaliGemmaModelType,
     PoolingMethod,
     RGBBackboneType,
+    SmolVLMModelType,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
@@ -208,6 +226,7 @@ __all__ = [
     "TrainingConfig",
     "OptimizerConfig",
     "ParameterGroupConfig",
+    "TrainingStageConfig",
     "TaskSpaceConfig",
     "PolicyConfig",
     "EncoderConfig",
@@ -253,6 +272,7 @@ __all__ = [
     "SpatialFusionConfig",
     "CompositeLossConfig",
     "VICLatentLossConfig",
+    "PosteriorGeometryLossConfig",
     "RegressionLossConfig",
     "BaseLossConfig",
     "GripperLossConfig",
@@ -273,7 +293,34 @@ __all__ = [
     "StructuredPrunerConfig",
     "UnstructuredPrunerConfig",
     "X86InductorBackendConfig",
+    "SyntheticDatasetSchemaConfig",
 ]
+
+
+def _stage_split_epoch(num_epochs: int | float | str, fraction: float | str) -> int:
+    """Resolve a valid epoch boundary for two-stage training configs.
+
+    Args:
+        num_epochs: Total number of configured training epochs.
+        fraction: Fraction of training budget assigned before the split.
+
+    Returns:
+        Integer epoch where the second stage should start.
+
+    Raises:
+        ValueError: If ``num_epochs`` is not positive or ``fraction`` is outside
+            the open interval ``(0, 1)``.
+    """
+    total_epochs = int(float(num_epochs))
+    split_fraction = float(fraction)
+    if total_epochs <= 0:
+        raise ValueError(f"num_epochs must be positive, got {num_epochs}.")
+    if split_fraction <= 0.0 or split_fraction >= 1.0:
+        raise ValueError(f"fraction must be in (0, 1), got {fraction}.")
+    if total_epochs == 1:
+        return 1
+    split_epoch = int(total_epochs * split_fraction)
+    return min(max(split_epoch, 1), total_epochs - 1)
 
 
 def register_resolvers():
@@ -292,6 +339,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("orientation"):
         OmegaConf.register_new_resolver(
             "orientation", lambda name: OrientationRepresentation[name].value
+        )
+    if not OmegaConf.has_resolver("action_computation"):
+        OmegaConf.register_new_resolver(
+            "action_computation", lambda name: ActionComputationMethod[name].value
         )
     if not OmegaConf.has_resolver("rgb_backbone"):
         OmegaConf.register_new_resolver(
@@ -320,6 +371,14 @@ def register_resolvers():
     if not OmegaConf.has_resolver("vlm_model"):
         OmegaConf.register_new_resolver(
             "vlm_model", lambda name: ImageTextModelType[name].value
+        )
+    if not OmegaConf.has_resolver("smolvlm_model"):
+        OmegaConf.register_new_resolver(
+            "smolvlm_model", lambda name: SmolVLMModelType[name].value
+        )
+    if not OmegaConf.has_resolver("paligemma_model"):
+        OmegaConf.register_new_resolver(
+            "paligemma_model", lambda name: PaliGemmaModelType[name].value
         )
     if not OmegaConf.has_resolver("activation_function"):
         OmegaConf.register_new_resolver(
@@ -391,6 +450,11 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "metadata_key", lambda name: MetadataKey[name].value
         )
+    if not OmegaConf.has_resolver("metadata_passthrough_source"):
+        OmegaConf.register_new_resolver(
+            "metadata_passthrough_source",
+            lambda name: MetadataPassthroughSource[name].value,
+        )
     if not OmegaConf.has_resolver("dit_type"):
         OmegaConf.register_new_resolver("dit_type", lambda name: DiTType[name].value)
     if not OmegaConf.has_resolver("time_conditioning"):
@@ -409,9 +473,29 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "kernel_type", lambda name: KernelType[name].value
         )
+    if not OmegaConf.has_resolver("mixture_sampling"):
+        OmegaConf.register_new_resolver(
+            "mixture_sampling", lambda name: MixtureSamplingMode[name].value
+        )
+    if not OmegaConf.has_resolver("gmm_init"):
+        OmegaConf.register_new_resolver(
+            "gmm_init", lambda name: GMMInitStrategy[name].value
+        )
     if not OmegaConf.has_resolver("token_padding"):
         OmegaConf.register_new_resolver(
             "token_padding", lambda name: TokenPaddingStrategy[name].value
+        )
+    if not OmegaConf.has_resolver("synthetic_task"):
+        OmegaConf.register_new_resolver(
+            "synthetic_task", lambda name: SyntheticTaskName[name].value
+        )
+    if not OmegaConf.has_resolver("synthetic_obs_key"):
+        OmegaConf.register_new_resolver(
+            "synthetic_obs_key", lambda name: SyntheticObsKey[name].value
+        )
+    if not OmegaConf.has_resolver("tso_obs_key"):
+        OmegaConf.register_new_resolver(
+            "tso_obs_key", lambda name: TSOObsKey[name].value
         )
 
     if not OmegaConf.has_resolver("compile_mode"):
@@ -489,11 +573,70 @@ def register_resolvers():
                 Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
             ),
         )
+    if not OmegaConf.has_resolver("pusht_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "pusht_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_PUSHT_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("kitchen_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "kitchen_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_KITCHEN_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("block_pushing_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "block_pushing_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_DIR", "."))
+                / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("block_pushing_lerobot_abs_dir"):
+        OmegaConf.register_new_resolver(
+            "block_pushing_lerobot_abs_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR", "."))
+                / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("ant_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "ant_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_ANT_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("ur3_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "ur3_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_UR3_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
+    if not OmegaConf.has_resolver("multimodal_peg_transfer_dir"):
+        OmegaConf.register_new_resolver(
+            "multimodal_peg_transfer_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR", "."))
+                / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("prunable_layer"):
         OmegaConf.register_new_resolver(
             "prunable_layer",
             lambda name: PrunableLayerType[name].value,
         )
+    if not OmegaConf.has_resolver("mul"):
+        OmegaConf.register_new_resolver(
+            "mul",
+            lambda a, b: float(a) * float(b),
+        )
+    if not OmegaConf.has_resolver("stage_split_epoch"):
+        OmegaConf.register_new_resolver("stage_split_epoch", _stage_split_epoch)
 
 
 def register_configs():
@@ -558,6 +701,17 @@ def register_configs():
     cs.store(group="task/dataset_schema", name="base", node=DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="hdf5", node=Hdf5DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="csv", node=CsvDatasetSchemaConfig)
+    # Both groups needed: parent for e2e configs, subdirectory for standalone resolution
+    cs.store(
+        group="task/dataset_schema",
+        name="synthetic_schema",
+        node=SyntheticDatasetSchemaConfig,
+    )
+    cs.store(
+        group="task/dataset_schema/synthetic",
+        name="synthetic_schema",
+        node=SyntheticDatasetSchemaConfig,
+    )
     cs.store(group="task/dataloader", name="base", node=DataLoaderConfig)
     cs.store(
         group="task/dataloader/image_augmentations",
@@ -615,6 +769,21 @@ def register_configs():
     )
     cs.store(group="policy/algorithm/prior", name="vamp", node=VampPriorConfig)
     cs.store(
+        group="policy/algorithm/posterior",
+        name="vq_encoder",
+        node=VQPosteriorEncoderConfig,
+    )
+    cs.store(
+        group="policy/algorithm/prior",
+        name="uniform_codebook",
+        node=UniformCodebookPriorConfig,
+    )
+    cs.store(
+        group="policy/algorithm/prior",
+        name="codebook",
+        node=CodebookPriorConfig,
+    )
+    cs.store(
         group="policy/algorithm/prior",
         name="dit",
         node=DiTPriorConfig,
@@ -627,7 +796,23 @@ def register_configs():
     cs.store(group="policy/loss", name="entropy", node=GaussianEntropyLossConfig)
     cs.store(group="policy/loss", name="kl", node=KLDivergenceLossConfig)
     cs.store(group="policy/loss", name="vic_latent", node=VICLatentLossConfig)
+    cs.store(
+        group="policy/loss",
+        name="posterior_geometry",
+        node=PosteriorGeometryLossConfig,
+    )
+    cs.store(group="policy/loss", name="vq_commitment", node=VQCommitmentLossConfig)
+    cs.store(
+        group="policy/loss",
+        name="vq_prior_ce",
+        node=VQPriorCrossEntropyLossConfig,
+    )
     cs.store(group="policy/loss", name="mmd", node=MaximumMeanDiscrepancyLossConfig)
+    cs.store(
+        group="policy/loss",
+        name="conditional_mmd",
+        node=ConditionalMaximumMeanDiscrepancyLossConfig,
+    )
     cs.store(
         group="policy/loss",
         name="binary_mmd",
@@ -667,6 +852,11 @@ def register_configs():
         group="policy/loss",
         name="latent_optimal_transport",
         node=LatentOptimalTransportLossConfig,
+    )
+    cs.store(
+        group="policy/loss",
+        name="relaxed_conditional_latent_ot",
+        node=RelaxedConditionalLatentOptimalTransportLossConfig,
     )
     cs.store(
         group="policy/encoding_pipeline",

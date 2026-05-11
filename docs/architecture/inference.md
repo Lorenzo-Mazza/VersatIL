@@ -1,6 +1,6 @@
 # Inference Pipeline
 
-The VersatIL inference pipeline connects a trained policy to any environment server — real robot hardware, simulation, or custom setups. Communication is transport-agnostic: the `ObservationTransport` and `ActionTransport` Python protocols decouple the inference loop from the transport mechanism.
+The VersatIL inference pipeline connects a trained policy to any environment server — real robot hardware, simulation, or custom setups. Communication is transport-agnostic: the [`ObservationTransport`][versatil.inference.protocol.ObservationTransport] and [`ActionTransport`][versatil.inference.protocol.ActionTransport] Python protocols decouple the inference loop from the transport mechanism.
 
 The built-in ZMQ transport relies on our own PyPI packages:
 
@@ -38,7 +38,7 @@ class ActionTransport(Protocol):
 
 ### ZMQ Implementation
 
-The built-in `SocketObservationTransport` and `SocketActionTransport` use the `tso-robotics-sockets` package for ZMQ-based communication:
+The built-in [`SocketObservationTransport`][versatil.inference.socket_transport.SocketObservationTransport] and [`SocketActionTransport`][versatil.inference.socket_transport.SocketActionTransport] use the `tso-robotics-sockets` package for ZMQ-based communication:
 
 ```python
 class SocketObservationTransport:
@@ -49,11 +49,11 @@ The transport sends requests via `ServerRoute` enums (e.g., `GET_OBSERVATION`, `
 
 ### Custom Transports
 
-Any object satisfying the `ObservationTransport` or `ActionTransport` protocol can be used. This enables direct integration with custom environments without ZMQ overhead.
+Any object satisfying the [`ObservationTransport`][versatil.inference.protocol.ObservationTransport] or [`ActionTransport`][versatil.inference.protocol.ActionTransport] protocol can be used. This enables direct integration with custom environments without ZMQ overhead.
 
 ## Observation Preprocessing
 
-`ObservationPreprocessor` converts raw server responses into model-ready tensors.
+[`ObservationPreprocessor`][versatil.inference.observation_preprocessor.ObservationPreprocessor] converts raw server responses into model-ready tensors.
 
 ```python
 class ObservationPreprocessor:
@@ -88,7 +88,7 @@ Raw image data from the transport is decompressed using `tso_robotics_sockets.de
 
 The `transform_camera_observations()` method applies consistent transforms to all camera images per timestep:
 
-1. **Resize** -- All RGB and depth images are resized to per-camera dimensions from `CameraMetadata` via Albumentations
+1. **Resize** -- All RGB and depth images are resized to per-camera dimensions from [`CameraMetadata`][versatil.data.metadata.CameraMetadata] via Albumentations
 2. **RGB normalization** -- uint8 images are converted to float32 in `[0, 1]`
 3. **Depth clamping** -- Depth values are clamped to `[depth_min, depth_max]` derived from training normalizer statistics
 
@@ -104,7 +104,7 @@ def transform_camera_observations(
 
 ## Observation Buffering
 
-`ObservationBuffer` maintains a sliding window of observations per environment, accumulating timesteps until the required observation horizon is reached.
+[`ObservationBuffer`][versatil.inference.observation_buffer.ObservationBuffer] maintains a sliding window of observations per environment, accumulating timesteps until the required observation horizon is reached.
 
 ```python
 class ObservationBuffer:
@@ -119,7 +119,7 @@ The buffer enforces that all `required_keys` are present in every `add()` call. 
 
 ## Policy Loading
 
-`PolicyLoader` handles checkpoint loading, configuration resolution, tokenizer setup, and inference execution.
+[`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] handles checkpoint loading, configuration resolution, tokenizer setup, and inference execution.
 
 ```python
 class PolicyLoader:
@@ -154,16 +154,16 @@ Inference runs under `torch.autocast` with the configured precision and `torch.n
 
 ### Metadata Properties
 
-`PolicyLoader` exposes key metadata from the loaded checkpoint:
+[`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] exposes key metadata from the loaded checkpoint:
 
-- `denoising_thresholds` -- Per-action-key thresholds from training, used by `ActionPostprocessor`
-- `depth_clamp_range` -- Min/max depth values from the normalizer, used by `ObservationPreprocessor`
+- `denoising_thresholds` -- Per-action-key thresholds from training, used by [`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor]
+- `depth_clamp_range` -- Min/max depth values from the normalizer, used by [`ObservationPreprocessor`][versatil.inference.observation_preprocessor.ObservationPreprocessor]
 - `observation_space` / `action_space` -- The policy's task spaces
 - `prediction_horizon` / `observation_horizon` -- Temporal window sizes
 
 ## Compressed Policy Loading
 
-`CompressedPolicyLoader` loads quantized `.pt2` checkpoints produced by the [post-training compression pipeline](post_training_compression.md). It shares the same `run_inference()` interface as `PolicyLoader`, so `InferenceClient` works with either.
+[`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] loads quantized `.pt2` checkpoints produced by the [post-training compression pipeline](post_training_compression.md). It shares the same `run_inference()` interface as [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader], so [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either.
 
 ```python
 loader = CompressedPolicyLoader(
@@ -177,7 +177,7 @@ The loader reads compression metadata to determine the quantization strategy and
 
 ## Action Postprocessing
 
-`ActionPostprocessor` converts raw policy output tensors into structured action dictionaries for the server.
+[`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor] converts raw policy output tensors into structured action dictionaries for the server.
 
 ```python
 class ActionPostprocessor:
@@ -234,7 +234,7 @@ if threshold is not None and np.linalg.norm(value) < threshold:
 
 ## Temporal Aggregation
 
-`TemporalAggregator` performs exponential-weighted averaging of overlapping action predictions across timesteps. This smooths the output when multiple inference steps produce predictions for the same future timestep.
+[`TemporalAggregator`][versatil.inference.temporal_aggregation.TemporalAggregator] performs exponential-weighted averaging of overlapping action predictions across timesteps. This smooths the output when multiple inference steps produce predictions for the same future timestep.
 
 ```python
 class TemporalAggregator:
@@ -270,9 +270,9 @@ def store_and_average(
 !!! tip "When to Use Temporal Aggregation"
     Temporal aggregation reduces jitter in action execution at the cost of increased latency. It is most beneficial for tasks with smooth, continuous motions and less suitable for tasks requiring rapid discrete state changes.
 
-## InferenceClient
+## [`InferenceClient`][versatil.inference.inference_client.InferenceClient]
 
-`InferenceClient` orchestrates the full inference loop, managing multiple environments simultaneously.
+[`InferenceClient`][versatil.inference.inference_client.InferenceClient] orchestrates the full inference loop, managing multiple environments simultaneously.
 
 ```python
 class InferenceClient:
@@ -295,21 +295,21 @@ class InferenceClient:
 
 The `run_episode()` method first calls `observation_transport.register(client_name=...)` to register with the server, then executes steps until the server signals completion or `max_steps` is reached. Each `step()` performs:
 
-1. **Receive** -- Request observations from the server via `ObservationTransport`
+1. **Receive** -- Request observations from the server via [`ObservationTransport`][versatil.inference.protocol.ObservationTransport]
 2. **Status check** -- Handle server status (finished, error, processing, creating environment)
 3. **Reset handling** -- Reset per-environment state when the server signals environment resets
 4. **Parse** -- Convert raw response into per-environment observation dicts (decompress, rotate)
-5. **Buffer** -- Add parsed observations to per-environment `ObservationBuffer` instances
+5. **Buffer** -- Add parsed observations to per-environment [`ObservationBuffer`][versatil.inference.observation_buffer.ObservationBuffer] instances
 6. **Remove inactive environments** -- Remove environments no longer present in server responses via `_remove_inactive_environments()`
 7. **Transform** -- For ready buffers, apply camera transforms (resize, normalize, depth clamp) via `ObservationPreprocessor.transform_camera_observations()`
 8. **Infer** -- Batch transformed observations from all ready environments and run `PolicyLoader.run_inference()`
-9. **Aggregate** -- Optionally apply `TemporalAggregator` per environment
-10. **Postprocess** -- Format actions via `ActionPostprocessor`
-11. **Send** -- Transmit structured actions and metadata via `ActionTransport`
+9. **Aggregate** -- Optionally apply [`TemporalAggregator`][versatil.inference.temporal_aggregation.TemporalAggregator] per environment
+10. **Postprocess** -- Format actions via [`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor]
+11. **Send** -- Transmit structured actions and metadata via [`ActionTransport`][versatil.inference.protocol.ActionTransport]
 
 ### Multi-Environment Support
 
-The client maintains per-environment state (`EnvironmentState`) containing an `ObservationBuffer` and optional `TemporalAggregator`. Environments are:
+The client maintains per-environment state ([`EnvironmentState`][versatil.inference.inference_client.EnvironmentState]) containing an [`ObservationBuffer`][versatil.inference.observation_buffer.ObservationBuffer] and optional [`TemporalAggregator`][versatil.inference.temporal_aggregation.TemporalAggregator]. Environments are:
 
 - **Created** when first seen in a server response
 - **Updated** with each new observation
@@ -320,7 +320,7 @@ Inference batches observations from all environments with full buffers (`is_read
 
 ### Rate Limiting
 
-When `update_rate_hz` is set, the client sleeps after each step to maintain the target inference frequency. The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
+When `update_rate_hz` is set, the client sleeps after each action send to maintain the target environment update frequency. The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
 
 ## Simulation Servers
 
@@ -332,4 +332,4 @@ We provide custom ZMQ server wrappers for popular robot learning simulators, ena
 | [LIBERO+](https://github.com/sylvestf/LIBERO-plus) | [GitHub](https://github.com/sylvestf/LIBERO-plus) | Coming soon |
 | [MetaWorld](https://meta-world.github.io/) | [GitHub](https://github.com/Farama-Foundation/Metaworld) | Coming soon |
 
-The built-in ZMQ transport works for both simulation and real hardware. For custom environments, implement the `ObservationTransport` and `ActionTransport` protocols with any transport mechanism.
+The built-in ZMQ transport works for both simulation and real hardware. For custom environments, implement the [`ObservationTransport`][versatil.inference.protocol.ObservationTransport] and [`ActionTransport`][versatil.inference.protocol.ActionTransport] protocols with any transport mechanism.

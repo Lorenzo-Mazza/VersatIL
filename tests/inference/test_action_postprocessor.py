@@ -492,6 +492,27 @@ class TestBuildActionMetadata:
         assert ActionMetadataField.ORIENTATION_REPRESENTATION.value not in entry
         assert ActionMetadataField.ACTION_TYPE.value not in entry
 
+    def test_position_action_metadata_includes_configured_action_type(
+        self,
+        action_postprocessor_factory: Callable[..., ActionPostprocessor],
+        position_action_metadata_factory: Callable[..., PositionActionMetadata],
+    ):
+        position_meta = position_action_metadata_factory(
+            prediction_dimension=2,
+            computation_method=ActionComputationMethod.DELTA.value,
+        )
+        postprocessor = action_postprocessor_factory(
+            actions_metadata={"position_key": position_meta},
+        )
+
+        result = postprocessor.build_action_metadata()
+
+        entry = result[ActionComponent.POSITION.value]
+        assert (
+            entry[ActionMetadataField.ACTION_TYPE.value]
+            == ActionComputationMethod.DELTA.value
+        )
+
     def test_orientation_action_metadata_includes_representation_and_frame(
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
@@ -718,6 +739,25 @@ class TestAddActionTypeMetadata:
         )
 
         assert ActionMetadataField.ACTION_TYPE.value not in entry
+
+    def test_adds_computation_method_for_precomputed_position_metadata(
+        self,
+        position_action_metadata_factory: Callable[..., PositionActionMetadata],
+    ):
+        metadata = position_action_metadata_factory(
+            computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+        )
+        entry: dict[str, str | int] = {}
+
+        ActionPostprocessor._add_action_type_metadata(
+            action_meta=metadata,
+            entry=entry,
+        )
+
+        assert (
+            entry[ActionMetadataField.ACTION_TYPE.value]
+            == ActionComputationMethod.NEXT_TIMESTEP.value
+        )
 
 
 @pytest.mark.unit

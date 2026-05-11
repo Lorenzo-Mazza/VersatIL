@@ -3,21 +3,36 @@
 import torch
 from torch import nn
 
-from versatil.models.layers import ConditionalModulation
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.convolution.conv1d import Conv1dBlock
+from versatil.models.layers.modulation.conditional_modulation import (
+    ConditionalModulation,
+)
 
 
 class ConditionalResidualBlock1D(nn.Module):
+    """Conditioned residual block for 1D diffusion-policy feature maps."""
+
     def __init__(
         self,
-        input_channels,
-        output_channels,
-        condition_dimension,
-        kernel_size=3,
-        num_groups=8,
-        condition_predict_scale=False,
-    ):
+        input_channels: int,
+        output_channels: int,
+        condition_dimension: int,
+        kernel_size: int = 3,
+        num_groups: int = 8,
+        condition_predict_scale: bool = False,
+    ) -> None:
+        """Initialize the conditioned residual block.
+
+        Args:
+            input_channels: Number of input channels.
+            output_channels: Number of output channels.
+            condition_dimension: Dimension of the conditioning vector.
+            kernel_size: Convolution kernel size.
+            num_groups: Number of groups used by Conv1dBlock normalization.
+            condition_predict_scale: Whether conditioning predicts both scale
+                and shift instead of scale only.
+        """
         super().__init__()
         self.blocks = nn.ModuleList(
             [
@@ -35,6 +50,7 @@ class ConditionalResidualBlock1D(nn.Module):
             use_shift=condition_predict_scale,
             activation=ActivationFunction.MISH.value,
             init_strategy="zero",
+            feature_axis=1,
         )
         self.residual_convolution = (
             nn.Conv1d(input_channels, output_channels, 1)
@@ -44,12 +60,13 @@ class ConditionalResidualBlock1D(nn.Module):
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         """Forward pass of ConditionalResidualBlock1D.
+
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, input_channels, prediction horizon).
-            condition (torch.Tensor): Conditioning tensor of shape (batch_size, condition_dimension).
+            x: Input tensor of shape ``(batch_size, input_channels, prediction_horizon)``.
+            condition: Conditioning tensor of shape ``(batch_size, condition_dimension)``.
 
         Returns:
-            torch.Tensor: Output tensor of shape (batch_size, output_channels, prediction horizon).
+            Output tensor of shape ``(batch_size, output_channels, prediction_horizon)``.
         """
         out = self.blocks[0](x)
         out, _ = self.modulator(out, condition)

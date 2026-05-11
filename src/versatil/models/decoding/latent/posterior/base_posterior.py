@@ -5,6 +5,8 @@ import abc
 import torch
 import torch.nn as nn
 
+from versatil.models.decoding.constants import LatentKey
+
 
 class PosteriorLatentEncoder(nn.Module, abc.ABC):
     r"""Abstract base class for posterior encoders, used for modeling the conditional posterior `q_\phi(z|a,s)`.
@@ -48,6 +50,18 @@ class PosteriorLatentEncoder(nn.Module, abc.ABC):
                 Plus algorithm-specific outputs (e.g., mu, logvar for VAE)
         """
         raise NotImplementedError("encode() must be implemented by subclasses.")
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Return the set of keys this encoder adds to the predictions dict.
+
+        Base implementation returns keys common to Gaussian posteriors.
+        Subclasses override to add or remove keys.
+        """
+        return {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.POSTERIOR_LOGVAR.value,
+        }
 
     def forward(
         self,

@@ -239,6 +239,84 @@ class TestLatentConditionedDecoderLayerForward:
             )
         assert torch.allclose(output_single, output_expanded, atol=1e-5)
 
+    def test_two_dimensional_latent_raises(
+        self,
+        latent_conditioned_decoder_layer_factory: Callable[
+            ..., LatentConditionedDecoderLayer
+        ],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 32
+        latent_dim = 16
+        layer = latent_conditioned_decoder_layer_factory(
+            embedding_dimension=embedding_dimension,
+            latent_dim=latent_dim,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=embedding_dimension,
+        )
+        latent = torch.zeros(2, latent_dim)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"latent must have shape (B, T, latent_dim), got {latent.shape}."
+            ),
+        ):
+            layer(hidden_states=hidden_states, latent=latent)
+
+    def test_latent_sequence_length_mismatch_raises(
+        self,
+        latent_conditioned_decoder_layer_factory: Callable[
+            ..., LatentConditionedDecoderLayer
+        ],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 32
+        latent_dim = 16
+        layer = latent_conditioned_decoder_layer_factory(
+            embedding_dimension=embedding_dimension,
+            latent_dim=latent_dim,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=embedding_dimension,
+        )
+        latent = torch.zeros(2, 3, latent_dim)
+        error_message = (
+            "latent sequence length must be 1 or match hidden_states, got 3 and 4."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            layer(hidden_states=hidden_states, latent=latent)
+
+    def test_latent_dimension_mismatch_raises(
+        self,
+        latent_conditioned_decoder_layer_factory: Callable[
+            ..., LatentConditionedDecoderLayer
+        ],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 32
+        latent_dim = 16
+        wrong_latent_dim = 17
+        layer = latent_conditioned_decoder_layer_factory(
+            embedding_dimension=embedding_dimension,
+            latent_dim=latent_dim,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=embedding_dimension,
+        )
+        latent = torch.zeros(2, 4, wrong_latent_dim)
+        error_message = (
+            f"latent last dimension must be {latent_dim}, got {wrong_latent_dim}."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            layer(hidden_states=hidden_states, latent=latent)
+
 
 class TestFreeTransformerLatentEncoderInitialization:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
@@ -433,11 +511,43 @@ class TestFreeTransformerInitialization:
         self,
         free_transformer_factory: Callable[..., FreeTransformer],
     ):
+        number_of_decoder_layers = 5
         with pytest.raises(
             ValueError,
-            match=re.escape("number_of_layers must be even"),
+            match=re.escape(
+                "number_of_decoder_layers must be a positive even integer, "
+                f"got {number_of_decoder_layers}."
+            ),
         ):
-            free_transformer_factory(number_of_decoder_layers=5)
+            free_transformer_factory(number_of_decoder_layers=number_of_decoder_layers)
+
+    def test_raises_for_zero_decoder_layers(
+        self,
+        free_transformer_factory: Callable[..., FreeTransformer],
+    ):
+        number_of_decoder_layers = 0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "number_of_decoder_layers must be a positive even integer, "
+                f"got {number_of_decoder_layers}."
+            ),
+        ):
+            free_transformer_factory(number_of_decoder_layers=number_of_decoder_layers)
+
+    def test_raises_for_negative_encoder_layers(
+        self,
+        free_transformer_factory: Callable[..., FreeTransformer],
+    ):
+        number_of_encoder_layers = -1
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "number_of_encoder_layers must be non-negative, "
+                f"got {number_of_encoder_layers}."
+            ),
+        ):
+            free_transformer_factory(number_of_encoder_layers=number_of_encoder_layers)
 
     def test_raises_when_gqa_without_kv_heads(
         self,
@@ -473,12 +583,28 @@ class TestFreeTransformerInitialization:
         model = free_transformer_factory(latent_bits=latent_bits, latent_dim=None)
         assert model.latent_dim == 2**latent_bits
 
-    def test_latent_dim_override(
+    def test_matching_latent_dim_override_is_accepted(
         self,
         free_transformer_factory: Callable[..., FreeTransformer],
     ):
-        model = free_transformer_factory(latent_bits=4, latent_dim=128)
-        assert model.latent_dim == 128
+        latent_bits = 4
+        latent_dim = 2**latent_bits
+        model = free_transformer_factory(latent_bits=latent_bits, latent_dim=latent_dim)
+        assert model.latent_dim == latent_dim
+
+    def test_inconsistent_latent_dim_override_raises(
+        self,
+        free_transformer_factory: Callable[..., FreeTransformer],
+    ):
+        latent_bits = 4
+        latent_dim = 128
+        expected_latent_dim = 2**latent_bits
+        error_message = (
+            f"latent_dim must equal 2 ** latent_bits ({expected_latent_dim}), "
+            f"got {latent_dim}."
+        )
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            free_transformer_factory(latent_bits=latent_bits, latent_dim=latent_dim)
 
     def test_middle_layer_accepts_latent_conditioning(
         self,
@@ -571,6 +697,14 @@ class TestFreeTransformerInitialization:
         model = free_transformer_factory(latent_bits=latent_bits)
         assert model.binary_mapper.latent_bits == latent_bits
         assert model.binary_mapper.latent_dim == 2**latent_bits
+
+    def test_final_normalization_uses_configured_epsilon(
+        self,
+        free_transformer_factory: Callable[..., FreeTransformer],
+    ):
+        normalization_epsilon = 1e-4
+        model = free_transformer_factory(normalization_epsilon=normalization_epsilon)
+        assert model.final_normalization.eps == normalization_epsilon
 
     def test_latent_encoder_uses_configured_global_latent_mode(
         self,

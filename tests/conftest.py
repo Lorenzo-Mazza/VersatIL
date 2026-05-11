@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -28,8 +29,23 @@ from versatil.data.metadata import (
 )
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import LossOutput
+from versatil.models.policy import Policy
 
 MINIMUM_VRAM_GB = 8.0
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip ``@pytest.mark.requires_gpu`` tests when CUDA is unavailable."""
+    if torch.cuda.is_available():
+        return
+    skip_requires_gpu = pytest.mark.skip(
+        reason="requires CUDA; unavailable in this environment"
+    )
+    for item in items:
+        if "requires_gpu" in item.keywords:
+            item.add_marker(skip_requires_gpu)
 
 
 def get_test_device() -> torch.device:
@@ -138,6 +154,44 @@ def action_tensor_factory(
             (batch_size, sequence_length, action_dimension)
         ).astype(np.float32)
         return torch.from_numpy(data)
+
+    return factory
+
+
+@pytest.fixture
+def mock_policy_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
+    def factory(
+        prediction_horizon: int = 4,
+        observation_horizon: int = 1,
+        observations_metadata: dict | None = None,
+        predict_action_return: dict[str, torch.Tensor] | None = None,
+        named_parameters: list[tuple[str, torch.nn.Parameter]] | None = None,
+    ) -> MagicMock:
+        mock = MagicMock(spec=Policy)
+        mock.prediction_horizon = prediction_horizon
+        mock.observation_horizon = observation_horizon
+        mock.observation_space = MagicMock()
+        mock.observation_space.observations_metadata = (
+            observations_metadata if observations_metadata is not None else {}
+        )
+        if predict_action_return is not None:
+            mock.predict_action.return_value = predict_action_return
+
+        if named_parameters is None:
+            weight_data = torch.from_numpy(
+                rng.standard_normal((8, 4)).astype(np.float32)
+            )
+            bias_data = torch.from_numpy(rng.standard_normal((8,)).astype(np.float32))
+            weight = torch.nn.Parameter(weight_data)
+            bias = torch.nn.Parameter(bias_data)
+            named_parameters = [("layer.weight", weight), ("layer.bias", bias)]
+        all_parameters = [parameter for _, parameter in named_parameters]
+        mock.parameters.return_value = iter(all_parameters)
+        mock.named_parameters.return_value = iter(named_parameters)
+        mock_module = MagicMock()
+        mock_module.parameters.return_value = iter(all_parameters)
+        mock.modules.return_value = iter([mock_module])
+        return mock
 
     return factory
 
@@ -341,6 +395,7 @@ def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
         dtype: str = "float32",
         slice_start: int = None,
         slice_end: int = None,
+        computation_method: str = None,
     ) -> PositionActionMetadata:
         if raw_data_column_keys is None:
             raw_data_column_keys = ["x", "y", "z"][:prediction_dimension]
@@ -353,6 +408,7 @@ def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
             dtype=dtype,
             slice_start=slice_start,
             slice_end=slice_end,
+            computation_method=computation_method,
         )
 
     return factory

@@ -80,7 +80,7 @@ class InferenceClient:
             compression_type: Compression type for image data transfer.
             max_timesteps: Maximum episode length for temporal aggregation.
             timing_log: Whether to log per-step timing breakdown.
-            update_rate_hz: Target inference frequency in Hz.
+            update_rate_hz: Target action-send frequency in Hz.
         """
         self.policy_loader = policy_loader
         self.observation_transport = observation_transport
@@ -102,12 +102,8 @@ class InferenceClient:
         self.timestep = 0
         observation_space = policy_loader.observation_space
         action_space = policy_loader.action_space
-        self.camera_keys = list(observation_space.cameras.keys())
-        self.proprioceptive_keys = list(
-            observation_space.proprioceptive_observations.keys()
-        )
-        self.has_language = (
-            ObsKey.LANGUAGE.value in observation_space.observations_metadata
+        self.camera_keys, self.state_keys, self.has_language = (
+            self._bucket_observation_keys(observation_space=observation_space)
         )
         self.all_observation_keys = list(observation_space.observations_metadata.keys())
         self.action_keys_to_dimensions = {
@@ -117,7 +113,7 @@ class InferenceClient:
         }
         self.observation_preprocessor = ObservationPreprocessor(
             camera_keys=self.camera_keys,
-            proprioceptive_keys=self.proprioceptive_keys,
+            state_keys=self.state_keys,
             has_language=self.has_language,
             camera_metadata=policy_loader.observation_space.cameras,
             compression_type=compression_type,
@@ -134,6 +130,33 @@ class InferenceClient:
             "max_timesteps": max_timesteps,
         }
         self.environment_states: dict[int, EnvironmentState] = {}
+
+    @staticmethod
+    def _bucket_observation_keys(
+        observation_space: Any,
+    ) -> tuple[list[str], list[str], bool]:
+        """Bucket observation keys by metadata type.
+
+        Returns:
+            camera_keys: Keys whose metadata is `CameraMetadata`.
+            state_keys: Keys whose metadata is a numerical `ObservationMetadata`
+                (robot proprioception + any other non-image numerical state).
+            has_language: Whether the language instruction key is present.
+        """
+        camera_keys = list(observation_space.cameras.keys())
+        state_keys = list(observation_space.numerical_observations.keys())
+        has_language = ObsKey.LANGUAGE.value in observation_space.observations_metadata
+        covered = set(camera_keys) | set(state_keys)
+        if has_language:
+            covered.add(ObsKey.LANGUAGE.value)
+        unsupported = set(observation_space.observations_metadata.keys()) - covered
+        if unsupported:
+            raise TypeError(
+                f"Observations {sorted(unsupported)} have no inference dispatch; "
+                "expected CameraMetadata, numerical ObservationMetadata, or the "
+                f"language key '{ObsKey.LANGUAGE.value}'."
+            )
+        return camera_keys, state_keys, has_language
 
     def run_episode(self, max_steps: int) -> None:
         """Run a full inference episode.
@@ -206,6 +229,8 @@ class InferenceClient:
                     actions=step_actions,
                     action_metadata=action_metadata,
                 )
+                if self.update_rate_hz is not None:
+                    time.sleep(1.0 / self.update_rate_hz)
 
         if self.timing_log:
             postprocessing_duration = time.time() - postprocessing_start
@@ -222,9 +247,6 @@ class InferenceClient:
             )
 
         self.timestep += 1
-
-        if self.update_rate_hz is not None:
-            time.sleep(1.0 / self.update_rate_hz)
 
         return EpisodeStatus.CONTINUE.value
 
@@ -317,7 +339,7 @@ class InferenceClient:
 
     def _create_environment_state(self) -> EnvironmentState:
         """Create a new environment state with buffer and optional aggregator."""
-        buffer_keys = self.camera_keys + self.proprioceptive_keys
+        buffer_keys = self.camera_keys + self.state_keys
         if self.has_language:
             buffer_keys = buffer_keys + [ObsKey.LANGUAGE.value]
 
@@ -352,8 +374,8 @@ class InferenceClient:
         camera_batches: dict[str, list[torch.Tensor]] = {
             key: [] for key in self.camera_keys
         }
-        proprioceptive_batches: dict[str, list[torch.Tensor]] = {
-            key: [] for key in self.proprioceptive_keys
+        state_batches: dict[str, list[torch.Tensor]] = {
+            key: [] for key in self.state_keys
         }
         language_batch: list[list[str]] = []
 
@@ -371,11 +393,9 @@ class InferenceClient:
             for camera_key in self.camera_keys:
                 camera_batches[camera_key].append(camera_tensors[camera_key])
 
-            for key in self.proprioceptive_keys:
-                proprioceptive_tensor = torch.tensor(
-                    np.array(recent[key]), dtype=torch.float32
-                )
-                proprioceptive_batches[key].append(proprioceptive_tensor)
+            for key in self.state_keys:
+                state_tensor = torch.tensor(np.array(recent[key]), dtype=torch.float32)
+                state_batches[key].append(state_tensor)
 
             if self.has_language:
                 language_batch.append(recent[ObsKey.LANGUAGE.value])
@@ -386,8 +406,8 @@ class InferenceClient:
         observation_dict: dict[str, Any] = {}
         for camera_key in self.camera_keys:
             observation_dict[camera_key] = torch.stack(camera_batches[camera_key])
-        for key in self.proprioceptive_keys:
-            observation_dict[key] = torch.stack(proprioceptive_batches[key])
+        for key in self.state_keys:
+            observation_dict[key] = torch.stack(state_batches[key])
         if self.has_language:
             observation_dict[ObsKey.LANGUAGE.value] = language_batch
 

@@ -34,6 +34,7 @@ class LinearNormalizer(DictOfTensorMixin):
         clamp_range: bool = True,
         min_std: float = 2e-2,
         min_range: float = 4e-2,
+        sample_size: int | dict[str, int] = 0,
     ):
         """Fit normalization parameters to data.
 
@@ -50,9 +51,18 @@ class LinearNormalizer(DictOfTensorMixin):
             clamp_range: Whether to clamp std/range to minimum values.
             min_std: Minimum std value when clamp_range=True and mode='gaussian'.
             min_range: Minimum range value when clamp_range=True and mode='min_max'.
+            sample_size: Number of data rows to store as an empirical sample under
+                each key. Pass an int to use the same budget for every key, or a
+                ``{key: size}`` dict to store samples only for selected keys
+                (missing keys default to 0 = no sample stored).
         """
         if isinstance(data, dict):
             for key, value in data.items():
+                per_key_size = (
+                    sample_size.get(key, 0)
+                    if isinstance(sample_size, dict)
+                    else sample_size
+                )
                 self.params_dict[key] = _fit(
                     value,
                     last_n_dims=last_n_dims,
@@ -66,8 +76,14 @@ class LinearNormalizer(DictOfTensorMixin):
                     clamp_range=clamp_range,
                     min_std=min_std,
                     min_range=min_range,
+                    sample_size=per_key_size,
                 )
         else:
+            single_size = (
+                sample_size.get("_default", 0)
+                if isinstance(sample_size, dict)
+                else sample_size
+            )
             self.params_dict["_default"] = _fit(
                 data,
                 last_n_dims=last_n_dims,
@@ -81,6 +97,7 @@ class LinearNormalizer(DictOfTensorMixin):
                 clamp_range=clamp_range,
                 min_std=min_std,
                 min_range=min_range,
+                sample_size=single_size,
             )
 
     def __call__(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
@@ -239,6 +256,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         clamp_range: bool = True,
         min_std: float = 2e-2,
         min_range: float = 4e-2,
+        sample_size: int = 0,
     ):
         self.params_dict = _fit(
             data,
@@ -253,6 +271,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
             clamp_range=clamp_range,
             min_std=min_std,
             min_range=min_range,
+            sample_size=sample_size,
         )
 
     @classmethod
@@ -367,6 +386,22 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
             result["std"] = torch.abs(scale) * input_stats["std"]
         return result
 
+    def get_input_sample(self) -> torch.Tensor | None:
+        """Return the raw subsample stored at fit time, or ``None`` if absent.
+
+        Present only when ``fit(..., sample_size>0)`` was used.
+        """
+        if "sample" in self.params_dict:
+            return self.params_dict["sample"]
+        return None
+
+    def get_output_sample(self) -> torch.Tensor | None:
+        """Return the stored subsample in normalized output space, or ``None``."""
+        raw_sample = self.get_input_sample()
+        if raw_sample is None:
+            return None
+        return self.normalize(raw_sample)
+
     def __call__(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         return self.normalize(x)
 
@@ -384,6 +419,7 @@ def _fit(
     clamp_range: bool = True,
     min_std: float = 2e-2,
     min_range: float = 4e-2,
+    sample_size: int = 0,
 ) -> nn.ParameterDict:
     """Fit normalization parameters to data.
 
@@ -400,9 +436,15 @@ def _fit(
         clamp_range: Whether to clamp std/range to minimum values.
         min_std: Minimum std value when clamp_range=True and mode='gaussian'.
         min_range: Minimum range value when clamp_range=True and mode='min_max'.
+        sample_size: If > 0, store a random subsample of the flattened input data
+            under key ``sample`` in the returned ParameterDict. The sample
+            preserves the empirical distribution of the data and can be used
+            by downstream consumers that need density information, not just
+            marginal statistics (e.g. data-aware GMM init). The subsample is
+            drawn without replacement and capped at ``min(sample_size, N)``.
 
     Returns:
-        ParameterDict with scale, offset, and input_stats.
+        ParameterDict with scale, offset, input_stats, and optionally sample.
     """
     valid_modes = [mode_type.value for mode_type in KinematicsNormalizationType]
     if mode not in valid_modes:
@@ -487,6 +529,11 @@ def _fit(
             ),
         }
     )
+    if sample_size > 0:
+        n_rows = tensor_data.shape[0]
+        take = min(sample_size, n_rows)
+        indices = torch.randperm(n_rows, device=tensor_data.device)[:take]
+        parameters["sample"] = tensor_data[indices].clone().detach()
     for parameter in parameters.parameters():
         parameter.requires_grad_(False)
     return parameters

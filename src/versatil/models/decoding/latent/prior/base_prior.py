@@ -5,6 +5,8 @@ import abc
 import torch
 from torch import nn
 
+from versatil.models.decoding.constants import LatentKey
+
 
 class PriorLatentEncoder(nn.Module, abc.ABC):
     """Abstract base class for prior parametrizations over a latent space z, which can be either learned (through a NN)
@@ -34,7 +36,7 @@ class PriorLatentEncoder(nn.Module, abc.ABC):
     @abc.abstractmethod
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Compute prior predictions for training.
@@ -44,7 +46,8 @@ class PriorLatentEncoder(nn.Module, abc.ABC):
         loss computation. The actual loss is computed externally.
 
         Args:
-            target_latents: Clean latent samples, shape (B, latent_dim)
+            target_latents: Clean latent samples, shape (B, latent_dim), or
+                None when called from sample_prior() on learned priors.
                 These are sampled from the approximate posterior q_phi(z|a,s) and
                 should be detached to prevent gradients flowing twice to the approximate posterior.
             observations: Dictionary of conditioning features, typically the observations at current state.
@@ -54,6 +57,31 @@ class PriorLatentEncoder(nn.Module, abc.ABC):
             Keys depend on the specific prior type (e.g., "predicted_prior", "target_prior").
         """
         raise NotImplementedError
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Return the set of keys this prior adds to the predictions dict.
+
+        Base implementation returns keys common to Gaussian priors.
+        Subclasses override to add or remove keys.
+        """
+        return {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_MU.value,
+            LatentKey.PRIOR_LOGVAR.value,
+        }
+
+    def build_training_target(
+        self, posterior_output: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """Select and detach the posterior latent used to train this prior.
+
+        Args:
+            posterior_output: Posterior encoder output dictionary.
+
+        Returns:
+            Detached posterior sample used as the default prior target.
+        """
+        return posterior_output[LatentKey.POSTERIOR_LATENT.value].detach()
 
     @abc.abstractmethod
     def sample_prior(

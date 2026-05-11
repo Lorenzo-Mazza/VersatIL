@@ -2,6 +2,8 @@ import numpy as np
 import torch
 
 from versatil.data.constants import (
+    CLIP_RGB_MEAN,
+    CLIP_RGB_STD,
     IMAGENET_DEPTH_MEAN,
     IMAGENET_DEPTH_STD,
     IMAGENET_RGB_MEAN,
@@ -13,6 +15,21 @@ from versatil.data.normalization.normalizer import (
     SequentialNormalizer,
     SingleFieldLinearNormalizer,
 )
+
+_RGB_STANDARDIZATION_STATS = {
+    ImageNormalizationType.IMAGENET.value: (
+        np.array(IMAGENET_RGB_MEAN, dtype=np.float32),
+        np.array(IMAGENET_RGB_STD, dtype=np.float32),
+    ),
+    ImageNormalizationType.CLIP.value: (
+        np.array(CLIP_RGB_MEAN, dtype=np.float32),
+        np.array(CLIP_RGB_STD, dtype=np.float32),
+    ),
+}
+
+_RGB_ONLY_STANDARDIZATION_TYPES = {
+    ImageNormalizationType.CLIP.value,
+}
 
 
 def create_image_normalizer(
@@ -39,13 +56,28 @@ def create_image_normalizer(
         input_std: Standard deviation of input data (scalar or per-channel array)
         norm_type: Normalization type (from ImageNormalizationType or DepthNormalizationType)
         device: Target device for tensors
-        standardization_mean: Mean for optional second-stage standardization
-        standardization_std: Std for optional second-stage standardization
+        standardization_mean: Mean for optional second-stage standardization.
+            Defaults to pretrained RGB stats for CLIP normalization.
+        standardization_std: Std for optional second-stage standardization.
+            Defaults to pretrained RGB stats for CLIP normalization.
 
     Returns:
         SingleFieldLinearNormalizer for scaling, or SequentialNormalizer for scaling + standardization.
     """
     output_min, output_max = _get_output_range(norm_type)
+    if (standardization_mean is None) != (standardization_std is None):
+        raise ValueError(
+            "standardization_mean and standardization_std must be provided together"
+        )
+
+    if (
+        standardization_mean is None
+        and standardization_std is None
+        and norm_type in _RGB_ONLY_STANDARDIZATION_TYPES
+    ):
+        standardization_mean, standardization_std = _RGB_STANDARDIZATION_STATS[
+            norm_type
+        ]
 
     stage1 = _create_linear_scaling_normalizer(
         input_min=input_min,
@@ -64,12 +96,24 @@ def create_image_normalizer(
         scaled_std = _compute_scaled_values(
             input_std, input_min, input_max, output_min, output_max, is_std=True
         )
+        stage2_input_min = _broadcast_to_reference_shape(
+            output_min, standardization_mean
+        )
+        stage2_input_max = _broadcast_to_reference_shape(
+            output_max, standardization_mean
+        )
+        stage2_input_mean = _broadcast_to_reference_shape(
+            scaled_mean, standardization_mean
+        )
+        stage2_input_std = _broadcast_to_reference_shape(
+            scaled_std, standardization_mean
+        )
 
         stage2 = _create_standardization_normalizer(
-            input_min=output_min,
-            input_max=output_max,
-            input_mean=scaled_mean,
-            input_std=scaled_std,
+            input_min=stage2_input_min,
+            input_max=stage2_input_max,
+            input_mean=stage2_input_mean,
+            input_std=stage2_input_std,
             standardization_mean=standardization_mean,
             standardization_std=standardization_std,
             device=device,
@@ -86,23 +130,27 @@ def get_rgb_image_normalizer(
     """Create normalizer for RGB images in [0, 1] range.
 
     Assumes images have already been converted from uint8 to float32 via /255.
-    For IMAGENET type, applies per-channel normalization directly (no scaling needed).
+    For IMAGENET and CLIP types, applies per-channel standardization
+    directly without an additional scaling stage.
 
     Args:
-        norm_type: Type of normalization (ZERO_TO_ONE, MINUS_ONE_TO_ONE, IMAGENET)
+        norm_type: Type of normalization.
         device: Target device for tensors
 
     Returns:
         Configured normalizer
     """
-    if norm_type == ImageNormalizationType.IMAGENET.value:
+    if norm_type in _RGB_STANDARDIZATION_STATS:
+        standardization_mean, standardization_std = _RGB_STANDARDIZATION_STATS[
+            norm_type
+        ]
         return _create_standardization_normalizer(
             input_min=np.zeros(3, dtype=np.float32),
             input_max=np.ones(3, dtype=np.float32),
             input_mean=np.full(3, 0.5, dtype=np.float32),
             input_std=np.full(3, np.sqrt(1.0 / 12.0), dtype=np.float32),
-            standardization_mean=np.array(IMAGENET_RGB_MEAN, dtype=np.float32),
-            standardization_std=np.array(IMAGENET_RGB_STD, dtype=np.float32),
+            standardization_mean=np.array(standardization_mean, dtype=np.float32),
+            standardization_std=np.array(standardization_std, dtype=np.float32),
             device=device,
         )
 
@@ -145,6 +193,13 @@ def get_depth_image_normalizer(
     Returns:
         Configured normalizer
     """
+    if norm_type in {
+        ImageNormalizationType.CLIP.value,
+    }:
+        raise ValueError(
+            f"Depth normalization type '{norm_type}' is RGB-only. "
+            f"Use one of: {[ImageNormalizationType.ZERO_TO_ONE.value, ImageNormalizationType.MINUS_ONE_TO_ONE.value, ImageNormalizationType.IMAGENET.value]}"
+        )
     if norm_type == ImageNormalizationType.IMAGENET.value:
         standardization_mean = IMAGENET_DEPTH_MEAN
         standardization_std = IMAGENET_DEPTH_STD
@@ -225,6 +280,7 @@ def _get_output_range(norm_type: str) -> tuple[float, float]:
     if norm_type in [
         ImageNormalizationType.ZERO_TO_ONE.value,
         ImageNormalizationType.IMAGENET.value,
+        ImageNormalizationType.CLIP.value,
     ]:
         return 0.0, 1.0
     elif norm_type == ImageNormalizationType.MINUS_ONE_TO_ONE.value:
@@ -265,6 +321,17 @@ def _to_tensor(
         tensor = tensor.to(device)
 
     return tensor
+
+
+def _broadcast_to_reference_shape(
+    value: float | np.ndarray,
+    reference: float | np.ndarray,
+) -> float | np.ndarray:
+    """Broadcast scalar stats to match per-channel standardization stats."""
+    reference_array = np.asarray(reference)
+    if reference_array.ndim == 0:
+        return value
+    return np.broadcast_to(value, reference_array.shape).astype(np.float32)
 
 
 def _create_linear_scaling_normalizer(

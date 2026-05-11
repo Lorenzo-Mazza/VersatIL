@@ -75,13 +75,73 @@ class TestCachedAttentionInitialization:
 
 
 class TestCachedAttentionValidation:
+    @pytest.mark.parametrize(
+        (
+            "number_of_heads, number_of_key_value_heads, head_dimension, "
+            "attention_type, error_message"
+        ),
+        [
+            (
+                0,
+                None,
+                None,
+                AttentionType.MULTI_HEAD.value,
+                "number_of_heads must be positive, got 0.",
+            ),
+            (
+                4,
+                None,
+                0,
+                AttentionType.MULTI_HEAD.value,
+                "head_dimension must be positive, got 0.",
+            ),
+            (
+                4,
+                0,
+                None,
+                AttentionType.GROUPED_QUERY.value,
+                "number_of_key_value_heads must be positive, got 0.",
+            ),
+            (
+                4,
+                2,
+                None,
+                AttentionType.MULTI_HEAD.value,
+                "number_of_key_value_heads must be None or equal to "
+                "number_of_heads for multi-head attention, got 2.",
+            ),
+        ],
+        ids=[
+            "zero_heads",
+            "zero_head_dimension",
+            "zero_key_value_heads",
+            "mha_key_value_mismatch",
+        ],
+    )
+    def test_invalid_attention_configuration_raises(
+        self,
+        cached_attention_factory: Callable[..., CachedAttention],
+        number_of_heads: int,
+        number_of_key_value_heads: int | None,
+        head_dimension: int | None,
+        attention_type: str,
+        error_message: str,
+    ):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
+            cached_attention_factory(
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                head_dimension=head_dimension,
+                attention_type=attention_type,
+            )
+
     def test_embedding_not_divisible_by_heads_raises(
         self, cached_attention_factory: Callable[..., CachedAttention]
     ):
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "embedding_dimension (33) must be divisible by number_of_heads (4)"
+                "embedding_dimension (33) must be divisible by number_of_heads (4)."
             ),
         ):
             cached_attention_factory(embedding_dimension=33, number_of_heads=4)
@@ -104,7 +164,7 @@ class TestCachedAttentionValidation:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "number_of_heads (8) must be divisible by number_of_key_value_heads (3)"
+                "number_of_heads (8) must be divisible by number_of_key_value_heads (3)."
             ),
         ):
             cached_attention_factory(

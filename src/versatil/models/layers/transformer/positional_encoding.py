@@ -64,7 +64,7 @@ def create_positional_encoding(
     else:
         raise ValueError(
             f"Unsupported positional encoding type: {encoding_type}. "
-            f"Must be one of {[e.value for e in PositionalEncodingType if e.value in ('sinusoidal', 'rope')]}."
+            f"Must be one of {[e.value for e in PositionalEncodingType]}."
         )
 
 

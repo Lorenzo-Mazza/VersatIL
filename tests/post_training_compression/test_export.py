@@ -25,15 +25,15 @@ EXPORT_MODULE = "versatil.post_training_compression.export"
 
 @pytest.fixture
 def observation_space_factory() -> Callable[..., MagicMock]:
-    """Factory for mock ObservationSpace with camera and proprio metadata."""
+    """Factory for mock ObservationSpace with camera and numerical-state metadata."""
 
     def factory(
         cameras: dict[str, CameraMetadata] | None = None,
-        proprioceptive_observations: dict[str, MagicMock] | None = None,
+        numerical_observations: dict[str, MagicMock] | None = None,
     ) -> MagicMock:
         obs_space = MagicMock(spec=ObservationSpace)
         obs_space.cameras = cameras or {}
-        obs_space.proprioceptive_observations = proprioceptive_observations or {}
+        obs_space.numerical_observations = numerical_observations or {}
         return obs_space
 
     return factory
@@ -119,14 +119,14 @@ class TestBuildExampleInputs:
         call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
         assert call_shapes["left"] == (1, 3, 48, 64)
 
-    def test_proprioceptive_shapes_from_metadata(
+    def test_numerical_state_shapes_from_metadata(
         self,
         observation_space_factory,
     ):
-        proprio = MagicMock()
-        proprio.dimension = 7
+        state_meta = MagicMock()
+        state_meta.dimension = 7
         obs_space = observation_space_factory(
-            proprioceptive_observations={"proprio_robot_frame": proprio},
+            numerical_observations={"proprio_robot_frame": state_meta},
         )
 
         exportable = MagicMock(spec=ExportablePolicy)
@@ -243,7 +243,7 @@ class TestBuildExampleInputs:
         }
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 class TestExportWithDynamicBatch:
     def test_exported_model_produces_valid_output(
         self, simple_exportable_model, flat_input_factory

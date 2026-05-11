@@ -1,0 +1,21 @@
+defaults:
+  - encoder/image/spatial@encoders.left
+  - encoder/proprio@encoders.robot_state
+  - _self_
+
+encoders:
+  left:
+    input_keys:
+      - ${cameras:AGENTVIEW}
+    backbone: ${rgb_backbone:EFFICIENTNET_B0}
+    pretrained: true
+    frozen: false
+    pooling_method: none
+    batch_norm_handling: ${batch_norm_handling:FROZEN}
+
+  robot_state:
+    input_keys:
+      - ${proprio_key:EE_POS}
+    output_dim: 32
+
+fusion_stages: []

@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
+from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.common.tensor_ops import to_device
-from versatil.data.constants import Cameras, SampleKey
+from versatil.data.constants import Cameras, MetadataPassthroughSource, SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform import (
     detokenize_actions,
@@ -38,6 +39,7 @@ class Policy(nn.Module):
         observation_horizon: int,
         loss: BaseLoss,
         device: str,
+        metadata_passthrough: dict[str, dict[str, str]] | None = None,
         validate_loss_keys: bool = True,
     ) -> None:
         """Initialize policy.
@@ -52,6 +54,8 @@ class Policy(nn.Module):
             observation_horizon: Number of past observations to condition on.
             loss: Loss module for training.
             device: Device to run on.
+            metadata_passthrough: Mapping from source dictionaries to metadata
+                keys for logging/visualization.
             validate_loss_keys: Deprecated, kept for backwards compatibility.
         """
         super().__init__()
@@ -64,6 +68,9 @@ class Policy(nn.Module):
         self.observation_horizon = observation_horizon
         self.loss_module = loss
         self.device = torch.device(device)
+        self.metadata_passthrough = self._resolve_metadata_passthrough(
+            metadata_passthrough=metadata_passthrough
+        )
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
         self.denoising_thresholds = DictOfTensorMixin()
@@ -73,11 +80,7 @@ class Policy(nn.Module):
     @property
     def input_keys(self) -> list[str]:
         """Sorted observation keys the policy expects as input."""
-        keys: set[str] = set()
-        for encoder in self.encoding_pipeline.encoders.values():
-            keys.update(encoder.input_specification.keys)
-        for encoder in self.encoding_pipeline.conditional_encoders.values():
-            keys.update(encoder.input_specification.keys)
+        keys = self._encoder_observation_keys()
         if (
             self.tokenizer is not None
             and self.tokenizer.observation_tokenizer is not None
@@ -179,7 +182,9 @@ class Policy(nn.Module):
         Returns:
             Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
-        observation = batch[SampleKey.OBSERVATION.value]
+        observation = self._strip_metadata_passthrough_observations(
+            observation=batch[SampleKey.OBSERVATION.value]
+        )
         actions = batch.get(SampleKey.ACTION.value)
         features = self.encoding_pipeline(observation)
         return self.algorithm.forward(
@@ -209,11 +214,90 @@ class Policy(nn.Module):
             algorithm_output=output,
             ground_truth_actions=ground_truth_actions,
         )
-        return self.loss_module(
+        loss_output = self.loss_module(
             predictions=output,
             targets=targets,
             is_pad=ground_truth_actions.get(SampleKey.IS_PAD_ACTION.value),
         )
+        metadata = self._collect_metadata_passthrough(
+            batch=batch,
+            predictions=output,
+        )
+        if not metadata:
+            return loss_output
+        return LossOutput(
+            total_loss=loss_output.total_loss,
+            component_losses=loss_output.component_losses,
+            metadata={**loss_output.metadata, **metadata},
+        )
+
+    def _resolve_metadata_passthrough(
+        self,
+        metadata_passthrough: dict[str, dict[str, str]] | None,
+    ) -> dict[str, dict[str, str]]:
+        """Resolve and validate configured metadata passthrough mappings."""
+        if metadata_passthrough is None:
+            return {}
+        resolved_mapping = resolve_dict_keys(dict(metadata_passthrough))
+        normalized_mapping: dict[str, dict[str, str]] = {}
+        for source_name, keys_mapping in resolved_mapping.items():
+            valid_sources = {source.value for source in MetadataPassthroughSource}
+            if source_name not in valid_sources:
+                raise ValueError(
+                    f"Unknown metadata passthrough source '{source_name}'. "
+                    f"Valid sources: {sorted(valid_sources)}."
+                )
+            normalized_mapping.setdefault(source_name, {}).update(keys_mapping)
+        return normalized_mapping
+
+    def _collect_metadata_passthrough(
+        self,
+        batch: dict[str, dict[str, torch.Tensor]],
+        predictions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Collect configured tensors from training dictionaries into metadata."""
+        source_dictionaries = {
+            MetadataPassthroughSource.OBSERVATION.value: batch.get(
+                SampleKey.OBSERVATION.value, {}
+            ),
+            MetadataPassthroughSource.ACTION.value: batch.get(
+                SampleKey.ACTION.value, {}
+            ),
+            MetadataPassthroughSource.PREDICTION.value: predictions,
+        }
+        metadata = {}
+        for source_name, keys_mapping in self.metadata_passthrough.items():
+            source_dictionary = source_dictionaries[source_name]
+            for source_key, metadata_key in keys_mapping.items():
+                if source_key in source_dictionary:
+                    metadata[metadata_key] = source_dictionary[source_key]
+        return metadata
+
+    def _strip_metadata_passthrough_observations(
+        self,
+        observation: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Remove metadata-only observation keys before model encoding."""
+        observation_metadata = self.metadata_passthrough.get(
+            MetadataPassthroughSource.OBSERVATION.value, {}
+        )
+        if not observation_metadata:
+            return observation
+        metadata_keys = set(observation_metadata) - self._encoder_observation_keys()
+        if not metadata_keys:
+            return observation
+        return {
+            key: value for key, value in observation.items() if key not in metadata_keys
+        }
+
+    def _encoder_observation_keys(self) -> set[str]:
+        """Return observation keys explicitly consumed by encoders."""
+        keys: set[str] = set()
+        for encoder in self.encoding_pipeline.encoders.values():
+            keys.update(encoder.input_specification.keys)
+        for encoder in self.encoding_pipeline.conditional_encoders.values():
+            keys.update(encoder.input_specification.keys)
+        return keys
 
     def predict_action(
         self,
@@ -232,6 +316,9 @@ class Policy(nn.Module):
             observation=obs_dict,
             normalizer=self.normalizer,
             observation_space=self.observation_space,
+        )
+        normalized_observation = self._strip_metadata_passthrough_observations(
+            observation=normalized_observation
         )
         if (
             self.tokenizer is not None

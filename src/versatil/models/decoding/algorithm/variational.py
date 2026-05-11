@@ -12,6 +12,7 @@ Where:
 """
 
 import logging
+from typing import Any
 
 import torch
 
@@ -19,10 +20,14 @@ from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
+from versatil.models.decoding.latent.posterior.base_posterior import (
+    PosteriorLatentEncoder,
+)
+from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
-from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
-from versatil.training.callbacks import LatentVisualizationCallback
+from versatil.models.decoding.latent.protocols import RequiresPosteriorWiring
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
+from versatil.training.callbacks.provider import CallbackProvider
 
 
 class VariationalAlgorithm(DecodingAlgorithm):
@@ -45,6 +50,9 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_encoder: Latent action encoder for posterior q_phi(z|a,s) (e.g., a Transformer Encoder)
         prior: Latent prior for p(z|s). If None, auto-creates GaussianPrior.
         sampling_from_prior_probability: Probability of sampling from prior during training.
+        posterior_decoder_noise_std: Fixed Gaussian jitter added to posterior
+            latents before decoder training. This is applied only when training
+            decodes from the posterior, not when decoding from prior samples.
     """
 
     def __init__(
@@ -53,12 +61,19 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_encoder: PosteriorLatentEncoder,
         prior: PriorLatentEncoder | None = None,
         sampling_from_prior_probability: float = 0.0,
+        posterior_decoder_noise_std: float = 0.0,
     ):
         """Initialize variational algorithm wrapper."""
         super().__init__()
+        if posterior_decoder_noise_std < 0.0:
+            raise ValueError(
+                "posterior_decoder_noise_std must be non-negative, "
+                f"got {posterior_decoder_noise_std}."
+            )
         self.base_algorithm = base_algorithm
         self.posterior_encoder = posterior_encoder
         self.p_prior = sampling_from_prior_probability
+        self.posterior_decoder_noise_std = posterior_decoder_noise_std
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
@@ -76,34 +91,47 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 f"Latent dimension mismatch: prior.latent_dim={self.prior.latent_dimension} "
                 f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dimension}"
             )
-        if isinstance(self.prior, VampPrior):
-            self.prior.set_encoder(self.posterior_encoder)
+        self._wire_prior_to_posterior()
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore module state and reconnect posterior-owned prior references.
+
+        Args:
+            state: Pickled or deep-copied module state produced by PyTorch.
+        """
+        super().__setstate__(state)
+        self._wire_prior_to_posterior()
+
+    def _wire_prior_to_posterior(self) -> None:
+        """Connect priors that depend on posterior-owned runtime state."""
+        if isinstance(self.prior, RequiresPosteriorWiring):
+            self.prior.wire_posterior(self.posterior_encoder)
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
-        """Provide latent visualization callback for variational inference monitoring."""
-        return [
+        """Provide callbacks for variational latent monitoring and prior fitting.
+
+        Args:
+            experiment_config: Experiment-level callback configuration.
+
+        Returns:
+            Callbacks required by the variational algorithm.
+        """
+        callbacks = [
             LatentVisualizationCallback(
                 log_every_n_epochs=experiment_config.val_every,
             )
         ]
+        if isinstance(self.prior, CallbackProvider):
+            callbacks.extend(
+                self.prior.get_callbacks(experiment_config=experiment_config)
+            )
+        return callbacks
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Variational algorithm adds latent variable keys to the output."""
         keys = self.base_algorithm.get_auxiliary_output_keys()
-        keys.update(
-            {
-                LatentKey.POSTERIOR_LATENT.value,
-                LatentKey.POSTERIOR_MU.value,
-                LatentKey.PRIOR_LATENT.value,
-                LatentKey.PRIOR_MU.value,
-                LatentKey.PRIOR_PREDICTION.value,
-                LatentKey.PRIOR_TARGET.value,
-            }
-        )
-        if not getattr(self.posterior_encoder, "deterministic", False):
-            keys.add(LatentKey.POSTERIOR_LOGVAR.value)
-        if not getattr(self.prior, "deterministic", False):
-            keys.add(LatentKey.PRIOR_LOGVAR.value)
+        keys.update(self.posterior_encoder.get_auxiliary_output_keys())
+        keys.update(self.prior.get_auxiliary_output_keys())
         return keys
 
     def _variational_step(
@@ -124,11 +152,9 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_output = self.posterior_encoder.encode(
             actions=actions, observations=features
         )
-        z = posterior_output[
-            LatentKey.POSTERIOR_LATENT.value
-        ]  # (B, posterior.latent_dim)
+        target_latents = self.prior.build_training_target(posterior_output)
         prior_output = self.prior.forward(
-            target_latents=z.detach(),  # Detach z to prevent gradients flowing to posterior encoder
+            target_latents=target_latents,
             observations=features,
         )
         return posterior_output, prior_output
@@ -152,6 +178,23 @@ class VariationalAlgorithm(DecodingAlgorithm):
             observations=features,
         )
         return latent_embedding
+
+    def _posterior_latent_for_decoder(
+        self,
+        posterior_output: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Return the posterior latent consumed by the action decoder.
+
+        Optional fixed jitter thickens the posterior support seen by the
+        decoder while leaving prior training targets untouched. Those targets
+        are built before this method is called.
+        """
+        latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
+        if self.training and self.posterior_decoder_noise_std > 0.0:
+            latent = latent + self.posterior_decoder_noise_std * torch.randn_like(
+                latent
+            )
+        return latent
 
     def forward(
         self,
@@ -203,8 +246,10 @@ class VariationalAlgorithm(DecodingAlgorithm):
                     batch_size=batch_size, observations=features
                 )
             latent = prior_output[LatentKey.PRIOR_LATENT.value]
+            posterior_decoder_latent = None
         else:
-            latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
+            latent = self._posterior_latent_for_decoder(posterior_output)
+            posterior_decoder_latent = latent
         features_with_latent = {
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent,
@@ -214,7 +259,15 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features_with_latent,
             actions=actions,
         )
-        predictions.update(posterior_output)
+        if posterior_decoder_latent is None:
+            predictions.update(posterior_output)
+        else:
+            predictions.update(
+                {
+                    **posterior_output,
+                    LatentKey.POSTERIOR_LATENT.value: posterior_decoder_latent,
+                }
+            )
         predictions.update(prior_output)
         return predictions
 

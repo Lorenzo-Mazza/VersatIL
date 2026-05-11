@@ -10,9 +10,15 @@ class LatentKey(enum.StrEnum):
     PRIOR_MU = "prior_mu"
     PRIOR_LOGVAR = "prior_logvar"
     PRIOR_LATENT = "prior_latent"
+    PRIOR_CONDITION = "prior_condition"
     PRIOR_PREDICTION = "prior_prediction"
     PRIOR_TARGET = "prior_target"
     PRIOR_LOG_PROB = "prior_log_prob"
+    VQ_INDICES = "vq_indices"
+    VQ_PRIOR_INDICES = "vq_prior_indices"
+    VQ_Z_CONTINUOUS = "vq_z_continuous"
+    VQ_QUANTIZED = "vq_quantized"
+    PRIOR_CODE_LOGITS = "prior_code_logits"
 
 
 class MoERoutingType(enum.StrEnum):
@@ -68,6 +74,14 @@ class DenoisingAlgorithm(enum.StrEnum):
 
     DIFFUSION = "diffusion"
     FLOW_MATCHING = "flow_matching"
+
+
+class MixtureSamplingMode(enum.StrEnum):
+    """Sampling strategy for mixture-of-experts inference."""
+
+    DETERMINISTIC = "deterministic"  # argmax component, return mean
+    STOCHASTIC_MEAN = "stochastic_mean"  # multinomial component, return mean
+    STOCHASTIC_SAMPLE = "stochastic_sample"  # multinomial component, add Gaussian noise
 
 
 class DiTType(enum.StrEnum):

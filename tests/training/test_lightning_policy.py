@@ -2,7 +2,7 @@
 
 import time
 from collections.abc import Callable
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -11,32 +11,8 @@ import torch
 from versatil.configs.training import (
     AdamWConfig,
     ParameterGroupConfig,
-    TrainingConfig,
 )
-from versatil.training.lightning_policy import LightningPolicy
-
-
-@pytest.fixture
-def lightning_policy_factory(
-    mock_policy_factory: Callable,
-    training_config_factory: Callable,
-) -> Callable[..., LightningPolicy]:
-    def factory(
-        policy: Mock | None = None,
-        training_config: TrainingConfig | None = None,
-        total_training_steps: int | None = None,
-    ) -> LightningPolicy:
-        if policy is None:
-            policy = mock_policy_factory()
-        if training_config is None:
-            training_config = training_config_factory()
-        return LightningPolicy(
-            policy=policy,
-            training_config=training_config,
-            total_training_steps=total_training_steps,
-        )
-
-    return factory
+from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
 @pytest.mark.unit
@@ -260,18 +236,16 @@ class TestValidationStep:
 
 
 @pytest.mark.unit
-class TestOnTrainEpochStart:
-    def test_records_epoch_start_time(
-        self,
-        lightning_policy_factory: Callable,
-    ):
-        lightning_policy = lightning_policy_factory()
+def test_on_train_epoch_start_records_epoch_start_time(
+    lightning_policy_factory: Callable,
+):
+    lightning_policy = lightning_policy_factory()
 
-        before = time.monotonic()
-        lightning_policy.on_train_epoch_start()
-        after = time.monotonic()
+    before = time.monotonic()
+    lightning_policy.on_train_epoch_start()
+    after = time.monotonic()
 
-        assert before <= lightning_policy._epoch_start_time <= after
+    assert before <= lightning_policy._epoch_start_time <= after
 
 
 @pytest.mark.unit
@@ -648,6 +622,8 @@ class TestCreateParameterGroups:
         groups = lightning_policy._create_parameter_groups(config.optimizer)
 
         assert len(groups) == 1
+        assert groups[0]["name"] == OPTIMIZER_UNMATCHED_GROUPS_NAME
+        assert groups[0]["lr"] == config.optimizer.lr
         assert "params" in groups[0]
 
     def test_assigns_parameters_to_groups_by_pattern(
@@ -704,17 +680,67 @@ class TestCreateParameterGroups:
 
         # Default group has unmatched params
         default_group = groups[0]
+        assert default_group["name"] == OPTIMIZER_UNMATCHED_GROUPS_NAME
         assert len(list(default_group["params"])) == 1
 
         # Encoder group
         encoder_group = groups[1]
+        assert encoder_group["name"] == "encoder"
         assert encoder_group["lr"] == 1e-5
 
         # Decoder group
         decoder_group = groups[2]
+        assert decoder_group["name"] == "decoder"
         assert decoder_group["lr"] == 1e-4
 
-    def test_skips_frozen_parameters(
+    def test_parameter_group_patterns_can_match_nested_substrings(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ) -> None:
+        encoder_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+        nested_encoder_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter(
+            [
+                ("encoder.layer.weight", encoder_weight),
+                ("nested.encoder.layer.weight", nested_encoder_weight),
+            ]
+        )
+        policy.parameters.return_value = iter([encoder_weight, nested_encoder_weight])
+
+        param_groups = [
+            ParameterGroupConfig(
+                name="encoder",
+                lr=1e-5,
+                params_pattern=r"encoder\.",
+            ),
+        ]
+        optimizer_config = AdamWConfig(lr=1e-3, param_groups=param_groups)
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy, training_config=config
+        )
+
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
+
+        assert len(groups) == 2
+        assert groups[0]["name"] == OPTIMIZER_UNMATCHED_GROUPS_NAME
+        assert groups[0]["params"] == []
+        assert groups[1]["name"] == "encoder"
+        assert groups[1]["lr"] == 1e-5
+        assert [id(parameter) for parameter in groups[1]["params"]] == [
+            id(encoder_weight),
+            id(nested_encoder_weight),
+        ]
+
+    def test_includes_frozen_parameters_for_later_stage_unfreezing(
         self,
         rng: np.random.Generator,
         lightning_policy_factory: Callable,
@@ -752,9 +778,11 @@ class TestCreateParameterGroups:
 
         groups = lightning_policy._create_parameter_groups(config.optimizer)
 
-        # Only the default group with the trainable parameter
         total_params = sum(len(list(g["params"])) for g in groups)
-        assert total_params == 1
+        assert total_params == 2
+        assert groups[0]["name"] == OPTIMIZER_UNMATCHED_GROUPS_NAME
+        assert groups[1]["name"] == "frozen_group"
+        assert groups[1]["params"] == [frozen]
 
     def test_includes_weight_decay_when_specified(
         self,
@@ -790,8 +818,87 @@ class TestCreateParameterGroups:
 
         groups = lightning_policy._create_parameter_groups(config.optimizer)
 
-        encoder_group = [g for g in groups if "lr" in g][0]
+        encoder_group = next(g for g in groups if g["name"] == "encoder")
         assert encoder_group["weight_decay"] == 0.01
+
+    def test_empty_configured_param_group_raises(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ) -> None:
+        weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter([("encoder.weight", weight)])
+        policy.parameters.return_value = iter([weight])
+        optimizer_config = AdamWConfig(
+            lr=1e-3,
+            param_groups=[
+                ParameterGroupConfig(
+                    name="decoder",
+                    lr=1e-5,
+                    params_pattern=r"decoder\.",
+                )
+            ],
+        )
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy,
+            training_config=config,
+        )
+
+        with pytest.raises(ValueError, match="matched zero parameters"):
+            lightning_policy._create_parameter_groups(config.optimizer)
+
+    def test_longest_match_wins_for_overlapping_patterns(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ) -> None:
+        head_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+        body_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter(
+            [
+                ("decoder.head.weight", head_weight),
+                ("decoder.body.weight", body_weight),
+            ]
+        )
+        policy.parameters.return_value = iter([head_weight, body_weight])
+        optimizer_config = AdamWConfig(
+            lr=1e-3,
+            param_groups=[
+                ParameterGroupConfig(
+                    name="decoder",
+                    lr=1e-4,
+                    params_pattern=r"^decoder\.",
+                ),
+                ParameterGroupConfig(
+                    name="head",
+                    lr=1e-5,
+                    params_pattern=r"^decoder\.head\.",
+                ),
+            ],
+        )
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy,
+            training_config=config,
+        )
+
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
+
+        decoder_group = next(g for g in groups if g["name"] == "decoder")
+        head_group = next(g for g in groups if g["name"] == "head")
+        assert [id(p) for p in decoder_group["params"]] == [id(body_weight)]
+        assert [id(p) for p in head_group["params"]] == [id(head_weight)]
 
 
 @pytest.mark.unit

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
@@ -378,6 +379,46 @@ class TestForward:
         call_args = encoder.call_args[0][0]
         assert "left" in call_args
         assert torch.equal(call_args["left"], image)
+
+    def test_optional_padding_mask_absence_does_not_skip_encoder(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+        default_observation_space,
+    ):
+        encoder = encoder_mock_factory(
+            input_keys=["left", SampleKey.IS_PAD_OBSERVATION.value]
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space, encoders={"rgb": encoder}
+        )
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        pipeline.forward(observation={"left": image})
+        call_args = encoder.call_args[0][0]
+        assert list(call_args.keys()) == ["left"]
+
+    def test_optional_padding_mask_is_forwarded_when_present(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+        default_observation_space,
+    ):
+        encoder = encoder_mock_factory(
+            input_keys=["left", SampleKey.IS_PAD_OBSERVATION.value]
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space, encoders={"rgb": encoder}
+        )
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        padding_mask = torch.zeros(2, 8, dtype=torch.bool)
+        pipeline.forward(
+            observation={
+                "left": image,
+                SampleKey.IS_PAD_OBSERVATION.value: padding_mask,
+            }
+        )
+        call_args = encoder.call_args[0][0]
+        assert torch.equal(call_args[SampleKey.IS_PAD_OBSERVATION.value], padding_mask)
 
     def test_prefixes_encoder_output_features(
         self,
@@ -798,18 +839,21 @@ class TestSetTokenizer:
             pipeline.set_tokenizer(tokenizer=tokenizer)
 
     @pytest.mark.parametrize(
-        "encoder_vocab_size, data_vocab_size, expectation",
+        "encoder_vocab_size, data_vocab_size, base_vocab_size, expectation",
         [
-            (50000, 50000, does_not_raise()),
-            (50000, 30000, does_not_raise()),
+            (50000, 50000, 50000, does_not_raise()),
+            (50000, 30000, 30000, does_not_raise()),
+            (30000, 30001, 30000, does_not_raise()),
+            (30000, 50000, 30000, does_not_raise()),
             (
                 30000,
+                50000,
                 50000,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000, "
-                        "but encoder 'language' only supports vocab_size=30000. "
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000 "
+                        "(base=50000), but encoder 'language' only supports vocab_size=30000. "
                     ),
                 ),
             ),
@@ -820,6 +864,7 @@ class TestSetTokenizer:
         encoder_mock_factory: Callable[..., MagicMock],
         encoder_vocab_size: int,
         data_vocab_size: int,
+        base_vocab_size: int,
         expectation,
         default_observation_space,
     ):
@@ -833,6 +878,7 @@ class TestSetTokenizer:
         tokenizer = MagicMock(spec=Tokenizer)
         tokenizer.observation_tokenizer = MagicMock()
         tokenizer.observation_tokenizer.vocab_size = data_vocab_size
+        tokenizer.observation_tokenizer.language_tokenizer.vocab_size = base_vocab_size
         tokenizer.observation_tokenizer.tokenizer_model = "test_model"
         with expectation:
             pipeline.set_tokenizer(tokenizer=tokenizer)
@@ -902,18 +948,21 @@ class TestSetTokenizer:
             pipeline.set_tokenizer(tokenizer=tokenizer)
 
     @pytest.mark.parametrize(
-        "encoder_vocab_size, data_vocab_size, expectation",
+        "encoder_vocab_size, data_vocab_size, base_vocab_size, expectation",
         [
-            (50000, 50000, does_not_raise()),
-            (50000, 30000, does_not_raise()),
+            (50000, 50000, 50000, does_not_raise()),
+            (50000, 30000, 30000, does_not_raise()),
+            (30000, 30001, 30000, does_not_raise()),
+            (30000, 50000, 30000, does_not_raise()),
             (
                 30000,
+                50000,
                 50000,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000, "
-                        "but encoder 'film' only supports vocab_size=30000. "
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000 "
+                        "(base=50000), but encoder 'film' only supports vocab_size=30000. "
                     ),
                 ),
             ),
@@ -925,6 +974,7 @@ class TestSetTokenizer:
         conditional_encoder_mock_factory: Callable[..., MagicMock],
         encoder_vocab_size: int,
         data_vocab_size: int,
+        base_vocab_size: int,
         expectation,
         default_observation_space,
     ):
@@ -942,6 +992,7 @@ class TestSetTokenizer:
         tokenizer = MagicMock(spec=Tokenizer)
         tokenizer.observation_tokenizer = MagicMock()
         tokenizer.observation_tokenizer.vocab_size = data_vocab_size
+        tokenizer.observation_tokenizer.language_tokenizer.vocab_size = base_vocab_size
         tokenizer.observation_tokenizer.tokenizer_model = "test_model"
         with expectation:
             pipeline.set_tokenizer(tokenizer=tokenizer)
@@ -1148,3 +1199,114 @@ class TestRepr:
         representation = repr(pipeline)
         assert "Fusion stages" in representation
         assert "fused_visual" in representation
+
+
+class TestPipelineOutputDtype:
+    @pytest.mark.unit
+    def test_output_dtype_defaults_to_none(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        default_observation_space,
+    ):
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space,
+            encoders={"rgb": encoder_mock_factory()},
+        )
+        assert pipeline.output_dtype is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+    def test_set_output_dtype_stores_value(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        default_observation_space,
+        dtype: torch.dtype,
+    ):
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space,
+            encoders={"rgb": encoder_mock_factory()},
+        )
+        pipeline.set_output_dtype(dtype)
+        assert pipeline.output_dtype == dtype
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("output_dtype", [torch.float32, torch.bfloat16])
+    def test_forward_casts_float_features_to_output_dtype(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        default_observation_space,
+        output_dtype: torch.dtype,
+    ):
+        batch_size = 2
+        encoder = encoder_mock_factory(
+            output_features=["embedding"],
+            output_dimensions={"embedding": (64,)},
+            input_keys=["left"],
+            forward_return={
+                "embedding": torch.randn(batch_size, 64, dtype=torch.float64)
+            },
+            batch_size=batch_size,
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space,
+            encoders={"rgb": encoder},
+        )
+        pipeline.set_output_dtype(output_dtype)
+
+        observation = {"left": torch.randn(batch_size, 1, 3, 32, 32)}
+        features = pipeline(observation)
+        assert features["rgb_embedding"].dtype == output_dtype
+
+    @pytest.mark.unit
+    def test_forward_preserves_integer_tensors(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        default_observation_space,
+    ):
+        batch_size = 2
+        mask_dtype = torch.bool
+        encoder = encoder_mock_factory(
+            output_features=["padding_mask"],
+            output_dimensions={"padding_mask": (4,)},
+            input_keys=["left"],
+            forward_return={
+                "padding_mask": torch.zeros(batch_size, 4, dtype=mask_dtype)
+            },
+            batch_size=batch_size,
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space,
+            encoders={"rgb": encoder},
+        )
+        pipeline.set_output_dtype(torch.bfloat16)
+
+        observation = {"left": torch.randn(batch_size, 1, 3, 32, 32)}
+        features = pipeline(observation)
+        # Non-floating tensors (padding masks, indices) must not be cast
+        assert features["rgb_padding_mask"].dtype == mask_dtype
+
+    @pytest.mark.unit
+    def test_forward_no_cast_when_output_dtype_unset(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        default_observation_space,
+    ):
+        batch_size = 2
+        source_dtype = torch.float16
+        encoder = encoder_mock_factory(
+            output_features=["embedding"],
+            output_dimensions={"embedding": (64,)},
+            input_keys=["left"],
+            forward_return={
+                "embedding": torch.randn(batch_size, 64, dtype=source_dtype)
+            },
+            batch_size=batch_size,
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space,
+            encoders={"rgb": encoder},
+        )
+        observation = {"left": torch.randn(batch_size, 1, 3, 32, 32)}
+        features = pipeline(observation)
+        # output_dtype unset → encoder output dtype preserved
+        assert features["rgb_embedding"].dtype == source_dtype

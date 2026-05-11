@@ -6,10 +6,14 @@ from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.layers.denoising.conditional_flow_matching import (
+    ConditionalFlowMatcher,
+)
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
 from versatil.models.layers.denoising.timestep_sampling import (
     TimestepSampler,
-    sample_timesteps,
+    TimestepSamplingConfig,
+    sample_timesteps_from_config,
 )
 
 
@@ -88,8 +92,8 @@ class FlowMatching(DecodingAlgorithm):
     """Flow Matching algorithm for action prediction.
 
     Trains a model to predict velocity fields that transport samples from a noise
-    distribution to the target action distribution. Uses Conditional Flow Matching (CFM)
-    with optimal transport paths.
+    distribution to the target action distribution. Uses Conditional Flow Matching
+    with straight conditional paths.
 
     During training, samples a time t in [0,1] and trains the model to predict the
     velocity field u_t = dx/dt that moves from noise (t=0) to actions (t=1).
@@ -107,13 +111,9 @@ class FlowMatching(DecodingAlgorithm):
         beta_alpha: First shape parameter for Beta distribution (pi0 uses 1.5).
         beta_beta: Second shape parameter for Beta distribution (pi0 uses 1.0).
         max_timestep: Upper bound s for Beta sampling (pi0 uses 0.999).
-        reverse_flow_convention: Reverse the time/velocity convention for
-            inference. torchcfm uses t=0 as noise, t=1 as data with velocity
-            v=data-noise. LeRobot-trained models use the opposite convention
-            (t=1 as noise, t=0 as data, v=noise-data). When True, the inference
-            loop remaps t to (1-t) and negates the predicted velocity so that
-            integration from t=0 to 1 correctly denoises with LeRobot-trained
-            weights.
+        reverse_flow_convention: Reverse the time/velocity convention during
+            inference. When True, the inference loop remaps t to (1-t) and
+            negates the predicted velocity.
     """
 
     def __init__(
@@ -132,20 +132,9 @@ class FlowMatching(DecodingAlgorithm):
         """Initialize Flow Matching algorithm."""
         super().__init__()
 
-        # Lazy import: torchcfm -> ot -> geomloss -> pykeops triggers CUDA JIT at import time.
-        from torchcfm.conditional_flow_matching import (  # noqa: PLC0415
-            ConditionalFlowMatcher,
-        )
-
         self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
         self.num_inference_steps = num_inference_steps
         self.ode_solver = ode_solver
-        self.timestep_sampler = timestep_sampler
-        self.logit_mean = logit_mean
-        self.logit_std = logit_std
-        self.beta_alpha = beta_alpha
-        self.beta_beta = beta_beta
-        self.max_timestep = max_timestep
         self.reverse_flow_convention = reverse_flow_convention
 
         valid_solvers = [e.value for e in ODESolver]
@@ -153,11 +142,44 @@ class FlowMatching(DecodingAlgorithm):
             raise ValueError(
                 f"Unknown ODE solver: {ode_solver}. Expected one of {valid_solvers}"
             )
-        valid_samplers = [e.value for e in TimestepSampler]
-        if self.timestep_sampler not in valid_samplers:
-            raise ValueError(
-                f"Unknown timestep sampler: {timestep_sampler}. Expected one of {valid_samplers}"
-            )
+        self.timestep_sampling_config = TimestepSamplingConfig(
+            sampler=timestep_sampler,
+            logit_mean=logit_mean,
+            logit_std=logit_std,
+            beta_alpha=beta_alpha,
+            beta_beta=beta_beta,
+            max_timestep=max_timestep,
+        )
+
+    @property
+    def timestep_sampler(self) -> str:
+        """Configured timestep sampler name."""
+        return self.timestep_sampling_config.sampler
+
+    @property
+    def logit_mean(self) -> float:
+        """Configured logit-normal sampler mean."""
+        return self.timestep_sampling_config.logit_mean
+
+    @property
+    def logit_std(self) -> float:
+        """Configured logit-normal sampler standard deviation."""
+        return self.timestep_sampling_config.logit_std
+
+    @property
+    def beta_alpha(self) -> float:
+        """Configured beta sampler alpha parameter."""
+        return self.timestep_sampling_config.beta_alpha
+
+    @property
+    def beta_beta(self) -> float:
+        """Configured beta sampler beta parameter."""
+        return self.timestep_sampling_config.beta_beta
+
+    @property
+    def max_timestep(self) -> float:
+        """Configured maximum sampled timestep."""
+        return self.timestep_sampling_config.max_timestep
 
     def forward(
         self,
@@ -200,15 +222,10 @@ class FlowMatching(DecodingAlgorithm):
                 continue
             noise[key] = torch.randn_like(action.float(), device=action.device)
             if times is None:
-                times = sample_timesteps(
+                times = sample_timesteps_from_config(
+                    config=self.timestep_sampling_config,
                     batch_size=action.shape[0],
                     device=action.device,
-                    sampler=self.timestep_sampler,
-                    logit_mean=self.logit_mean,
-                    logit_std=self.logit_std,
-                    beta_alpha=self.beta_alpha,
-                    beta_beta=self.beta_beta,
-                    max_timestep=self.max_timestep,
                 )
             epsilon = torch.randn_like(action.float())
             x_t = self.flow_matcher.sample_xt(

@@ -14,7 +14,13 @@ from versatil.configs.training import (
     OptimizerConfig,
     TrainingConfig,
 )
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.metrics.base import BaseLoss
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
+from versatil.training.lightning_policy import LightningPolicy
 
 
 @pytest.fixture
@@ -46,6 +52,83 @@ def training_config_factory() -> Callable[..., TrainingConfig]:
 
 
 @pytest.fixture
+def real_policy_factory() -> Callable[..., Policy]:
+    """Build a real ``Policy`` with ``MagicMock(spec=...)`` heavy deps.
+
+    ``MagicMock(spec=nn.Module)`` passes ``isinstance(..., nn.Module)``, so
+    ``Policy.__init__`` registers the mocks inside ``Policy._modules`` via
+    ``nn.Module.__setattr__``. Lightning's ``state_dict`` /
+    ``load_state_dict`` walk ``_modules`` recursively and trip over the mocks
+    (they have no ``_modules`` of their own). To keep the mocks accessible as
+    attributes but hidden from the submodule walk, they're moved from
+    ``_modules`` into ``__dict__`` via ``object.__setattr__`` after init.
+
+    Pass ``submodules`` as ``{attribute_name: nn.Module}`` to register real
+    parameter-bearing children onto the returned policy (overwriting the
+    mocked decoder etc.) so ``policy.named_parameters()`` yields real tensors
+    usable by the optimizer and the stage callback.
+    """
+
+    def factory(
+        loss: torch.nn.Module | None = None,
+        submodules: dict[str, torch.nn.Module] | None = None,
+        prediction_horizon: int = 4,
+        observation_horizon: int = 1,
+    ) -> Policy:
+        encoding_pipeline = MagicMock(spec=EncodingPipeline)
+        encoding_pipeline.encoders = {}
+        encoding_pipeline.conditional_encoders = {}
+        policy = Policy(
+            encoding_pipeline=encoding_pipeline,
+            algorithm=MagicMock(spec=DecodingAlgorithm),
+            decoder=MagicMock(
+                spec=ActionDecoder,
+                decoder_input=MagicMock(requires_vlm_backbone=False),
+            ),
+            observation_space=MagicMock(spec=ObservationSpace),
+            action_space=MagicMock(spec=ActionSpace),
+            prediction_horizon=prediction_horizon,
+            observation_horizon=observation_horizon,
+            loss=loss if loss is not None else MagicMock(spec=BaseLoss),
+            device="cpu",
+        )
+        overridden_attributes = set(submodules or {})
+        for attribute_name in ("encoding_pipeline", "algorithm", "decoder"):
+            if attribute_name in overridden_attributes:
+                continue
+            mock = policy._modules.pop(attribute_name)
+            object.__setattr__(policy, attribute_name, mock)
+        for attribute_name, module in (submodules or {}).items():
+            setattr(policy, attribute_name, module)
+        return policy
+
+    return factory
+
+
+@pytest.fixture
+def lightning_policy_factory(
+    mock_policy_factory: Callable,
+    training_config_factory: Callable,
+) -> Callable[..., LightningPolicy]:
+    def factory(
+        policy: Mock | None = None,
+        training_config: TrainingConfig | None = None,
+        total_training_steps: int | None = None,
+    ) -> LightningPolicy:
+        if policy is None:
+            policy = mock_policy_factory()
+        if training_config is None:
+            training_config = training_config_factory()
+        return LightningPolicy(
+            policy=policy,
+            training_config=training_config,
+            total_training_steps=total_training_steps,
+        )
+
+    return factory
+
+
+@pytest.fixture
 def mock_policy_factory(rng: np.random.Generator) -> Callable[..., Mock]:
     def factory(
         named_parameters: list[tuple[str, torch.nn.Parameter]] | None = None,
@@ -61,14 +144,14 @@ def mock_policy_factory(rng: np.random.Generator) -> Callable[..., Mock]:
             bias = torch.nn.Parameter(bias_data)
             named_parameters = [("layer.weight", weight), ("layer.bias", bias)]
 
-        all_params = [param for _, param in named_parameters]
-        mock.parameters.return_value = iter(all_params)
-        mock.named_parameters.return_value = iter(named_parameters)
+        all_params = tuple(param for _, param in named_parameters)
+        mock.parameters.side_effect = lambda: iter(all_params)
+        mock.named_parameters.side_effect = lambda: iter(named_parameters)
 
         # Support modules() for EMA traversal
         mock_module = MagicMock()
-        mock_module.parameters.return_value = iter(all_params)
-        mock.modules.return_value = iter([mock_module])
+        mock_module.parameters.side_effect = lambda: iter(all_params)
+        mock.modules.side_effect = lambda: iter([mock_module])
 
         return mock
 
@@ -123,6 +206,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
     def factory(
         current_epoch: int = 0,
         global_step: int = 0,
+        max_epochs: int = 100,
         estimated_stepping_batches: int = 1000,
         callback_metrics: dict[str, torch.Tensor] | None = None,
         logger: Mock | None = "default",
@@ -131,6 +215,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         trainer = MagicMock(spec="pl.Trainer")
         trainer.current_epoch = current_epoch
         trainer.global_step = global_step
+        trainer.max_epochs = max_epochs
         trainer.estimated_stepping_batches = estimated_stepping_batches
         trainer.callback_metrics = (
             callback_metrics if callback_metrics is not None else {}

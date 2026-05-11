@@ -1,0 +1,38 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+# Unconditional UR3: include_goals=False. The model is fed the full
+# 6-dim state (ee + block1 + block2). The entire state and action are
+# min-max normalized.
+observations_metadata:
+  ${proprio_key:UR3_EE_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 2
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:UR3_BLOCK1_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 2
+    slice_end: 4
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${proprio_key:UR3_BLOCK2_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    slice_start: 4
+    slice_end: 6
+    frame: ${coordinate_system:UNKNOWN}

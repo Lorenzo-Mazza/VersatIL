@@ -22,41 +22,74 @@ class AttentionPool2d(nn.Module):
         self.vk = nn.Linear(feature_dimension, feature_dimension * 2, bias=bias)
         self.proj = nn.Linear(feature_dimension, feature_dimension)
 
-    def forward(self, x: Tensor, cls_q: Tensor):
-        if x.ndim == 4:
-            # CNN feature map B,C,H,W -> B,H*W,C
-            if x.shape[1] == self.norm.normalized_shape[0]:
-                x = x.flatten(2).transpose(1, 2)
-            elif x.shape[-1] == self.norm.normalized_shape[0]:
-                x = x.permute(0, 3, 1, 2)
-                x = x.flatten(2).transpose(1, 2)
+    def forward(
+        self,
+        features: Tensor,
+        class_query: Tensor,
+        padding_mask: Tensor | None = None,
+    ) -> Tensor:
+        """Pool a feature sequence with a learned query.
+
+        Args:
+            features: Spatial feature map or token sequence.
+            class_query: Learned query vector used to aggregate the sequence.
+            padding_mask: Optional token padding mask where ``True`` means padded.
+
+        Returns:
+            Aggregated feature tensor of shape ``(batch_size, feature_dimension)``.
+        """
+        if features.ndim == 4:
+            # Convolutional feature map: (batch, channels, height, width)
+            # to (batch, height * width, channels).
+            if features.shape[1] == self.norm.normalized_shape[0]:
+                features = features.flatten(2).transpose(1, 2)
+            elif features.shape[-1] == self.norm.normalized_shape[0]:
+                features = features.permute(0, 3, 1, 2)
+                features = features.flatten(2).transpose(1, 2)
             else:
                 raise ValueError(
-                    f"Input shape {x.shape} not compatible with AttentionPool2d "
+                    f"Input shape {features.shape} not compatible with AttentionPool2d "
                     f"of size {self.norm.normalized_shape[0]}"
                 )
 
-        elif x.ndim == 3:
-            # ViT: Normalize after ensuring [B, N, C] (last dim == C)
-            if x.shape[1] == self.norm.normalized_shape[0]:
-                x = x.transpose(1, 2)
-            elif x.shape[-1] == self.norm.normalized_shape[0]:
+        elif features.ndim == 3:
+            # Token sequence: ensure features are (batch, sequence, channels).
+            if features.shape[1] == self.norm.normalized_shape[0]:
+                features = features.transpose(1, 2)
+            elif features.shape[-1] == self.norm.normalized_shape[0]:
                 pass
             else:
                 raise ValueError(
-                    f"Input shape {x.shape} not compatible with AttentionPool2d "
+                    f"Input shape {features.shape} not compatible with AttentionPool2d "
                     f"of size {self.norm.normalized_shape[0]}"
                 )
 
-        B, N, C = x.shape
-        x = self.norm(x)
-        q = self.q(cls_q.expand(B, -1)).unsqueeze(1)  # [B,1,C]
-        k, v = self.vk(x).reshape(B, N, 2, C).permute(2, 0, 1, 3).chunk(2, 0)
-        k, v = k[0], v[0]  # [B,N,C]
+        batch_size, sequence_length, feature_dimension = features.shape
+        attention_mask = None
+        if padding_mask is not None:
+            expected_shape = (batch_size, sequence_length)
+            if padding_mask.shape != expected_shape:
+                raise ValueError(
+                    f"padding_mask must have shape {expected_shape}, got {padding_mask.shape}."
+                )
+            attention_mask = ~padding_mask.to(device=features.device, dtype=torch.bool)
+            attention_mask = attention_mask.unsqueeze(1)
+        features = self.norm(features)
+        query = self.q(class_query.expand(batch_size, -1)).unsqueeze(1)
+        key, value = (
+            self.vk(features)
+            .reshape(batch_size, sequence_length, 2, feature_dimension)
+            .permute(2, 0, 1, 3)
+            .chunk(2, 0)
+        )
+        key, value = key[0], value[0]
         attended_values = torch.nn.functional.scaled_dot_product_attention(
-            query=q, key=k, value=v
-        )  # [B,1,C]
-        return self.proj(attended_values.squeeze(1))  # Squeeze to [B,C] before proj
+            query=query,
+            key=key,
+            value=value,
+            attn_mask=attention_mask,
+        )
+        return self.proj(attended_values.squeeze(1))
 
 
 class LearnedAggregation(nn.Module):
@@ -84,13 +117,26 @@ class LearnedAggregation(nn.Module):
         nn.init.trunc_normal_(self.cls_q, std=0.02)
         self.apply(self._init_weights)
 
-    def forward(self, x: Tensor):
-        x = self.cls_q + self.gamma_1 * self.attn(x, self.cls_q)
-        return x + self.gamma_2 * self.ffn(self.norm(x))
+    def forward(self, features: Tensor, padding_mask: Tensor | None = None) -> Tensor:
+        """Aggregate a token sequence while optionally ignoring padded tokens.
+
+        Args:
+            features: Feature tensor to aggregate.
+            padding_mask: Optional token padding mask where ``True`` means padded.
+
+        Returns:
+            Aggregated feature tensor of shape ``(batch_size, feature_dimension)``.
+        """
+        features = self.cls_q + self.gamma_1 * self.attn(
+            features=features,
+            class_query=self.cls_q,
+            padding_mask=padding_mask,
+        )
+        return features + self.gamma_2 * self.ffn(self.norm(features))
 
     @torch.no_grad()
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.trunc_normal_(m.weight, std=0.02)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.trunc_normal_(module.weight, std=0.02)
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)

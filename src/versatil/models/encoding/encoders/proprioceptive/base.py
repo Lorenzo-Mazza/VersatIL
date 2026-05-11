@@ -62,6 +62,7 @@ class ProprioceptiveEncoder(Encoder):
         )
         if self.frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _load_from_state_dict(
         self,

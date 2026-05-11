@@ -93,7 +93,7 @@ No need to redefine encoder architectures, optimizer settings, or other paramete
 
 Every config file maps to a Python `dataclass` defined in `src/versatil/configs/`. This provides type safety: if a YAML value has the wrong type or a required field is missing, the run fails immediately at startup.
 
-### MainConfig Structure
+### [`MainConfig`][versatil.configs.main.MainConfig] Structure
 
 The root config composes all top-level sections:
 
@@ -105,9 +105,10 @@ class MainConfig:
     training: TrainingConfig
     policy: PolicyConfig
     inference: InferenceConfig
+    quantization: Any = None
 ```
 
-### Example: PolicyConfig
+### Example: [`PolicyConfig`][versatil.configs.policy.PolicyConfig]
 
 ```python
 @dataclass
@@ -122,6 +123,7 @@ class PolicyConfig:
     observation_horizon: int = "${task.observation_horizon}"
     device: str = "${experiment.device}"
     loss: CompositeLossConfig = MISSING
+    validate_loss_keys: bool = True
 ```
 
 - Fields set to `MISSING` are required and must be provided by a config file or CLI override.
@@ -209,9 +211,9 @@ training:
   num_epochs: "one hundred"
 ```
 
-### Feature Validation (ExperimentValidator)
+### Feature Validation ([`ExperimentValidator`][versatil.validation.ExperimentValidator])
 
-The `ExperimentValidator` in `src/versatil/validation.py` validates that encoder outputs match decoder input requirements during model construction:
+The [`ExperimentValidator`][versatil.validation.ExperimentValidator] in `src/versatil/validation.py` validates that encoder outputs match decoder input requirements during model construction:
 
 ```python
 # src/versatil/validation.py

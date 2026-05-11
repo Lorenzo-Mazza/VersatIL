@@ -116,10 +116,9 @@ class ActionPostprocessor:
             binary_range = action_meta.source_metadata.binary_gripper_range
 
         if gripper_type == GripperType.BINARY.value:
-            probability = 1.0 / (1.0 + np.exp(-raw_value[0]))
             if binary_range == BinaryGripperRange.ZERO_ONE.value:
-                return np.array([float(probability > 0.5)])
-            return np.array([float(probability > 0.5) * 2.0 - 1.0])
+                return np.array([float(raw_value[0] > 0.5)])
+            return np.array([float(raw_value[0] > 0.5) * 2.0 - 1.0])
         return raw_value
 
     @staticmethod
@@ -127,7 +126,10 @@ class ActionPostprocessor:
         action_meta: ActionMetadata, entry: dict[str, str | int]
     ) -> None:
         """Add action computation method (delta or next_timestep) to metadata."""
-        if isinstance(action_meta, OnTheFlyActionMetadata):
+        if isinstance(action_meta, OnTheFlyActionMetadata) or (
+            isinstance(action_meta, PositionActionMetadata)
+            and action_meta.computation_method is not None
+        ):
             entry[ActionMetadataField.ACTION_TYPE.value] = (
                 action_meta.computation_method
             )

@@ -22,6 +22,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 10
   dataloader:
+    image_norm_type: ${image_norm_type:CLIP}
     tokenization:
       observation_tokenizer:
         tokenizer_model: ${vlm_model:CLIP_VITB32}
@@ -62,7 +63,7 @@ policy:
         input_keys:
           - ${cameras:AGENTVIEW}
           - ${cameras:EYE_IN_HAND}
-          - ${sample_key:TOKENIZED_OBSERVATIONS}
+        # Language is routed automatically in a VLM
         model_name: ${vlm_model:CLIP_VITB32}
         pooling_method: none
   decoder:

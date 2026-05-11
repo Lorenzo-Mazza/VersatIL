@@ -76,11 +76,53 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     _target_: str = "versatil.metrics.components.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
     prior_regularization_weight: float = 0.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
     kernel_type: str = KernelType.RBF.value
     bandwidth_multipliers: list[float] | None = field(
         default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
     )
+    use_median_heuristic: bool = True
     use_fixed_gaussian_as_prior: bool = False
+
+
+@dataclass
+class ConditionalMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
+    """Configuration for conditional state-latent MMD loss."""
+
+    _target_: str = "versatil.metrics.components.ConditionalMaximumMeanDiscrepancyLoss"
+    weight: float = 1.0
+    state_weight: float = 1.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
+    condition_key: str = "${latent_key:PRIOR_CONDITION}"
+    kernel_type: str = KernelType.RBF.value
+    bandwidth_multipliers: list[float] | None = field(
+        default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
+    )
+    use_median_heuristic: bool = True
+    condition_kernel_type: str = KernelType.RBF.value
+    condition_bandwidth_multipliers: list[float] | None = field(
+        default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
+    )
+    condition_use_median_heuristic: bool = True
+    normalize_condition: bool = True
+
+
+@dataclass
+class VQCommitmentLossConfig(BaseLossConfig):
+    """Configuration for VQ commitment loss."""
+
+    _target_: str = "versatil.metrics.components.VQCommitmentLoss"
+    num_codes: int = MISSING
+    num_residual_layers: int = MISSING
+    weight: float = 1.0
+
+
+@dataclass
+class VQPriorCrossEntropyLossConfig(BaseLossConfig):
+    """Configuration for VQ prior cross-entropy loss."""
+
+    _target_: str = "versatil.metrics.components.VQPriorCrossEntropyLoss"
+    weight: float = 1.0
 
 
 @dataclass
@@ -114,6 +156,7 @@ class ActionTokenLossConfig(BaseLossConfig):
     """Configuration for action token cross-entropy loss."""
 
     _target_: str = "versatil.metrics.components.ActionTokenLoss"
+    weight: float = 1.0
     label_smoothing: float = 0.2
 
 
@@ -164,6 +207,8 @@ class MoELossConfig:
 
     _target_: str = "versatil.metrics.components.MoELoss"
     base_loss: BaseLossConfig = MISSING
+    entropy_weight: float = 0.0
+    load_balance_weight: float = 0.0
 
 
 @dataclass
@@ -191,14 +236,31 @@ class VICLatentLossConfig(BaseLossConfig):
 
 
 @dataclass
+class PosteriorGeometryLossConfig(BaseLossConfig):
+    """Configuration for posterior latent moment regularization."""
+
+    _target_: str = "versatil.metrics.components.PosteriorGeometryLoss"
+    key: str = "${latent_key:POSTERIOR_MU}"
+    mean_weight: float = 0.0
+    std_weight: float = 0.0
+    target_std: float = 1.0
+    max_std_weight: float = 0.0
+    max_std: float = 2.0
+    covariance_weight: float = 0.0
+    eps: float = 1e-6
+
+
+@dataclass
 class OptimalTransportLossConfig(BaseLossConfig):
     """Configuration for Optimal Transport loss using Sinkhorn divergence."""
 
     _target_: str = "versatil.metrics.ot_loss.OptimalTransportLoss"
     action_keys: list[str] = MISSING
     weight: float = 1.0
-    p: int = 1
-    epsilon: float = 0.01
+    p: int = 2
+    blur_fraction: float = 0.1
+    reach_multiplier: float | None = None
+    expected_std: float = 1.0
     time_scale: float = 1.0
 
 
@@ -208,5 +270,24 @@ class LatentOptimalTransportLossConfig(BaseLossConfig):
 
     _target_: str = "versatil.metrics.ot_loss.LatentOptimalTransportLoss"
     weight: float = 1.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
     p: int = 2
-    epsilon: float = 0.01
+    blur_fraction: float = 0.1
+    reach_multiplier: float | None = None
+
+
+@dataclass
+class RelaxedConditionalLatentOptimalTransportLossConfig(BaseLossConfig):
+    """Configuration for relaxed conditional latent Sinkhorn divergence."""
+
+    _target_: str = (
+        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss"
+    )
+    weight: float = 1.0
+    prior_target_key: str = "${latent_key:POSTERIOR_LATENT}"
+    condition_key: str = "${latent_key:PRIOR_CONDITION}"
+    p: int = 2
+    blur_fraction: float = 0.1
+    reach_multiplier: float | None = None
+    state_weight: float = 1.0
+    normalize_condition: bool = True

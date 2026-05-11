@@ -64,7 +64,7 @@ class PrecomputedDualStreamAttentionBlock(DualStreamBlock):
             joint_attention_mask: Pre-built joint mask (B, 1, T+S, T+S).
             positional_encoding_primary: Optional RoPE for primary stream.
             precomputed_primary_rope: Pre-computed (cos, sin) rotary positional
-              encodings for primary stream positions.
+                encodings for primary stream positions.
 
         Returns:
             Tuple of (projected_primary_output (B, T, D_p),

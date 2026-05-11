@@ -211,8 +211,14 @@ class SampleBuilder:
 
         action_positions = np.arange(self.pred_horizon) + action_slice_start
 
-        if self.action_space.has_delta_actions:
-            # For deltas, both current and next positions must be valid
+        if self.action_space.has_only_precomputed_actions:
+            # Precomputed actions are read directly from zarr at action_positions[t].
+            is_pad = np.logical_or(
+                action_positions < sample_start_idx,
+                action_positions >= sample_end_idx,
+            )
+        elif self.action_space.has_delta_actions:
+            # On-the-fly deltas need both current and next positions in range.
             is_pad = np.logical_or(
                 np.logical_or(
                     action_positions < sample_start_idx,
@@ -224,7 +230,7 @@ class SampleBuilder:
                 ),
             )
         else:
-            # For absolute positions, only next position must be valid
+            # On-the-fly absolute-next-timestep actions need the next position in range.
             is_pad = np.logical_or(
                 action_positions + 1 < sample_start_idx,
                 action_positions + 1 >= sample_end_idx,

@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -11,14 +11,18 @@ import torch
 from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.constants import LatentKey
+from versatil.models.decoding.constants import DenoisingAlgorithm, LatentKey
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
+from versatil.models.decoding.latent.prior.dit_prior import DiTPrior
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
-from versatil.training.callbacks import LatentVisualizationCallback
+from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
+from versatil.training.callbacks.prior_target_standardization import (
+    PriorTargetStandardizationCallback,
+)
 
 LATENT_DIMENSION = 32
 
@@ -42,6 +46,11 @@ def mock_posterior_factory(
             ),
             LatentKey.POSTERIOR_MU.value: torch.zeros(2, latent_dimension),
             LatentKey.POSTERIOR_LOGVAR.value: torch.zeros(2, latent_dimension),
+        }
+        posterior.get_auxiliary_output_keys.return_value = {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.POSTERIOR_LOGVAR.value,
         }
         return posterior
 
@@ -69,9 +78,17 @@ def mock_prior_factory(
                 rng.standard_normal((2, latent_dimension)).astype(np.float32)
             )
         prior.forward.return_value = forward_result
+        prior.build_training_target.side_effect = lambda posterior_output: (
+            posterior_output[LatentKey.POSTERIOR_LATENT.value].detach()
+        )
         prior.sample_prior.return_value = torch.from_numpy(
             rng.standard_normal((2, latent_dimension)).astype(np.float32)
         )
+        prior.get_auxiliary_output_keys.return_value = {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_MU.value,
+            LatentKey.PRIOR_LOGVAR.value,
+        }
         return prior
 
     return factory
@@ -106,6 +123,7 @@ def variational_factory(
         posterior_encoder: MagicMock | None = None,
         prior: MagicMock | None = None,
         sampling_from_prior_probability: float = 0.0,
+        posterior_decoder_noise_std: float = 0.0,
         latent_dimension: int = LATENT_DIMENSION,
     ) -> VariationalAlgorithm:
         if base_algorithm is None:
@@ -121,6 +139,7 @@ def variational_factory(
             posterior_encoder=posterior_encoder,
             prior=prior,
             sampling_from_prior_probability=sampling_from_prior_probability,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
         )
 
     return factory
@@ -135,12 +154,14 @@ class TestVariationalAlgorithmInitialization:
         assert isinstance(algo, DecodingAlgorithm)
 
     @pytest.mark.parametrize("sampling_from_prior_probability", [0.0, 0.5])
+    @pytest.mark.parametrize("posterior_decoder_noise_std", [0.0, 0.135])
     def test_stores_configuration(
         self,
         mock_base_algorithm_factory: Callable[..., MagicMock],
         mock_posterior_factory: Callable[..., MagicMock],
         mock_prior_factory: Callable[..., MagicMock],
         sampling_from_prior_probability: float,
+        posterior_decoder_noise_std: float,
     ):
         base = mock_base_algorithm_factory()
         posterior = mock_posterior_factory()
@@ -150,11 +171,34 @@ class TestVariationalAlgorithmInitialization:
             posterior_encoder=posterior,
             prior=prior,
             sampling_from_prior_probability=sampling_from_prior_probability,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
         )
         assert algo.p_prior == sampling_from_prior_probability
+        assert algo.posterior_decoder_noise_std == posterior_decoder_noise_std
         assert algo.base_algorithm is base
         assert algo.posterior_encoder is posterior
         assert algo.prior is prior
+
+    def test_negative_posterior_decoder_noise_raises(
+        self,
+        mock_base_algorithm_factory: Callable[..., MagicMock],
+        mock_posterior_factory: Callable[..., MagicMock],
+        mock_prior_factory: Callable[..., MagicMock],
+    ):
+        posterior_decoder_noise_std = -0.1
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "posterior_decoder_noise_std must be non-negative, "
+                f"got {posterior_decoder_noise_std}."
+            ),
+        ):
+            VariationalAlgorithm(
+                base_algorithm=mock_base_algorithm_factory(),
+                posterior_encoder=mock_posterior_factory(),
+                prior=mock_prior_factory(),
+                posterior_decoder_noise_std=posterior_decoder_noise_std,
+            )
 
     def test_auto_creates_gaussian_prior_when_none(
         self,
@@ -213,7 +257,7 @@ class TestVariationalAlgorithmInitialization:
             posterior_encoder=posterior,
             prior=vamp_prior,
         )
-        vamp_prior.set_encoder.assert_called_once_with(posterior)
+        vamp_prior.wire_posterior.assert_called_once_with(posterior)
 
 
 class TestVariationalAlgorithmForward:
@@ -300,6 +344,28 @@ class TestVariationalAlgorithmForward:
         prior_call_kwargs = algo.prior.forward.call_args.kwargs
         target_latents_passed = prior_call_kwargs["target_latents"]
         assert not target_latents_passed.requires_grad
+
+    def test_prior_builds_training_target(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory()
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+
+        algo.forward(network=network, features=features, actions=actions)
+
+        algo.prior.build_training_target.assert_called_once_with(
+            algo.posterior_encoder.encode.return_value
+        )
 
     def test_delegates_to_base_algorithm(
         self,
@@ -404,6 +470,80 @@ class TestVariationalAlgorithmForward:
             posterior_z,
         )
 
+    def test_training_mode_adds_fixed_noise_to_decoder_posterior_latent(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        posterior_decoder_noise_std = 0.25
+        algo = variational_factory(
+            sampling_from_prior_probability=0.0,
+            posterior_decoder_noise_std=posterior_decoder_noise_std,
+        )
+        algo.train()
+        posterior_latent = algo.posterior_encoder.encode.return_value[
+            LatentKey.POSTERIOR_LATENT.value
+        ]
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        with patch(
+            "versatil.models.decoding.algorithm.variational.torch.randn_like",
+            return_value=torch.ones_like(posterior_latent),
+        ):
+            result = algo.forward(network=network, features=features, actions=actions)
+
+        expected_latent = posterior_latent + posterior_decoder_noise_std
+        features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
+        assert torch.equal(
+            features_passed[LatentKey.POSTERIOR_LATENT.value],
+            expected_latent,
+        )
+        assert torch.equal(
+            result[LatentKey.POSTERIOR_LATENT.value],
+            expected_latent,
+        )
+
+    def test_posterior_decoder_noise_keeps_prior_target_clean(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory(
+            sampling_from_prior_probability=0.0,
+            posterior_decoder_noise_std=0.25,
+        )
+        algo.train()
+        posterior_latent = algo.posterior_encoder.encode.return_value[
+            LatentKey.POSTERIOR_LATENT.value
+        ]
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        with patch(
+            "versatil.models.decoding.algorithm.variational.torch.randn_like",
+            return_value=torch.ones_like(posterior_latent),
+        ):
+            algo.forward(network=network, features=features, actions=actions)
+
+        prior_call_kwargs = algo.prior.forward.call_args.kwargs
+        assert torch.equal(
+            prior_call_kwargs["target_latents"],
+            posterior_latent.detach(),
+        )
+
     def test_eval_mode_uses_prior_latent(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],
@@ -452,6 +592,32 @@ class TestVariationalAlgorithmForward:
             features_passed[LatentKey.POSTERIOR_LATENT.value],
             prior_z,
         )
+
+    def test_p_prior_one_skips_posterior_decoder_noise(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory(
+            sampling_from_prior_probability=1.0,
+            posterior_decoder_noise_std=0.25,
+        )
+        algo.train()
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        with patch(
+            "versatil.models.decoding.algorithm.variational.torch.randn_like",
+        ) as random_like:
+            algo.forward(network=network, features=features, actions=actions)
+
+        random_like.assert_not_called()
 
     def test_samples_prior_when_prior_latent_not_in_output(
         self,
@@ -635,11 +801,135 @@ def test_deterministic_posterior_excludes_logvar_from_auxiliary_keys(
     base.get_auxiliary_output_keys.return_value = set()
     posterior = mock_posterior_factory()
     posterior.deterministic = True
+    posterior.get_auxiliary_output_keys.return_value = {
+        LatentKey.POSTERIOR_LATENT.value,
+        LatentKey.POSTERIOR_MU.value,
+    }
     algo = variational_factory(base_algorithm=base, posterior_encoder=posterior)
     keys = algo.get_auxiliary_output_keys()
     assert LatentKey.POSTERIOR_LOGVAR.value not in keys
     # Prior is not deterministic by default, so prior logvar should still be present
     assert LatentKey.PRIOR_LOGVAR.value in keys
+
+
+def test_vq_posterior_keys_propagate_through_algorithm(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+    mock_posterior_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    base.get_auxiliary_output_keys.return_value = set()
+    posterior = mock_posterior_factory()
+    posterior.get_auxiliary_output_keys.return_value = {
+        LatentKey.POSTERIOR_LATENT.value,
+        LatentKey.VQ_INDICES.value,
+        LatentKey.VQ_Z_CONTINUOUS.value,
+        LatentKey.VQ_QUANTIZED.value,
+    }
+    algo = variational_factory(base_algorithm=base, posterior_encoder=posterior)
+    keys = algo.get_auxiliary_output_keys()
+    assert LatentKey.VQ_INDICES.value in keys
+    assert LatentKey.VQ_Z_CONTINUOUS.value in keys
+    assert LatentKey.VQ_QUANTIZED.value in keys
+    assert LatentKey.POSTERIOR_LOGVAR.value not in keys
+
+
+def test_vq_codebook_prior_keys_do_not_collide_with_posterior(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+    mock_posterior_factory: Callable[..., MagicMock],
+    mock_prior_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    base.get_auxiliary_output_keys.return_value = set()
+    posterior = mock_posterior_factory()
+    posterior.get_auxiliary_output_keys.return_value = {
+        LatentKey.POSTERIOR_LATENT.value,
+        LatentKey.VQ_INDICES.value,
+        LatentKey.VQ_Z_CONTINUOUS.value,
+        LatentKey.VQ_QUANTIZED.value,
+    }
+    prior = mock_prior_factory()
+    prior.get_auxiliary_output_keys.return_value = {
+        LatentKey.PRIOR_LATENT.value,
+        LatentKey.VQ_PRIOR_INDICES.value,
+        LatentKey.PRIOR_CODE_LOGITS.value,
+    }
+    algo = variational_factory(
+        base_algorithm=base, posterior_encoder=posterior, prior=prior
+    )
+    keys = algo.get_auxiliary_output_keys()
+    assert LatentKey.VQ_INDICES.value in keys
+    assert LatentKey.VQ_PRIOR_INDICES.value in keys
+
+
+def test_vq_forward_preserves_posterior_indices_after_prior_update(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+    mock_posterior_factory: Callable[..., MagicMock],
+    mock_prior_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    base.get_auxiliary_output_keys.return_value = set()
+    base.forward.return_value = {"position_action": torch.zeros(2, 8, 3)}
+    posterior_indices = [torch.tensor([7, 3])]
+    prior_indices = [torch.tensor([0, 0])]
+    posterior = mock_posterior_factory()
+    posterior.encode.return_value = {
+        LatentKey.POSTERIOR_LATENT.value: torch.zeros(2, LATENT_DIMENSION),
+        LatentKey.VQ_INDICES.value: posterior_indices,
+    }
+    posterior.get_auxiliary_output_keys.return_value = {
+        LatentKey.POSTERIOR_LATENT.value,
+        LatentKey.VQ_INDICES.value,
+    }
+    prior = mock_prior_factory()
+    prior.forward.return_value = {
+        LatentKey.PRIOR_LATENT.value: torch.zeros(2, LATENT_DIMENSION),
+        LatentKey.VQ_PRIOR_INDICES.value: prior_indices,
+    }
+    prior.get_auxiliary_output_keys.return_value = {
+        LatentKey.PRIOR_LATENT.value,
+        LatentKey.VQ_PRIOR_INDICES.value,
+    }
+    algo = variational_factory(
+        base_algorithm=base, posterior_encoder=posterior, prior=prior
+    )
+    algo.train()
+
+    features = {"obs": torch.zeros(2, 4)}
+    actions = {"position_action": torch.zeros(2, 8, 3)}
+    predictions = algo.forward(network=MagicMock(), features=features, actions=actions)
+
+    for returned, expected in zip(
+        predictions[LatentKey.VQ_INDICES.value], posterior_indices, strict=True
+    ):
+        assert torch.equal(returned, expected)
+    for returned, expected in zip(
+        predictions[LatentKey.VQ_PRIOR_INDICES.value], prior_indices, strict=True
+    ):
+        assert torch.equal(returned, expected)
+
+
+def test_dit_prior_keys_propagate_through_algorithm(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+    mock_prior_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    base.get_auxiliary_output_keys.return_value = set()
+    prior = mock_prior_factory()
+    prior.get_auxiliary_output_keys.return_value = {
+        LatentKey.PRIOR_LATENT.value,
+        LatentKey.PRIOR_PREDICTION.value,
+        LatentKey.PRIOR_TARGET.value,
+    }
+    algo = variational_factory(base_algorithm=base, prior=prior)
+    keys = algo.get_auxiliary_output_keys()
+    assert LatentKey.PRIOR_PREDICTION.value in keys
+    assert LatentKey.PRIOR_TARGET.value in keys
+    assert LatentKey.PRIOR_MU.value not in keys
+    assert LatentKey.PRIOR_LOGVAR.value not in keys
 
 
 def test_get_callbacks_returns_latent_visualization(
@@ -654,3 +944,33 @@ def test_get_callbacks_returns_latent_visualization(
     assert len(callbacks) == 1
     assert isinstance(callbacks[0], LatentVisualizationCallback)
     assert callbacks[0].log_every_n_epochs == 4
+
+
+def test_get_callbacks_adds_prior_target_standardization_for_enabled_standardizer(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    prior = DiTPrior(
+        latent_dimension=LATENT_DIMENSION,
+        embedding_dimension=16,
+        number_of_heads=2,
+        number_of_layers=1,
+        feedforward_dimension=32,
+        device="cpu",
+        algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+        latent_standardization_max_batches=3,
+    )
+    algo = variational_factory(base_algorithm=base, prior=prior)
+    experiment_config = MagicMock(spec=ExperimentConfig)
+    experiment_config.val_every = 4
+
+    callbacks = algo.get_callbacks(experiment_config=experiment_config)
+
+    prior_callbacks = [
+        callback
+        for callback in callbacks
+        if isinstance(callback, PriorTargetStandardizationCallback)
+    ]
+    assert len(prior_callbacks) == 1
+    assert prior_callbacks[0].max_batches == 3

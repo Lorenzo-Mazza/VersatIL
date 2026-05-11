@@ -382,6 +382,25 @@ class TestIntegrateODE:
                 solver=ODESolver.DOPRI5.value,
             )
 
+    def test_non_positive_num_steps_raises(
+        self,
+        flat_tensor_factory: Callable[..., torch.Tensor],
+        velocity_field_factory: Callable,
+    ):
+        num_steps = 0
+        state = flat_tensor_factory(batch_size=2, feature_dimension=4)
+        velocity_fn = velocity_field_factory(field_type="constant")
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"num_steps must be positive, got {num_steps}."),
+        ):
+            integrate_ode(
+                z_init=state,
+                velocity_fn=velocity_fn,
+                num_steps=num_steps,
+                solver=ODESolver.EULER.value,
+            )
+
     def test_time_dependent_velocity_rk4_exact(
         self,
         velocity_field_factory: Callable,

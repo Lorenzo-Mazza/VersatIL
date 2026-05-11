@@ -99,8 +99,8 @@ def build_example_inputs(
             camera_meta.image_width,
         )
 
-    for key, proprio_meta in observation_space.proprioceptive_observations.items():
-        observation_shapes[key] = (observation_horizon, proprio_meta.dimension)
+    for key, state_meta in observation_space.numerical_observations.items():
+        observation_shapes[key] = (observation_horizon, state_meta.dimension)
 
     if tokenizer is not None and tokenizer.observation_tokenizer is not None:
         token_length = tokenizer.observation_tokenizer.max_token_len

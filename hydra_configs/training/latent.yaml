@@ -18,11 +18,11 @@ optimizer:
     - name: prior
       lr: 5.0e-5
       weight_decay: 2.0e-2
-      params_pattern: "decoder.algorithm.prior.*"
+      params_pattern: "^algorithm\\.prior\\."
     - name: posterior
       lr: 5.0e-5
       weight_decay: 0.05
-      params_pattern: "decoder.algorithm.posterior_encoder.*"
+      params_pattern: "^algorithm\\.posterior_encoder\\."
 
 clip_gradient_norm: true
 clip_max_norm: 1.0

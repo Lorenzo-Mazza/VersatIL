@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 
-from versatil.models.layers import DepthwiseConv2D
 from versatil.models.layers.constants import AttentionDecompositionMode
+from versatil.models.layers.convolution.depthwise_conv2d import DepthwiseConv2D
 from versatil.models.layers.geometric_attention.geometric_bias import (
     GeometricAttentionBias,
 )

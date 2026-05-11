@@ -4,6 +4,10 @@ from enum import StrEnum
 
 import torch
 
+# Reserved parameter-group name for optimizer parameters not matched by any
+# explicit ``params_pattern``. Cannot be used as a custom group name."""
+OPTIMIZER_UNMATCHED_GROUPS_NAME = "unmatched"
+
 
 class PrecisionType(StrEnum):
     """PyTorch Lightning precision types.

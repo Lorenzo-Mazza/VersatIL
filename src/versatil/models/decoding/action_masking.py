@@ -32,15 +32,52 @@ def make_attention_mask(
         full_padding_mask: Attention mask (B, 1, total_len, total_len)
         full_key_padding_mask: Key padding mask (B, total_len)
 
+    Raises:
+        ValueError: If token or mask shapes are inconsistent.
+
     Note: True indicates masked tokens, False indicates valid tokens.
     """
+    if feature_tokens.ndim != 3:
+        raise ValueError(
+            f"feature_tokens must have shape (B, P, D), got {feature_tokens.shape}."
+        )
+    if action_tokens.ndim != 3:
+        raise ValueError(
+            f"action_tokens must have shape (B, A, D), got {action_tokens.shape}."
+        )
+    if feature_tokens.shape[0] != action_tokens.shape[0]:
+        raise ValueError(
+            "feature_tokens and action_tokens must have matching batch size, "
+            f"got {feature_tokens.shape[0]} and {action_tokens.shape[0]}."
+        )
+    if feature_tokens.device != action_tokens.device:
+        raise ValueError(
+            "feature_tokens and action_tokens must be on the same device, "
+            f"got {feature_tokens.device} and {action_tokens.device}."
+        )
     batch_size = feature_tokens.shape[0]
     prefix_len = feature_tokens.shape[1]
     action_len = action_tokens.shape[1]
+    if not 0 <= causal_prefix_suffix_length <= prefix_len:
+        raise ValueError(
+            "causal_prefix_suffix_length must be between 0 and prefix length "
+            f"{prefix_len}, got {causal_prefix_suffix_length}."
+        )
     total_len = prefix_len + action_len
     if feature_token_mask is None:
         feature_token_mask = torch.zeros(
             batch_size, prefix_len, dtype=torch.bool, device=feature_tokens.device
+        )
+    else:
+        expected_mask_shape = (batch_size, prefix_len)
+        if feature_token_mask.shape != expected_mask_shape:
+            raise ValueError(
+                f"feature_token_mask must have shape {expected_mask_shape}, "
+                f"got {feature_token_mask.shape}."
+            )
+        feature_token_mask = feature_token_mask.to(
+            device=feature_tokens.device,
+            dtype=torch.bool,
         )
     if causal_actions:
         action_ar_pad_mask = (

@@ -1,5 +1,7 @@
 """Tests for versatil.metrics.kernels module."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 import torch
@@ -325,9 +327,139 @@ class TestKernelType:
         kernel = KernelType.RBF.to_kernel()
         assert kernel.bandwidth_multipliers == [0.2, 0.5, 1.0, 2.0, 5.0]
 
+    def test_to_kernel_passes_use_median_heuristic(self):
+        kernel = KernelType.IMQ.to_kernel(use_median_heuristic=False)
+        assert kernel.use_median_heuristic is False
+
+    def test_to_kernel_default_uses_median_heuristic(self):
+        kernel = KernelType.RBF.to_kernel()
+        assert kernel.use_median_heuristic is True
+
     def test_lookup_by_value(self):
         assert KernelType("rbf") is KernelType.RBF
         assert KernelType("imq") is KernelType.IMQ
+
+
+@pytest.mark.unit
+class TestResolveBandwidth:
+    def test_median_heuristic_returns_scaled_median(self, point_set_factory: Callable):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        combined = torch.cat([x, y], dim=0)
+        kernel = RBFKernel(use_median_heuristic=True)
+
+        base = kernel.resolve_base_bandwidth(combined)
+        expected = 2.0 * kernel.compute_median_squared_distance(combined)
+
+        assert base == pytest.approx(expected, rel=1e-5)
+
+    def test_fixed_bandwidth_returns_one(self, point_set_factory: Callable):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        combined = torch.cat([x, y], dim=0)
+        kernel = RBFKernel(use_median_heuristic=False)
+
+        base = kernel.resolve_base_bandwidth(combined)
+
+        assert base == 1.0
+
+
+@pytest.mark.unit
+class TestKernelAcceptsExplicitBandwidth:
+    def test_rbf_explicit_bandwidth_differs_from_auto(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = RBFKernel(bandwidth_multipliers=[1.0], use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_override = kernel(x, y, bandwidth=auto_bandwidth * 10.0)
+
+        assert not torch.allclose(k_auto, k_override)
+
+    def test_imq_explicit_bandwidth_differs_from_auto(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = IMQKernel(bandwidth_multipliers=[1.0], use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_override = kernel(x, y, bandwidth=auto_bandwidth * 10.0)
+
+        assert not torch.allclose(k_auto, k_override)
+
+    def test_rbf_explicit_bandwidth_matches_auto_when_equal(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = RBFKernel(use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_explicit = kernel(x, y, bandwidth=auto_bandwidth)
+
+        assert torch.allclose(k_auto, k_explicit, atol=1e-6)
+
+    def test_imq_explicit_bandwidth_matches_auto_when_equal(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = IMQKernel(use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_explicit = kernel(x, y, bandwidth=auto_bandwidth)
+
+        assert torch.allclose(k_auto, k_explicit, atol=1e-6)
+
+
+@pytest.mark.unit
+class TestFixedVsAdaptiveBandwidth:
+    def test_rbf_fixed_bandwidth_differs_from_adaptive(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=30, dimension=4)
+        y = point_set_factory(num_points=30, dimension=4)
+        adaptive = RBFKernel(use_median_heuristic=True)
+        fixed = RBFKernel(use_median_heuristic=False)
+
+        k_adaptive = adaptive(x, y)
+        k_fixed = fixed(x, y)
+
+        assert not torch.allclose(k_adaptive, k_fixed)
+
+    def test_imq_fixed_bandwidth_differs_from_adaptive(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=30, dimension=4)
+        y = point_set_factory(num_points=30, dimension=4)
+        adaptive = IMQKernel(use_median_heuristic=True)
+        fixed = IMQKernel(use_median_heuristic=False)
+
+        k_adaptive = adaptive(x, y)
+        k_fixed = fixed(x, y)
+
+        assert not torch.allclose(k_adaptive, k_fixed)
+
+    def test_imq_fixed_bandwidth_with_wae_scale(self):
+        latent_dim = 8
+        x = torch.randn(50, latent_dim)
+        y = torch.randn(50, latent_dim)
+        kernel = IMQKernel(
+            bandwidth_multipliers=[2.0 * latent_dim],
+            use_median_heuristic=False,
+        )
+
+        result = kernel(x, y)
+
+        assert result.shape == (50, 50)
+        assert (result > 0).all()
 
 
 @pytest.mark.unit
