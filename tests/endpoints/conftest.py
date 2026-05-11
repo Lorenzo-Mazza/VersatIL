@@ -153,6 +153,181 @@ METAWORLD_ZARR_SPEC: dict[str, dict] = {
     },
 }
 
+ANT_ZARR_SPEC: dict[str, dict] = {
+    ProprioKey.ANT_QPOS.value: {
+        "dimension": 15,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.ANT_QVEL.value: {
+        "dimension": 14,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.ANT_GOAL_COORDS.value: {
+        "dimension": 8,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.ANT_ACHIEVED.value: {
+        "dimension": 4,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.ANT_TORQUE_ACTION.value: {
+        "dimension": 8,
+        "dtype": np.float32,
+        "kind": "action",
+    },
+}
+
+BLOCK_PUSHING_ZARR_SPEC: dict[str, dict] = {
+    ProprioKey.BLOCK_PUSH_BLOCK1_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_BLOCK1_ANGLE.value: {
+        "dimension": 1,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_BLOCK2_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_BLOCK2_ANGLE.value: {
+        "dimension": 1,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.EE_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_EE_COMMANDED.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_TARGET1_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_TARGET1_ANGLE.value: {
+        "dimension": 1,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_TARGET2_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.BLOCK_PUSH_TARGET2_ANGLE.value: {
+        "dimension": 1,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.EE_POS_ACTION.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "action",
+    },
+}
+
+KITCHEN_ZARR_SPEC: dict[str, dict] = {
+    ProprioKey.KITCHEN_ARM_QPOS.value: {
+        "dimension": 9,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.KITCHEN_OBJECT_QPOS.value: {
+        "dimension": 21,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.KITCHEN_TASK_GOAL.value: {
+        "dimension": 7,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    Cameras.AGENTVIEW.value: {
+        "channels": 3,
+        "dtype": np.uint8,
+        "kind": "rgb",
+    },
+    ProprioKey.KITCHEN_ARM_ACTION.value: {
+        "dimension": 9,
+        "dtype": np.float32,
+        "kind": "action",
+    },
+}
+
+PUSHT_ZARR_SPEC: dict[str, dict] = {
+    ProprioKey.EE_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.PUSHT_BLOCK_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.PUSHT_BLOCK_ANGLE.value: {
+        "dimension": 1,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.PUSHT_KEYPOINTS.value: {
+        "dimension": 18,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.PUSHT_CONTACTS.value: {
+        "dimension": 1,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    Cameras.AGENTVIEW.value: {
+        "channels": 3,
+        "dtype": np.uint8,
+        "kind": "rgb",
+    },
+    ProprioKey.EE_POS_ACTION.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "action",
+    },
+}
+
+UR3_ZARR_SPEC: dict[str, dict] = {
+    ProprioKey.UR3_EE_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.UR3_BLOCK1_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.UR3_BLOCK2_POS.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    ProprioKey.UR3_EE_TARGET_ACTION.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "action",
+    },
+}
+
 SYNTHETIC_ZARR_SPEC: dict[str, dict] = {
     Cameras.AGENTVIEW.value: {
         "channels": 3,
@@ -182,10 +357,15 @@ SYNTHETIC_ZARR_SPEC: dict[str, dict] = {
 }
 
 DATASET_SPECS: dict[str, dict[str, dict]] = {
+    "ant": ANT_ZARR_SPEC,
+    "block_pushing": BLOCK_PUSHING_ZARR_SPEC,
     "bowel_retraction": BOWEL_RETRACTION_ZARR_SPEC,
+    "kitchen": KITCHEN_ZARR_SPEC,
     "libero_lerobot": LIBERO_LEROBOT_ZARR_SPEC,
     "metaworld": METAWORLD_ZARR_SPEC,
+    "pusht": PUSHT_ZARR_SPEC,
     "synthetic": SYNTHETIC_ZARR_SPEC,
+    "ur3": UR3_ZARR_SPEC,
 }
 
 
@@ -307,11 +487,72 @@ def synthetic_zarr_factory(rng: np.random.Generator) -> Callable[..., str]:
 HYDRA_CONFIG_DIR = str(Path(__file__).parents[2] / "hydra_configs")
 
 DATASET_TYPE_TO_ZARR_SPEC: dict[str, str] = {
+    "ant": "ant",
+    "block_pushing": "block_pushing",
+    "kitchen": "kitchen",
     "tso": "bowel_retraction",
     "libero": "libero_lerobot",
     "metaworld": "metaworld",
+    "pusht": "pusht",
     "synthetic": "synthetic",
+    "ur3": "ur3",
 }
+
+E2E_UNSUPPORTED_CONFIG_SUBSTRINGS = (
+    "pi0",
+    "smolvla",
+)
+
+E2E_FULL_COVERAGE_CONFIGS = (
+    "end_to_end_training_runs/pusht/act_flow_rgb",
+    "end_to_end_training_runs/pusht/act_flow_state",
+    "end_to_end_training_runs/pusht/conditional_mmd_cwae_learned_prior_rgb",
+    "end_to_end_training_runs/pusht/conditional_mmd_cwae_learned_prior_state",
+    "end_to_end_training_runs/pusht/kl_cvae_learned_prior_rgb",
+    "end_to_end_training_runs/pusht/kl_cvae_learned_prior_rgb_learned_var",
+    "end_to_end_training_runs/pusht/kl_cvae_learned_prior_state",
+    "end_to_end_training_runs/pusht/kl_cvae_learned_prior_state_learned_var",
+    "end_to_end_training_runs/pusht/kl_cvae_rgb",
+    "end_to_end_training_runs/pusht/kl_cvae_state",
+    "end_to_end_training_runs/pusht/lat_flow_rgb",
+    "end_to_end_training_runs/pusht/lat_flow_state",
+    "end_to_end_training_runs/pusht/relaxed_conditional_sinkhorn_cwae_learned_prior_rgb",
+    "end_to_end_training_runs/pusht/relaxed_conditional_sinkhorn_cwae_learned_prior_state",
+    "end_to_end_training_runs/pusht/sinkhorn_cwae_fixed_gaussian_rgb",
+    "end_to_end_training_runs/pusht/sinkhorn_cwae_fixed_gaussian_state",
+    "end_to_end_training_runs/pusht/sinkhorn_cwae_learned_prior_rgb",
+    "end_to_end_training_runs/pusht/sinkhorn_cwae_learned_prior_state",
+    "end_to_end_training_runs/pusht/vq_vae_prior_rgb_800_200",
+    "end_to_end_training_runs/pusht/vq_vae_prior_state_800_200",
+    "end_to_end_training_runs/pusht/vq_vae_rgb",
+    "end_to_end_training_runs/pusht/vq_vae_state",
+    "end_to_end_training_runs/pusht/vq_vae_state_codes16",
+)
+
+E2E_REPRESENTATIVE_CONFIGS = (
+    "end_to_end_training_runs/ant/act_flow_state",
+    "end_to_end_training_runs/block_pushing/act_flow_state",
+    "end_to_end_training_runs/bowel_retraction/action_transformer",
+    "end_to_end_training_runs/kitchen/act_flow_rgb",
+    "end_to_end_training_runs/libero_hdf5/action_transformer",
+    "end_to_end_training_runs/libero_lerobot/action_transformer",
+    "end_to_end_training_runs/libero_plus/vision_sweep/siglip2_base",
+    "end_to_end_training_runs/metaworld/action_transformer",
+    "end_to_end_training_runs/multimodal_peg_transfer/action_transformer",
+    "end_to_end_training_runs/synthetic/bcat",
+    "end_to_end_training_runs/ur3/act_flow_state",
+)
+
+E2E_EXTRA_ARCHITECTURE_CONFIGS = (
+    "end_to_end_training_runs/libero_lerobot/gpt_transformer",
+    "end_to_end_training_runs/libero_lerobot/flow_dit_cross_attention",
+    "end_to_end_training_runs/libero_lerobot/flow_dit_multimodal",
+    "end_to_end_training_runs/libero_lerobot/mode_act",
+    "end_to_end_training_runs/bowel_retraction/discrete_detr",
+    "end_to_end_training_runs/bowel_retraction/free_transformer",
+    "end_to_end_training_runs/bowel_retraction/mixture_act",
+    "end_to_end_training_runs/bowel_retraction/phase_act",
+)
 
 TINY_SCALAR_FIELDS: dict[str, int] = {
     "embedding_dimension": 16,
@@ -329,10 +570,27 @@ TINY_LIST_FIELDS: dict[str, str] = {
 
 
 def discover_e2e_configs() -> list[str]:
-    """Auto-discover all e2e config names from the hydra_configs directory."""
-    e2e_dir = Path(HYDRA_CONFIG_DIR) / "end_to_end_training_runs"
-    paths = sorted(e2e_dir.rglob("*.yaml"))
-    return [str(p.relative_to(HYDRA_CONFIG_DIR)).removesuffix(".yaml") for p in paths]
+    """Return a bounded smoke matrix for expensive endpoint e2e tests."""
+    selected_configs = (
+        E2E_FULL_COVERAGE_CONFIGS
+        + E2E_REPRESENTATIVE_CONFIGS
+        + E2E_EXTRA_ARCHITECTURE_CONFIGS
+    )
+    runnable_configs = []
+    seen_configs = set()
+    for config_name in selected_configs:
+        if config_name in seen_configs:
+            continue
+        seen_configs.add(config_name)
+        if any(
+            substring in config_name.lower()
+            for substring in E2E_UNSUPPORTED_CONFIG_SUBSTRINGS
+        ):
+            continue
+        if not (Path(HYDRA_CONFIG_DIR) / f"{config_name}.yaml").exists():
+            continue
+        runnable_configs.append(config_name)
+    return runnable_configs
 
 
 def resolve_dataset_type(config_name: str) -> str:
@@ -417,6 +675,9 @@ def build_tiny_overrides(config_name: str) -> list[str]:
         obs_tok = tokenization.get("observation_tokenizer", {})
         if obs_tok and "tokenizer_model" in obs_tok:
             if has_two_tower_vlm:
+                overrides.append(
+                    "task.dataloader.image_norm_type=${image_norm_type:CLIP}"
+                )
                 overrides.append(
                     "task.dataloader.tokenization.observation_tokenizer"
                     ".tokenizer_model=${vlm_model:CLIP_VITB32}"

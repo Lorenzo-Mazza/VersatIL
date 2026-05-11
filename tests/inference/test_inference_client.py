@@ -1852,7 +1852,8 @@ class TestStepUpdateRateHz:
         ) as mock_sleep:
             client.step()
 
-            mock_sleep.assert_called_once_with(1.0 / 10.0)
+            assert mock_sleep.call_count == 4
+            assert mock_sleep.call_args_list == [((1.0 / 10.0,),)] * 4
 
     def test_does_not_sleep_when_update_rate_is_none(
         self,

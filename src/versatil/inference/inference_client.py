@@ -80,7 +80,7 @@ class InferenceClient:
             compression_type: Compression type for image data transfer.
             max_timesteps: Maximum episode length for temporal aggregation.
             timing_log: Whether to log per-step timing breakdown.
-            update_rate_hz: Target inference frequency in Hz.
+            update_rate_hz: Target action-send frequency in Hz.
         """
         self.policy_loader = policy_loader
         self.observation_transport = observation_transport
@@ -247,9 +247,6 @@ class InferenceClient:
             )
 
         self.timestep += 1
-
-        if self.update_rate_hz is not None:
-            time.sleep(1.0 / self.update_rate_hz)
 
         return EpisodeStatus.CONTINUE.value
 

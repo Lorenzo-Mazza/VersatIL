@@ -40,6 +40,7 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
         if (
             self.position_source == PositionSource.TENSOR_INDICES.value
             and input_values.numel() > 0
+            and not torch.compiler.is_compiling()
         ):
             max_position = int(input_values.max())
             min_position = int(input_values.min())

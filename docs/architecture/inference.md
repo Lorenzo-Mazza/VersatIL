@@ -320,7 +320,7 @@ Inference batches observations from all environments with full buffers (`is_read
 
 ### Rate Limiting
 
-When `update_rate_hz` is set, the client sleeps after each step to maintain the target inference frequency. The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
+When `update_rate_hz` is set, the client sleeps after each action send to maintain the target environment update frequency. The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
 
 ## Simulation Servers
 
