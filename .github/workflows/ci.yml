@@ -35,7 +35,6 @@ jobs:
     needs: [ruff-format, ruff-lint]
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -74,13 +73,14 @@ jobs:
           name: unit-coverage-report
           path: coverage.xml
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
+          disable_search: true
           flags: unit
           name: unit-tests
-          fail_ci_if_error: true
-          use_oidc: true
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
