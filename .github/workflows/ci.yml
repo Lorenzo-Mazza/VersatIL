@@ -33,6 +33,9 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     needs: [ruff-format, ruff-lint]
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -70,6 +73,14 @@ jobs:
         with:
           name: unit-coverage-report
           path: coverage.xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          flags: unit
+          name: unit-tests
+          fail_ci_if_error: true
+          use_oidc: true
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,7 +1,7 @@
 # VersatIL: Imitation Learning for Any Robot Policy
 
 [![CI](https://github.com/Lorenzo-Mazza/VersatIL/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Lorenzo-Mazza/VersatIL/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen)](https://github.com/Lorenzo-Mazza/VersatIL/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Lorenzo-Mazza/VersatIL/branch/main/graph/badge.svg)](https://codecov.io/gh/Lorenzo-Mazza/VersatIL)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
