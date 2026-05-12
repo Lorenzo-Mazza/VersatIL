@@ -50,6 +50,12 @@ Rapid experimentation, cleaner code, and true reusability across projects.
 - 🔒 **Explainability & Safety** – Strict interfaces, full type hints, Google-style docstrings, and runtime config validation.
 - 🧪 **Testing** – Comprehensive unit and integration tests for every module.
 
+### Paper Reproducibility Instructions
+
+Paper-specific instructions for reproducing reported experiments are collected in
+the [Papers Reproducibility Instructions](docs/papers-reproducibility-instructions/index.md)
+docs section. These notes list the datasets, local path setup, environment
+variables, and Hydra configs used for each paper.
 
 ---
 
@@ -151,7 +157,7 @@ The inference pipeline is transport-agnostic: communication with any environment
 
 The built-in ZMQ implementation uses our two PyPI packages:
 - [**tso-robotics-sockets**](https://pypi.org/project/tso-robotics-sockets/): Generic ZMQ socket client/server with protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`).
-- [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`).
+- [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation` and dataset/benchmark specific message keys).
 
 Both libraries are server-agnostic — they define the message format, not the server implementation. Any server that speaks the protocol can be integrated by implementing the transport protocols.
 
@@ -163,9 +169,14 @@ We provide custom ZMQ server wrappers for popular robot learning simulation envi
 
 | Simulator | Original | ZMQ Server Wrapper |
 |---|---|---|
-| [LIBERO / LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [GitHub](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | Coming soon |
-| [LIBERO+](https://github.com/sylvestf/LIBERO-plus) | [GitHub](https://github.com/sylvestf/LIBERO-plus) | Coming soon |
-| [MetaWorld](https://meta-world.github.io/) | [GitHub](https://github.com/Farama-Foundation/Metaworld) | Coming soon |
+| LIBERO / LIBERO-PRO | [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO), [LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [simulation_libero](https://github.com/nct-tso-robotics/simulation_libero) |
+| LIBERO+ | [GitHub](https://github.com/sylvestf/LIBERO-plus) | [simulation_libero_plus](https://github.com/nct-tso-robotics/simulation_libero_plus) |
+| MetaWorld | [GitHub](https://github.com/Farama-Foundation/Metaworld) | [simulation_metaworld](https://github.com/nct-tso-robotics/simulation_metaworld) |
+| PushT | [Diffusion Policy PushT](https://github.com/real-stanford/diffusion_policy/tree/main/diffusion_policy/env/pusht) | [simulation_pusht](https://github.com/nct-tso-robotics/simulation_pusht) |
+| Franka Kitchen | [relay-policy-learning](https://github.com/google-research/relay-policy-learning) | [simulation_kitchen](https://github.com/nct-tso-robotics/simulation_kitchen) |
+| BlockPush | [IBC BlockPushing](https://github.com/google-research/ibc/tree/master/environments/block_pushing) | [simulation_block_push](https://github.com/nct-tso-robotics/simulation_block_push) |
+| UR3 BlockPush | [VQ-BeT UR3](https://github.com/jayLEE0301/vq_bet_official/tree/main/envs/ur3) | [simulation_ur3_block_push](https://github.com/nct-tso-robotics/simulation_ur3_block_push) |
+| Multimodal Ant | [VQ-BeT AntEnv](https://github.com/jayLEE0301/vq_bet_official/tree/main/envs/antenv) | [simulation_multimodal_ant](https://github.com/nct-tso-robotics/simulation_multimodal_ant) |
 
 ---
 
@@ -278,16 +289,16 @@ Ready-to-use end-to-end configs are organized by dataset under `hydra_configs/en
 
 | Dataset | Path | Data Link | Notes                                                                   |
 |---|---|---|-------------------------------------------------------------------------|
-| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | Coming soon | Real-world UR5e surgical robotics demonstrations. Language and depth variants included. |
+| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_bowel_grasping) | Original real-world UR5e surgical robotics dataset release. Language and depth variants included. |
 | [LIBERO](https://libero-project.github.io/datasets) (HDF5) | `libero_hdf5/` | [libero-project.github.io](https://libero-project.github.io/datasets) | Original HDF5 format with 128x128 (flipped) images.                     |
 | [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot) | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format with OpenVLA filtered demonstrations and 256x256 images. |
 | [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                                |
 | [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                                    |
-| PushT | `pusht/` | Local/LeRobot-compatible data | 2D pushing benchmark configs. |
-| Block Pushing | `block_pushing/` | Local/LeRobot-compatible data | Relative and absolute action-space variants. |
-| Kitchen | `kitchen/` | Local/LeRobot-compatible data | Q-FAT relay kitchen configs. |
-| Multimodal Ant | `ant/` | Local/LeRobot-compatible data | State-only multimodal ant benchmark configs. |
-| UR3 Block Push | `ur3/` | Local/LeRobot-compatible data | State-only UR3 block-push benchmark configs. |
+| PushT | `pusht/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_pusht_lerobot) | LeRobot wrapper of the original PushT benchmark used by Diffusion Policy. |
+| Block Pushing | `block_pushing/` | [relative](https://huggingface.co/datasets/nct-tso/robotics_blockpush_relative_lerobot), [absolute](https://huggingface.co/datasets/nct-tso/robotics_blockpush_absolute_lerobot) | LeRobot wrappers of the original IBC/Diffusion Policy BlockPush dataset; relative and absolute action variants. |
+| Kitchen | `kitchen/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_kitchen_lerobot) | LeRobot wrapper of the original Franka Kitchen dataset from relay-policy-learning. |
+| Multimodal Ant | `ant/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_multimodal_ant_lerobot) | LeRobot wrapper of the original multimodal Ant navigation dataset. |
+| UR3 Block Push | `ur3/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_ur3_blockpush_lerobot) | LeRobot wrapper of the original UR3 block-push dataset from VQ-BeT. |
 | Multimodal Peg Transfer | `multimodal_peg_transfer/` | Local data | Peg-transfer surgical robot task configs. |
 | Synthetic | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs. |
 
@@ -373,7 +384,7 @@ If you define an RGB encoder named `stereo` with two input cameras keyed `key_1`
 
 **Why strict naming?**
 It prevents shape mismatches silently propagating. The [`Policy`](src/versatil/models/policy.py#L27) class validates shapes at initialization. If your Decoder expects a **FLAT** feature (1D)
-but you feed it **SPATIAL** (3D) features from a ResNet, the code raises a `ValueError` immediately—before training starts.
+but you feed it **SPATIAL** (3D) (Channel, Height, Width) features from a spatial vision backbone, the code raises a `ValueError` immediately—before training starts.
 
 
 **Fusion outputs** specify `output_name` directly, due to their multi-input nature.

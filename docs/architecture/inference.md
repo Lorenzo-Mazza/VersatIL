@@ -328,8 +328,13 @@ We provide custom ZMQ server wrappers for popular robot learning simulators, ena
 
 | Simulator | Original | ZMQ Server Wrapper |
 |---|---|---|
-| [LIBERO / LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [GitHub](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | Coming soon |
-| [LIBERO+](https://github.com/sylvestf/LIBERO-plus) | [GitHub](https://github.com/sylvestf/LIBERO-plus) | Coming soon |
-| [MetaWorld](https://meta-world.github.io/) | [GitHub](https://github.com/Farama-Foundation/Metaworld) | Coming soon |
+| LIBERO / LIBERO-PRO | [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO), [LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [simulation_libero](https://github.com/nct-tso-robotics/simulation_libero) |
+| LIBERO+ | [GitHub](https://github.com/sylvestf/LIBERO-plus) | [simulation_libero_plus](https://github.com/nct-tso-robotics/simulation_libero_plus) |
+| MetaWorld | [GitHub](https://github.com/Farama-Foundation/Metaworld) | [simulation_metaworld](https://github.com/nct-tso-robotics/simulation_metaworld) |
+| PushT | [Diffusion Policy PushT](https://github.com/real-stanford/diffusion_policy/tree/main/diffusion_policy/env/pusht) | [simulation_pusht](https://github.com/nct-tso-robotics/simulation_pusht) |
+| Franka Kitchen | [relay-policy-learning](https://github.com/google-research/relay-policy-learning) | [simulation_kitchen](https://github.com/nct-tso-robotics/simulation_kitchen) |
+| BlockPush | [IBC BlockPushing](https://github.com/google-research/ibc/tree/master/environments/block_pushing) | [simulation_block_push](https://github.com/nct-tso-robotics/simulation_block_push) |
+| UR3 BlockPush | [VQ-BeT UR3](https://github.com/jayLEE0301/vq_bet_official/tree/main/envs/ur3) | [simulation_ur3_block_push](https://github.com/nct-tso-robotics/simulation_ur3_block_push) |
+| Multimodal Ant | [VQ-BeT AntEnv](https://github.com/jayLEE0301/vq_bet_official/tree/main/envs/antenv) | [simulation_multimodal_ant](https://github.com/nct-tso-robotics/simulation_multimodal_ant) |
 
 The built-in ZMQ transport works for both simulation and real hardware. For custom environments, implement the [`ObservationTransport`][versatil.inference.protocol.ObservationTransport] and [`ActionTransport`][versatil.inference.protocol.ActionTransport] protocols with any transport mechanism.
