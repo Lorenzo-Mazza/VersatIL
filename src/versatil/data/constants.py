@@ -28,14 +28,17 @@ from versatil_constants.ur3 import UR3ProprioKey
 
 
 class Cameras(enum.Enum):
-    """Camera image keys used in the versatil pipeline and wire protocol."""
+    """Camera image keys used in the versatil pipeline and to wire server protocols, coming from `versatil_constants` library.
+
+    Note:
+        Cf. https://github.com/nct-tso-robotics/versatil_constants for the single source of truth for camera keys across all projects in the ecosystem.
+    """
 
     LEFT = TSOCamera.LEFT.value
     RIGHT = TSOCamera.RIGHT.value
     DEPTH = TSOCamera.DEPTH.value
-    AGENTVIEW = (
-        LiberoCamera.AGENTVIEW.value
-    )  # MetaWorldCamera.AGENTVIEW.value is identical
+    # Libero agent-view key is intentionally reused by MetaWorld, PushT, and Kitchen simulation constants.
+    AGENTVIEW = LiberoCamera.AGENTVIEW.value
     EYE_IN_HAND = LiberoCamera.EYE_IN_HAND.value
 
 
@@ -82,15 +85,18 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     # Libero Plus LeRobot
     RawCameraKey.FRONT.value: Cameras.AGENTVIEW.value,
     RawCameraKey.WRIST.value: Cameras.EYE_IN_HAND.value,
-    # MetaWorld LeRobot
     RawCameraKey.IMAGE_METAWORLD.value: Cameras.AGENTVIEW.value,
-    # PushT LeRobot (same raw key as MetaWorld, mapped to AGENTVIEW)
     RawCameraKey.IMAGE_PUSHT.value: Cameras.AGENTVIEW.value,
+    RawCameraKey.IMAGE_KITCHEN.value: Cameras.AGENTVIEW.value,
 }
 
 
 class ProprioKey(enum.StrEnum):
-    """Proprioceptive observation keys for all supported environments."""
+    """Proprioceptive observation keys for all supported environments.
+
+    Note:
+        Cf. https://github.com/nct-tso-robotics/versatil_constants for the single source of truth for proprioceptive keys across all projects in the ecosystem.
+    """
 
     # TSO datasets proprioceptive keys
     ROBOT_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
@@ -107,7 +113,8 @@ class ProprioKey(enum.StrEnum):
     GRIPPER_STATE = LiberoProprioKey.GRIPPER_STATE.value
     GRIPPER_STATE_ACTION = LiberoProprioKey.GRIPPER_STATE_ACTION.value
 
-    # Synthetic data
+    # Synthetic data, these don't live in versatil_constants because they are never passed over the wire at inference time,
+    # but are only used locally within versatil for synthetic benchmarks.
     SYNTHETIC_POSITION = "synthetic_position"
     SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
 
@@ -136,7 +143,7 @@ class ProprioKey(enum.StrEnum):
     UR3_BLOCK2_POS = UR3ProprioKey.BLOCK2_POS.value
     UR3_EE_TARGET_ACTION = UR3ProprioKey.EE_TARGET_ACTION.value
 
-    # Block pushing (multimodal_push_seed) data
+    # Block pushing data
     BLOCK_PUSH_BLOCK1_POS = BlockPushProprioKey.BLOCK1_POS.value
     BLOCK_PUSH_BLOCK1_ANGLE = BlockPushProprioKey.BLOCK1_ANGLE.value
     BLOCK_PUSH_BLOCK2_POS = BlockPushProprioKey.BLOCK2_POS.value
