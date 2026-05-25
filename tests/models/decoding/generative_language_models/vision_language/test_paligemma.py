@@ -593,6 +593,20 @@ class TestPaliGemmaVLMGetVocabSize:
         )
         assert backbone.get_vocab_size() == VOCAB_SIZE
 
+    def test_resize_token_embeddings_delegates_to_vlm(
+        self,
+        paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+    ) -> None:
+        backbone = paligemma_backbone_factory(
+            input_keys=DEFAULT_INPUT_KEYS,
+            pretrained=False,
+            frozen=False,
+        )
+
+        backbone.resize_token_embeddings(vocabulary_size=VOCAB_SIZE + 1)
+
+        backbone.vlm.resize_token_embeddings.assert_called_once_with(VOCAB_SIZE + 1)
+
 
 @pytest.mark.unit
 class TestPaliGemmaVLMBackboneAccessors:

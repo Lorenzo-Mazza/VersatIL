@@ -84,3 +84,7 @@ class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
     def _compute_num_image_tokens(self, config: PretrainedConfig) -> int:
         """Return the number of image tokens per camera for this VLM."""
         raise NotImplementedError
+
+    def resize_token_embeddings(self, vocabulary_size: int) -> None:
+        """Resize the HuggingFace VLM token embeddings."""
+        self.vlm.resize_token_embeddings(vocabulary_size)
