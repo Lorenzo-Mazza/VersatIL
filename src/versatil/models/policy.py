@@ -21,7 +21,7 @@ from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.encoding.encoders.base import EncodingMixin
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.pipeline import EncodingPipeline
 
 
@@ -74,8 +74,6 @@ class Policy(nn.Module):
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
         self.denoising_thresholds = DictOfTensorMixin()
-        if self.decoder.decoder_input.requires_vlm_backbone:
-            self._wire_vlm_backbone()
 
     @property
     def input_keys(self) -> list[str]:
@@ -92,46 +90,18 @@ class Policy(nn.Module):
     @property
     def output_keys(self) -> list[str]:
         """Sorted action keys the policy produces as output."""
-        return sorted(self.decoder.action_heads.keys())
+        return sorted(self.decoder.get_prediction_output_keys())
 
-    def _wire_vlm_backbone(self) -> None:
-        """Pass VLM backbone layers to the VLA decoders for interleaved processing.
-
-        Searches the encoding pipeline for a VLM encoder that exposes backbone
-        layers and injects them into the decoder via ``set_backbone()``.
-
-        Raises:
-            ValueError: If no VLM encoder with backbone access is found.
-        """
-        vlm_encoder = self._find_vlm_encoder()
-        self.decoder.set_backbone(
-            vlm_layers=vlm_encoder.get_backbone_layers(),
-            rotary_emb=vlm_encoder.get_rotary_embedding(),
-            vlm_hidden_dimension=vlm_encoder.get_backbone_hidden_dim(),
-            vlm_text_config=vlm_encoder.get_text_config(),
+    def _decoder_observation_keys(self) -> set[str]:
+        """Return raw observation keys directly consumed by the decoder."""
+        observation_keys = set(self.observation_space.observations_metadata.keys())
+        observation_keys.update(
+            {
+                SampleKey.TOKENIZED_OBSERVATIONS.value,
+                SampleKey.IS_PAD_OBSERVATION.value,
+            }
         )
-
-    def _find_vlm_encoder(self) -> EncodingMixin:
-        """Find the VLM encoder in the pipeline that exposes backbone layers.
-
-        Returns:
-            The VLM encoder instance.
-
-        Raises:
-            ValueError: If no encoder has ``get_backbone_layers``.
-        """
-        all_encoders = {
-            **self.encoding_pipeline.encoders,
-            **self.encoding_pipeline.conditional_encoders,
-        }
-        for encoder in all_encoders.values():
-            if hasattr(encoder, "get_backbone_layers"):
-                return encoder
-        raise ValueError(
-            "VLA decoders require a VLM encoder with get_backbone_layers(), "
-            "but none found in the encoding pipeline. "
-            "Use PaliGemmaEncoder or SmolVLMEncoder with use_embeddings_only=True."
-        )
+        return set(self.decoder.decoder_input.keys).intersection(observation_keys)
 
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer for observations and actions."""
@@ -186,7 +156,7 @@ class Policy(nn.Module):
             observation=batch[SampleKey.OBSERVATION.value]
         )
         actions = batch.get(SampleKey.ACTION.value)
-        features = self.encoding_pipeline(observation)
+        features = self._build_algorithm_features(observation=observation)
         return self.algorithm.forward(
             features=features, actions=actions, network=self.decoder
         )
@@ -297,7 +267,40 @@ class Policy(nn.Module):
             keys.update(encoder.input_specification.keys)
         for encoder in self.encoding_pipeline.conditional_encoders.values():
             keys.update(encoder.input_specification.keys)
+        keys.update(self._decoder_observation_keys())
         return keys
+
+    def _build_algorithm_features(
+        self,
+        observation: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Build the feature dictionary passed into the decoding algorithm.
+
+        The policy boundary is responsible only for collecting model inputs from
+        the encoding pipeline and explicitly requested raw observation tensors.
+        Algorithms add their own control tensors later, such as diffusion/flow
+        timesteps or variational latents.
+        """
+        encoded_features = self.encoding_pipeline(observation)
+        available_features = {**observation, **encoded_features}
+        selected_features: dict[str, torch.Tensor] = {}
+        missing_keys: list[str] = []
+        for key in self.decoder.decoder_input.keys:
+            if key not in available_features:
+                missing_keys.append(key)
+                continue
+            selected_features[key] = available_features[key]
+            padding_key = f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"
+            if padding_key in available_features:
+                selected_features[padding_key] = available_features[padding_key]
+
+        if missing_keys:
+            raise ValueError(
+                f"Decoder requested input keys {missing_keys}, but they were not "
+                f"available from raw observations or the encoding pipeline. "
+                f"Available keys: {sorted(available_features.keys())}."
+            )
+        return selected_features
 
     def predict_action(
         self,
@@ -328,7 +331,7 @@ class Policy(nn.Module):
                 observation=normalized_observation,
                 obs_tokenizer=self.tokenizer.observation_tokenizer,
             )
-        features = self.encoding_pipeline(normalized_observation)
+        features = self._build_algorithm_features(observation=normalized_observation)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         if DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions:
             action_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
@@ -371,6 +374,7 @@ class Policy(nn.Module):
         vision_encoders = {}
 
         def is_vision_encoder(encoder: nn.Module) -> bool:
+            """Return whether an encoder exposes a vision target layer."""
             # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder)
             if hasattr(encoder, "backbone"):
                 return True

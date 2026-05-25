@@ -29,10 +29,11 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         learnable_temperature: bool = False,
         gating_dropout: float = 0.1,
         gating_normalization: bool = True,
-    ):
+    ) -> None:
         expert_list = self._create_experts_from_config(
             base_expert=base_expert, num_experts=num_experts
         )
+        self.action_head_layout = base_expert.action_head_layout
         ActionDecoder.__init__(
             self,
             decoder_input=base_expert.decoder_input,
@@ -67,8 +68,24 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             if inference_gating_key is not None
             else gating_feature_key
         )
-        self.action_keys = list(base_expert.action_heads.keys())
+        self.action_keys = self._get_routed_output_keys(base_expert=base_expert)
         self.action_heads = base_expert.action_heads
+
+    @staticmethod
+    def _get_routed_output_keys(base_expert: ActionDecoder) -> list[str]:
+        """Return expert output keys that must be routed across experts."""
+        loss_output_keys = base_expert.get_loss_output_keys()
+        action_space_keys = [
+            action_key
+            for action_key in base_expert.action_space.predicted_action_keys
+            if action_key in loss_output_keys
+        ]
+        non_action_space_keys = [
+            output_key
+            for output_key in loss_output_keys
+            if output_key not in action_space_keys
+        ]
+        return [*action_space_keys, *non_action_space_keys]
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """MoE decoder produces routing weights and per-expert outputs."""
@@ -131,24 +148,33 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         expert_features = {
             key: value for key, value in features.items() if key != gating_key
         }
-        expert_outputs = [None] * len(self.expert_decoders)
-        if (
-            torch.cuda.is_available()
-            and expert_features[next(iter(expert_features))].is_cuda
-        ):
+        if torch.cuda.is_available() and gating_feature.device.type == "cuda":
+            expert_outputs: list[dict[str, torch.Tensor] | None] = [
+                None for _ in self.expert_decoders
+            ]
             streams = [torch.cuda.Stream() for _ in self.expert_decoders]
             for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
                 with torch.cuda.stream(stream):
                     expert_outputs[i] = expert(expert_features, actions)
             torch.cuda.synchronize()
+            resolved_expert_outputs = []
+            for expert_output in expert_outputs:
+                if expert_output is None:
+                    raise RuntimeError(
+                        "MoEDecoder expert stream did not produce output."
+                    )
+                resolved_expert_outputs.append(expert_output)
         else:
-            for i, expert in enumerate(self.expert_decoders):
-                expert_outputs[i] = expert(expert_features, actions)
+            resolved_expert_outputs = [
+                expert(expert_features, actions) for expert in self.expert_decoders
+            ]
         combined_outputs = self._combine_expert_outputs(
-            expert_outputs=expert_outputs, weights=mixing_probabilities
+            expert_outputs=resolved_expert_outputs, weights=mixing_probabilities
         )
         combined_outputs[DecoderOutputKey.ROUTING_WEIGHTS.value] = mixing_probabilities
-        combined_outputs[DecoderOutputKey.EXPERT_OUTPUTS.value] = expert_outputs
+        combined_outputs[DecoderOutputKey.EXPERT_OUTPUTS.value] = (
+            resolved_expert_outputs
+        )
         return combined_outputs
 
     def _combine_expert_outputs(

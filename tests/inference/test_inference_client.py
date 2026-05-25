@@ -15,7 +15,12 @@ from tso_robotics_sockets import (
 )
 from versatil_constants.shared import ObsKey
 
-from versatil.data.metadata import ObservationMetadata
+from versatil.data.constants import Cameras
+from versatil.data.metadata import (
+    DepthCameraMetadata,
+    ObservationMetadata,
+    RGBCameraMetadata,
+)
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.inference_client import (
     EpisodeStatus,
@@ -39,10 +44,32 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
         if state_keys is None:
             state_keys = ["proprio_robot_frame"]
 
-        cameras = {key: MagicMock() for key in camera_keys}
+        cameras: dict[str, MagicMock] = {}
+        for key in camera_keys:
+            if key == Cameras.DEPTH.value:
+                metadata = MagicMock(spec=DepthCameraMetadata)
+                metadata.dtype = "float32"
+                metadata.channels = 1
+                metadata.image_height = 64
+                metadata.image_width = 64
+                metadata.max_pixel_value = None
+                metadata.is_rgb = False
+                metadata.is_depth = True
+                metadata.is_single_channel = True
+            else:
+                metadata = MagicMock(spec=RGBCameraMetadata)
+                metadata.dtype = "uint8"
+                metadata.channels = 3
+                metadata.image_height = 64
+                metadata.image_width = 64
+                metadata.max_pixel_value = 255.0
+                metadata.is_rgb = True
+                metadata.is_depth = False
+                metadata.is_single_channel = False
+            cameras[key] = metadata
         state_metadata = {key: MagicMock() for key in state_keys}
 
-        observations_metadata: dict = {}
+        observations_metadata: dict[str, MagicMock] = {}
         observations_metadata.update(cameras)
         observations_metadata.update(state_metadata)
         if has_language:
@@ -109,6 +136,7 @@ def mock_policy_loader_factory(
         mock.observation_horizon = observation_horizon
         mock.device = torch.device("cpu")
         mock.checkpoint_path = "/mock/checkpoint"
+        mock.client_identifier = "/mock/checkpoint/latest-99"
         mock.config.task.dataloader.image_height = image_height
         mock.config.task.dataloader.image_width = image_width
         mock.config.inference.rotate_images = rotate_images
@@ -1572,7 +1600,7 @@ class TestStepOrchestration:
 
 @pytest.mark.unit
 class TestRunEpisode:
-    def test_registers_with_checkpoint_path(
+    def test_registers_with_client_identifier(
         self,
         inference_client_factory: Callable[..., InferenceClient],
         mock_observation_transport: MagicMock,
@@ -1585,7 +1613,7 @@ class TestRunEpisode:
         client.run_episode(max_steps=10)
 
         mock_observation_transport.register.assert_called_once_with(
-            client_name=client.policy_loader.checkpoint_path,
+            client_name=client.policy_loader.client_identifier,
         )
 
     def test_stops_on_finished_status(

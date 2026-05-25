@@ -1,6 +1,6 @@
 defaults:
   - dit_block
-  - heads@action_heads: unet_bowel_retraction
+  - heads@action_heads: dit_joint
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:

@@ -6,6 +6,10 @@ from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.adaptation.lora import (
+    LoRAAdaptation,
+    apply_lora_config,
+)
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
@@ -36,6 +40,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         max_token_len: int = 128,
         use_embeddings_only: bool = False,
         model_dtype: str | None = None,
+        lora_config: LoRAAdaptation | None = None,
     ):
         """
         Args:
@@ -47,6 +52,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             max_token_len: Maximum token sequence length for the encoder
             use_embeddings_only: If True, use only the pretrained token embedding layer
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional LoRA adapter configuration.
         """
         specification = EncoderInput(
             keys=[
@@ -68,6 +74,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         self.model_name = model_name
         self.max_token_len = max_token_len
         self.use_embeddings_only = use_embeddings_only
+        self.lora_config = lora_config
+        if self.use_embeddings_only and lora_config is not None and lora_config.enabled:
+            raise ValueError("LoRA is not supported when use_embeddings_only=True.")
         if self.use_embeddings_only and self.pooling_method != PoolingMethod.NONE.value:
             raise ValueError(
                 "use_embeddings_only=True is only compatible with pooling_method=PoolingMethod.NONE"
@@ -132,6 +141,11 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
                 self.encoder = AutoModel.from_config(
                     self.config, attn_implementation=self.attention_type
                 )
+            self.encoder = apply_lora_config(
+                model=self.encoder,
+                lora_config=self.lora_config,
+                frozen=self.frozen,
+            )
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode pre-tokenized text into language features.

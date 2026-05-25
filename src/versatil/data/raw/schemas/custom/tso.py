@@ -250,7 +250,7 @@ class TSODatasetSchema(CsvDatasetSchema):
 
         for zarr_key, cam_metadata in self.metadata.cameras.items():
             camera = cam_metadata.raw_camera_key
-            if camera == Cameras.DEPTH.value:
+            if cam_metadata.is_depth:
                 left_column = self._get_rgb_column(Cameras.LEFT.value)
                 paths = [self._compute_depth_path(p) for p in episode[left_column]]
                 images = [

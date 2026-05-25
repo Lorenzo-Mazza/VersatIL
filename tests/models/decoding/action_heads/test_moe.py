@@ -75,6 +75,7 @@ def gating_tensor_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestMoEHeadInitialization:
     def test_explicit_experts_mode(
         self,
@@ -111,6 +112,7 @@ class TestMoEHeadInitialization:
             MoEHead()
 
 
+@pytest.mark.unit
 class TestMoEHeadSetNumExperts:
     def test_creates_experts_from_template(
         self,
@@ -181,6 +183,7 @@ class TestMoEHeadSetNumExperts:
             head.set_num_experts(num_experts=3)
 
 
+@pytest.mark.unit
 class TestMoEHeadOutputDim:
     def test_raises_when_not_set(
         self,
@@ -204,6 +207,7 @@ class TestMoEHeadOutputDim:
             assert expert.output_dim == 7
 
 
+@pytest.mark.unit
 class TestMoEHeadForward:
     def test_raises_when_not_initialized(
         self,

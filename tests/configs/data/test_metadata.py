@@ -9,6 +9,7 @@ from omegaconf import MISSING
 from versatil.configs.data.metadata import (
     ActionMetadataConfig,
     CameraMetadataConfig,
+    DepthCameraMetadataConfig,
     GripperActionMetadataConfig,
     GripperObservationMetadataConfig,
     ObservationMetadataConfig,
@@ -18,6 +19,7 @@ from versatil.configs.data.metadata import (
     PositionActionMetadataConfig,
     PositionObservationMetadataConfig,
     PrecomputedActionMetadataConfig,
+    RGBCameraMetadataConfig,
 )
 from versatil.data.constants import (
     BinaryGripperRange,
@@ -105,6 +107,54 @@ class TestCameraMetadataConfig:
         config = CameraMetadataConfig()
         assert config.image_width is None
         assert config.image_height is None
+        assert config.max_pixel_value is None
+
+
+@pytest.mark.unit
+class TestDepthCameraMetadataConfig:
+    def test_target_points_to_depth_camera_metadata(self):
+        config = DepthCameraMetadataConfig()
+        assert config._target_ == "versatil.data.metadata.DepthCameraMetadata"
+
+    def test_required_fields_default_to_missing(self):
+        config = DepthCameraMetadataConfig()
+        assert config.camera_key == MISSING
+        assert config.dtype == MISSING
+
+    def test_has_no_channels_field(self):
+        config = DepthCameraMetadataConfig()
+        assert "channels" not in config.__dataclass_fields__
+
+    def test_optional_dimensions_default_to_none(self):
+        config = DepthCameraMetadataConfig()
+        assert config.image_width is None
+        assert config.image_height is None
+        assert config.max_pixel_value is None
+
+
+@pytest.mark.unit
+class TestRGBCameraMetadataConfig:
+    def test_target_points_to_rgb_camera_metadata(self):
+        config = RGBCameraMetadataConfig()
+        assert config._target_ == "versatil.data.metadata.RGBCameraMetadata"
+
+    def test_required_fields_default_to_missing(self):
+        config = RGBCameraMetadataConfig()
+        assert config.camera_key == MISSING
+        assert config.dtype == MISSING
+
+    def test_has_no_channels_field(self):
+        config = RGBCameraMetadataConfig()
+        assert "channels" not in config.__dataclass_fields__
+
+    def test_optional_dimensions_default_to_none(self):
+        config = RGBCameraMetadataConfig()
+        assert config.image_width is None
+        assert config.image_height is None
+
+    def test_max_pixel_value_defaults_to_255(self):
+        config = RGBCameraMetadataConfig()
+        assert config.max_pixel_value == 255.0
 
 
 @pytest.mark.unit
@@ -205,16 +255,27 @@ class TestMetadataInstantiation:
         assert instance.dimension == 2
         assert instance.dtype == "float32"
 
-    def test_camera_metadata_instantiates(self):
-        config = CameraMetadataConfig(
+    def test_rgb_camera_metadata_instantiates(self):
+        config = RGBCameraMetadataConfig(
             camera_key="left",
             dtype="float32",
-            channels=3,
         )
         instance = instantiate(config)
-        assert type(instance).__name__ == "CameraMetadata"
+        assert type(instance).__name__ == "RGBCameraMetadata"
         assert instance.raw_camera_key == "left"
         assert instance.channels == 3
+        assert instance.max_pixel_value == 255.0
+
+    def test_depth_camera_metadata_instantiates(self):
+        config = DepthCameraMetadataConfig(
+            camera_key="depth",
+            dtype="float32",
+        )
+        instance = instantiate(config)
+        assert type(instance).__name__ == "DepthCameraMetadata"
+        assert instance.raw_camera_key == "depth"
+        assert instance.channels == 1
+        assert instance.max_pixel_value is None
 
     def test_action_metadata_instantiates(self):
         config = ActionMetadataConfig(
@@ -253,6 +314,8 @@ class TestMetadataInstantiation:
                 "OrientationObservationMetadata",
             ),
             (lambda: GripperObservationMetadataConfig(), "GripperObservationMetadata"),
+            (lambda: RGBCameraMetadataConfig(), "RGBCameraMetadata"),
+            (lambda: DepthCameraMetadataConfig(), "DepthCameraMetadata"),
             (lambda: PositionActionMetadataConfig(), "PositionActionMetadata"),
             (lambda: OrientationActionMetadataConfig(), "OrientationActionMetadata"),
             (lambda: GripperActionMetadataConfig(), "GripperActionMetadata"),

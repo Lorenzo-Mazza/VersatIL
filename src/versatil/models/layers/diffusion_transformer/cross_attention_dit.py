@@ -20,9 +20,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
-    FinalPredictionLayer,
-)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.base import (
     DenominatorMode,
@@ -46,7 +43,6 @@ class CrossAttentionDiT(nn.Module):
         number_of_layers: int,
         embedding_dimension: int,
         number_of_heads: int,
-        output_dimension: int | None = None,
         number_of_key_value_heads: int | None = None,
         feedforward_dimension: int | None = None,
         dropout: float = 0.1,
@@ -68,7 +64,6 @@ class CrossAttentionDiT(nn.Module):
             number_of_layers: Number of decoder layers.
             embedding_dimension: Hidden dimension of the transformer.
             number_of_heads: Number of attention heads.
-            output_dimension: Output dimension (defaults to embedding_dimension).
             number_of_key_value_heads: Number of K/V heads (for GQA).
             feedforward_dimension: Feedforward network hidden dimension.
             dropout: Dropout rate.
@@ -125,11 +120,6 @@ class CrossAttentionDiT(nn.Module):
             condition_final_normalization=False,
         )
 
-        self.output_dimension = output_dimension or embedding_dimension
-        self.prediction_layer = FinalPredictionLayer(
-            self.embedding_dimension, self.output_dimension
-        )
-
     def precompute_conditioning_kv(
         self,
         encoder_hidden_states: torch.Tensor,
@@ -147,7 +137,7 @@ class CrossAttentionDiT(nn.Module):
         conditioning_cache: ConditioningCache | None = None,
         encoder_padding_mask: torch.Tensor | None = None,
         decoder_padding_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through the transformer.
 
         Args:
@@ -160,7 +150,8 @@ class CrossAttentionDiT(nn.Module):
             decoder_padding_mask: Padding mask for actions (B, T).
 
         Returns:
-            Predicted actions of shape (B, T, output_dimension).
+            Decoder hidden states and conditioning with shapes ``(B, T, D)``
+            and ``(B, D)``.
         """
         timestep_embedding = self.timestep_embedding_network(timesteps)
         decoder_output = self.decoder(
@@ -171,4 +162,23 @@ class CrossAttentionDiT(nn.Module):
             query_padding_mask=decoder_padding_mask,
             memory_padding_mask=encoder_padding_mask,
         )
-        return self.prediction_layer(decoder_output, timestep_embedding)
+        return decoder_output, timestep_embedding
+
+    def forward_features(
+        self,
+        decoder_hidden_states: torch.Tensor,
+        timesteps: torch.Tensor,
+        encoder_hidden_states: torch.Tensor | None = None,
+        conditioning_cache: ConditioningCache | None = None,
+        encoder_padding_mask: torch.Tensor | None = None,
+        decoder_padding_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Alias for ``forward`` kept for decoder readability."""
+        return self(
+            decoder_hidden_states=decoder_hidden_states,
+            timesteps=timesteps,
+            encoder_hidden_states=encoder_hidden_states,
+            conditioning_cache=conditioning_cache,
+            encoder_padding_mask=encoder_padding_mask,
+            decoder_padding_mask=decoder_padding_mask,
+        )

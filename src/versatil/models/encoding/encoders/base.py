@@ -1,74 +1,20 @@
-"""Base classes and dataclasses for encoder input/output specifications."""
+"""Base classes for encoder input/output specifications."""
 
 import abc
 from abc import abstractmethod
-from dataclasses import dataclass, field
 
 import torch
-import torch.nn as nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 from versatil.data.metadata import BaseMetadata
 from versatil.models.feature_meta import FeatureMetadata
+from versatil.models.input_specification import InputSpecification
 from versatil.training.constants import PrecisionType
 
-
-@dataclass
-class EncoderInput:
-    """Structured input specification for encoders."""
-
-    keys: str | list[str]
-    #: The encoder needs these input observation keys
-    required: list[str] = field(default_factory=list)
-    #: The encoder needs exactly one input observation key from each of these groups
-    one_of_groups: list[list[str]] = field(default_factory=list)
-    #: The encoder needs at least one input observation key from these groups
-    at_least_one_of_groups: list[list[str]] = field(default_factory=list)
-    # For conditional encoders
-    conditioning_key: str | None = None
-    conditioning_required: list[str] = field(default_factory=list)
-    conditioning_one_of_groups: list[list[str]] = field(default_factory=list)
-    # For validating the data tokenizer vocabulary to be consistent with the encoder language models
-    requires_tokenized: bool = False
-
-    def __post_init__(self):
-        """Normalize keys to a list if a single string is provided."""
-        if isinstance(self.keys, str):
-            self.keys = [self.keys]
-
-    def validate(self):
-        """Validate input keys against required, one_of, and at_least_one_of constraints.
-
-        Raises:
-            ValueError: If any constraint is violated.
-        """
-        key_set = set(self.keys)
-        missing = set(self.required) - key_set
-        if missing:
-            raise ValueError(f"Missing required inputs: {missing}")
-        for group in self.one_of_groups:
-            matches = key_set.intersection(group)
-            if len(matches) != 1:
-                raise ValueError(f"Exactly one from {group} required, got {matches}")
-        for group in self.at_least_one_of_groups:
-            matches = key_set.intersection(group)
-            if len(matches) < 1:
-                raise ValueError(f"At least one from {group} required, got {matches}")
-        if self.conditioning_key:
-            conditioning_set = {self.conditioning_key}
-            missing_conditioning = set(self.conditioning_required) - conditioning_set
-            if missing_conditioning:
-                raise ValueError(
-                    f"Missing required conditioning: {missing_conditioning}"
-                )
-            for group in self.conditioning_one_of_groups:
-                matches = conditioning_set.intersection(group)
-                if len(matches) != 1:
-                    raise ValueError(
-                        f"Exactly one from {group} required for conditioning"
-                    )
+EncoderInput = InputSpecification
 
 
-class EncodingMixin(nn.Module, abc.ABC):
+class EncodingMixin(ModuleAttrMixin, abc.ABC):
     """Base interface for all encoders, conditional and non-conditional."""
 
     def __init__(
@@ -78,7 +24,7 @@ class EncodingMixin(nn.Module, abc.ABC):
         frozen: bool = False,
         device: str | None = None,
         model_dtype: str | None = None,
-    ):
+    ) -> None:
         """Initialize base encoder.
 
         Args:

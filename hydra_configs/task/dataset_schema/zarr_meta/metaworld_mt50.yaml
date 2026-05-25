@@ -25,10 +25,9 @@ observations:
     gripper_type: ${gripper:CONTINUOUS}
 
   ${cameras:AGENTVIEW}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${raw_camera:IMAGE_METAWORLD}
     dtype: uint8
-    channels: 3
     image_width: 480
     image_height: 480
 

@@ -4,8 +4,9 @@ import timm
 import torch
 from timm.layers import freeze_batch_norm_2d
 
-from versatil.data.constants import DEPTH_CAMERAS
+from versatil.data.constants import CameraModality
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.adaptation.lora import LoRAAdaptation, apply_lora_config
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
@@ -35,10 +36,12 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
+        intermediate_layer_index: int | None = None,
         pretrained: bool = False,
         frozen: bool = False,
         model_dtype: str | None = None,
-    ):
+        lora_config: LoRAAdaptation | None = None,
+    ) -> None:
         """Initialize spatial depth encoder with timm backbone.
 
         Args:
@@ -46,12 +49,17 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
             backbone: timm model name from SpatialBackboneType.
             pooling_method: Feature pooling strategy.
             batch_norm_handling: How to handle batch normalization layers.
+            intermediate_layer_index: Optional timm intermediate layer index
+                to pool. Negative values index from the end; ``None`` uses
+                the last layer.
             pretrained: Whether to load pretrained weights.
             frozen: Whether to freeze all parameters.
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional PEFT LoRA adapter configuration.
         """
         specification = EncoderInput(
-            keys=input_keys, at_least_one_of_groups=[DEPTH_CAMERAS]
+            keys=input_keys,
+            required_camera_modalities=[CameraModality.DEPTH],
         )
         super().__init__(
             input_specification=specification,
@@ -74,23 +82,34 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.batch_norm_handling = batch_norm_handling
         self.pooling_method = pooling_method
+        self.intermediate_layer_index = intermediate_layer_index
         self.backbone_name = backbone
+        self.lora_config = lora_config
         self._channels_last = False
         self._build_backbone()
-        self.feature_dim = self.backbone.feature_info.channels()[-1]
+        self.feature_dim = self._get_intermediate_layer_channels()
         self.pooling_head: PoolingHead | None = None
         self.output_dim: int | tuple[int, ...] = self.feature_dim
         if frozen:
             super()._freeze_weights()
         self._apply_model_dtype()
 
-    def _build_backbone(self, img_size: tuple[int, int] | None = None):
+    def _get_intermediate_layer_channels(self) -> int:
+        """Return the channel count for the configured intermediate layer."""
+        channels = self.backbone.feature_info.channels()
+        layer_index = self._resolve_intermediate_layer_index(
+            intermediate_layer_index=self.intermediate_layer_index,
+            output_count=len(channels),
+        )
+        return channels[layer_index]
+
+    def _build_backbone(self, img_size: tuple[int, int] | None = None) -> None:
         """Build backbone using timm features_only mode with single input channel.
 
         Args:
             img_size: Optional image size override for strict-input-size backbones.
         """
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, bool | int | tuple[int, int]] = {
             "pretrained": self.pretrained,
             "features_only": True,
             "in_chans": 1,
@@ -100,6 +119,11 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
 
         self.backbone = timm.create_model(self.backbone_name, **kwargs)
         self._apply_batch_norm_handling()
+        self.backbone = apply_lora_config(
+            model=self.backbone,
+            lora_config=self.lora_config,
+            frozen=self.frozen,
+        )
 
     def _apply_batch_norm_handling(self) -> None:
         """Apply configured batch normalization handling to the backbone."""
@@ -150,8 +174,12 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
             raise RuntimeError(
                 "pooling_head is not initialized. Call set_image_size() before forward."
             )
-        feature_maps = self.backbone(images)
-        features = feature_maps[-1]
+        intermediate_outputs = self.backbone(images)
+        layer_index = self._resolve_intermediate_layer_index(
+            intermediate_layer_index=self.intermediate_layer_index,
+            output_count=len(intermediate_outputs),
+        )
+        features = intermediate_outputs[layer_index]
         if self._channels_last:
             features = features.permute(0, 3, 1, 2)  # (B, H, W, C) → (B, C, H, W)
         return self.pooling_head(features)
@@ -180,7 +208,7 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         """
         if self._has_strict_image_size():
             self._build_backbone(img_size=(image_height, image_width))
-            self.feature_dim = self.backbone.feature_info.channels()[-1]
+            self.feature_dim = self._get_intermediate_layer_channels()
             if self.frozen:
                 self._freeze_weights()
 
@@ -189,7 +217,12 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         )
         with torch.no_grad():
             mock_input = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
-            mock_features = self.backbone(mock_input)[-1]
+            intermediate_outputs = self.backbone(mock_input)
+            layer_index = self._resolve_intermediate_layer_index(
+                intermediate_layer_index=self.intermediate_layer_index,
+                output_count=len(intermediate_outputs),
+            )
+            mock_features = intermediate_outputs[layer_index]
 
         expected_channels = self.feature_dim
         if mock_features.shape[1] == expected_channels:
@@ -211,7 +244,7 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
-        """Validate that input metadata is single-channel depth camera metadata.
+        """Validate that input metadata is camera metadata.
 
         Args:
             key: Observation key being validated.
@@ -222,11 +255,6 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
         """
         if not isinstance(metadata, CameraMetadata):
             return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
-        if not metadata.is_single_channel:
-            return (
-                f"Expected single-channel depth for '{key}', "
-                f"got {metadata.channels} channels"
-            )
         return None
 
     def get_output_specification(self) -> list[FeatureMetadata]:

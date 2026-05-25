@@ -9,8 +9,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from versatil.data.constants import RGB_CAMERAS, Cameras
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality, Cameras
+from versatil.data.metadata import (
+    BaseMetadata,
+    CameraMetadata,
+    DepthCameraMetadata,
+    RGBCameraMetadata,
+)
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
@@ -22,7 +27,9 @@ from versatil.models.layers.constants import AttentionDecompositionMode
 
 
 @pytest.fixture
-def light_geometric_encoder_factory() -> Callable[..., GeometricRGBDEncoder]:
+def light_geometric_encoder_factory(
+    rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+) -> Callable[..., GeometricRGBDEncoder]:
     """Factory for GeometricRGBDEncoder with small dimensions."""
 
     def factory(
@@ -41,7 +48,7 @@ def light_geometric_encoder_factory() -> Callable[..., GeometricRGBDEncoder]:
     ) -> GeometricRGBDEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
-        return GeometricRGBDEncoder(
+        encoder = GeometricRGBDEncoder(
             input_keys=input_keys,
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
@@ -55,6 +62,15 @@ def light_geometric_encoder_factory() -> Callable[..., GeometricRGBDEncoder]:
             frozen=frozen,
             model_dtype=model_dtype,
         )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
+        )
+        return encoder
 
     return factory
 
@@ -145,57 +161,34 @@ class TestGeometricRGBDEncoderInitialization:
         feature_keys = [m.key for m in specification]
         assert feature_keys == [EncoderOutputKeys.RGBD.value]
 
-    def test_requires_depth_in_input_keys(
-        self,
-    ):
-        with pytest.raises(
-            ValueError,
-            match=re.escape("Missing required inputs: {'depth'}"),
-        ):
-            GeometricRGBDEncoder(
-                input_keys=Cameras.LEFT.value,
-                embedding_dimension=32,
-                num_heads=2,
-                ffn_dimension=64,
-            )
-
-    def test_requires_rgb_camera_in_input_keys(
-        self,
-    ):
-        with pytest.raises(
-            ValueError,
-            match=re.escape(f"Exactly one from {RGB_CAMERAS} required, got set()"),
-        ):
-            GeometricRGBDEncoder(
-                input_keys=Cameras.DEPTH.value,
-                embedding_dimension=32,
-                num_heads=2,
-                ffn_dimension=64,
-            )
-
-    def test_input_specification_requires_depth_camera(
+    def test_input_specification_requires_rgb_and_depth_modalities(
         self,
         light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
     ):
         encoder = light_geometric_encoder_factory()
-        assert Cameras.DEPTH.value in encoder.input_specification.required
+        assert encoder.input_specification.required_camera_modalities == [
+            CameraModality.RGB,
+            CameraModality.DEPTH,
+        ]
 
-    def test_input_specification_requires_one_rgb_camera(
+    def test_input_specification_requires_one_rgb_and_one_depth_modality(
         self,
         light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
     ):
         encoder = light_geometric_encoder_factory()
-        assert encoder.input_specification.one_of_groups == [RGB_CAMERAS]
+        assert encoder.input_specification.exactly_one_camera_modality == [
+            CameraModality.RGB,
+            CameraModality.DEPTH,
+        ]
 
 
 class TestGeometricRGBDEncoderMixin:
-    def test_camera_group_includes_rgb_and_depth(
+    def test_camera_keys_include_configured_rgb_and_depth(
         self,
         light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
     ):
         encoder = light_geometric_encoder_factory()
-        assert Cameras.LEFT.value in encoder._camera_group
-        assert Cameras.DEPTH.value in encoder._camera_group
+        assert encoder.camera_keys == [Cameras.LEFT.value, Cameras.DEPTH.value]
 
     def test_output_modality_is_rgbd(
         self,
@@ -239,10 +232,9 @@ class TestGeometricRGBDEncoderValidateInputMetadata:
         [
             (
                 Cameras.LEFT.value,
-                CameraMetadata(
+                RGBCameraMetadata(
                     camera_key="left",
                     dtype="uint8",
-                    channels=3,
                     image_height=224,
                     image_width=224,
                 ),
@@ -257,14 +249,13 @@ class TestGeometricRGBDEncoderValidateInputMetadata:
                     image_height=224,
                     image_width=224,
                 ),
-                f"Expected 3-channel RGB for '{Cameras.LEFT.value}', got 1 channels",
+                None,
             ),
             (
                 Cameras.DEPTH.value,
-                CameraMetadata(
+                DepthCameraMetadata(
                     camera_key="depth",
                     dtype="float32",
-                    channels=1,
                     image_height=224,
                     image_width=224,
                 ),
@@ -279,7 +270,7 @@ class TestGeometricRGBDEncoderValidateInputMetadata:
                     image_height=224,
                     image_width=224,
                 ),
-                f"Expected single-channel depth for '{Cameras.DEPTH.value}', got 3 channels",
+                None,
             ),
             (
                 Cameras.LEFT.value,
@@ -379,6 +370,7 @@ class TestGeometricRGBDEncoderIntegration:
     def test_forward_pass(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
     ):
         batch_size = 2
         encoder = GeometricRGBDEncoder(
@@ -387,6 +379,14 @@ class TestGeometricRGBDEncoderIntegration:
             num_heads=2,
             ffn_dimension=64,
             pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
         )
         encoder.set_image_size(image_height=224, image_width=224)
         inputs = rgbd_input_factory(batch_size=batch_size)
@@ -399,6 +399,7 @@ class TestGeometricRGBDEncoderIntegration:
     def test_temporal_reshaping(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
         time_steps: int,
     ):
         batch_size = 2
@@ -408,6 +409,14 @@ class TestGeometricRGBDEncoderIntegration:
             num_heads=2,
             ffn_dimension=64,
             pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
         )
         encoder.set_image_size(image_height=224, image_width=224)
         inputs = rgbd_input_factory(

@@ -147,8 +147,13 @@ a/yaml_configs/custom_configs/*
 
 uv.lock
 .venv*
+.codex 
 
 lightning_logs/
 src/endpoints/local_test/
 research_scripts/
 scripts/
+paper/
+paper_resources/
+paper_multimodality/
+nips_final/

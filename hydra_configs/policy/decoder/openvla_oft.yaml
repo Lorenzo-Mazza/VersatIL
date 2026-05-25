@@ -1,0 +1,20 @@
+defaults:
+  - openvla_oft_config
+  - _self_
+  - heads@action_heads: openvla_oft
+  - vision_language_model@vlm_backbone: prismatic
+
+_target_: versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder
+
+input_keys: []
+
+slots_per_action_dimension: true
+causal_action_slots: true
+min_period: 0.004
+max_period: 4.0
+
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+observation_space: ${task.observation_space}
+device: ${experiment.device}

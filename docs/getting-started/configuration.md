@@ -218,9 +218,9 @@ The [`ExperimentValidator`][versatil.validation.ExperimentValidator] in `src/ver
 ```python
 # src/versatil/validation.py
 def validate_decoder_encoder_compatibility(self):
-    available_features_to_dims = self.encoding_pipeline.get_final_features_to_dimensions()
+    available_features = self.encoding_pipeline.get_features()
     self.decoder.decoder_input.validate_feature_types(
-        available_features_to_dims=available_features_to_dims
+        available_features=available_features
     )
 ```
 

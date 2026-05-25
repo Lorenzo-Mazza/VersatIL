@@ -9,6 +9,7 @@ import torch
 
 from versatil.data.metadata import ActionMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.models.decoding.action_heads.conditional import ConditionalActionHead
 from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 
@@ -54,9 +55,70 @@ def mock_action_space_factory() -> Callable[..., MagicMock]:
                 prediction_dimension=gripper_dim,
             )
             total_dim += gripper_dim
+        predicted_action_dimensions = {
+            key: action_metadata.prediction_dimension
+            for key, action_metadata in metadata.items()
+            if action_metadata.requires_prediction_head
+        }
+        predicted_action_keys = list(predicted_action_dimensions.keys())
+
+        def split_action_tensor(
+            action_tensor: torch.Tensor,
+            owner_name: str,
+        ) -> dict[str, torch.Tensor]:
+            del owner_name
+            split_actions = {}
+            start_index = 0
+            for action_key, action_dimension in predicted_action_dimensions.items():
+                end_index = start_index + action_dimension
+                split_actions[action_key] = action_tensor[..., start_index:end_index]
+                start_index = end_index
+            return split_actions
+
+        def validate_action_tensors(
+            actions: dict[str, torch.Tensor],
+            prediction_horizon: int,
+            owner_name: str,
+        ) -> tuple[int, torch.device]:
+            del owner_name
+            first_action = actions[predicted_action_keys[0]]
+            for action_key, action_dimension in predicted_action_dimensions.items():
+                action_tensor = actions[action_key]
+                expected_shape = (
+                    first_action.shape[0],
+                    prediction_horizon,
+                    action_dimension,
+                )
+                if tuple(action_tensor.shape) != expected_shape:
+                    raise ValueError(
+                        f"Action '{action_key}' must have shape {expected_shape}, "
+                        f"got {tuple(action_tensor.shape)}."
+                    )
+            return first_action.shape[0], first_action.device
+
+        def concatenate_action_tensors(
+            actions: dict[str, torch.Tensor],
+            prediction_horizon: int,
+            owner_name: str,
+        ) -> torch.Tensor:
+            validate_action_tensors(
+                actions=actions,
+                prediction_horizon=prediction_horizon,
+                owner_name=owner_name,
+            )
+            return torch.cat(
+                [actions[action_key] for action_key in predicted_action_keys],
+                dim=-1,
+            )
+
         action_space = MagicMock(spec=ActionSpace)
         action_space.actions_metadata = metadata
         action_space.get_total_action_dim.return_value = total_dim
+        action_space.predicted_action_dimensions = predicted_action_dimensions
+        action_space.predicted_action_keys = predicted_action_keys
+        action_space.concatenate_action_tensors.side_effect = concatenate_action_tensors
+        action_space.split_action_tensor.side_effect = split_action_tensor
+        action_space.validate_action_tensors.side_effect = validate_action_tensors
         action_space.has_gripper_actions = has_gripper
         action_space.gripper_dim = gripper_dim
         action_space.has_orientation_actions = has_orientation
@@ -225,6 +287,28 @@ def action_head_factory() -> Callable[..., ActionHead]:
         output_dim: int | None = None,
     ) -> ActionHead:
         head = ActionHead(input_dim=input_dim, blocks=blocks)
+        if output_dim is not None:
+            head.set_output_dim(output_dim)
+        return head
+
+    return factory
+
+
+@pytest.fixture
+def conditional_action_head_factory() -> Callable[..., ConditionalActionHead]:
+    """Factory for ConditionalActionHead instances."""
+
+    def factory(
+        input_dim: int = 64,
+        condition_dim: int = 64,
+        blocks: list[torch.nn.Module] | None = None,
+        output_dim: int | None = None,
+    ) -> ConditionalActionHead:
+        head = ConditionalActionHead(
+            input_dim=input_dim,
+            condition_dim=condition_dim,
+            blocks=blocks,
+        )
         if output_dim is not None:
             head.set_output_dim(output_dim)
         return head

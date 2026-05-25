@@ -71,6 +71,13 @@ class RawCameraKey(enum.StrEnum):
     IMAGE_KITCHEN = "observation.image"
 
 
+class CameraModality(enum.StrEnum):
+    """Semantic camera modality derived from camera metadata."""
+
+    RGB = "rgb"
+    DEPTH = "depth"
+
+
 RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     # TSO (identity)
     RawCameraKey.LEFT.value: Cameras.LEFT.value,
@@ -206,6 +213,20 @@ class TokenizerType(enum.StrEnum):
     LANGUAGE = "language"
 
 
+class ActionDiscretizerType(enum.StrEnum):
+    """Continuous-action discretization strategies."""
+
+    FAST = "fast"
+    BINNED = "binned"
+
+
+class ActionTokenIdMappingType(enum.StrEnum):
+    """Mappings from action-local token IDs to model token IDs."""
+
+    IDENTITY = "identity"
+    LANGUAGE_VOCABULARY = "language_vocabulary"
+
+
 class DatasetType(enum.StrEnum):
     """Dataset types, independent of storage format."""
 
@@ -237,7 +258,8 @@ class LeRobotPathsV30(enum.StrEnum):
         "images/{image_key}/episode-{episode_index:06d}/frame-{frame_index:06d}.png"
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """Return the string value used in path formatting."""
         return self.value
 
 
@@ -263,17 +285,6 @@ class MetadataPassthroughSource(enum.StrEnum):
 VALID_CAMERAS = [cam.value for cam in Cameras]
 VALID_RAW_CAMERA_KEYS = [key.value for key in RawCameraKey]
 
-RGB_CAMERAS = [
-    Cameras.LEFT.value,
-    Cameras.RIGHT.value,
-    Cameras.AGENTVIEW.value,
-    Cameras.EYE_IN_HAND.value,
-]
-
-DEPTH_CAMERAS = [
-    Cameras.DEPTH.value,
-]
-
 # Ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
 IMAGENET_RGB_MEAN: list[float] = [0.485, 0.456, 0.406]
 IMAGENET_RGB_STD: list[float] = [0.229, 0.224, 0.225]
@@ -282,5 +293,7 @@ IMAGENET_RGB_STD: list[float] = [0.229, 0.224, 0.225]
 # https://huggingface.co/openai/clip-vit-base-patch32/blob/main/preprocessor_config.json
 CLIP_RGB_MEAN: list[float] = [0.48145466, 0.4578275, 0.40821073]
 CLIP_RGB_STD: list[float] = [0.26862954, 0.26130258, 0.27577711]
+SIGLIP_RGB_MEAN: list[float] = [0.5, 0.5, 0.5]
+SIGLIP_RGB_STD: list[float] = [0.5, 0.5, 0.5]
 IMAGENET_DEPTH_MEAN: float = 0.48
 IMAGENET_DEPTH_STD: float = 0.28

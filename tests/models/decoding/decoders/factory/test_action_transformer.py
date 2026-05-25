@@ -100,6 +100,7 @@ def action_transformer_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestActionTransformerInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -200,6 +201,7 @@ class TestActionTransformerInitialization:
         )
 
 
+@pytest.mark.integration
 class TestActionTransformerForward:
     def test_output_keys_match_action_heads(
         self,
@@ -319,6 +321,7 @@ class TestActionTransformerForward:
             assert torch.equal(predictions_without[key], predictions_with[key])
 
 
+@pytest.mark.integration
 class TestActionTransformerTemporalObservation:
     @pytest.mark.parametrize(
         "observation_horizon, expects_temporal_pe",

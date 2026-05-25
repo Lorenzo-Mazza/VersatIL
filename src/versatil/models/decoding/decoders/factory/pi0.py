@@ -6,43 +6,33 @@ References:
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from transformers import PretrainedConfig
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.action_masking import make_attention_mask
-from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.encoding.encoders.constants import EncoderOutputKeys
-from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
-    GenerativeVLMEncoder,
+from versatil.models.decoding.constants import TimeConditioning
+from versatil.models.decoding.decoders.interleaved_vlm import (
+    BaseInterleavedVLMDecoder,
+    InterleavedLayerType,
+)
+from versatil.models.decoding.generative_language_models.vision_language.base import (
+    GenerativeVLM,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.positional_encoding.base import PositionSource
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    PeriodInterpolationPositionalEncoding1D,
-)
-from versatil.models.layers.transformer.cache.conditioning import (
-    ConditioningCache,
-    ConditioningLayerCache,
-)
 from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
     PrecomputedDualStreamLayer,
 )
 
 
-class Pi0Decoder(ActionDecoder):
+class Pi0Decoder(BaseInterleavedVLMDecoder):
     """Pi0/Pi0.5 decoder with pretrained VLM backbone and learned action expert.
 
     Each VLM layer is paired 1:1 with an expert layer via joint
-    self-attention. Pi0 fuses timestep into action tokens via MLP
-    before the expert layers. Pi0.5 modulates each expert layer
+    self-attention. Pi0 variant fuses timestep into action tokens via MLP
+    before the expert layers. Pi0.5 variant modulates each expert layer
     via adaptive normalization.
-    Modules are created lazily in ``set_backbone`` from the VLM config.
     """
 
     def __init__(
@@ -54,6 +44,7 @@ class Pi0Decoder(ActionDecoder):
         observation_horizon: int,
         prediction_horizon: int,
         device: str,
+        vlm_backbone: GenerativeVLM,
         expert_hidden_size: int,
         expert_intermediate_size: int,
         expert_number_of_heads: int,
@@ -67,17 +58,19 @@ class Pi0Decoder(ActionDecoder):
         normalization_type: str = NormalizationType.RMS_NORM.value,
         activation: str = ActivationFunction.GEGLU.value,
         dropout: float = 0.0,
-    ):
+    ) -> None:
         """Initialize Pi0 decoder.
 
         Args:
             input_keys: Feature keys from the encoding pipeline.
             action_space: Action space configuration.
-            action_heads: Action prediction heads.
+            action_heads: Exactly one joint action prediction head.
             observation_space: Observation space configuration.
             observation_horizon: Number of observation timesteps.
             prediction_horizon: Number of action steps to predict.
             device: Device string.
+            vlm_backbone: Generative VLM backbone that builds the raw
+                observation prefix with shape ``(B, P, D_vlm)``.
             expert_hidden_size: Expert network hidden dimension.
             expert_intermediate_size: Expert feedforward intermediate dimension.
             expert_number_of_heads: Number of attention heads in expert layers.
@@ -93,19 +86,15 @@ class Pi0Decoder(ActionDecoder):
             activation: Activation function for expert feedforward layers.
             dropout: Dropout rate.
         """
-        decoder_input = DecoderInput(
-            keys=input_keys,
-            requires_actions=True,
-            requires_vlm_backbone=True,
-        )
         super().__init__(
-            decoder_input=decoder_input,
+            input_keys=input_keys,
             observation_space=observation_space,
             action_space=action_space,
             action_heads=action_heads,
             device=device,
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
+            vlm_backbone=vlm_backbone,
         )
         self.time_conditioning = time_conditioning
         self.expert_hidden_size = expert_hidden_size
@@ -118,43 +107,27 @@ class Pi0Decoder(ActionDecoder):
         self.normalization_type = normalization_type
         self.activation = activation
         self._dropout = dropout
-        self.action_input_projection = nn.Linear(self.action_dim, expert_hidden_size)
-        self.action_output_projection = nn.Linear(expert_hidden_size, self.action_dim)
-        self.timestep_embedding = PeriodInterpolationPositionalEncoding1D(
-            embedding_dimension=expert_hidden_size,
+        self.action_input_projection: nn.Linear
+        self.timestep_embedding: nn.Module
+        self.time_conditioning_input: nn.Linear
+        self.time_conditioning_output: nn.Linear
+        self.expert_final_normalization: nn.Module
+        self.proprioceptive_projection: FeatureProjection | None = None
+        self._set_action_suffix_modules(
+            expert_hidden_dimension=expert_hidden_size,
+            time_conditioning=time_conditioning,
             min_period=min_period,
             max_period=max_period,
-            position_source=PositionSource.SCALAR.value,
+            normalization_type=normalization_type,
         )
-        match time_conditioning:
-            case TimeConditioning.CONCAT_MLP.value:
-                self.action_time_fusion_input = nn.Linear(
-                    expert_hidden_size * 2, expert_hidden_size
-                )
-                self.action_time_fusion_output = nn.Linear(
-                    expert_hidden_size, expert_hidden_size
-                )
-                # Deferred to set_backbone — needs vlm_hidden_dimension
-                self.proprioceptive_projection: FeatureProjection | None = None
-            case TimeConditioning.ADANORM.value:
-                self.time_mlp_input = nn.Linear(expert_hidden_size, expert_hidden_size)
-                self.time_mlp_output = nn.Linear(expert_hidden_size, expert_hidden_size)
-                self.proprioceptive_projection = None
-            case _:
-                raise ValueError(
-                    f"Unknown time_conditioning: {time_conditioning}. "
-                    f"Use {[m.value for m in TimeConditioning]}"
-                )
         self.vlm_layers: nn.ModuleList | None = None
         self.vlm_rotary_embedding: nn.Module | None = None
         self.vlm_hidden_dimension: int | None = None
         self.expert_layers: nn.ModuleList | None = None
-        self.expert_final_normalization: nn.Module | None = None
-        self._encoder_cache_enabled = False
-        self._prefix_cache: ConditioningCache | None = None
+        self.set_vlm_backbone(vlm_backbone=self.vlm_backbone)
         self.to(self.device)
 
-    def set_backbone(
+    def build_action_expert(
         self,
         vlm_layers: nn.ModuleList,
         rotary_emb: nn.Module,
@@ -162,6 +135,10 @@ class Pi0Decoder(ActionDecoder):
         vlm_text_config: PretrainedConfig,
     ) -> None:
         """Reference pretrained VLM layers and create expert layers.
+
+        Note:
+            This is called by ``BaseInterleavedVLMDecoder.set_vlm_backbone()``
+            after the full VLM backbone is attached.
 
         Args:
             vlm_layers: VLM transformer layers (referenced directly, not copied).
@@ -201,10 +178,10 @@ class Pi0Decoder(ActionDecoder):
                 for _ in range(self.expert_number_of_layers)
             ]
         )
-        self.expert_final_normalization = create_normalization_layer(
-            normalization_type=self.normalization_type,
-            dimension=self.expert_hidden_size,
-        )
+        self._layer_types = [
+            InterleavedLayerType.JOINT_SELF_ATTENTION.value
+            for _ in range(self.expert_number_of_layers)
+        ]
         if (
             self.proprioceptive_feature_key is not None
             and self.time_conditioning == TimeConditioning.CONCAT_MLP.value
@@ -212,42 +189,7 @@ class Pi0Decoder(ActionDecoder):
             self.proprioceptive_projection = FeatureProjection(
                 embedding_dim=vlm_hidden_dimension
             )
-
-    def enable_encoder_cache(self) -> None:
-        """Enable prefix caching for multi-step denoising inference."""
-        self._encoder_cache_enabled = True
-        self._prefix_cache = None
-
-    def disable_encoder_cache(self) -> None:
-        """Disable prefix caching and clear stored states."""
-        self._encoder_cache_enabled = False
-        self._prefix_cache = None
-
-    def _embed_suffix(
-        self,
-        actions: dict[str, torch.Tensor],
-        timestep: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Project actions and apply time conditioning.
-
-        Returns:
-            (suffix_embeddings, adaptive_norm_conditioning_or_none)
-        """
-        action_tensors = [actions[key] for key in sorted(self.action_heads.keys())]
-        expert_hidden = self.action_input_projection(torch.cat(action_tensors, dim=-1))
-        time_embedding = self.timestep_embedding(timestep)
-        match self.time_conditioning:
-            case TimeConditioning.CONCAT_MLP.value:
-                time_expanded = time_embedding.unsqueeze(1).expand_as(expert_hidden)
-                fused = torch.cat([expert_hidden, time_expanded], dim=-1)
-                return self.action_time_fusion_output(
-                    F.silu(self.action_time_fusion_input(fused))
-                ), None
-            case TimeConditioning.ADANORM.value:
-                conditioning = F.silu(
-                    self.time_mlp_output(F.silu(self.time_mlp_input(time_embedding)))
-                )
-                return expert_hidden, conditioning
+        self.to(self.device)
 
     def forward(
         self,
@@ -264,245 +206,45 @@ class Pi0Decoder(ActionDecoder):
             Predicted action tensors keyed by action name.
         """
         if self.expert_layers is None or self.expert_final_normalization is None:
-            raise RuntimeError("set_backbone() must be called before forward().")
-        if actions is None:
-            raise ValueError(
-                "Pi0Decoder requires actions during forward (noisy actions for denoising)."
+            raise RuntimeError("build_action_expert() must be called before forward().")
+        actions = self._require_forward_actions(actions=actions)
+        prefix_embeddings, prefix_padding_mask = self._build_prefix(features=features)
+        timestep = self._get_forward_timestep(features=features)
+        expert_hidden, adaptive_norm_conditioning = (
+            self._embed_timestep_conditioned_action_suffix(
+                actions=actions,
+                timestep=timestep,
+                action_input_projection=self.action_input_projection,
+                timestep_embedding=self.timestep_embedding,
+                time_conditioning=self.time_conditioning,
+                conditioning_input_layer=self.time_conditioning_input,
+                conditioning_output_layer=self.time_conditioning_output,
             )
-        feature_key = self.decoder_input.keys[0]
-        padding_mask_key = f"{feature_key}_{EncoderOutputKeys.PADDING_MASK.value}"
-        prefix_embeddings = features[feature_key]
-        prefix_padding_mask = features.get(padding_mask_key)
-        if DecoderOutputKey.TIMESTEP.value not in features:
-            raise ValueError(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
-                "The algorithm should inject timesteps into features."
-            )
-        timestep = features[DecoderOutputKey.TIMESTEP.value]
-        expert_hidden, adaptive_norm_conditioning = self._embed_suffix(
-            actions=actions, timestep=timestep
         )
-        causal_prefix_suffix_length = 0
-        if (
-            self.proprioceptive_projection is not None
-            and self.time_conditioning == TimeConditioning.CONCAT_MLP.value
-        ):
-            proprio = (
-                features.get(self.proprioceptive_feature_key)
-                if self.proprioceptive_feature_key is not None
-                else None
+        prefix_embeddings, prefix_padding_mask, causal_prefix_suffix_length = (
+            self._append_optional_projected_prefix_feature(
+                prefix_embeddings=prefix_embeddings,
+                prefix_padding_mask=prefix_padding_mask,
+                features=features,
+                feature_key=self.proprioceptive_feature_key,
+                projection=self.proprioceptive_projection,
             )
-            if proprio is not None:
-                projected = self.proprioceptive_projection(
-                    {self.proprioceptive_feature_key: proprio}
-                )
-                proprio_token = projected[self.proprioceptive_feature_key]
-                if proprio_token.ndim == 2:
-                    proprio_token = proprio_token.unsqueeze(1)  # (B, D) → (B, 1, D)
-                prefix_embeddings = torch.cat([prefix_embeddings, proprio_token], dim=1)
-                if prefix_padding_mask is not None:
-                    proprio_padding_mask = torch.zeros(
-                        prefix_padding_mask.shape[0],
-                        proprio_token.shape[1],
-                        dtype=torch.bool,
-                        device=prefix_padding_mask.device,
-                    )
-                    prefix_padding_mask = torch.cat(
-                        [prefix_padding_mask, proprio_padding_mask], dim=1
-                    )
-                causal_prefix_suffix_length = 1
-        attention_mask, key_padding_mask = make_attention_mask(
-            action_tokens=expert_hidden,
-            feature_tokens=prefix_embeddings,
-            feature_token_mask=prefix_padding_mask,
+        )
+        attention_state = self._build_interleaved_attention_state(
+            expert_tokens=expert_hidden,
+            prefix_embeddings=prefix_embeddings,
+            prefix_padding_mask=prefix_padding_mask,
+            rotary_embedding=self.vlm_rotary_embedding,
             causal_actions=False,
             causal_prefix_suffix_length=causal_prefix_suffix_length,
         )
-        prefix_len = prefix_embeddings.shape[1]
-        prefix_attention_mask = attention_mask[:, :, :prefix_len, :prefix_len]
-        vlm_prefix_attention_mask = GenerativeVLMEncoder.build_additive_attention_mask(
-            attention_mask=prefix_attention_mask,
-            dtype=prefix_embeddings.dtype,
+        expert_hidden = self._run_interleaved_layers(
+            prefix_embeddings=prefix_embeddings,
+            expert_hidden=expert_hidden,
+            attention_state=attention_state,
+            adaptive_norm_conditioning=adaptive_norm_conditioning,
         )
-        # Reorder attention mask from [prefix(P), action(A)] to [expert(A), VLM(P)]
-        # so _joint_sdpa's primary/secondary slicing gets the correct blocks.
-        # key_padding_mask and position_ids stay in [prefix, action] order for RoPE.
-        action_len = expert_hidden.shape[1]
-        perm = torch.cat(
-            [
-                torch.arange(
-                    prefix_len, prefix_len + action_len, device=expert_hidden.device
-                ),
-                torch.arange(prefix_len, device=expert_hidden.device),
-            ]
+        return self._project_expert_actions(
+            expert_hidden=expert_hidden,
+            expert_final_normalization=self.expert_final_normalization,
         )
-        attention_mask = attention_mask[:, :, perm, :][:, :, :, perm]
-        pad_mask = ~key_padding_mask.bool()
-        position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
-        prefix_length = prefix_embeddings.shape[1]
-        expert_position_ids = position_ids[:, prefix_length:]
-        expert_action_rope = GenerativeVLMEncoder.compute_rope(
-            rotary_embedding=self.vlm_rotary_embedding,
-            hidden_states=expert_hidden,
-            position_ids=expert_position_ids,
-        )
-
-        use_cached_prefix = (
-            self._encoder_cache_enabled and self._prefix_cache is not None
-        )
-        if use_cached_prefix:
-            expert_hidden = self._run_expert_with_cache(
-                expert_hidden=expert_hidden,
-                vlm_cache=self._prefix_cache,
-                attention_mask=attention_mask,
-                expert_action_rope=expert_action_rope,
-                adaptive_norm_conditioning=adaptive_norm_conditioning,
-            )
-        elif self._encoder_cache_enabled:
-            vlm_cache = self._fill_prefix_cache(
-                prefix_embeddings=prefix_embeddings,
-                position_ids=position_ids,
-                prefix_attention_mask=vlm_prefix_attention_mask,
-            )
-            self._prefix_cache = vlm_cache
-            expert_hidden = self._run_expert_with_cache(
-                expert_hidden=expert_hidden,
-                vlm_cache=vlm_cache,
-                attention_mask=attention_mask,
-                expert_action_rope=expert_action_rope,
-                adaptive_norm_conditioning=adaptive_norm_conditioning,
-            )
-        else:
-            expert_hidden = self._run_training_forward(
-                prefix_embeddings=prefix_embeddings,
-                expert_hidden=expert_hidden,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                expert_action_rope=expert_action_rope,
-                adaptive_norm_conditioning=adaptive_norm_conditioning,
-            )
-        expert_hidden = self.expert_final_normalization(expert_hidden)
-        action_output = self.action_output_projection(
-            expert_hidden[:, -self.prediction_horizon :, :]
-        )
-        predictions: dict[str, torch.Tensor] = {}
-        offset = 0
-        for key in sorted(self.action_heads.keys()):
-            dimension = self.action_heads[key].output_dim
-            predictions[key] = action_output[:, :, offset : offset + dimension]
-            offset += dimension
-        return predictions
-
-    def _run_training_forward(
-        self,
-        prefix_embeddings: torch.Tensor,
-        expert_hidden: torch.Tensor,
-        attention_mask: torch.Tensor,
-        position_ids: torch.Tensor,
-        expert_action_rope: tuple[torch.Tensor, torch.Tensor],
-        adaptive_norm_conditioning: torch.Tensor | None,
-    ) -> torch.Tensor:
-        """Interleaved VLM + expert forward for training."""
-        vlm_hidden = prefix_embeddings
-        for layer_index in range(self.expert_number_of_layers):
-            vlm_layer = self.vlm_layers[layer_index]
-            with torch.no_grad():
-                vlm_query, vlm_key, vlm_value = (
-                    GenerativeVLMEncoder.extract_query_key_value(
-                        vlm_layer=vlm_layer,
-                        hidden_states=vlm_hidden,
-                        rotary_embedding=self.vlm_rotary_embedding,
-                        position_ids=position_ids,
-                    )
-                )
-            expert_hidden, vlm_attention_output = self.expert_layers[
-                layer_index
-            ].forward_with_secondary(
-                hidden_states_primary=expert_hidden,
-                conditioning_cache=ConditioningLayerCache(
-                    queries=vlm_query, keys=vlm_key, values=vlm_value
-                ),
-                conditioning=adaptive_norm_conditioning,
-                joint_attention_mask=attention_mask,
-                precomputed_primary_rope=expert_action_rope,
-            )
-            with torch.no_grad():
-                vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
-                    vlm_layer=vlm_layer,
-                    vlm_residual=vlm_hidden,
-                    vlm_attention_output=vlm_attention_output,
-                )
-        return expert_hidden
-
-    def _fill_prefix_cache(
-        self,
-        prefix_embeddings: torch.Tensor,
-        position_ids: torch.Tensor,
-        prefix_attention_mask: torch.Tensor | None = None,
-    ) -> ConditioningCache:
-        """Run VLM layers and cache Q/K/V for inference.
-
-        Args:
-            prefix_embeddings: VLM prefix token embeddings (B, P, D).
-            position_ids: Full position IDs (B, P + A). Only the prefix
-                portion is used.
-            prefix_attention_mask: Optional additive mask for VLM prefix
-                self-attention, shaped ``(B, 1, P, P)``.
-
-        Returns:
-            Conditioning cache with one layer entry per expert layer.
-        """
-        if self.vlm_rotary_embedding is None:
-            raise RuntimeError(
-                "VLM rotary embedding not set. set_backbone() must be called."
-            )
-        layer_caches: list[ConditioningLayerCache] = []
-        vlm_hidden = prefix_embeddings
-        prefix_position_ids = position_ids[:, : prefix_embeddings.shape[1]]
-        vlm_position_embeddings = self.vlm_rotary_embedding(
-            vlm_hidden, prefix_position_ids
-        )
-        with torch.no_grad():
-            for layer_index in range(self.expert_number_of_layers):
-                vlm_layer = self.vlm_layers[layer_index]
-                vlm_query, vlm_key, vlm_value = (
-                    GenerativeVLMEncoder.extract_query_key_value(
-                        vlm_layer=vlm_layer,
-                        hidden_states=vlm_hidden,
-                        rotary_embedding=self.vlm_rotary_embedding,
-                        position_ids=prefix_position_ids,
-                    )
-                )
-                layer_caches.append(
-                    ConditioningLayerCache(
-                        queries=vlm_query, keys=vlm_key, values=vlm_value
-                    )
-                )
-                vlm_output = vlm_layer(
-                    vlm_hidden,
-                    attention_mask=prefix_attention_mask,
-                    position_embeddings=vlm_position_embeddings,
-                )
-                vlm_hidden = (
-                    vlm_output[0] if isinstance(vlm_output, tuple) else vlm_output
-                )
-        return ConditioningCache(layers=layer_caches)
-
-    def _run_expert_with_cache(
-        self,
-        expert_hidden: torch.Tensor,
-        vlm_cache: ConditioningCache,
-        attention_mask: torch.Tensor,
-        expert_action_rope: tuple[torch.Tensor, torch.Tensor],
-        adaptive_norm_conditioning: torch.Tensor | None,
-    ) -> torch.Tensor:
-        """Run expert layers using cached VLM Q/K/V (inference only)."""
-        for layer_index in range(self.expert_number_of_layers):
-            expert_hidden = self.expert_layers[layer_index](
-                hidden_states=expert_hidden,
-                conditioning_cache=vlm_cache.layers[layer_index],
-                conditioning=adaptive_norm_conditioning,
-                attention_mask=attention_mask,
-                precomputed_rope=expert_action_rope,
-            )
-        return expert_hidden

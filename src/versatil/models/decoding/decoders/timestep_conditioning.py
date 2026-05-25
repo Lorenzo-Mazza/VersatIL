@@ -14,7 +14,7 @@ def validate_noisy_action_tensors(
     prediction_horizon: int,
     decoder_name: str,
 ) -> tuple[int, torch.device]:
-    """Validate noisy action tensors before concatenating them.
+    """Validate noisy action tensors against action-head output dimensions.
 
     Args:
         actions: Dictionary of noisy actions provided by the decoding algorithm.
@@ -28,9 +28,41 @@ def validate_noisy_action_tensors(
     Raises:
         ValueError: If keys, ranks, horizon, dimensions, batch size, or devices are inconsistent.
     """
-    expected_action_keys = sorted(action_heads.keys())
+    return validate_action_tensors_against_dimensions(
+        actions=actions,
+        action_dimensions={
+            action_key: action_head.output_dim
+            for action_key, action_head in action_heads.items()
+        },
+        prediction_horizon=prediction_horizon,
+        decoder_name=decoder_name,
+    )
+
+
+def validate_action_tensors_against_dimensions(
+    actions: dict[str, torch.Tensor],
+    action_dimensions: Mapping[str, int],
+    prediction_horizon: int,
+    decoder_name: str,
+) -> tuple[int, torch.device]:
+    """Validate action tensors before concatenating them.
+
+    Args:
+        actions: Dictionary of action tensors provided by the decoding
+            algorithm.
+        action_dimensions: Expected last dimension for each action key.
+        prediction_horizon: Expected action chunk length.
+        decoder_name: Name used in error messages.
+
+    Returns:
+        Batch size and device shared by all action tensors.
+
+    Raises:
+        ValueError: If keys, ranks, horizon, dimensions, batch size, or devices are inconsistent.
+    """
+    expected_action_keys = sorted(action_dimensions.keys())
     if not expected_action_keys:
-        raise ValueError(f"{decoder_name} requires at least one action head.")
+        raise ValueError(f"{decoder_name} requires at least one action tensor.")
 
     actual_action_keys = sorted(actions.keys())
     if actual_action_keys != expected_action_keys:
@@ -54,7 +86,7 @@ def validate_noisy_action_tensors(
                 f"Action '{action_key}' must have prediction horizon "
                 f"{prediction_horizon}, got {action.shape[1]}."
             )
-        expected_dimension = action_heads[action_key].output_dim
+        expected_dimension = action_dimensions[action_key]
         if action.shape[2] != expected_dimension:
             raise ValueError(
                 f"Action '{action_key}' must have last dimension "

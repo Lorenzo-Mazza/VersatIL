@@ -36,18 +36,16 @@ observations:
     gripper_type: ${gripper:CONTINUOUS}
 
   ${cameras:AGENTVIEW}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${raw_camera:FRONT}
     dtype: uint8
-    channels: 3
     image_width: 256
     image_height: 256
 
   ${cameras:EYE_IN_HAND}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${raw_camera:WRIST}
     dtype: uint8
-    channels: 3
     image_width: 256
     image_height: 256
 

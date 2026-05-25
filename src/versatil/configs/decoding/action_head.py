@@ -1,5 +1,7 @@
 """Configuration classes for modular action heads."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,12 +9,22 @@ from omegaconf import MISSING
 
 from versatil.models.decoding.constants import MoERoutingType
 
+type ActionHeadBlockConfigDict = dict[str, Any]
+
 
 @dataclass
 class ActionHeadBlockConfig:
     """Base configuration for action head blocks."""
 
     _target_: str = MISSING
+
+
+@dataclass
+class LayerNormBlockConfig(ActionHeadBlockConfig):
+    """Configuration for layer-normalization action-head block."""
+
+    _target_: str = "versatil.models.decoding.action_heads.LayerNormBlock"
+    input_dim: int = MISSING
 
 
 @dataclass
@@ -44,8 +56,18 @@ class ResidualBlockConfig(ActionHeadBlockConfig):
     """Configuration for residual wrapper block."""
 
     _target_: str = "versatil.models.decoding.action_heads.ResidualBlock"
-    block: ActionHeadBlockConfig = MISSING
+    block: ActionHeadBlockConfigDict = MISSING
     dropout: float = 0.1
+
+
+@dataclass
+class AdaNormBlockConfig(ActionHeadBlockConfig):
+    """Configuration for adaptive normalization action-head block."""
+
+    _target_: str = "versatil.models.decoding.action_heads.AdaNormBlock"
+    input_dim: int = MISSING
+    condition_dim: int = MISSING
+    activation: str = "silu"
 
 
 @dataclass
@@ -58,7 +80,17 @@ class ActionHeadConfig:
 
     _target_: str = "versatil.models.decoding.action_heads.ActionHead"
     input_dim: int = MISSING  # Set from decoder embedding_dimension
-    blocks: list[Any] | None = None
+    blocks: list[ActionHeadBlockConfigDict] | None = None
+
+
+@dataclass
+class ConditionalActionHeadConfig:
+    """Configuration for a conditioned action head."""
+
+    _target_: str = "versatil.models.decoding.action_heads.ConditionalActionHead"
+    input_dim: int = MISSING
+    condition_dim: int = MISSING
+    blocks: list[ActionHeadBlockConfigDict] | None = None
 
 
 @dataclass
@@ -67,7 +99,7 @@ class GaussianHeadConfig:
 
     _target_: str = "versatil.models.decoding.action_heads.GaussianHead"
     input_dim: int = MISSING
-    blocks: list[Any] | None = None
+    blocks: list[ActionHeadBlockConfigDict] | None = None
     min_logvar: float = -10.0
     max_logvar: float = 4.0
 

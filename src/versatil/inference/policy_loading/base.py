@@ -8,7 +8,6 @@ import torch
 from omegaconf import OmegaConf
 
 from versatil.configs import MainConfig
-from versatil.data.constants import Cameras
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.policy import Policy
@@ -221,6 +220,11 @@ class BasePolicyLoader:
         return self._checkpoint_path
 
     @property
+    def client_identifier(self) -> str:
+        """Get the environment-facing identifier used for rollout storage."""
+        return self._checkpoint_path
+
+    @property
     def config(self) -> MainConfig:
         """Get the loaded experiment configuration."""
         return self._config
@@ -274,12 +278,12 @@ class BasePolicyLoader:
         Returns:
             Tuple of (min, max) for clamping, or None if depth not in normalizer.
         """
-        depth_key = Cameras.DEPTH.value
-        if depth_key not in self._policy.normalizer.params_dict:
-            return None
-        stats = self._policy.normalizer[depth_key].params_dict.get(
-            CheckpointKey.INPUT_STATS.value
-        )
-        if stats is None:
-            return None
-        return float(stats["min"].item()), float(stats["max"].item())
+        for depth_key in self.observation_space.depth_cameras:
+            if depth_key not in self._policy.normalizer.params_dict:
+                continue
+            stats = self._policy.normalizer[depth_key].params_dict.get(
+                CheckpointKey.INPUT_STATS.value
+            )
+            if stats is not None:
+                return float(stats["min"].item()), float(stats["max"].item())
+        return None

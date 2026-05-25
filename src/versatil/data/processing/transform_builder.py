@@ -4,9 +4,14 @@ import numpy as np
 import torch
 
 from versatil.common.tensor_ops import tensor_to_str
-from versatil.configs.data.tokenizer import TokenizationConfig
+from versatil.configs.data.tokenizer import (
+    ActionDiscretizerConfig,
+    ActionTokenIdMappingConfig,
+    TokenizationConfig,
+)
 from versatil.data.constants import (
-    Cameras,
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -21,9 +26,51 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.processing.action_processor import ActionProcessor
 from versatil.data.task import ObservationSpace
+from versatil.data.tokenization.action_discretizer import (
+    BinnedActionDiscretizer,
+    FastActionDiscretizer,
+)
+from versatil.data.tokenization.action_token_id_mapping import (
+    IdentityActionTokenIdMapping,
+    LanguageVocabularyActionTokenIdMapping,
+)
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 from versatil.data.tokenization.tokenizer import Tokenizer
+
+
+def _build_action_discretizer(
+    config: ActionDiscretizerConfig,
+    device: torch.device | None,
+) -> FastActionDiscretizer | BinnedActionDiscretizer:
+    """Instantiate the configured action discretizer."""
+    if config.type == ActionDiscretizerType.FAST.value:
+        return FastActionDiscretizer(
+            use_pretrained=config.use_pretrained,
+            tokenizer_model=config.tokenizer_model,
+        )
+    if config.type == ActionDiscretizerType.BINNED.value:
+        return BinnedActionDiscretizer(num_bins=config.num_bins, device=device)
+    raise ValueError(f"Unsupported action discretizer type: {config.type}")
+
+
+def _build_token_id_mapping(
+    config: ActionTokenIdMappingConfig,
+) -> IdentityActionTokenIdMapping | LanguageVocabularyActionTokenIdMapping:
+    """Instantiate the configured action token-id mapping."""
+    if config.type == ActionTokenIdMappingType.IDENTITY.value:
+        return IdentityActionTokenIdMapping()
+    if config.type == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value:
+        if config.language_tokenizer_model is None:
+            raise ValueError(
+                "language_tokenizer_model must be provided for language-vocabulary "
+                "action token-id mapping"
+            )
+        return LanguageVocabularyActionTokenIdMapping(
+            language_tokenizer_model=config.language_tokenizer_model,
+            num_special_tokens_to_skip=config.num_special_tokens_to_skip,
+        )
+    raise ValueError(f"Unsupported action token-id mapping type: {config.type}")
 
 
 class TransformBuilder:
@@ -226,9 +273,8 @@ class TransformBuilder:
             device: Target device
             winsorize_depth: Apply winsorization to depth
         """
-        for camera_key, _camera_meta in self.observation_space.cameras.items():
-            # TODO: this currently assumes that only a camera with key "depth" is a depth camera - should ideally be specified in metadata
-            if camera_key == Cameras.DEPTH.value:
+        for camera_key, camera_metadata in self.observation_space.cameras.items():
+            if camera_metadata.is_depth:
                 depth_stats = self._compute_depth_stats_streaming(
                     camera_key, winsorize_depth
                 )
@@ -268,11 +314,10 @@ class TransformBuilder:
             if total_pixels == 0:
                 reservoir = np.empty(0, dtype=dtype)
             elif total_pixels <= reservoir_size:
-                # Small array - load all and ravel (zarr v3 arrays don't have .ravel())
+                # Small array - load all and ravel
                 reservoir = depth_array[:].ravel()
             else:
                 # Large array - sample using multi-dimensional indexing
-                # (zarr v3 doesn't support flat indexing on arrays)
                 flat_indices = np.random.choice(
                     total_pixels, reservoir_size, replace=False
                 )
@@ -427,8 +472,8 @@ class TransformBuilder:
 
             if not observation_tokenizer._is_fitted:
                 logging.warning(
-                    "No observation data was used for observation binning tokenizer."
-                    " Observation binning tokenizer will be a pass-through."
+                    "No observation data was used for observation binning."
+                    " Observation binning will be a pass-through."
                 )
                 observation_tokenizer.fit({})  # Pass-through
 
@@ -440,13 +485,17 @@ class TransformBuilder:
                 )
 
             action_tokenizer = ActionTokenizer(
-                tokenizer_chain=action_config.tokenizer_chain,
-                use_pretrained_fast=action_config.use_pretrained_fast,
-                language_tokenizer_model=action_config.language_tokenizer_model,
+                action_discretizer=_build_action_discretizer(
+                    action_config.action_discretizer,
+                    device=device,
+                ),
+                token_id_mapping=_build_token_id_mapping(
+                    action_config.token_id_mapping
+                ),
                 max_token_len=action_config.max_token_len,
                 device=device,
             )
-            if not action_config.use_pretrained_fast:
+            if not action_tokenizer._is_fitted:
                 actions_to_tokenize = {}
                 for key, meta in action_meta.items():
                     if not meta.is_numerical:
@@ -565,7 +614,8 @@ class TransformBuilder:
             f"min: {sample.min():.4f}, max: {sample.max():.4f}, "
             f"mean: {sample.mean():.4f}, std: {sample.std():.4f}"
         )
-        if camera_key != Cameras.DEPTH.value:
+        camera_metadata = self.observation_space.cameras[camera_key]
+        if not camera_metadata.is_depth:
             sample = sample.astype(np.float32) / 255.0
         sample_normalized = normalizer[camera_key].normalize(sample)
         logging.info(

@@ -27,7 +27,7 @@ def save_compressed_model(
     output_keys: list[str],
     normalizer: LinearNormalizer,
     training_checkpoint_path: str,
-    quantization_config: object,
+    quantization_config: Any,
     quantization_strategy: str,
     model_filename: str = CompressionFilename.COMPRESSED_MODEL.value,
     normalizer_filename: str = CompressionFilename.NORMALIZER.value,

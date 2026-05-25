@@ -3,7 +3,7 @@ ${proprio_key:EE_POS_ACTION}:
   input_dim: ${policy.decoder.embedding_dimension}
   blocks:
     - _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
-      input_dim: ${policy.decoder.embedding_dimension}
+      input_dim: ${...input_dim}
       hidden_dims:
         - 256
         - 128
@@ -15,7 +15,7 @@ ${proprio_key:EE_ORI_ACTION}:
   input_dim: ${policy.decoder.embedding_dimension}
   blocks:
     - _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
-      input_dim: ${policy.decoder.embedding_dimension}
+      input_dim: ${...input_dim}
       hidden_dims:
         - 256
         - 128
@@ -27,7 +27,7 @@ ${proprio_key:GRIPPER_STATE_ACTION}:
   input_dim: ${policy.decoder.embedding_dimension}
   blocks:
     - _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
-      input_dim: ${policy.decoder.embedding_dimension}
+      input_dim: ${...input_dim}
       hidden_dims:
         - 256
         - 128

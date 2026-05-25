@@ -10,8 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from versatil.data.constants import RGB_CAMERAS, Cameras
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -184,7 +183,9 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
-            keys=input_keys, required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS]
+            keys=input_keys,
+            exactly_one_camera_modality=[CameraModality.RGB, CameraModality.DEPTH],
+            required_camera_modalities=[CameraModality.RGB, CameraModality.DEPTH],
         )
         super().__init__(
             input_specification=specification,
@@ -201,6 +202,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             raise ValueError(
                 "Pretrained=True requires a valid checkpoint_path for DFormerEncoder."
             )
+        self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.variant = variant
         self.pooling_method = pooling_method
         self.decomposition_mode = AttentionDecompositionMode(decomposition_mode)
@@ -326,12 +328,8 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         Returns:
             Dict with RGBD features.
         """
-        rgb_key = [
-            k
-            for k in self.input_specification.keys
-            if k in self.input_specification.one_of_groups[0]
-        ][0]
-        depth_key = self.input_specification.required[0]
+        rgb_key = self._camera_key_for_modality(modality=CameraModality.RGB)
+        depth_key = self._camera_key_for_modality(modality=CameraModality.DEPTH)
 
         rgb = inputs[rgb_key]
         depth = inputs[depth_key]
@@ -379,32 +377,6 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             _, spatial_height, spatial_width, _ = features.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         self._apply_model_dtype()
-
-    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
-        """Validate that RGB keys have 3-channel metadata and depth key is single-channel.
-
-        Args:
-            key: Observation key being validated.
-            metadata: Metadata from the observation space for this key.
-
-        Returns:
-            Error message if incompatible, None if valid.
-        """
-        if not isinstance(metadata, CameraMetadata):
-            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
-        if key == Cameras.DEPTH.value:
-            if not metadata.is_single_channel:
-                return (
-                    f"Expected single-channel depth for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        else:
-            if not metadata.is_rgb:
-                return (
-                    f"Expected 3-channel RGB for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        return None
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Return the output feature names and dimensions for this encoder.

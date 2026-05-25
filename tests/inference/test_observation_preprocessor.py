@@ -1,6 +1,5 @@
 """Tests for versatil.inference.observation_preprocessor module."""
 
-import logging
 from collections.abc import Callable
 from unittest.mock import patch
 
@@ -12,7 +11,7 @@ from versatil_constants.shared import ObsKey
 from versatil_constants.tso import TSOProprioKey
 
 from versatil.data.constants import Cameras
-from versatil.data.metadata import CameraMetadata
+from versatil.data.metadata import DepthCameraMetadata, RGBCameraMetadata
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
 
 
@@ -34,14 +33,20 @@ def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
             state_keys = []
         camera_metadata = {}
         for key in camera_keys:
-            channels = 1 if key == Cameras.DEPTH.value else 3
-            camera_metadata[key] = CameraMetadata(
-                camera_key=key,
-                dtype="uint8",
-                channels=channels,
-                image_height=image_height,
-                image_width=image_width,
-            )
+            if key == Cameras.DEPTH.value:
+                camera_metadata[key] = DepthCameraMetadata(
+                    camera_key=key,
+                    dtype="float32",
+                    image_height=image_height,
+                    image_width=image_width,
+                )
+            else:
+                camera_metadata[key] = RGBCameraMetadata(
+                    camera_key=key,
+                    dtype="uint8",
+                    image_height=image_height,
+                    image_width=image_width,
+                )
         return ObservationPreprocessor(
             camera_keys=camera_keys,
             state_keys=state_keys,
@@ -803,47 +808,3 @@ class TestTransformCameraObservations:
 
         assert result[Cameras.LEFT.value].shape[2] == target_height
         assert result[Cameras.LEFT.value].shape[3] == target_width
-
-
-@pytest.mark.unit
-class TestNormalizeImageTensor:
-    def test_uint8_divided_by_255(self):
-        image = torch.tensor([[[0, 128, 255]]], dtype=torch.uint8)
-
-        result = ObservationPreprocessor._normalize_image_tensor(image=image)
-
-        assert result.dtype == torch.float32
-        torch.testing.assert_close(
-            result,
-            torch.tensor([[[0.0, 128.0 / 255.0, 1.0]]]),
-        )
-
-    def test_float_above_one_divided_by_255_with_warning(self, caplog):
-        image = torch.tensor([[[0.0, 128.0, 255.0]]])
-
-        with caplog.at_level(logging.WARNING):
-            result = ObservationPreprocessor._normalize_image_tensor(image=image)
-
-        torch.testing.assert_close(
-            result,
-            torch.tensor([[[0.0, 128.0 / 255.0, 1.0]]]),
-        )
-        assert "max" in caplog.text
-        assert "dividing by 255" in caplog.text
-
-    def test_float_in_zero_one_range_passthrough_with_warning(self, caplog):
-        image = torch.tensor([[[0.0, 0.5, 1.0]]])
-
-        with caplog.at_level(logging.WARNING):
-            result = ObservationPreprocessor._normalize_image_tensor(image=image)
-
-        torch.testing.assert_close(result, image)
-        assert "already in [0, 1] range" in caplog.text
-
-    def test_all_zero_float_image_passthrough(self, caplog):
-        image = torch.zeros(1, 3, 4, 4)
-
-        with caplog.at_level(logging.WARNING):
-            result = ObservationPreprocessor._normalize_image_tensor(image=image)
-
-        torch.testing.assert_close(result, image)

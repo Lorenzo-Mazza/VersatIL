@@ -13,7 +13,6 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (
 from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.constants import FXNodePattern
-from versatil.quantization.torch_patches import patch_get_source_partitions
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,6 @@ def apply_pt2e_quantization(
             "PT2E static quantization requires calibration data "
             "but no CalibrationDataProvider was supplied."
         )
-    patch_get_source_partitions()
     quantizers = []
     for module in pt2e_modules:
         backend = module.quantization.pt2e_backend

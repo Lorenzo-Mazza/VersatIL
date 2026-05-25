@@ -17,7 +17,7 @@ class GaussianHead(BaseActionHead):
         blocks: list[ActionHeadBlock] | None = None,
         min_logvar: float = -10.0,
         max_logvar: float = 4.0,
-    ):
+    ) -> None:
         """Initialize Gaussian head.
 
         Args:

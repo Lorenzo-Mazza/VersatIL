@@ -548,8 +548,6 @@ E2E_EXTRA_ARCHITECTURE_CONFIGS = (
     "end_to_end_training_runs/libero_lerobot/flow_dit_cross_attention",
     "end_to_end_training_runs/libero_lerobot/flow_dit_multimodal",
     "end_to_end_training_runs/libero_lerobot/mode_act",
-    "end_to_end_training_runs/bowel_retraction/discrete_detr",
-    "end_to_end_training_runs/bowel_retraction/free_transformer",
     "end_to_end_training_runs/bowel_retraction/mixture_act",
     "end_to_end_training_runs/bowel_retraction/phase_act",
 )
@@ -639,12 +637,12 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                 )
         if "model_name" in encoder_cfg:
             target = encoder_cfg.get("_target_", "")
-            if "two_tower_vlm" in target.lower():
+            if "vlm_encoder" in target.lower():
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".model_name=${{vlm_model:CLIP_VITB32}}"
                 )
-            elif "paligemma" not in target.lower() and "smolvlm" not in target.lower():
+            else:
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".model_name=${{language_model:ALBERT_BASE}}"
@@ -660,21 +658,19 @@ def build_tiny_overrides(config_name: str) -> list[str]:
         cfg.task.dataloader.get("tokenization", OmegaConf.create({})),
         resolve=False,
     )
-    has_two_tower_vlm = any(
-        "two_tower_vlm" in enc.get("_target_", "").lower()
+    has_vlm_encoder = any(
+        "vlm_encoder" in enc.get("_target_", "").lower()
         for enc in encoders_dict.values()
     )
-    has_generative_vlm = any(
-        any(
-            keyword in enc.get("_target_", "").lower()
-            for keyword in ("paligemma", "smolvlm")
-        )
-        for enc in encoders_dict.values()
+    vlm_backbone = decoder_dict.get("vlm_backbone", {}) or {}
+    vlm_backbone_target = vlm_backbone.get("_target_", "").lower()
+    has_decoder_owned_vlm = any(
+        keyword in vlm_backbone_target for keyword in ("paligemma", "smolvlm")
     )
     if tokenization:
         obs_tok = tokenization.get("observation_tokenizer", {})
         if obs_tok and "tokenizer_model" in obs_tok:
-            if has_two_tower_vlm:
+            if has_vlm_encoder:
                 overrides.append(
                     "task.dataloader.image_norm_type=${image_norm_type:CLIP}"
                 )
@@ -682,7 +678,7 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                     "task.dataloader.tokenization.observation_tokenizer"
                     ".tokenizer_model=${vlm_model:CLIP_VITB32}"
                 )
-            elif not has_generative_vlm:
+            elif not has_decoder_owned_vlm:
                 overrides.append(
                     "task.dataloader.tokenization.observation_tokenizer"
                     ".tokenizer_model=${language_model:ALBERT_BASE}"

@@ -13,7 +13,7 @@ class FeatureType(enum.StrEnum):
     """
 
     SPATIAL = "spatial"  # (C, H, W) — image feature maps
-    SEQUENTIAL = "sequential"  # (S, D) — token/time sequences
+    SEQUENTIAL = "sequential"  # (S, D) — token sequences
     FLAT = "flat"  # (D,) — pooled or embedded features
 
 

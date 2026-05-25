@@ -5,10 +5,9 @@ _target_: versatil.data.raw.zarr_meta.DatasetMetadata
 
 observations:
   ${cameras:AGENTVIEW}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${cameras:AGENTVIEW}
     dtype: uint8
-    channels: 3
     image_width: 64
     image_height: 64
 

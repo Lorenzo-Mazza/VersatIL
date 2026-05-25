@@ -99,6 +99,15 @@ class TimeConditioning(enum.StrEnum):
     ADANORM = "adanorm"
 
 
+class ActionHeadLayout(enum.StrEnum):
+    """How decoder action heads map to the action space."""
+
+    NONE = "none"
+    COMPONENT = "component"
+    JOINT = "joint"
+    VOCABULARY = "vocabulary"
+
+
 class DecoderOutputKey(enum.StrEnum):
     """Keys for decoder outputs and intermediate features."""
 

@@ -10,7 +10,11 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from versatil.data.metadata import CameraMetadata
+from versatil.data.metadata import (
+    CameraMetadata,
+    DepthCameraMetadata,
+    RGBCameraMetadata,
+)
 from versatil.data.processing.image_processor import ImageProcessor
 
 
@@ -57,13 +61,20 @@ def camera_metadata_factory() -> Callable[..., dict[str, CameraMetadata]]:
             cameras = {"left": (3, 224, 224)}
         result = {}
         for camera_key, (channels, height, width) in cameras.items():
-            result[camera_key] = CameraMetadata(
-                camera_key=camera_key,
-                dtype="uint8",
-                channels=channels,
-                image_height=height,
-                image_width=width,
-            )
+            if channels == 1:
+                result[camera_key] = DepthCameraMetadata(
+                    camera_key=camera_key,
+                    dtype="float32",
+                    image_height=height,
+                    image_width=width,
+                )
+            else:
+                result[camera_key] = RGBCameraMetadata(
+                    camera_key=camera_key,
+                    dtype="uint8",
+                    image_height=height,
+                    image_width=width,
+                )
         return result
 
     return factory
@@ -115,6 +126,53 @@ class TestImageProcessorInitialization:
         processor = ImageProcessor(camera_metadata=metadata, train=True)
         assert "left" in processor._rgb_cameras
         assert "depth" not in processor._rgb_cameras
+
+
+class TestNormalizeImageTensor:
+    def test_scales_by_max_pixel_value(self):
+        image = torch.tensor([[[0, 128, 255]]], dtype=torch.uint8)
+
+        result = ImageProcessor.normalize_image_tensor(
+            image=image,
+            max_pixel_value=255.0,
+        )
+
+        assert result.dtype == torch.float32
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[[0.0, 128.0 / 255.0, 1.0]]]),
+        )
+
+    def test_uint16_casts_without_scaling(self):
+        image = torch.tensor([[[0, 255, 1024]]], dtype=torch.uint16)
+
+        result = ImageProcessor.normalize_image_tensor(image=image)
+
+        assert result.dtype == torch.float32
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[[0.0, 255.0, 1024.0]]]),
+        )
+
+    def test_float_above_one_scales_by_max_pixel_value(self):
+        image = torch.tensor([[[0.0, 128.0, 255.0]]])
+
+        result = ImageProcessor.normalize_image_tensor(
+            image=image,
+            max_pixel_value=255.0,
+        )
+
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[[0.0, 128.0 / 255.0, 1.0]]]),
+        )
+
+    def test_float_above_one_preserved_by_default(self):
+        image = torch.tensor([[[0.0, 128.0, 255.0]]])
+
+        result = ImageProcessor.normalize_image_tensor(image=image)
+
+        torch.testing.assert_close(result, image)
 
 
 class TestProcess:
@@ -183,6 +241,77 @@ class TestProcess:
         images = np.full((2, 4, 4, 3), 255, dtype=np.uint8)
         result = processor.process(images=images, camera_key="left")
         assert torch.allclose(result, torch.ones_like(result))
+
+    def test_max_pixel_value_normalizes_single_channel_camera(self):
+        metadata = {
+            "left": CameraMetadata(
+                camera_key="left",
+                dtype="uint8",
+                channels=1,
+                image_height=2,
+                image_width=2,
+                max_pixel_value=255.0,
+            )
+        }
+        processor = ImageProcessor(camera_metadata=metadata, train=False)
+        images = np.array(
+            [
+                [
+                    [0, 128],
+                    [255, 64],
+                ]
+            ],
+            dtype=np.uint8,
+        )
+
+        result = processor.process(images=images, camera_key="left")
+
+        expected = torch.tensor(
+            [
+                [
+                    [
+                        [0.0, 128.0 / 255.0],
+                        [1.0, 64.0 / 255.0],
+                    ]
+                ]
+            ]
+        )
+        torch.testing.assert_close(result, expected)
+
+    def test_uint16_single_channel_values_cast_without_scaling(self):
+        metadata = {
+            "left": CameraMetadata(
+                camera_key="left",
+                dtype="uint16",
+                channels=1,
+                image_height=2,
+                image_width=2,
+            )
+        }
+        processor = ImageProcessor(camera_metadata=metadata, train=False)
+        images = np.array(
+            [
+                [
+                    [0, 255],
+                    [1024, 4096],
+                ]
+            ],
+            dtype=np.uint16,
+        )
+
+        result = processor.process(images=images, camera_key="left")
+
+        expected = torch.tensor(
+            [
+                [
+                    [
+                        [0.0, 255.0],
+                        [1024.0, 4096.0],
+                    ]
+                ]
+            ]
+        )
+        torch.testing.assert_close(result, expected)
 
     def test_color_augmentation_applied_only_to_rgb(
         self,

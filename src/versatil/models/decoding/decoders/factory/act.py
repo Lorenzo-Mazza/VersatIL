@@ -4,24 +4,19 @@ Reference: https://arxiv.org/abs/2304.13705
 """
 
 import torch
-from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.decoders.parallel_transformer import (
+    BaseParallelTransformerDecoder,
+)
 from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import Transformer
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding2D,
-)
 
 
-class ACT(ActionDecoder):
+class ACT(BaseParallelTransformerDecoder):
     """Action Chunking Transformer network for action decoding.
 
     This architecture:
@@ -53,7 +48,7 @@ class ACT(ActionDecoder):
         activation: str = ActivationFunction.RELU.value,
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
-    ):
+    ) -> None:
         """Initialize ACT-style decoder.
 
         Args:
@@ -86,8 +81,8 @@ class ACT(ActionDecoder):
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
             device=device,
+            embedding_dimension=embedding_dimension,
         )
-        self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.feedforward_dimension = feedforward_dimension
         self.number_of_encoder_layers = number_of_encoder_layers
@@ -98,26 +93,9 @@ class ACT(ActionDecoder):
         self._build_transformer_components()
         self.to(self.device)
 
-    def _build_transformer_components(self):
+    def _build_transformer_components(self) -> None:
         """Build core transformer encoder-decoder and positional encodings."""
-        image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension, normalize=True
-        )
-        temporal_positional_encoding = None
-        if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            )
-        # This layer transforms input features into a sequence of token embeddings + positional encodings
-        self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=image_positional_encoding,
-            flat_positional_encoding_layer=LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension,
-            ),
-            temporal_positional_encoding_layer=temporal_positional_encoding,
-        )
+        self.input_sequence_builder = self._build_parallel_input_sequence_builder()
         self.action_decoder = Transformer(
             embedding_dimension=self.embedding_dimension,
             number_of_heads=self.number_of_heads,
@@ -128,10 +106,9 @@ class ACT(ActionDecoder):
             normalize_before=self.normalize_before,
             feedforward_dimension=self.feedforward_dimension,
         )
-        # Learnable queries for action prediction
-        self.learnable_query = nn.Embedding(
-            self.prediction_horizon, self.embedding_dimension
-        )  # (pred_horizon, emb)
+        self.learnable_query = (
+            self._build_parallel_query_embedding()
+        )  # (prediction_horizon, embedding_dimension)
 
     def _decode_actions(
         self,
@@ -150,10 +127,11 @@ class ACT(ActionDecoder):
             Action embeddings (B, prediction_horizon, embedding_dimension)
         """
         batch_size = input_tokens.shape[0]
-        query_positional_encoding = self.learnable_query.weight.unsqueeze(0).repeat(
-            batch_size, 1, 1
-        )  # (B, pred_horizon, emb)
-        target = torch.zeros_like(query_positional_encoding)
+        query_positional_encoding = self._expand_parallel_query_embedding(
+            query_embedding=self.learnable_query,
+            batch_size=batch_size,
+        )  # (B, prediction_horizon, embedding_dimension)
+        target = torch.zeros_like(query_positional_encoding)  # (B, H, D)
         decoder_outputs = self.action_decoder(
             source=input_tokens,
             target=target,
@@ -161,23 +139,7 @@ class ACT(ActionDecoder):
             source_key_padding_mask=padding_mask,
             target_positional_encoding=query_positional_encoding,
         )
-        return decoder_outputs[-1]
-
-    def _apply_action_heads(
-        self, action_embeddings: torch.Tensor
-    ) -> dict[str, torch.Tensor]:
-        """Apply prediction heads to action embeddings.
-
-        Args:
-            action_embeddings: Action embeddings (B, horizon, embedding_dimension)
-
-        Returns:
-            Dictionary of predicted actions
-        """
-        predictions = {}
-        for action_key, head in self.action_heads.items():
-            predictions[action_key] = head(action_embeddings)
-        return predictions
+        return decoder_outputs[-1]  # (B, prediction_horizon, embedding_dimension)
 
     def forward(
         self,
@@ -199,11 +161,11 @@ class ACT(ActionDecoder):
         # This creates a sequence of input tokens and positional encodings in the format ACT expects
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             features
-        )  # (B, pred_horizon, embedding_dimension)
+        )  # (B, observation_token_count, embedding_dimension)
         action_embeddings = self._decode_actions(
             input_tokens=input_tokens,
             positional_encodings=pos_encodings,
             padding_mask=padding_mask,
-        )
+        )  # (B, prediction_horizon, embedding_dimension)
         predictions = self._apply_action_heads(action_embeddings)
         return predictions

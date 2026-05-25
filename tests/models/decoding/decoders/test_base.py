@@ -7,13 +7,13 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
-import torch.nn as nn
 
 from versatil.data.constants import SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.tokenization import Tokenizer
+from versatil.data.tokenization import ActionTokenizer, Tokenizer
+from versatil.models.decoding.action_heads.base import BaseActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.feature_meta import (
     FeatureMetadata,
@@ -34,9 +34,33 @@ class ConcreteDecoder(ActionDecoder):
 
 
 class TokenizedConcreteDecoder(ConcreteDecoder):
-    """Concrete decoder that supports tokenized actions."""
+    """Concrete decoder that requires tokenized actions."""
 
-    supports_tokenized_actions: bool = True
+    requires_tokenized_actions: bool = True
+
+
+class NoHeadConcreteDecoder(ConcreteDecoder):
+    """Concrete decoder that owns its output projection internally."""
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.NONE
+
+
+class TokenizedNoHeadConcreteDecoder(TokenizedConcreteDecoder):
+    """Tokenized decoder that owns its vocabulary projection internally."""
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.NONE
+
+
+class JointConcreteDecoder(ConcreteDecoder):
+    """Concrete decoder with one head for the full action vector."""
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.JOINT
+
+
+class VocabularyConcreteDecoder(TokenizedConcreteDecoder):
+    """Concrete token decoder with one vocabulary-logit head."""
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.VOCABULARY
 
 
 @pytest.fixture
@@ -80,11 +104,9 @@ def mock_action_head_factory() -> Callable[..., MagicMock]:
     """Factory for mock action heads compatible with nn.ModuleDict."""
 
     def factory(output_dim: int = 3) -> MagicMock:
-        head = MagicMock(spec=nn.Module)
+        head = MagicMock(spec=BaseActionHead)
         head.output_dim = output_dim
-        head.set_output_dim = MagicMock(
-            side_effect=lambda dim: setattr(head, "output_dim", dim)
-        )
+        head.set_output_dim.side_effect = lambda dim: setattr(head, "output_dim", dim)
         return head
 
     return factory
@@ -137,6 +159,7 @@ def concrete_decoder_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestDecoderInputInitialization:
     @pytest.mark.parametrize("keys", [["rgb", "depth"], ["proprio"]])
     @pytest.mark.parametrize("requires_actions", [True, False])
@@ -212,6 +235,7 @@ class TestDecoderInputInitialization:
             )
 
 
+@pytest.mark.unit
 class TestDecoderInputValidateFeatureTypes:
     @pytest.mark.parametrize(
         "required_type, feature_dim, expectation",
@@ -338,11 +362,13 @@ class TestDecoderInputValidateFeatureTypes:
         )
 
 
+@pytest.mark.unit
 class TestActionDecoderInterface:
-    def test_supports_tokenized_actions_default_false(self):
-        assert ActionDecoder.supports_tokenized_actions is False
+    def test_requires_tokenized_actions_default_false(self):
+        assert ActionDecoder.requires_tokenized_actions is False
 
 
+@pytest.mark.unit
 class TestActionDecoderProperties:
     @pytest.mark.parametrize(
         "observation_horizon, expected",
@@ -456,6 +482,7 @@ class TestActionDecoderProperties:
         assert decoder.position_dim == expected
 
 
+@pytest.mark.unit
 class TestActionDecoderSetTokenizer:
     def test_non_tokenized_decoder_ignores_tokenizer(
         self,
@@ -483,12 +510,13 @@ class TestActionDecoderSetTokenizer:
     ):
         decoder = concrete_decoder_factory(tokenized=True)
         mock_tokenizer = MagicMock(spec=Tokenizer)
-        mock_action_tokenizer = MagicMock()
+        mock_action_tokenizer = MagicMock(spec=ActionTokenizer)
         mock_tokenizer.action_tokenizer = mock_action_tokenizer
         decoder.set_tokenizer(tokenizer=mock_tokenizer)
         assert decoder.tokenizer is mock_action_tokenizer
 
 
+@pytest.mark.unit
 class TestActionDecoderSetNormalizer:
     def test_stores_normalizer(
         self,
@@ -500,6 +528,7 @@ class TestActionDecoderSetNormalizer:
         assert decoder.normalizer is normalizer
 
 
+@pytest.mark.unit
 class TestActionDecoderValidateActionHeads:
     def test_missing_head_raises(
         self,
@@ -516,8 +545,8 @@ class TestActionDecoderValidateActionHeads:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "Action space requires heads for {'orientation_action'}, but they are not configured. "
-                "Configured heads: {'position_action'}"
+                "Action space requires action heads for {'orientation_action'}, "
+                "but configured heads are {'position_action'}."
             ),
         ):
             concrete_decoder_factory(
@@ -537,8 +566,8 @@ class TestActionDecoderValidateActionHeads:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "Action head 'nonexistent_action' not found in action_space.actions_metadata. "
-                "Available keys: ['position_action']"
+                "Action head 'nonexistent_action' is not a predicted "
+                "action-space key. Predicted keys: ['position_action']."
             ),
         ):
             concrete_decoder_factory(
@@ -559,10 +588,14 @@ class TestActionDecoderValidateActionHeads:
         # Create head with output_dim=5 and override set_output_dim to be a no-op,
         # so _set_action_head_dimensions cannot correct it to the expected dim=3.
         wrong_dim_head = mock_action_head_factory(output_dim=5)
-        wrong_dim_head.set_output_dim = MagicMock()
+        wrong_dim_head.set_output_dim.side_effect = None
+        wrong_dim_head.set_output_dim.return_value = None
         with pytest.raises(
             ValueError,
-            match="Action head 'position_action' has output_dim=5, but action space requires dim=3",
+            match=re.escape(
+                "Action head 'position_action' has output_dim=5, "
+                "but action space requires dim=3."
+            ),
         ):
             concrete_decoder_factory(
                 action_space=action_space,
@@ -593,6 +626,7 @@ class TestActionDecoderValidateActionHeads:
         assert "gripper_action" in decoder.action_heads
 
 
+@pytest.mark.unit
 class TestActionDecoderSetActionHeadDimensions:
     def test_sets_dims_from_action_metadata(
         self,
@@ -623,7 +657,7 @@ class TestActionDecoderSetActionHeadDimensions:
         position_head.set_output_dim.assert_called_once_with(3)
         orientation_head.set_output_dim.assert_called_once_with(4)
 
-    def test_tokenized_sets_dim_to_one(
+    def test_tokenized_component_layout_keeps_action_component_dimension(
         self,
         mock_action_space_factory: Callable[..., MagicMock],
         mock_observation_space_factory: Callable[..., MagicMock],
@@ -641,9 +675,182 @@ class TestActionDecoderSetActionHeadDimensions:
             observation_horizon=1,
             prediction_horizon=8,
         )
+        head.set_output_dim.assert_called_once_with(3)
+
+    def test_vocabulary_layout_sets_action_logits_dim_to_one(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        head = mock_action_head_factory(output_dim=0)
+        VocabularyConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={DecoderOutputKey.ACTION_LOGITS.value: head},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
         head.set_output_dim.assert_called_once_with(1)
 
 
+@pytest.mark.unit
+class TestActionDecoderHeadLayouts:
+    def test_none_layout_rejects_configured_heads(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        head = mock_action_head_factory(output_dim=3)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "NoHeadConcreteDecoder uses action_head_layout=none, "
+                "so action_heads must be empty. Got ['position_action']."
+            ),
+        ):
+            NoHeadConcreteDecoder(
+                decoder_input=decoder_input_factory(),
+                observation_space=mock_observation_space_factory(),
+                action_space=action_space,
+                action_heads={"position_action": head},
+                device="cpu",
+                observation_horizon=1,
+                prediction_horizon=8,
+            )
+
+    def test_none_layout_accepts_empty_heads(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        decoder = NoHeadConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+        assert len(decoder.action_heads) == 0
+
+    def test_joint_layout_sets_total_action_dimension(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(
+            position_dim=3,
+            has_orientation=True,
+            orientation_dim=4,
+        )
+        head = mock_action_head_factory(output_dim=0)
+        JointConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={"joint_action": head},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+        head.set_output_dim.assert_called_once_with(7)
+
+    def test_joint_layout_rejects_component_heads(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        position_head = mock_action_head_factory(output_dim=3)
+        gripper_head = mock_action_head_factory(output_dim=1)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "JointConcreteDecoder with action_head_layout=joint expects "
+                "exactly one action head, got ['position_action', 'gripper_action']."
+            ),
+        ):
+            JointConcreteDecoder(
+                decoder_input=decoder_input_factory(),
+                observation_space=mock_observation_space_factory(),
+                action_space=action_space,
+                action_heads={
+                    "position_action": position_head,
+                    "gripper_action": gripper_head,
+                },
+                device="cpu",
+                observation_horizon=1,
+                prediction_horizon=8,
+            )
+
+    def test_vocabulary_layout_rejects_non_logits_head_key(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        head = mock_action_head_factory(output_dim=1)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "VocabularyConcreteDecoder with action_head_layout=vocabulary "
+                "expects action_heads keys {'action_logits'}, got {'position_action'}."
+            ),
+        ):
+            VocabularyConcreteDecoder(
+                decoder_input=decoder_input_factory(),
+                observation_space=mock_observation_space_factory(),
+                action_space=action_space,
+                action_heads={"position_action": head},
+                device="cpu",
+                observation_horizon=1,
+                prediction_horizon=8,
+            )
+
+    def test_vocabulary_layout_sets_placeholder_output_dimension(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+        mock_action_head_factory: Callable[..., MagicMock],
+    ) -> None:
+        action_space = mock_action_space_factory(position_dim=3)
+        head = mock_action_head_factory(output_dim=99)
+
+        decoder = VocabularyConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={DecoderOutputKey.ACTION_LOGITS.value: head},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+
+        assert (
+            decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value].output_dim == 1
+        )
+        head.set_output_dim.assert_called_once_with(1)
+
+
+@pytest.mark.unit
 class TestGetAuxiliaryOutputKeys:
     def test_default_returns_empty_set(
         self,
@@ -667,8 +874,10 @@ class TestGetAuxiliaryOutputKeys:
     ):
         moe_head = MagicMock(spec=MoEHead)
         moe_head.output_dim = 3
-        moe_head.set_output_dim = MagicMock(
-            side_effect=lambda dim: setattr(moe_head, "output_dim", dim)
+        moe_head.set_output_dim.side_effect = lambda dim: setattr(
+            moe_head,
+            "output_dim",
+            dim,
         )
         action_space = mock_action_space_factory(position_dim=3)
         decoder = concrete_decoder_factory(
@@ -687,6 +896,137 @@ class TestGetAuxiliaryOutputKeys:
         assert DecoderOutputKey.ROUTING_WEIGHTS.value not in keys
 
 
+@pytest.mark.unit
+class TestOutputKeyContracts:
+    def test_component_layout_uses_action_head_keys_for_loss(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+    ):
+        decoder = concrete_decoder_factory()
+
+        assert decoder.get_loss_output_keys() == {"position_action"}
+
+    def test_joint_layout_uses_action_space_keys_for_loss(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(
+            position_dim=3,
+            has_orientation=True,
+            orientation_dim=3,
+            has_gripper=True,
+            gripper_dim=1,
+        )
+        decoder = JointConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={"joint_action": mock_action_head_factory(output_dim=7)},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+
+        assert decoder.get_loss_output_keys() == {
+            "position_action",
+            "orientation_action",
+            "gripper_action",
+        }
+
+    def test_non_tokenized_no_head_layout_uses_action_space_keys_for_loss(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        decoder = NoHeadConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+
+        assert decoder.get_loss_output_keys() == {"position_action"}
+
+    def test_tokenized_no_head_layout_has_no_direct_action_loss_keys(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        decoder = TokenizedNoHeadConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+
+        assert decoder.get_loss_output_keys() == set()
+
+    def test_vocabulary_layout_uses_action_logits_for_loss(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(position_dim=3)
+        decoder = VocabularyConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={
+                DecoderOutputKey.ACTION_LOGITS.value: mock_action_head_factory(
+                    output_dim=1,
+                )
+            },
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+
+        assert decoder.get_loss_output_keys() == {DecoderOutputKey.ACTION_LOGITS.value}
+
+    def test_prediction_keys_always_use_action_space_keys(
+        self,
+        mock_action_space_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_action_head_factory: Callable[..., MagicMock],
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        action_space = mock_action_space_factory(
+            position_dim=3,
+            has_gripper=True,
+            gripper_dim=1,
+        )
+        decoder = JointConcreteDecoder(
+            decoder_input=decoder_input_factory(),
+            observation_space=mock_observation_space_factory(),
+            action_space=action_space,
+            action_heads={"joint_action": mock_action_head_factory(output_dim=4)},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=8,
+        )
+
+        assert decoder.get_prediction_output_keys() == {
+            "position_action",
+            "gripper_action",
+        }
+
+
+@pytest.mark.unit
 class TestEncoderCache:
     def test_forward_unchanged_after_enable_disable_cache(
         self,

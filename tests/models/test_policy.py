@@ -24,7 +24,8 @@ from versatil.metrics.components import GripperLoss
 from versatil.metrics.constants import MetadataKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.policy import Policy
 
 register_resolvers()
@@ -44,7 +45,7 @@ class TestPolicyInitialization:
         algorithm = MagicMock(spec=DecodingAlgorithm)
         decoder = MagicMock(
             spec=ActionDecoder,
-            decoder_input=MagicMock(requires_vlm_backbone=False),
+            decoder_input=DecoderInput(keys=[]),
         )
         observation_space = MagicMock(spec=ObservationSpace)
         action_space = MagicMock(spec=ActionSpace)
@@ -182,18 +183,50 @@ class TestInputOutputKeys:
         assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result
         assert SampleKey.IS_PAD_OBSERVATION.value not in result
 
-    def test_output_keys_returns_sorted_action_head_keys(
+    def test_input_keys_includes_decoder_owned_vlm_observation_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+    ):
+        observation_space = MagicMock(
+            spec=ObservationSpace,
+            observations_metadata={Cameras.LEFT.value: MagicMock()},
+        )
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                    SampleKey.IS_PAD_OBSERVATION.value,
+                ],
+                needs_raw_observations=True,
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(decoder=decoder, observation_space=observation_space)
+        assert policy.input_keys == [
+            SampleKey.IS_PAD_OBSERVATION.value,
+            Cameras.LEFT.value,
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+        ]
+
+    def test_output_keys_returns_sorted_decoder_prediction_keys(
         self,
         policy_factory: Callable[..., Policy],
     ):
         decoder = MagicMock(
             spec=ActionDecoder,
-            decoder_input=MagicMock(requires_vlm_backbone=False),
+            decoder_input=DecoderInput(keys=[]),
         )
         decoder.action_heads = {
             "position": MagicMock(),
             "gripper": MagicMock(),
             "orientation": MagicMock(),
+        }
+        decoder.get_prediction_output_keys.return_value = {
+            "position",
+            "gripper",
+            "orientation",
         }
         policy = policy_factory(decoder=decoder)
         assert policy.output_keys == ["gripper", "orientation", "position"]
@@ -224,7 +257,7 @@ class TestSetNormalizer:
     ):
         decoder = MagicMock(
             spec=ActionDecoder,
-            decoder_input=MagicMock(requires_vlm_backbone=False),
+            decoder_input=DecoderInput(keys=[]),
         )
         policy = policy_factory(decoder=decoder)
         normalizer = MagicMock(spec=LinearNormalizer)
@@ -425,6 +458,89 @@ class TestForward:
             features=features,
             actions=batch[SampleKey.ACTION.value],
             network=policy.decoder,
+        )
+
+    def test_filters_algorithm_features_to_decoder_input_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        kept_feature = torch.ones(2, 4)
+        dropped_feature = torch.zeros(2, 4)
+        kept_mask = torch.zeros(2, 4, dtype=torch.bool)
+        raw_camera = torch.ones(2, 3, 8, 8)
+        dropped_raw_camera = torch.zeros(2, 3, 8, 8)
+        feature_key = "rgb_features"
+        mask_key = f"{feature_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = {
+            feature_key: kept_feature,
+            "unused_features": dropped_feature,
+            mask_key: kept_mask,
+        }
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[feature_key, Cameras.LEFT.value],
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        batch = batch_dictionary_factory()
+        batch[SampleKey.OBSERVATION.value][Cameras.LEFT.value] = raw_camera
+        batch[SampleKey.OBSERVATION.value][Cameras.RIGHT.value] = dropped_raw_camera
+
+        policy.forward(batch=batch)
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert set(actual_features) == {feature_key, mask_key, Cameras.LEFT.value}
+        assert torch.equal(actual_features[feature_key], kept_feature)
+        assert torch.equal(actual_features[mask_key], kept_mask)
+        assert torch.equal(actual_features[Cameras.LEFT.value], raw_camera)
+
+    def test_passes_raw_observations_to_algorithm_for_decoder_owned_vlm(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        features = feature_dictionary_factory(feature_keys=["robot_state_proprio"])
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = features
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[
+                    "robot_state_proprio",
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                ],
+                needs_raw_observations=True,
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        batch = batch_dictionary_factory()
+        batch[SampleKey.OBSERVATION.value][Cameras.LEFT.value] = torch.ones(2, 3, 8, 8)
+        batch[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value] = (
+            torch.ones(2, 4, dtype=torch.long)
+        )
+
+        policy.forward(batch=batch)
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert torch.equal(
+            actual_features["robot_state_proprio"], features["robot_state_proprio"]
+        )
+        assert torch.equal(
+            actual_features[Cameras.LEFT.value],
+            batch[SampleKey.OBSERVATION.value][Cameras.LEFT.value],
+        )
+        assert torch.equal(
+            actual_features[SampleKey.TOKENIZED_OBSERVATIONS.value],
+            batch[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value],
         )
 
     def test_returns_algorithm_output(
@@ -648,6 +764,61 @@ class TestPredictAction:
         )
         mock_unnormalize.assert_called_once()
         assert result is unnormalized
+
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_passes_raw_observations_to_predict_for_decoder_owned_vlm(
+        self,
+        mock_to_device: MagicMock,
+        mock_normalize: MagicMock,
+        mock_unnormalize: MagicMock,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        observation = observation_dictionary_factory()
+        normalized_observation = observation_dictionary_factory()
+        normalized_observation[Cameras.LEFT.value] = torch.ones(2, 3, 8, 8)
+        normalized_observation[SampleKey.TOKENIZED_OBSERVATIONS.value] = torch.ones(
+            2, 4, dtype=torch.long
+        )
+        features = feature_dictionary_factory(feature_keys=["robot_state_proprio"])
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = features
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = normalized_observation
+        mock_unnormalize.return_value = {}
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[
+                    "robot_state_proprio",
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                ],
+                needs_raw_observations=True,
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        policy.algorithm.predict.return_value = {}
+
+        policy.predict_action(obs_dict=observation)
+
+        actual_features = policy.algorithm.predict.call_args.kwargs["features"]
+        assert torch.equal(
+            actual_features["robot_state_proprio"], features["robot_state_proprio"]
+        )
+        assert torch.equal(
+            actual_features[Cameras.LEFT.value],
+            normalized_observation[Cameras.LEFT.value],
+        )
+        assert torch.equal(
+            actual_features[SampleKey.TOKENIZED_OBSERVATIONS.value],
+            normalized_observation[SampleKey.TOKENIZED_OBSERVATIONS.value],
+        )
 
     @patch("versatil.models.policy.unnormalize_actions")
     @patch("versatil.models.policy.normalize_observation")

@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import wandb
 from pytorch_lightning.callbacks import Callback
 
+import wandb
 from versatil.data.constants import SyntheticObsKey
 from versatil.data.synthetic.generators import generate_task_episodes
 from versatil.data.synthetic.task_layout import get_task_layout
@@ -50,6 +50,7 @@ class SyntheticRolloutCallback(Callback):
         image_size: int = 64,
         log_every_n_epochs: int = 1,
     ):
+        """Initialize rollout generation and logging parameters."""
         super().__init__()
         self.task_name = task_name
         self.num_modes = num_modes

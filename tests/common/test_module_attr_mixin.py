@@ -8,8 +8,6 @@ from versatil.common.module_attr_mixin import ModuleAttrMixin
 
 
 class ConcreteModuleAttrMixin(ModuleAttrMixin):
-    """Concrete subclass for testing (adds a real parameter)."""
-
     def __init__(self, dimension: int = 4):
         super().__init__()
         self.linear = nn.Linear(dimension, dimension)
@@ -54,14 +52,25 @@ class TestModuleAttrMixinDtype:
 
 
 @pytest.mark.unit
-class TestModuleAttrMixinDummyVariable:
-    def test_dummy_variable_is_registered_parameter(self, module_attr_mixin_factory):
+class TestModuleAttrMixinReferenceState:
+    def test_has_no_private_reference_in_state_dict(self, module_attr_mixin_factory):
         module = module_attr_mixin_factory(dimension=4)
-        parameter_names = [name for name, _ in module.named_parameters()]
-        assert "_dummy_variable" in parameter_names
+        assert "_module_attr_reference" not in module.state_dict()
 
     def test_device_accessible_without_additional_submodules(self):
-        # ModuleAttrMixin alone (without subclass adding layers)
-        # should still have a device via _dummy_variable
         module = ModuleAttrMixin()
         assert module.device.type == "cpu"
+
+    def test_dtype_accessible_without_additional_submodules(self):
+        module = ModuleAttrMixin()
+        assert module.dtype == torch.float32
+
+    def test_device_assignment_moves_parameters(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=4)
+        module.device = torch.device("cpu")
+        assert module.linear.weight.device.type == "cpu"
+
+    def test_dtype_assignment_casts_parameters(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=4)
+        module.dtype = torch.float64
+        assert module.linear.weight.dtype == torch.float64

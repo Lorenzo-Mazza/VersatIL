@@ -10,7 +10,7 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_rgb_proprio_lerobot
   - /training: default
-  - /policy/encoding_pipeline: paligemma_embeddings
+  - /policy/encoding_pipeline: proprio
   - /policy/decoder: pi0_decoder
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_gripper_mse
@@ -30,7 +30,7 @@ task:
     tokenization:
       tokenize_observations: true
       observation_tokenizer:
-        tokenizer_model: google/paligemma-3b-pt-224
+        tokenizer_model: ${paligemma_model:PALIGEMMA2_3B_224}
         max_token_len: 48
         padding_strategy: ${token_padding:MAX_LENGTH}
 
@@ -75,7 +75,3 @@ policy:
           - ${proprio_key:GRIPPER_STATE_ACTION}
       trajectory_length:
         action_key: ${proprio_key:EE_POS_ACTION}
-  decoder:
-    input_keys:
-      - vlm_fused_rgb_language
-    proprioceptive_feature_key: robot_state_proprio

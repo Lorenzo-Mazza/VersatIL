@@ -250,37 +250,3 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
             raise NotImplementedError(
                 f"Zarr creation not implemented for schema type: {type(schema)}"
             )
-
-
-def _log_phase_distributions(
-    train_dataset: EpisodicDataset, val_dataset: EpisodicDataset
-) -> None:
-    """Log phase label distributions for train and val."""
-    # TODO: Move to TSO Sensorium, this is a dataset specific, data analysis function!
-    logging.warning(
-        "Logging phase distributions is dataset-specific and should be moved to TSO Sensorium."
-    )
-    return
-
-    """selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
-    phase_labels = []
-    if len(selected_eps) > 0:
-        for i in selected_eps:
-            ep = train_dataset.replay_buffer.get_episode(i)
-            if PHASE_LABEL_KEY not in ep:
-                return
-            phase_labels.append(ep[PHASE_LABEL_KEY].flatten())
-        phase_labels = np.concatenate(phase_labels)
-        phase_counts = np.bincount(phase_labels, minlength=5)
-        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")
-
-    selected_eps_val = np.where(val_dataset.sampler.episode_mask)[0]
-    if len(selected_eps_val) > 0:
-        phase_labels_val = np.concatenate(
-            [
-                val_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten()
-                for i in selected_eps_val
-            ]
-        )
-        phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")"""

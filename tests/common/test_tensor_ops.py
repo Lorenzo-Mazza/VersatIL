@@ -13,9 +13,8 @@ from versatil.common.tensor_ops import (
     to_device,
 )
 
-pytestmark = pytest.mark.unit
 
-
+@pytest.mark.unit
 def test_dict_apply_recurses_over_nested_dicts():
     data = {
         "a": torch.tensor([1, 2]),
@@ -28,14 +27,17 @@ def test_dict_apply_recurses_over_nested_dicts():
     torch.testing.assert_close(result["nested"]["b"], torch.tensor([4, 5]))
 
 
+@pytest.mark.unit
 def test_tensor_to_str_formats_tensor_values():
     assert tensor_to_str(torch.tensor([1.2345, 0.00123])) == "[1.23, 0.00123]"
 
 
+@pytest.mark.unit
 def test_tensor_to_str_formats_scalar_tensor_values():
     assert tensor_to_str(torch.tensor(1.2345)) == "[1.23]"
 
 
+@pytest.mark.unit
 class TestRecursiveDictListTupleApply:
     def test_applies_handler_inside_nested_containers(self):
         data = collections.OrderedDict(
@@ -98,6 +100,7 @@ class TestRecursiveDictListTupleApply:
             )
 
 
+@pytest.mark.unit
 def test_to_device_recurses_and_preserves_non_tensor_values():
     data = {"a": torch.tensor([1]), "b": [None, "keep"]}
 

@@ -5,7 +5,7 @@
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
 | Python | 3.14 | Reference environment and CI version. `pyproject.toml` allows 3.13+. |
-| CUDA | 12.8+ | Required for training |
+| CUDA driver | Supports CUDA 13.0 runtime | Required for the pinned `cu130` PyTorch wheels |
 | Git | Latest | Credentials for private repositories if applicable |
 
 ## Setup
@@ -37,7 +37,7 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 
 This installs all packages into the active conda environment, including:
 
-- **PyTorch 2.10.0** with CUDA 12.8 from the PyTorch index
+- **PyTorch 2.12.0** with CUDA 13.0 wheels from the PyTorch index
 - **Hydra + OmegaConf** for configuration
 - **Lightning 2.6.1** for training
 - **timm**, **transformers**, **diffusers** for model backbones

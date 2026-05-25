@@ -2,10 +2,10 @@
 
 ``input_keys`` exposes only user-facing observation keys (camera names,
 proprioceptive keys). Language is excluded: the tokenizer rewrites it to
-``SampleKey.TOKENIZED_OBSERVATIONS`` during preprocessing, and encoders
-that consume language (LanguageEncoder, VLMs) bind to that internal key
-automatically. VLM configs therefore list only their vision keys;
-the tokenized text is routed to the language tower without user config.
+``SampleKey.TOKENIZED_OBSERVATIONS`` during preprocessing, and language/VLM
+encoders bind to that internal key automatically. VLM encoder configs therefore
+list only their vision keys; the tokenized text is routed to the language tower
+without user config.
 
 LanguageEncoderConfig does not inherit from EncoderConfig because
 LanguageEncoder's constructor does not accept ``input_keys`` — its
@@ -16,9 +16,11 @@ from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
+from versatil.configs.adaptation import LoRAAdaptationConfig
 from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
+    DinoV2SigLIPBackboneType,
     LanguageEncoderType,
     PoolingMethod,
 )
@@ -46,6 +48,8 @@ class SpatialDepthEncoderConfig(EncoderConfig):
     backbone: str = MISSING
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
     pooling_method: str = PoolingMethod.NONE.value
+    intermediate_layer_index: int | None = None
+    lora_config: LoRAAdaptationConfig | None = None
 
 
 @dataclass
@@ -92,44 +96,17 @@ class ProprioEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class TwoTowerVLMEncoderConfig(EncoderConfig):
-    """Two-tower VLM encoder configuration.
+class VLMEncoderConfig(EncoderConfig):
+    """VLM encoder configuration for image-text embedding models.
 
     Note: its input_keys should only include vision keys; the tokenized text is routed to the language
         tower automatically via the fixed key SampleKey.TOKENIZED_OBSERVATIONS, so it doesn't
     """
 
-    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder"
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.VLMEncoder"
     model_name: str = MISSING
     pooling_method: str = PoolingMethod.NONE.value
-
-
-@dataclass
-class PaliGemmaEncoderConfig(EncoderConfig):
-    """PaliGemma VLM encoder configuration.
-
-    Note: its input_keys should only include vision keys; the tokenized text is routed automatically via the
-        fixed key SampleKey.TOKENIZED_OBSERVATIONS.
-    """
-
-    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder"
-    model_name: str = MISSING
-    use_embeddings_only: bool = False
-    max_text_length: int | None = None
-
-
-@dataclass
-class SmolVLMEncoderConfig(EncoderConfig):
-    """SmolVLM/Idefics3 VLM encoder configuration.
-
-    Note: its input_keys should only include vision keys; the tokenized text is routed automatically via the
-        fixed key SampleKey.TOKENIZED_OBSERVATIONS.
-    """
-
-    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder"
-    model_name: str = MISSING
-    use_embeddings_only: bool = False
-    max_text_length: int | None = None
+    lora_config: LoRAAdaptationConfig | None = None
 
 
 @dataclass
@@ -147,6 +124,7 @@ class LanguageEncoderConfig:
     pooling_method: str = PoolingMethod.NONE.value
     pretrained: bool = False
     frozen: bool = False
+    lora_config: LoRAAdaptationConfig | None = None
     max_token_len: int = 128
     use_embeddings_only: bool = False
     model_dtype: str | None = "${experiment.precision}"
@@ -167,10 +145,12 @@ class SpatialRGBEncoderConfig(ImageEncoderConfig):
     _target_: str = "versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder"
     pooling_method: str = PoolingMethod.NONE.value
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
+    intermediate_layer_index: int | None = None
+    lora_config: LoRAAdaptationConfig | None = None
 
 
 @dataclass
-class ConditionalCNNEncoderConfig(SpatialRGBEncoderConfig):
+class ConditionalCNNEncoderConfig(ImageEncoderConfig):
     """Feature-conditioned CNN encoder configuration.
 
     Note: this vision encoder receives as conditioning an encoded feature from
@@ -186,6 +166,7 @@ class ConditionalCNNEncoderConfig(SpatialRGBEncoderConfig):
     condition_dim: int = MISSING
     pooling_method: str = PoolingMethod.NONE.value
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
+    lora_config: LoRAAdaptationConfig | None = None
 
 
 @dataclass
@@ -194,3 +175,17 @@ class FlatRGBEncoderConfig(ImageEncoderConfig):
 
     _target_: str = "versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder"
     pooling_method: str = PoolingMethod.NONE.value
+    image_size: int | None = None
+    intermediate_layer_index: int | None = None
+    lora_config: LoRAAdaptationConfig | None = None
+
+
+@dataclass
+class DinoV2SigLIPRGBEncoderConfig(ImageEncoderConfig):
+    """DINOv2+SigLIP RGB encoder configuration for fused patch-token sequences."""
+
+    _target_: str = (
+        "versatil.models.encoding.encoders.rgb.dinov2_siglip.DinoV2SigLIPRGBEncoder"
+    )
+    backbone: str = DinoV2SigLIPBackboneType.DINOV2_SIGLIP_VIT_SO_224PX.value
+    lora_config: LoRAAdaptationConfig | None = None

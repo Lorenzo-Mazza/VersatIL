@@ -6,7 +6,6 @@ from typing import Any
 from omegaconf import MISSING
 
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.models.decoding.constants import (
     DiTType,
     GMMInitStrategy,
@@ -40,11 +39,10 @@ class DecodingNetworkConfig:
 
 @dataclass
 class ACTConfig(DecodingNetworkConfig):
-    """Action Chunking Transformer network config.
+    """Action Chunking Transformer with encoder-decoder architecture and parallel generation.
 
-    Note: Latent action encoding (e.g., VAE) is now handled at the Algorithm level,
-    not at the Decoder level. To use a VAE with ACT, configure the latent_encoder
-    parameter in the algorithm config (e.g., BehavioralCloningConfig).
+    Note:
+        Ref. https://arxiv.org/abs/2304.13705
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.act.ACT"
@@ -62,9 +60,11 @@ class ACTConfig(DecodingNetworkConfig):
 class PhaseACTConfig(ACTConfig):
     """Phase-conditioned ACT decoder with MoE routing.
 
-    Extends the base ACT architecture to support phase-based expert routing.
-    The phase classifier head produces routing logits that are used to route
-    position and gripper predictions through phase-specific expert networks.
+    Note:
+        Cf. https://arxiv.org/abs/2601.21971
+        Extends the base ACT architecture to support phase-based expert routing.
+        The phase classifier head produces routing logits that are used to route
+        action predictions through phase-specific expert networks.
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.phase_act.PhaseACT"
@@ -74,46 +74,14 @@ class PhaseACTConfig(ACTConfig):
 
 
 @dataclass
-class DiscreteDETRActionTransformerConfig(DecodingNetworkConfig):
-    """FAST DETR Decoder for tokenized action prediction.
-
-    DETR non-autoregressive transformer that predicts tokenized actions:
-    - Cross-attention to visual features using DETR-style feature encoding (like ACT)
-
-    Note: Requires tokenizer to be set at runtime via set_tokenizer().
-    """
-
-    _target_: str = "versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer"
-    max_seq_len: int = 512  # Maximum token sequence length to predict
-    embedding_dimension: int = 256
-    number_of_heads: int = 8  # Number of attention heads
-    feedforward_dimension: int = 512
-    number_of_encoder_layers: int = 4
-    number_of_decoder_layers: int = 7
-    activation: str = ActivationFunction.RELU.value
-    dropout_rate: float = 0.1
-    normalize_before: bool = False
-    deterministic: bool = True  # If True, use greedy decoding during inference
-    temperature: float = 1.0  # Sampling temperature for stochastic decoding
-    learnable_temperature: bool = (
-        True  # If True, make temperature a learnable parameter
-    )
-
-
-@dataclass
 class GPTActionTransformerConfig(DecodingNetworkConfig):
-    """GPT Decoder for tokenized action prediction.
+    """Autoregressive transformer that models a categorical distribution over discrete action tokens.
 
-    Reference: https://arxiv.org/abs/2501.09747
-
-    Pure GPT-style autoregressive decoder (self-attention only, no cross-attention):
+    Pure GPT-style autoregressive action decoder:
     - Concatenates visual/proprioceptive features as prefix tokens
-    - Supports variable-length action token sequences
+    - Supports variable-length action token sequences (e.g. for FAST tokenization)
     - Teacher forcing during training
     - Autoregressive generation with KV caching during inference
-    - Works with any feature encoder (spatial, sequential, flat)
-
-    Note: Requires tokenizer to be set at runtime via set_tokenizer().
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer"
@@ -143,8 +111,41 @@ class GPTActionTransformerConfig(DecodingNetworkConfig):
 
 
 @dataclass
+class AutoregressiveVLAConfig(DecodingNetworkConfig):
+    """Autoregressive VLA action-token decoder backed by a VLM."""
+
+    _target_: str = (
+        "versatil.models.decoding.decoders.factory.autoregressive_vla."
+        "AutoregressiveVLADecoder"
+    )
+    action_heads: dict[str, Any] = field(default_factory=dict)
+    input_keys: list[str] = field(default_factory=list)
+    vlm_backbone: Any = MISSING
+    max_seq_len: int = 512
+    temperature: float = 1.0
+    learnable_temperature: bool = False
+    deterministic: bool = True
+    causal_prefix: bool = False
+
+
+@dataclass
+class OpenVLAOFTConfig(DecodingNetworkConfig):
+    """OpenVLA-OFT-style continuous action chunk decoder backed by a VLM."""
+
+    _target_: str = (
+        "versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder"
+    )
+    input_keys: list[str] = field(default_factory=list)
+    vlm_backbone: Any = MISSING
+    slots_per_action_dimension: bool = True
+    causal_action_slots: bool = True
+    min_period: float = 4e-3
+    max_period: float = 4.0
+
+
+@dataclass
 class ActionTransformerConfig(DecodingNetworkConfig):
-    """Action Transformer architecture configuration."""
+    """Action Decoder-only Transformer architecture with cross-attention to encoded features."""
 
     _target_: str = (
         "versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer"
@@ -206,7 +207,7 @@ class LACTConfig(DecodingNetworkConfig):
     """Latent Action Transformer (LACT) architecture configuration.
 
     LACT extends a standard Action Transformer with latent-conditioned decoding.
-    It uses a Pix-Art style DiT with AdaLN-Zero modulation on the latent token instead of the timestep
+    It uses a Pix-Art style DiT with AdaLN-Zero modulation on the latent token
     and cross-attention to encoder features.
 
     Must be used with a variational algorithm (e.g., VariationalAlgorithm)
@@ -232,64 +233,6 @@ class LACTConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class FreeActionTransformerConfig(DecodingNetworkConfig):
-    """Free Action Transformer architecture configuration.
-
-    Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
-    https://arxiv.org/abs/2510.17558
-
-    The Free Transformer injects learnable discrete latent variables at the middle layer
-    of a transformer decoder, enabling conditional generation through variational inference.
-
-    Note:
-        The encoder is only used during training to predict latent codes.
-        During inference, latents are sampled from a uniform prior.
-    """
-
-    _target_: str = "versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer"
-    embedding_dimension: int = 256
-    number_of_decoder_layers: int = (
-        6  # Must be even (split at midpoint for latent injection)
-    )
-    number_of_encoder_layers: int = 1  # Encoder for latent prediction (training only)
-    latent_bits: int = 16  # Number of bits for latent codes (2^16 = 65536 codes)
-    max_seq_len: int = (
-        512  # Maximum input and output sequence length (features + action tokens)
-    )
-    number_of_heads: int = 8  # Number of query attention heads
-    number_of_key_value_heads: int | None = (
-        None  # Number of K/V heads for GQA (None = same as heads = MHA)
-    )
-    feedforward_dimension: int | None = (
-        None  # FFN hidden dimension (default: 4 * embedding_dimension)
-    )
-    activation: str = ActivationFunction.SWIGLU.value  # Activation function
-    normalization_type: str = NormalizationType.RMS_NORM.value  # Normalization type
-    attention_type: str = AttentionType.GROUPED_QUERY.value  # Attention type
-    dropout_rate: float = 0.1
-    attention_dropout: float = 0.0
-    positional_encoding_type: str | None = (
-        PositionalEncodingType.ROPE.value
-    )  # Type of positional encoding
-    temperature: float = 1.0  # Sampling temperature
-    learnable_temperature: bool = (
-        False  # If True, make temperature a learnable parameter
-    )
-    deterministic: bool = True  # If True, use greedy decoding during inference
-    use_global_latent: bool = (
-        True  # If True, use a single global latent code for the entire sequence
-    )
-
-
-@dataclass
-class MoEFreeActionTransformerConfig(FreeActionTransformerConfig):
-    """Free Transformer with Mixture of Experts head  configuration."""
-
-    _target_: str = "versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer"
-    action_heads: dict[str, MixtureOfExpertsHeadConfig] = MISSING
-
-
-@dataclass
 class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     """Mixture of Experts (MoE) decoder configuration."""
 
@@ -312,10 +255,11 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
 class DiTBlockActionTransformerConfig(DecodingNetworkConfig):
     """DiTBlock action transformer with pooled conditioning.
 
-    Encoder-decoder architecture that pools encoder output to a single conditioning
-    vector.
-
-    Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    Note:
+        Ref. https://arxiv.org/abs/2410.10088v1
+        It uses an encoder-decoder architecture that pools encoder output to a single
+         conditioning vector.
+        Must be used with a denoising algorithm that provides timesteps and noisy actions.
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer"
@@ -338,11 +282,10 @@ class DiTBlockActionTransformerConfig(DecodingNetworkConfig):
 
 @dataclass
 class DiffusionActionTransformerConfig(DecodingNetworkConfig):
-    """Diffusion action transformer for CrossAttentionDiT and MMDiT.
+    """Diffusion action transformer for CrossAttentionDiT and MultiModal DiT.
 
-    Decoder-only architecture that operates on unpooled observation tokens.
-
-    Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    Note:
+        Must be used with a denoising algorithm that provides timesteps and noisy actions.
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer"
@@ -365,7 +308,11 @@ class DiffusionActionTransformerConfig(DecodingNetworkConfig):
 
 @dataclass
 class ConditionalActionUNetConfig(DecodingNetworkConfig):
-    """Conditional U-Net decoder configuration."""
+    """Conditional U-Net action decoder configuration with FiLM conditioning.
+    Note:
+        Ref. https://diffusion-policy.cs.columbia.edu.
+        Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    """
 
     _target_: str = "versatil.models.decoding.decoders.factory.conditional_action_unet.ConditionalActionUNet"
     embedding_dimension: int = 256
@@ -378,9 +325,15 @@ class ConditionalActionUNetConfig(DecodingNetworkConfig):
 
 @dataclass
 class SmolVLADecoderConfig(DecodingNetworkConfig):
-    """SmolVLA decoder with interleaved VLM + expert cross-attention."""
+    """SmolVLA Vision Language Action model with interleaved VLM + expert cross-attention.
+
+    Note:
+        Ref. https://arxiv.org/abs/2506.01844
+        Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    """
 
     _target_: str = "versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder"
+    vlm_backbone: Any = MISSING
     expert_width_multiplier: float = 0.75
     num_expert_layers: int = -1
     num_vlm_layers: int = 16
@@ -396,9 +349,15 @@ class SmolVLADecoderConfig(DecodingNetworkConfig):
 
 @dataclass
 class Pi0DecoderConfig(DecodingNetworkConfig):
-    """Pi0 decoder with interleaved VLM + expert joint attention."""
+    """Pi0/Pi0.5 Vision Language Action model with interleaved VLM + expert joint attention.
+
+    Note:
+        Ref. https://arxiv.org/abs/2410.24164, https://arxiv.org/abs/2504.16054
+        Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    """
 
     _target_: str = "versatil.models.decoding.decoders.factory.pi0.Pi0Decoder"
+    vlm_backbone: Any = MISSING
     expert_hidden_size: int = 1024
     expert_intermediate_size: int = 4096
     expert_number_of_heads: int = 8

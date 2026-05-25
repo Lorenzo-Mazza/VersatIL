@@ -7,7 +7,6 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-import versatil.common.argparse_compat  # noqa: F401
 from versatil.common.logging import override_log_format
 from versatil.validation import validate_experiment
 from versatil.workspace import Workspace

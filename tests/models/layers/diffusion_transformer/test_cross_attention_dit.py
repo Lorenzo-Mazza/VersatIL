@@ -4,7 +4,6 @@ from collections.abc import Callable
 
 import pytest
 import torch
-import torch.nn as nn
 
 from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
@@ -21,7 +20,6 @@ def cross_attention_dit_factory() -> Callable[..., CrossAttentionDiT]:
         number_of_layers: int = 1,
         embedding_dimension: int = 32,
         number_of_heads: int = 4,
-        output_dimension: int | None = None,
         number_of_key_value_heads: int | None = None,
         feedforward_dimension: int | None = None,
         dropout: float = 0.0,
@@ -41,7 +39,6 @@ def cross_attention_dit_factory() -> Callable[..., CrossAttentionDiT]:
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
-            output_dimension=output_dimension,
             number_of_key_value_heads=number_of_key_value_heads,
             feedforward_dimension=feedforward_dimension,
             dropout=dropout,
@@ -78,37 +75,16 @@ class TestCrossAttentionDiTInitialization:
         assert model.embedding_dimension == embedding_dimension
         assert model.number_of_layers == number_of_layers
 
-    def test_output_dimension_defaults_to_embedding_dimension(
-        self,
-        cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
-    ):
-        embedding_dimension = 32
-        model = cross_attention_dit_factory(
-            embedding_dimension=embedding_dimension,
-            output_dimension=None,
-        )
-        assert model.output_dimension == embedding_dimension
-
-    def test_explicit_output_dimension(
-        self,
-        cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
-    ):
-        model = cross_attention_dit_factory(
-            embedding_dimension=32,
-            output_dimension=7,
-        )
-        assert model.output_dimension == 7
-
 
 class TestCrossAttentionDiTForward:
     @pytest.mark.parametrize(
-        "batch_size, decoder_sequence_length, encoder_sequence_length, embedding_dimension, output_dimension",
+        "batch_size, decoder_sequence_length, encoder_sequence_length, embedding_dimension",
         [
-            (2, 4, 6, 32, None),
-            (1, 8, 10, 32, 7),
+            (2, 4, 6, 32),
+            (1, 8, 10, 32),
         ],
     )
-    def test_output_shape(
+    def test_hidden_state_and_condition_shape(
         self,
         cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -117,11 +93,9 @@ class TestCrossAttentionDiTForward:
         decoder_sequence_length: int,
         encoder_sequence_length: int,
         embedding_dimension: int,
-        output_dimension: int | None,
     ):
         model = cross_attention_dit_factory(
             embedding_dimension=embedding_dimension,
-            output_dimension=output_dimension,
         )
         decoder_hidden = sequence_tensor_factory(
             batch_size=batch_size,
@@ -134,46 +108,17 @@ class TestCrossAttentionDiTForward:
             embedding_dimension=embedding_dimension,
         )
         timesteps = continuous_timestep_factory(batch_size=batch_size)
-        output = model(
+        hidden_states, conditioning = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
-        expected_output_dim = output_dimension or embedding_dimension
-        assert output.shape == (
+        assert hidden_states.shape == (
             batch_size,
             decoder_sequence_length,
-            expected_output_dim,
+            embedding_dimension,
         )
-
-    def test_zero_init_prediction_layer_outputs_zeros_at_init(
-        self,
-        cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-        continuous_timestep_factory: Callable[..., torch.Tensor],
-    ):
-        # FinalPredictionLayer is zero-initialized, so output should be all zeros at init
-        embedding_dimension = 32
-        model = cross_attention_dit_factory(
-            embedding_dimension=embedding_dimension,
-        )
-        decoder_hidden = sequence_tensor_factory(
-            batch_size=2,
-            sequence_length=4,
-            embedding_dimension=embedding_dimension,
-        )
-        encoder_hidden = sequence_tensor_factory(
-            batch_size=2,
-            sequence_length=6,
-            embedding_dimension=embedding_dimension,
-        )
-        timesteps = continuous_timestep_factory(batch_size=2)
-        output = model(
-            decoder_hidden_states=decoder_hidden,
-            timesteps=timesteps,
-            encoder_hidden_states=encoder_hidden,
-        )
-        assert torch.allclose(output, torch.zeros_like(output), atol=1e-6)
+        assert conditioning.shape == (batch_size, embedding_dimension)
 
     def test_different_timesteps_produce_different_outputs(
         self,
@@ -185,9 +130,7 @@ class TestCrossAttentionDiTForward:
             embedding_dimension=embedding_dimension,
             use_gating=False,
         )
-        # Break zero init on both modulation and prediction layers
         reinit_modulation_layers(model)
-        nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         decoder_hidden = sequence_tensor_factory(
             batch_size=2,
             sequence_length=4,
@@ -200,17 +143,18 @@ class TestCrossAttentionDiTForward:
         )
         timesteps_low = torch.tensor([0.1, 0.1])
         timesteps_high = torch.tensor([0.9, 0.9])
-        output_low = model(
+        output_low, condition_low = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps_low,
             encoder_hidden_states=encoder_hidden,
         )
-        output_high = model(
+        output_high, condition_high = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps_high,
             encoder_hidden_states=encoder_hidden,
         )
         assert not torch.allclose(output_low, output_high)
+        assert not torch.allclose(condition_low, condition_high)
 
     def test_different_encoder_context_produces_different_outputs(
         self,
@@ -223,8 +167,6 @@ class TestCrossAttentionDiTForward:
             embedding_dimension=embedding_dimension,
             use_gating=False,
         )
-        # Break zero init on prediction layer so context effects are visible
-        nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         decoder_hidden = sequence_tensor_factory(
             batch_size=2,
             sequence_length=4,
@@ -241,12 +183,12 @@ class TestCrossAttentionDiTForward:
             sequence_length=6,
             embedding_dimension=embedding_dimension,
         )
-        output_a = model(
+        output_a, _ = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_a,
         )
-        output_b = model(
+        output_b, _ = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_b,
@@ -265,7 +207,6 @@ class TestCrossAttentionDiTForward:
             use_gating=False,
         )
         reinit_modulation_layers(model)
-        nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         model.eval()
         decoder_hidden = sequence_tensor_factory(
             batch_size=2,
@@ -278,7 +219,7 @@ class TestCrossAttentionDiTForward:
             embedding_dimension=embedding_dimension,
         )
         timesteps = continuous_timestep_factory(batch_size=2)
-        output_uncached = model(
+        output_uncached, condition_uncached = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
@@ -286,12 +227,13 @@ class TestCrossAttentionDiTForward:
         conditioning_cache = model.precompute_conditioning_kv(
             encoder_hidden_states=encoder_hidden,
         )
-        output_cached = model(
+        output_cached, condition_cached = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             conditioning_cache=conditioning_cache,
         )
         assert torch.allclose(output_uncached, output_cached, atol=1e-5)
+        assert torch.allclose(condition_uncached, condition_cached, atol=1e-5)
 
     def test_cached_forward_with_padding_mask_matches_uncached(
         self,
@@ -306,7 +248,6 @@ class TestCrossAttentionDiTForward:
             use_gating=False,
         )
         reinit_modulation_layers(model)
-        nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         model.eval()
         decoder_hidden = sequence_tensor_factory(
             batch_size=2,
@@ -324,7 +265,7 @@ class TestCrossAttentionDiTForward:
             mask_last_n=2,
         )
         timesteps = continuous_timestep_factory(batch_size=2)
-        output_uncached = model(
+        output_uncached, condition_uncached = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
@@ -333,13 +274,14 @@ class TestCrossAttentionDiTForward:
         conditioning_cache = model.precompute_conditioning_kv(
             encoder_hidden_states=encoder_hidden,
         )
-        output_cached = model(
+        output_cached, condition_cached = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             conditioning_cache=conditioning_cache,
             encoder_padding_mask=encoder_padding_mask,
         )
         assert torch.allclose(output_uncached, output_cached, atol=1e-5)
+        assert torch.allclose(condition_uncached, condition_cached, atol=1e-5)
 
     def test_precompute_returns_one_cache_per_layer(
         self,
@@ -382,12 +324,12 @@ class TestCrossAttentionDiTForward:
         timesteps = continuous_timestep_factory(batch_size=2)
         decoder_hidden.requires_grad_(True)
         encoder_hidden.requires_grad_(True)
-        output = model(
+        output, conditioning = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
-        output.sum().backward()
+        (output.sum() + conditioning.sum()).backward()
         assert decoder_hidden.grad is not None
         assert encoder_hidden.grad is not None
         assert torch.all(torch.isfinite(decoder_hidden.grad))

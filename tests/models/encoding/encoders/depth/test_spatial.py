@@ -8,8 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from versatil.data.constants import DEPTH_CAMERAS, Cameras
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality, Cameras
+from versatil.data.metadata import BaseMetadata, CameraMetadata, DepthCameraMetadata
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     EncoderOutputKeys,
@@ -45,8 +47,10 @@ def spatial_depth_encoder_factory() -> Callable[..., SpatialDepthEncoder]:
         backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
+        intermediate_layer_index: int | None = None,
         pretrained: bool = False,
         frozen: bool = False,
+        lora_config: LoRAAdaptation | None = None,
     ) -> SpatialDepthEncoder:
         with patch.object(SpatialDepthEncoder, "_build_backbone", _mock_build_backbone):
             return SpatialDepthEncoder(
@@ -54,8 +58,10 @@ def spatial_depth_encoder_factory() -> Callable[..., SpatialDepthEncoder]:
                 backbone=backbone,
                 pooling_method=pooling_method,
                 batch_norm_handling=batch_norm_handling,
+                intermediate_layer_index=intermediate_layer_index,
                 pretrained=pretrained,
                 frozen=frozen,
+                lora_config=lora_config,
             )
 
     return factory
@@ -93,28 +99,23 @@ class TestSpatialDepthEncoderInitialization:
             )
 
     @pytest.mark.parametrize(
-        "input_keys, expectation",
+        "input_keys",
         [
-            (Cameras.DEPTH.value, does_not_raise()),
-            (
-                "left",
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        f"At least one from {DEPTH_CAMERAS} required, got {set()}"
-                    ),
-                ),
-            ),
+            Cameras.DEPTH.value,
+            "left",
         ],
     )
-    def test_input_keys_validation(
+    def test_input_keys_are_stored_without_observation_space_validation(
         self,
         spatial_depth_encoder_factory: Callable[..., SpatialDepthEncoder],
         input_keys: str | list[str],
-        expectation,
     ):
-        with expectation:
-            spatial_depth_encoder_factory(input_keys=input_keys)
+        encoder = spatial_depth_encoder_factory(input_keys=input_keys)
+        expected_keys = [input_keys] if isinstance(input_keys, str) else input_keys
+        assert encoder.input_specification.keys == expected_keys
+        assert encoder.input_specification.required_camera_modalities == [
+            CameraModality.DEPTH
+        ]
 
     @pytest.mark.parametrize("input_keys", [Cameras.DEPTH.value])
     @pytest.mark.parametrize(
@@ -158,15 +159,75 @@ class TestSpatialDepthEncoderInitialization:
         assert encoder.batch_norm_handling == batch_norm_handling
         assert encoder.feature_dim == 512
         assert encoder.input_specification.keys == expected_keys
+        assert encoder.intermediate_layer_index is None
+
+    @pytest.mark.parametrize(
+        "intermediate_layer_index, expected_feature_dim",
+        [
+            (None, 512),
+            (-1, 512),
+            (-2, 256),
+            (1, 128),
+        ],
+    )
+    def test_intermediate_layer_index_selects_feature_dimension(
+        self,
+        spatial_depth_encoder_factory: Callable[..., SpatialDepthEncoder],
+        intermediate_layer_index: int | None,
+        expected_feature_dim: int,
+    ):
+        encoder = spatial_depth_encoder_factory(
+            intermediate_layer_index=intermediate_layer_index,
+        )
+        assert encoder.feature_dim == expected_feature_dim
 
     def test_input_specification_requires_depth_camera(
         self,
         spatial_depth_encoder_factory: Callable[..., SpatialDepthEncoder],
     ):
         encoder = spatial_depth_encoder_factory()
-        assert [
-            Cameras.DEPTH.value
-        ] in encoder.input_specification.at_least_one_of_groups
+        assert encoder.input_specification.required_camera_modalities == [
+            CameraModality.DEPTH
+        ]
+
+    @pytest.mark.unit
+    def test_build_backbone_applies_lora_config(
+        self,
+        lora_passthrough: Callable[
+            [torch.nn.Module, LoRAAdaptation | None, bool], torch.nn.Module
+        ],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        backbone = MagicMock()
+        backbone.feature_info.channels.return_value = [64, 128, 256, 512]
+
+        with (
+            patch(
+                "versatil.models.encoding.encoders.depth.spatial.timm.create_model",
+                return_value=backbone,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.depth.spatial.apply_lora_config",
+                side_effect=lora_passthrough,
+            ) as mock_apply_lora,
+        ):
+            encoder = SpatialDepthEncoder(
+                input_keys=Cameras.DEPTH.value,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pooling_method=PoolingMethod.AVERAGE.value,
+                pretrained=False,
+                frozen=False,
+                lora_config=lora_config,
+            )
+
+        assert mock_apply_lora.call_args.kwargs["model"] is encoder.backbone
+        assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
+        assert mock_apply_lora.call_args.kwargs["frozen"] is False
 
 
 class TestSpatialDepthEncoderForward:
@@ -229,6 +290,27 @@ class TestSpatialDepthEncoderForward:
         assert EncoderOutputKeys.DEPTH.value in output
         assert EncoderOutputKeys.RGB.value not in output
 
+    def test_uses_configured_intermediate_layer_output(
+        self,
+        spatial_depth_encoder_factory: Callable[..., SpatialDepthEncoder],
+    ):
+        encoder = spatial_depth_encoder_factory(intermediate_layer_index=1)
+        selected_features = torch.ones(1, 128, 4, 4)
+        encoder.backbone.return_value = [
+            torch.zeros(1, 64, 8, 8),
+            selected_features,
+            torch.zeros(1, 256, 2, 2),
+            torch.zeros(1, 512, 1, 1),
+        ]
+        mock_pooling = MagicMock()
+        mock_pooling.return_value = torch.zeros(1, 128)
+        encoder.pooling_head = mock_pooling
+
+        encoder._encode_single_image(torch.zeros(1, 1, 64, 64))
+
+        pooling_input = mock_pooling.call_args.args[0]
+        torch.testing.assert_close(pooling_input, selected_features)
+
 
 class TestSpatialDepthEncoderSetImageSize:
     def test_set_image_size_updates_output_dim(
@@ -253,10 +335,9 @@ class TestSpatialDepthEncoderValidateInputMetadata:
         "metadata, expected_error",
         [
             (
-                CameraMetadata(
+                DepthCameraMetadata(
                     camera_key="depth",
-                    dtype="uint8",
-                    channels=1,
+                    dtype="float32",
                     image_height=224,
                     image_width=224,
                 ),
@@ -270,7 +351,7 @@ class TestSpatialDepthEncoderValidateInputMetadata:
                     image_height=224,
                     image_width=224,
                 ),
-                "Expected single-channel depth for 'depth', got 3 channels",
+                None,
             ),
             (
                 MagicMock(spec=BaseMetadata),
@@ -483,6 +564,50 @@ class TestSpatialDepthEncoderIntegration:
         output = encoder(inputs)
         features = output[EncoderOutputKeys.DEPTH.value]
         assert features.shape == (batch_size, 1, encoder.output_dim)
+
+    @pytest.mark.integration
+    def test_lora_forward_pass_for_spatial_backbone(
+        self,
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        parameter_count: Callable[[torch.nn.Module], int],
+        trainable_parameter_count: Callable[[torch.nn.Module], int],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        encoder = SpatialDepthEncoder(
+            input_keys=Cameras.DEPTH.value,
+            backbone=SpatialBackboneType.DINOV3_CONVNEXT_SMALL.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
+            batch_norm_handling=BatchNormHandling.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+            lora_config=lora_config,
+        )
+        encoder.set_image_size(image_height=64, image_width=64)
+        inputs = image_input_factory(
+            key=Cameras.DEPTH.value,
+            channels=1,
+            batch_size=1,
+            height=64,
+            width=64,
+        )
+        output = encoder(inputs)
+        trainable_parameter_names = [
+            name
+            for name, parameter in encoder.backbone.named_parameters()
+            if parameter.requires_grad
+        ]
+        features = output[EncoderOutputKeys.DEPTH.value]
+        trainable_parameters = trainable_parameter_count(encoder.backbone)
+        total_parameters = parameter_count(encoder.backbone)
+        assert features.shape == (1, 1, encoder.output_dim)
+        assert trainable_parameter_names
+        assert all("lora_" in name for name in trainable_parameter_names)
+        assert 0 < trainable_parameters < total_parameters
 
     @pytest.mark.integration
     @pytest.mark.parametrize("time_steps", [1, 2])

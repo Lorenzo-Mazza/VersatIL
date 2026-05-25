@@ -1,9 +1,0 @@
-# Action heads for U-Net decoder (metadata-only, input_dim=1 is placeholder)
-${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
-  _target_: versatil.models.decoding.action_heads.ActionHead
-  input_dim: 1
-  blocks: null
-${proprio_key:GRIPPER_STATE}:
-  _target_: versatil.models.decoding.action_heads.ActionHead
-  input_dim: 1
-  blocks: null

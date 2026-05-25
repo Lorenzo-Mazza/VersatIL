@@ -10,6 +10,7 @@ from versatil.models.decoding.action_heads.blocks import MLPBlock
 from versatil.models.decoding.action_heads.single_output import ActionHead
 
 
+@pytest.mark.unit
 class TestActionHeadForward:
     def test_raises_if_output_dim_not_set(
         self,

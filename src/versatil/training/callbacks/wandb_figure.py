@@ -3,8 +3,9 @@
 import io
 
 import matplotlib.pyplot as plt
-import wandb
 from PIL import Image
+
+import wandb
 
 plt.set_loglevel("warning")
 

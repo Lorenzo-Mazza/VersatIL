@@ -203,6 +203,7 @@ def gaussian_mode_act_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestModeACTInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -381,6 +382,7 @@ class TestModeACTInitialization:
         )
 
 
+@pytest.mark.integration
 class TestModeACTForwardWithGaussianHead:
     def test_training_returns_mixture_outputs(
         self,
@@ -483,6 +485,7 @@ class TestModeACTForwardWithGaussianHead:
         )
 
 
+@pytest.mark.integration
 class TestModeACTForwardWithActionHead:
     def test_training_returns_stacked_outputs(
         self,
@@ -614,6 +617,7 @@ class TestModeACTForwardWithActionHead:
         )
 
 
+@pytest.mark.integration
 class TestModeACTSampling:
     def test_sample_from_gaussian_mixture_deterministic(
         self,
@@ -753,6 +757,7 @@ class TestModeACTSampling:
             assert matches_any_component
 
 
+@pytest.mark.integration
 class TestModeACTGMMInitialization:
     def test_compute_uniform_centers_shape_and_range(
         self,
@@ -806,10 +811,10 @@ class TestModeACTGMMInitialization:
 
     def test_compute_kmeans_plus_plus_centers_picks_one_per_mode(
         self,
-    ):
+        rng: np.random.Generator,
+    ) -> None:
         # Four tight clusters at the corners of [-1, 1]^2. k-means++ on actual
         # data points should land one center per corner.
-        torch.manual_seed(0)
         cluster_centers = torch.tensor(
             [[0.7, 0.7], [-0.7, 0.7], [-0.7, -0.7], [0.7, -0.7]]
         )
@@ -817,7 +822,10 @@ class TestModeACTGMMInitialization:
         candidate_points = torch.cat(
             [
                 cluster_centers[i].unsqueeze(0)
-                + 0.01 * torch.randn(points_per_cluster, 2)
+                + 0.01
+                * torch.from_numpy(
+                    rng.standard_normal((points_per_cluster, 2)).astype(np.float32)
+                )
                 for i in range(4)
             ],
             dim=0,
@@ -1004,8 +1012,8 @@ class TestModeACTGMMInitialization:
     def test_initialize_gaussian_mixture_uses_candidate_sample_when_provided(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
-    ):
-        torch.manual_seed(0)
+        rng: np.random.Generator,
+    ) -> None:
         decoder = gaussian_mode_act_factory(
             input_keys=["rgb_features"],
             num_mixture_components=4,
@@ -1020,7 +1028,12 @@ class TestModeACTGMMInitialization:
         candidate_sample = torch.cat(
             [
                 cluster_means[i].unsqueeze(0)
-                + 0.005 * torch.randn(points_per_cluster, action_dim)
+                + 0.005
+                * torch.from_numpy(
+                    rng.standard_normal((points_per_cluster, action_dim)).astype(
+                        np.float32
+                    )
+                )
                 for i in range(4)
             ],
             dim=0,
@@ -1082,8 +1095,8 @@ class TestModeACTGMMInitialization:
     def test_set_normalizer_forwards_data_sample_to_gaussian_init(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
-    ):
-        torch.manual_seed(0)
+        rng: np.random.Generator,
+    ) -> None:
         action_dim = 2
         decoder = gaussian_mode_act_factory(
             input_keys=["rgb_features"],
@@ -1099,7 +1112,12 @@ class TestModeACTGMMInitialization:
         raw_data = torch.cat(
             [
                 cluster_centers_raw[i].unsqueeze(0)
-                + 0.01 * torch.randn(rows_per_cluster, action_dim)
+                + 0.01
+                * torch.from_numpy(
+                    rng.standard_normal((rows_per_cluster, action_dim)).astype(
+                        np.float32
+                    )
+                )
                 for i in range(4)
             ],
             dim=0,
@@ -1135,7 +1153,8 @@ class TestModeACTGMMInitialization:
     def test_set_normalizer_falls_back_when_normalizer_has_no_sample(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
-    ):
+        rng: np.random.Generator,
+    ) -> None:
         decoder = gaussian_mode_act_factory(
             input_keys=["rgb_features"],
             num_mixture_components=4,
@@ -1143,7 +1162,9 @@ class TestModeACTGMMInitialization:
         )
         action_key = next(iter(decoder.action_heads.keys()))
         action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
-        raw_data = torch.randn(200, action_dim)
+        raw_data = torch.from_numpy(
+            rng.standard_normal((200, action_dim)).astype(np.float32)
+        )
         normalizer = LinearNormalizer()
         normalizer.fit(
             data={action_key: raw_data},
@@ -1160,6 +1181,7 @@ class TestModeACTGMMInitialization:
             assert (bias <= output_stats["max"] + 1e-4).all()
 
 
+@pytest.mark.integration
 class TestModeACTInferenceMode:
     def test_stochastic_gaussian_inference_differs_from_deterministic(
         self,
@@ -1244,6 +1266,7 @@ class TestModeACTInferenceMode:
         )
 
 
+@pytest.mark.integration
 class TestModeACTTemporalObservation:
     @pytest.mark.parametrize(
         "observation_horizon, expects_temporal_pe",
@@ -1266,6 +1289,7 @@ class TestModeACTTemporalObservation:
             assert layer is None
 
 
+@pytest.mark.unit
 class TestModeACTValidation:
     def test_invalid_inference_sampling_mode_raises(
         self,
@@ -1292,6 +1316,7 @@ class TestModeACTValidation:
             mode_act_factory(gmm_init_strategy=invalid_strategy)
 
 
+@pytest.mark.unit
 def test_auxiliary_output_keys(
     mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
 ):

@@ -54,8 +54,6 @@ class UniformCodebookPrior(PriorLatentEncoder):
         self.num_codes = num_codes
         self.num_residual_layers = num_residual_layers
         self._residual_vq_ref: weakref.ReferenceType[ResidualVQ] | None = None
-        self.register_buffer("_device_tracker", torch.zeros(1))
-        self.to(torch.device(device))
 
     @property
     def residual_vq(self) -> ResidualVQ | None:
@@ -147,7 +145,7 @@ class UniformCodebookPrior(PriorLatentEncoder):
             batch_size = target_latents.shape[0]
         else:
             batch_size = next(iter(observations.values())).shape[0]
-        device = self._device_tracker.device
+        device = self.device
 
         all_indices = [
             torch.randint(0, self.num_codes, (batch_size,), device=device)  # (B,)
@@ -182,7 +180,7 @@ class UniformCodebookPrior(PriorLatentEncoder):
                 "garbage-collected. Call wire_posterior() before sample_prior(), "
                 "and keep the posterior alive."
             )
-        device = self._device_tracker.device
+        device = self.device
         all_indices = [
             torch.randint(0, self.num_codes, (batch_size,), device=device)  # (B,)
             for _ in range(self.num_residual_layers)

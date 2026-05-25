@@ -11,8 +11,6 @@ from versatil.models.decoding.constants import LatentKey
 
 pytest.importorskip("geomloss")
 
-pytestmark = pytest.mark.integration
-
 
 @pytest.fixture
 def action_trajectory_factory(
@@ -73,6 +71,7 @@ def latent_ot_loss_factory() -> Callable[..., LatentOptimalTransportLoss]:
     return factory
 
 
+@pytest.mark.integration
 class TestOptimalTransportLossNumerics:
     def test_identical_predictions_and_targets_give_near_zero_loss(
         self,
@@ -219,6 +218,7 @@ class TestOptimalTransportLossNumerics:
         assert torch.isfinite(result.total_loss).item()
 
 
+@pytest.mark.integration
 class TestLatentOptimalTransportLossNumerics:
     def test_identical_latents_give_near_zero_loss(
         self,

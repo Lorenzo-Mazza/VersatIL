@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.constants import Cameras
+from versatil.data.constants import CameraModality, Cameras
+from versatil.data.metadata import CameraMetadata
 from versatil.models.encoding.encoders.base import EncoderInput
 
 
@@ -17,8 +18,8 @@ def encoder_input_factory() -> Callable[..., EncoderInput]:
     def factory(
         keys: str | list[str] = "left",
         required: list[str] | None = None,
-        one_of_groups: list[list[str]] | None = None,
-        at_least_one_of_groups: list[list[str]] | None = None,
+        exactly_one_camera_modality: list[CameraModality] | None = None,
+        required_camera_modalities: list[CameraModality] | None = None,
         conditioning_key: str | None = None,
         conditioning_required: list[str] | None = None,
         conditioning_one_of_groups: list[list[str]] | None = None,
@@ -27,9 +28,11 @@ def encoder_input_factory() -> Callable[..., EncoderInput]:
         return EncoderInput(
             keys=keys,
             required=required if required is not None else [],
-            one_of_groups=one_of_groups if one_of_groups is not None else [],
-            at_least_one_of_groups=at_least_one_of_groups
-            if at_least_one_of_groups is not None
+            exactly_one_camera_modality=exactly_one_camera_modality
+            if exactly_one_camera_modality is not None
+            else [],
+            required_camera_modalities=required_camera_modalities
+            if required_camera_modalities is not None
             else [],
             conditioning_key=conditioning_key,
             conditioning_required=conditioning_required
@@ -40,6 +43,36 @@ def encoder_input_factory() -> Callable[..., EncoderInput]:
             else [],
             requires_tokenized=requires_tokenized,
         )
+
+    return factory
+
+
+@pytest.fixture
+def rgbd_camera_metadata_factory(
+    camera_metadata_factory: Callable[..., CameraMetadata],
+) -> Callable[..., dict[str, CameraMetadata]]:
+    """Factory for paired RGB and depth camera metadata."""
+
+    def factory(
+        rgb_key: str = Cameras.LEFT.value,
+        depth_key: str = Cameras.DEPTH.value,
+        image_width: int = 224,
+        image_height: int = 224,
+    ) -> dict[str, CameraMetadata]:
+        return {
+            rgb_key: camera_metadata_factory(
+                camera_key=rgb_key,
+                channels=3,
+                image_width=image_width,
+                image_height=image_height,
+            ),
+            depth_key: camera_metadata_factory(
+                camera_key=depth_key,
+                channels=1,
+                image_width=image_width,
+                image_height=image_height,
+            ),
+        }
 
     return factory
 

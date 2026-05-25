@@ -10,6 +10,8 @@ from omegaconf.errors import InterpolationResolutionError
 
 from versatil.configs import register_resolvers
 from versatil.data.constants import (
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
@@ -25,11 +27,17 @@ from versatil.data.constants import (
 )
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
+from versatil.models.adaptation.constants import LoRATargetModulePreset
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     DiTType,
     LatentKey,
     MoERoutingType,
+)
+from versatil.models.decoding.generative_language_models.constants import (
+    PRISMATIC_LLM_BACKBONES,
+    PrismaticLLMBackboneType,
+    PrismaticModelType,
 )
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
@@ -67,6 +75,21 @@ ENUM_RESOLVER_CASES = [
     ("batch_norm_handling", "FROZEN", BatchNormHandling.FROZEN.value),
     ("pooling_method", "SPATIAL_SOFTMAX", PoolingMethod.SPATIAL_SOFTMAX.value),
     ("language_model", "BERT_BASE", LanguageEncoderType.BERT_BASE.value),
+    (
+        "lora_target_modules",
+        "ALL_LINEAR",
+        LoRATargetModulePreset.ALL_LINEAR.value,
+    ),
+    (
+        "prismatic_model",
+        "PRISM_DINOSIGLIP_224PX_7B",
+        PrismaticModelType.PRISM_DINOSIGLIP_224PX_7B.value,
+    ),
+    (
+        "prismatic_llm_model",
+        "LLAMA2_7B_PURE",
+        PRISMATIC_LLM_BACKBONES[PrismaticLLMBackboneType.LLAMA2_7B_PURE],
+    ),
     ("activation_function", "RELU", ActivationFunction.RELU.value),
     ("activation_function", "GELU", ActivationFunction.GELU.value),
     ("normalization", "LAYER_NORM", NormalizationType.LAYER_NORM.value),
@@ -74,6 +97,12 @@ ENUM_RESOLVER_CASES = [
     ("pos_encoding", "SINUSOIDAL", PositionalEncodingType.SINUSOIDAL.value),
     ("pos_encoding", "LEARNED", PositionalEncodingType.LEARNED.value),
     ("tokenizer_type", "FAST", TokenizerType.FAST.value),
+    ("action_discretizer", "FAST", ActionDiscretizerType.FAST.value),
+    (
+        "action_token_id_mapping",
+        "IDENTITY",
+        ActionTokenIdMappingType.IDENTITY.value,
+    ),
     ("kinematics_norm_type", "MIN_MAX", KinematicsNormalizationType.MIN_MAX.value),
     ("image_norm_type", "ZERO_TO_ONE", ImageNormalizationType.ZERO_TO_ONE.value),
     ("image_norm_type", "CLIP", ImageNormalizationType.CLIP.value),
@@ -149,6 +178,71 @@ class TestEnumResolvers:
         )
         assert cfg.default_camera == Cameras.LEFT.value
         assert cfg.selected_camera == Cameras.LEFT.value
+
+
+@pytest.mark.unit
+class TestMultiplicationResolver:
+    @pytest.mark.parametrize(
+        "left, right, expected_value",
+        [
+            (768, 7, 5376),
+            ("24", "3", 72),
+            (0.5, 1024, 512.0),
+        ],
+    )
+    def test_mul_resolver_returns_numeric_product(
+        self,
+        left: int | float | str,
+        right: int | float | str,
+        expected_value: int | float,
+    ) -> None:
+        cfg = OmegaConf.create({"result": f"${{mul:{left},{right}}}"})
+        expected_type = int if isinstance(expected_value, int) else float
+        assert cfg.result == expected_value
+        assert isinstance(cfg.result, expected_type)
+
+
+@pytest.mark.unit
+class TestIntegerMultiplicationResolver:
+    @pytest.mark.parametrize(
+        "left, right, expected_value",
+        [
+            (0.5, 960, 480),
+            ("0.75", "640", 480),
+        ],
+    )
+    def test_int_mul_resolver_returns_integer_product(
+        self,
+        left: int | float | str,
+        right: int | float | str,
+        expected_value: int,
+    ) -> None:
+        cfg = OmegaConf.create({"result": f"${{int_mul:{left},{right}}}"})
+        assert cfg.result == expected_value
+        assert isinstance(cfg.result, int)
+
+
+@pytest.mark.unit
+class TestActionSpacePredictionDimensionResolver:
+    def test_returns_total_dimension_for_predicted_actions(self) -> None:
+        cfg = OmegaConf.create(
+            {
+                "action_space": {
+                    "actions_metadata": {
+                        "position": {"prediction_dimension": 3},
+                        "orientation": {"prediction_dimension": 3},
+                        "gripper": {"prediction_dimension": 1},
+                        "phase": {
+                            "prediction_dimension": 4,
+                            "requires_prediction_head": False,
+                        },
+                    }
+                },
+                "result": "${action_space_prediction_dimension:${action_space}}",
+            }
+        )
+
+        assert cfg.result == 7
 
 
 @pytest.mark.unit

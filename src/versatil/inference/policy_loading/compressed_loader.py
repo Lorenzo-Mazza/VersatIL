@@ -10,7 +10,6 @@ import torch.nn as nn
 from omegaconf import OmegaConf
 
 from versatil.common.tensor_ops import to_device
-from versatil.data.constants import Cameras
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform import (
     normalize_observation,
@@ -354,12 +353,12 @@ class CompressedPolicyLoader(BasePolicyLoader):
             Tuple of (min, max) for clamping, or None if depth not
             in normalizer.
         """
-        depth_key = Cameras.DEPTH.value
-        if depth_key not in self._normalizer.params_dict:
-            return None
-        stats = self._normalizer[depth_key].params_dict.get(
-            CheckpointKey.INPUT_STATS.value
-        )
-        if stats is None:
-            return None
-        return float(stats["min"].item()), float(stats["max"].item())
+        for depth_key in self.observation_space.depth_cameras:
+            if depth_key not in self._normalizer.params_dict:
+                continue
+            stats = self._normalizer[depth_key].params_dict.get(
+                CheckpointKey.INPUT_STATS.value
+            )
+            if stats is not None:
+                return float(stats["min"].item()), float(stats["max"].item())
+        return None

@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -37,6 +38,7 @@ def concrete_action_head_factory() -> Callable[..., ConcreteActionHead]:
     return factory
 
 
+@pytest.mark.unit
 class TestBaseActionHeadInitialization:
     @pytest.mark.parametrize("input_dim", [32, 128])
     @pytest.mark.parametrize("use_blocks", [False, True])
@@ -72,6 +74,7 @@ class TestBaseActionHeadInitialization:
             _ = head.output_dim
 
 
+@pytest.mark.unit
 class TestBaseActionHeadSetOutputDim:
     @pytest.mark.parametrize("dim", [3, 7])
     def test_sets_output_dim(
@@ -100,6 +103,7 @@ class TestBaseActionHeadSetOutputDim:
         assert head.output_proj.in_features == 32
 
 
+@pytest.mark.unit
 class TestBaseActionHeadGetHiddenDim:
     def test_returns_input_dim_without_blocks(
         self,
@@ -117,6 +121,44 @@ class TestBaseActionHeadGetHiddenDim:
         assert head._get_hidden_dim() == 32
 
 
+@pytest.mark.unit
+class TestBaseActionHeadApplyBlocks:
+    def test_passes_embedding_through_blocks_in_order(
+        self,
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        first_block = MLPBlock(input_dim=64, hidden_dims=[64])
+        second_block = MLPBlock(input_dim=64, hidden_dims=[64])
+        head = ConcreteActionHead(
+            input_dim=64,
+            blocks=[first_block, second_block],
+        )
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        first_output = torch.full_like(embedding, 2.0)
+        second_output = torch.full_like(embedding, 3.0)
+        first_forward = MagicMock(
+            spec=first_block.forward,
+            return_value=first_output,
+        )
+        second_forward = MagicMock(
+            spec=second_block.forward,
+            return_value=second_output,
+        )
+
+        with (
+            patch.object(first_block, "forward", first_forward),
+            patch.object(second_block, "forward", second_forward),
+        ):
+            result = head._apply_blocks(embedding)
+
+        first_forward.assert_called_once()
+        second_forward.assert_called_once()
+        torch.testing.assert_close(first_forward.call_args.args[0], embedding)
+        torch.testing.assert_close(second_forward.call_args.args[0], first_output)
+        torch.testing.assert_close(result, second_output)
+
+
+@pytest.mark.integration
 class TestBaseActionHeadForward:
     @pytest.mark.parametrize("output_dim", [3, 7])
     def test_output_shape(

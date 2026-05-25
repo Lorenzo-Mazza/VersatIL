@@ -1,31 +1,27 @@
 """Latent Action Transformer (LACT) architecture for action decoding.
 
-LACT is an Action Transformer with latent-conditioned decoding via AdaLN or FiLM.
+LACT is an Action Transformer with latent-conditioned decoding through
+adaptive normalization.
 """
 
 import torch
-from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import LatentKey
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.decoders.parallel_transformer import (
+    BaseParallelTransformerDecoder,
+)
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding2D,
-)
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
 
 
-class LACT(ActionDecoder):
+class LACT(BaseParallelTransformerDecoder):
     """Latent Action Transformer for generative action decoding.
 
     Forward pass steps:
@@ -57,7 +53,7 @@ class LACT(ActionDecoder):
         dropout_rate: float = 0.1,
         attention_dropout: float = 0.0,
         use_gating: bool = True,
-    ):
+    ) -> None:
         """Initialize LACT decoder.
 
         Args:
@@ -97,8 +93,8 @@ class LACT(ActionDecoder):
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
             device=device,
+            embedding_dimension=embedding_dimension,
         )
-        self.embedding_dimension = embedding_dimension
         self.latent_dimension = latent_dimension
         self.number_of_layers = number_of_layers
         self.activation = activation
@@ -116,29 +112,14 @@ class LACT(ActionDecoder):
 
     def _build_components(self) -> None:
         """Build LACT components."""
-        image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension, normalize=True
-        )
-        temporal_positional_encoding = None
-        if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            )
-        self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=image_positional_encoding,
-            flat_positional_encoding_layer=LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension,
-            ),
-            temporal_positional_encoding_layer=temporal_positional_encoding,
+        self.input_sequence_builder = self._build_parallel_input_sequence_builder(
             exclude_keys=[
                 LatentKey.POSTERIOR_LATENT.value
             ],  # Don't include latent as observation token
         )
-        self.learnable_query = nn.Embedding(
-            self.prediction_horizon, self.embedding_dimension
-        )
+        self.learnable_query = (
+            self._build_parallel_query_embedding()
+        )  # (prediction_horizon, embedding_dimension)
         self.action_decoder = ConditionalBidirectionalDecoder(
             number_of_layers=self.number_of_layers,
             embedding_dimension=self.embedding_dimension,
@@ -155,22 +136,6 @@ class LACT(ActionDecoder):
             use_gating=self.use_gating,
             condition_final_normalization=False,
         )
-
-    def _apply_action_heads(
-        self, action_embeddings: torch.Tensor
-    ) -> dict[str, torch.Tensor]:
-        """Apply prediction heads to action embeddings.
-
-        Args:
-            action_embeddings: Action embeddings (B, horizon, embedding_dimension)
-
-        Returns:
-            Dictionary of predicted actions
-        """
-        predictions = {}
-        for action_key, head in self.action_heads.items():
-            predictions[action_key] = head(action_embeddings)
-        return predictions
 
     def _validate_latent(
         self,
@@ -238,26 +203,27 @@ class LACT(ActionDecoder):
                 f"Available features: {list(features.keys())}"
             )
         latent = features[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
-        obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
-            features
-        )
-        if obs_pos_encodings is not None:
-            obs_tokens = obs_tokens + obs_pos_encodings
+        obs_tokens, obs_padding_mask = self._build_parallel_observation_tokens(
+            input_sequence_builder=self.input_sequence_builder,
+            features=features,
+            add_positional_encodings=True,
+        )  # (B, observation_token_count, embedding_dimension), (B, observation_token_count)
         batch_size = obs_tokens.shape[0]
         latent = self._validate_latent(
             latent=latent,
             batch_size=batch_size,
             observation_device=obs_tokens.device,
         )
-        query = self.learnable_query.weight.unsqueeze(0).repeat(
-            batch_size, 1, 1
-        )  # (B, pred_horizon, embedding_dim)
+        query = self._expand_parallel_query_embedding(
+            query_embedding=self.learnable_query,
+            batch_size=batch_size,
+        )  # (B, prediction_horizon, embedding_dimension)
         action_embeddings = self.action_decoder(
             hidden_states=query,
             condition=latent,
             encoded_features=obs_tokens,
             query_padding_mask=None,
             memory_padding_mask=obs_padding_mask,
-        )
+        )  # (B, prediction_horizon, embedding_dimension)
         predictions = self._apply_action_heads(action_embeddings)
         return predictions

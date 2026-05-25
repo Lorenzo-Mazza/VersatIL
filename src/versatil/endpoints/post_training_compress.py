@@ -11,7 +11,6 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-import versatil.common.argparse_compat  # noqa: F401
 from versatil.common.logging import override_log_format
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 

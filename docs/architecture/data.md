@@ -314,7 +314,10 @@ experiment validator checks these model-family requirements before training.
 ImageProcessor(
     color_augmentation=A.Compose(...) | None,
     spatial_augmentation=A.Compose(...) | None,
-    camera_metadata={"left": CameraMetadata(...), ...},
+    camera_metadata={
+        "left": RGBCameraMetadata(...),
+        "depth": DepthCameraMetadata(...),
+    },
     train=True,
 )
 ```
@@ -328,13 +331,13 @@ Two independent [Albumentations](https://albumentations.ai/) pipelines are suppo
 - **Color augmentation** -- Photometric transforms (brightness, contrast, hue, etc.)
 - **Spatial augmentation** -- Geometric transforms (rotation, flips, etc.)
 
-Image sizes come from per-camera [`CameraMetadata`][versatil.data.metadata.CameraMetadata] in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
+Image sizes come from per-camera [`RGBCameraMetadata`][versatil.data.metadata.RGBCameraMetadata] and [`DepthCameraMetadata`][versatil.data.metadata.DepthCameraMetadata] in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
 
 ## Tokenization
 
 The [`Tokenizer`][versatil.data.tokenization.tokenizer.Tokenizer] wraps two optional sub-tokenizers:
 
-- **[`ObservationTokenizer`][versatil.data.tokenization.observation_tokenizer.ObservationTokenizer]** -- Tokenizes language instructions and proprioceptive data
-- **[`ActionTokenizer`][versatil.data.tokenization.action_tokenizer.ActionTokenizer]** -- Tokenizes continuous actions into discrete tokens (FAST-style)
+- **[`ObservationTokenizer`][versatil.data.tokenization.observation_tokenizer.ObservationTokenizer]** -- Tokenizes language instructions and proprioceptive data. Continuous observation values use the shared [`BinnedValueDiscretizer`][versatil.data.tokenization.binned_value_discretizer.BinnedValueDiscretizer].
+- **[`ActionTokenizer`][versatil.data.tokenization.action_tokenizer.ActionTokenizer]** -- Tokenizes continuous actions with an action discretizer (`fast` or `binned`) plus an optional token-id mapping into a language tokenizer's vocabulary
 
 Tokenization is applied after normalization in `SampleBuilder.normalize_and_tokenize_sample()`. The tokenizer is saved alongside the checkpoint and loaded during inference via [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader].

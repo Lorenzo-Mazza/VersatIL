@@ -5,8 +5,9 @@ import torch
 import torch.nn as nn
 from timm.layers import freeze_batch_norm_2d
 
-from versatil.data.constants import RGB_CAMERAS
+from versatil.data.constants import CameraModality
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.adaptation.lora import LoRAAdaptation, apply_lora_config
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.encoders.constants import (
@@ -23,6 +24,67 @@ from versatil.models.layers.pooling.pooling_head import (
     PoolingHead,
     create_spatial_pooling_head,
 )
+
+
+class _ConditionalBackbone(nn.Module):
+    """Backbone module that applies conditioned residual layers."""
+
+    def __init__(
+        self,
+        conv1: nn.Module,
+        bn1: nn.Module,
+        activation: nn.Module,
+        maxpool: nn.Module,
+        layer1: nn.ModuleList,
+        layer2: nn.ModuleList,
+        layer3: nn.ModuleList,
+        layer4: nn.ModuleList,
+    ) -> None:
+        """Initialize the retained conditional backbone.
+
+        Args:
+            conv1: Initial convolution module.
+            bn1: Normalization module after ``conv1``.
+            activation: Activation module after ``bn1``.
+            maxpool: Initial pooling module.
+            layer1: First conditioned residual block stage.
+            layer2: Second conditioned residual block stage.
+            layer3: Third conditioned residual block stage.
+            layer4: Fourth conditioned residual block stage.
+        """
+        super().__init__()
+        self.conv1 = conv1
+        self.bn1 = bn1
+        self.activation = activation
+        self.maxpool = maxpool
+        self.layer1 = layer1
+        self.layer2 = layer2
+        self.layer3 = layer3
+        self.layer4 = layer4
+
+    def forward(self, images: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        """Run the conditioned backbone.
+
+        Args:
+            images: Image tensor with shape ``(B, C, H, W)``.
+            conditioning: Conditioning tensor with shape ``(B, D)``.
+
+        Returns:
+            Spatial feature tensor with shape ``(B, C_out, H_out, W_out)``.
+        """
+        features = self.conv1(images)
+        features = self.bn1(features)
+        features = self.activation(features)
+        features = self.maxpool(features)
+        for block in self.layer1:
+            features = block(features, conditioning)
+        for block in self.layer2:
+            features = block(features, conditioning)
+        for block in self.layer3:
+            features = block(features, conditioning)
+        for block in self.layer4:
+            features = block(features, conditioning)
+        return features
 
 
 class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
@@ -50,7 +112,8 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         pretrained: bool = False,
         frozen: bool = False,
         model_dtype: str | None = None,
-    ):
+        lora_config: LoRAAdaptation | None = None,
+    ) -> None:
         """Initialize FiLM-conditioned CNN encoder.
 
         Args:
@@ -63,10 +126,11 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             pretrained: Whether to load pretrained weights.
             frozen: Whether to freeze all parameters.
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional PEFT LoRA adapter configuration.
         """
         specification = EncoderInput(
             keys=input_keys,
-            at_least_one_of_groups=[RGB_CAMERAS],
+            required_camera_modalities=[CameraModality.RGB],
             conditioning_key=condition_key,
         )
         super().__init__(
@@ -81,6 +145,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         self.batch_norm_handling = batch_norm_handling
         self.backbone_name = backbone
         self.pooling_method = pooling_method
+        self.lora_config = lora_config
 
         if backbone not in self.BACKBONE_CONFIGS:
             raise ValueError(
@@ -96,42 +161,66 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             super()._freeze_weights()
         self._apply_model_dtype()
 
-    def _build_filmed_backbone(self):
+    def _build_filmed_backbone(self) -> None:
         """Build FiLMed ResNet backbone."""
         config = self.BACKBONE_CONFIGS[self.backbone_name]
         base_model = timm.create_model(
             self.backbone_name, pretrained=self.pretrained, num_classes=0
         )
 
-        self.conv1 = base_model.conv1
-        self.bn1 = base_model.bn1
-        self.relu = base_model.act1
-        self.maxpool = base_model.maxpool
         self.in_channels = 64
-        self.layer1 = self._make_filmed_layer(64, config["layers"][0], stride=1)
-        self.layer2 = self._make_filmed_layer(128, config["layers"][1], stride=2)
-        self.layer3 = self._make_filmed_layer(256, config["layers"][2], stride=2)
-        self.layer4 = self._make_filmed_layer(512, config["layers"][3], stride=2)
+        layer1 = self._make_filmed_layer(64, config["layers"][0], stride=1)
+        layer2 = self._make_filmed_layer(128, config["layers"][1], stride=2)
+        layer3 = self._make_filmed_layer(256, config["layers"][2], stride=2)
+        layer4 = self._make_filmed_layer(512, config["layers"][3], stride=2)
+        self.backbone = _ConditionalBackbone(
+            conv1=base_model.conv1,
+            bn1=base_model.bn1,
+            activation=base_model.act1,
+            maxpool=base_model.maxpool,
+            layer1=layer1,
+            layer2=layer2,
+            layer3=layer3,
+            layer4=layer4,
+        )
         if self.pretrained:
             self._copy_pretrained_weights(base_model)
         self._apply_batch_norm_handling()
+        self.backbone = apply_lora_config(
+            model=self.backbone,
+            lora_config=self.lora_config,
+            frozen=self.frozen,
+        )
 
     def _apply_batch_norm_handling(self) -> None:
         """Apply BatchNorm handling strategy to all layers."""
         match self.batch_norm_handling:
             case BatchNormHandling.FROZEN.value:
-                freeze_batch_norm_2d(self.bn1)
-                for layer in [self.layer1, self.layer2, self.layer3, self.layer4]:
+                freeze_batch_norm_2d(self.backbone.bn1)
+                for layer in [
+                    self.backbone.layer1,
+                    self.backbone.layer2,
+                    self.backbone.layer3,
+                    self.backbone.layer4,
+                ]:
                     for block in layer:
                         block.apply(lambda m: freeze_batch_norm_2d(m) or None)
             case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
-                num_channels = self.bn1.num_features
+                num_channels = self.backbone.bn1.num_features
                 # 16 groups matches ResNet channel multiples (64, 128, 256, 512)
-                self.bn1 = nn.GroupNorm(num_channels // 16, num_channels)
-                self.layer1 = replace_batchnorm_with_groupnorm(self.layer1)
-                self.layer2 = replace_batchnorm_with_groupnorm(self.layer2)
-                self.layer3 = replace_batchnorm_with_groupnorm(self.layer3)
-                self.layer4 = replace_batchnorm_with_groupnorm(self.layer4)
+                self.backbone.bn1 = nn.GroupNorm(num_channels // 16, num_channels)
+                self.backbone.layer1 = replace_batchnorm_with_groupnorm(
+                    self.backbone.layer1
+                )
+                self.backbone.layer2 = replace_batchnorm_with_groupnorm(
+                    self.backbone.layer2
+                )
+                self.backbone.layer3 = replace_batchnorm_with_groupnorm(
+                    self.backbone.layer3
+                )
+                self.backbone.layer4 = replace_batchnorm_with_groupnorm(
+                    self.backbone.layer4
+                )
             case BatchNormHandling.DEFAULT.value:
                 pass
             case _:
@@ -183,7 +272,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
 
         return blocks
 
-    def _copy_pretrained_weights(self, base_model):
+    def _copy_pretrained_weights(self, base_model: nn.Module) -> None:
         """Copy weights from pretrained ResNet to FiLMedResBlocks where applicable."""
         base_layers = [
             base_model.layer1,
@@ -191,7 +280,12 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             base_model.layer3,
             base_model.layer4,
         ]
-        self_layers = [self.layer1, self.layer2, self.layer3, self.layer4]
+        self_layers = [
+            self.backbone.layer1,
+            self.backbone.layer2,
+            self.backbone.layer3,
+            self.backbone.layer4,
+        ]
 
         for base_layer, self_layer in zip(base_layers, self_layers):
             for i, base_block in enumerate(base_layer):
@@ -260,19 +354,8 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             raise RuntimeError(
                 "pooling_head is not initialized. Call set_image_size() before forward."
             )
-        x = self.conv1(images)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        for block in self.layer1:
-            x = block(x, conditioning)
-        for block in self.layer2:
-            x = block(x, conditioning)
-        for block in self.layer3:
-            x = block(x, conditioning)
-        for block in self.layer4:
-            x = block(x, conditioning)
-        return self.pooling_head(x)
+        features = self.backbone(images, conditioning)
+        return self.pooling_head(features)
 
     def encode(
         self,
@@ -316,26 +399,15 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         with torch.no_grad():
             mock_input = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
             mock_condition = torch.zeros(1, self.condition_dim, dtype=probe_dtype)
-            x = self.conv1(mock_input)
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
-            for block in self.layer1:
-                x = block(x, mock_condition)
-            for block in self.layer2:
-                x = block(x, mock_condition)
-            for block in self.layer3:
-                x = block(x, mock_condition)
-            for block in self.layer4:
-                x = block(x, mock_condition)
-            _, _, spatial_height, spatial_width = x.shape
+            features = self.backbone(mock_input, mock_condition)
+            _, _, spatial_height, spatial_width = features.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         if self.frozen:
             self._freeze_weights()
         self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
-        """Validate that input metadata is RGB camera metadata.
+        """Validate that input metadata is camera metadata.
 
         Args:
             key: Observation key being validated.
@@ -346,10 +418,6 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         """
         if not isinstance(metadata, CameraMetadata):
             return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
-        if not metadata.is_rgb:
-            return (
-                f"Expected 3-channel RGB for '{key}', got {metadata.channels} channels"
-            )
         return None
 
     def get_output_specification(self) -> list[FeatureMetadata]:

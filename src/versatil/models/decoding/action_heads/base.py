@@ -1,3 +1,5 @@
+"""Base contract for configurable action heads."""
+
 from abc import ABC, abstractmethod
 
 import torch
@@ -21,7 +23,7 @@ class BaseActionHead(ABC, nn.Module):
         self,
         input_dim: int,
         blocks: list[ActionHeadBlock] | None = None,
-    ):
+    ) -> None:
         """Initialize base action head.
 
         Args:
@@ -68,6 +70,9 @@ class BaseActionHead(ABC, nn.Module):
         return action_embedding
 
     @abstractmethod
-    def forward(self, action_embedding: torch.Tensor):
+    def forward(
+        self,
+        action_embedding: torch.Tensor,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
         """Forward pass. Subclasses define return type."""
-        pass
+        raise NotImplementedError

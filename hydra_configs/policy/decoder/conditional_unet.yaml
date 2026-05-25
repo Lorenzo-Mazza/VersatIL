@@ -1,7 +1,6 @@
 # Conditional U-Net Decoder
 defaults:
   - unet
-  - heads@action_heads: unet_bowel_retraction
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:
@@ -27,6 +26,8 @@ use_local_conditioning: false
 
 # Whether conditions predict scaling factors in FiLM
 condition_predict_scale: true
+
+action_heads: {}
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

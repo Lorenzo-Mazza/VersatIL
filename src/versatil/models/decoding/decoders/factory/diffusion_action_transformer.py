@@ -4,21 +4,19 @@ Handles CrossAttentionDiT (PixArt style) and MMDiT (SD3 style) architectures, wh
 on unpooled observation tokens with no internal encoder processing.
 """
 
-import logging
-
 import torch
-from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DiTType
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.action_heads import ActionHead, ConditionalActionHead
+from versatil.models.decoding.constants import ActionHeadLayout, DiTType
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.decoders.parallel_transformer import (
+    BaseParallelTransformerDecoder,
+)
 from versatil.models.decoding.decoders.timestep_conditioning import (
     extract_timestep_conditioning,
     filter_timestep_feature,
-    validate_noisy_action_tensors,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
@@ -29,23 +27,18 @@ from versatil.models.layers.diffusion_transformer.mmdit_transformer import (
     MMDiTTransformer,
 )
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
-    SinusoidalPositionalEncoding2D,
-)
 from versatil.models.layers.transformer.cache.conditioning import ConditioningCache
 
 
-class DiffusionActionTransformer(ActionDecoder):
+class DiffusionActionTransformer(BaseParallelTransformerDecoder):
     """Diffusion action transformer decoder for CrossAttentionDiT and MMDiT architectures.
 
     Both architectures operate on unpooled observation tokens:
     - CrossAttentionDiT: Cross-attention to observation tokens (PixArt style)
     - MMDiT: Joint attention between observation and action streams (SD3 style)
     """
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.JOINT
 
     def __init__(
         self,
@@ -71,7 +64,7 @@ class DiffusionActionTransformer(ActionDecoder):
         attention_dropout: float = 0.0,
         positional_encoding_type: str | None = PositionalEncodingType.ROPE.value,
         use_gating: bool = True,
-    ):
+    ) -> None:
         """Initialize DiT action decoder.
 
         Args:
@@ -102,10 +95,8 @@ class DiffusionActionTransformer(ActionDecoder):
         self.observation_space = observation_space
         self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
-        self.device = device
         self.diffusion_transformer_type = diffusion_transformer_type
         self.max_sequence_length = max_sequence_length
-        self.embedding_dimension = embedding_dimension
         self.timestep_embedding_dimension = timestep_embedding_dimension
         self.number_of_heads = number_of_heads
         self.number_of_key_value_heads = number_of_key_value_heads or number_of_heads
@@ -123,13 +114,6 @@ class DiffusionActionTransformer(ActionDecoder):
             keys=input_keys,
             requires_actions=True,
         )
-        for k, head in action_heads.items():
-            if len(head.blocks) > 0:
-                logging.warning(
-                    f"Action heads are ignored by DiffusionActionTransformer, but one was provided for action '{k}'. Skipping."
-                )
-                action_heads[k].blocks = nn.ModuleList()
-
         super().__init__(
             decoder_input=decoder_input,
             action_space=action_space,
@@ -138,10 +122,38 @@ class DiffusionActionTransformer(ActionDecoder):
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
             device=device,
+            embedding_dimension=embedding_dimension,
         )
         self._caching_enabled: bool = False
         self._conditioning_cache: ConditioningCache | None = None
+        self._validate_conditional_action_head()
         self._build_transformer_components()
+
+    def _conditional_action_head(self) -> ConditionalActionHead:
+        """Return the configured timestep-conditioned action head."""
+        action_head = self._single_action_head()
+        if isinstance(action_head, ConditionalActionHead):
+            return action_head
+        raise ValueError(
+            f"{type(self).__name__} requires a ConditionalActionHead because "
+            "DiT decoder hidden states are projected with timestep conditioning."
+        )
+
+    def _validate_conditional_action_head(self) -> None:
+        """Validate the conditional action-head dimensions."""
+        action_head = self._conditional_action_head()
+        if action_head.input_dim != self.embedding_dimension:
+            raise ValueError(
+                f"{type(self).__name__} action head input_dim must equal "
+                f"embedding_dimension {self.embedding_dimension}, got "
+                f"{action_head.input_dim}."
+            )
+        if action_head.condition_dim != self.embedding_dimension:
+            raise ValueError(
+                f"{type(self).__name__} action head condition_dim must equal "
+                f"embedding_dimension {self.embedding_dimension}, got "
+                f"{action_head.condition_dim}."
+            )
 
     def enable_encoder_cache(self) -> None:
         """Enable conditioning cache for multi-step denoising inference.
@@ -160,29 +172,14 @@ class DiffusionActionTransformer(ActionDecoder):
 
     def _build_transformer_components(self) -> None:
         """Build transformer and input processing layers."""
-        image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension, normalize=True
-        )
-        temporal_positional_encoding = None
-        if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            )
-        self.input_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=image_positional_encoding,
-            flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            ),
-            temporal_positional_encoding_layer=temporal_positional_encoding,
+        self.input_builder = self._build_parallel_input_sequence_builder(
+            flat_positional_encoding_type=PositionalEncodingType.SINUSOIDAL.value,
         )
         match self.diffusion_transformer_type:
             case DiTType.CROSS_ATTENTION.value:
                 self.transformer = CrossAttentionDiT(
                     number_of_layers=self.number_of_layers,
                     embedding_dimension=self.embedding_dimension,
-                    output_dimension=self.action_space.get_total_action_dim(),
                     number_of_heads=self.number_of_heads,
                     number_of_key_value_heads=self.number_of_key_value_heads,
                     feedforward_dimension=self.feedforward_dimension,
@@ -200,7 +197,6 @@ class DiffusionActionTransformer(ActionDecoder):
                 self.transformer = MMDiTTransformer(
                     number_of_layers=self.number_of_layers,
                     embedding_dimension=self.embedding_dimension,
-                    output_dimension=self.action_space.get_total_action_dim(),
                     number_of_heads=self.number_of_heads,
                     feedforward_dimension=self.feedforward_dimension,
                     dropout=self.dropout_rate,
@@ -277,16 +273,15 @@ class DiffusionActionTransformer(ActionDecoder):
                 "DiffusionActionTransformer requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
-        batch_size, action_device = validate_noisy_action_tensors(
+        noisy_actions = self.action_space.concatenate_action_tensors(
             actions=actions,
-            action_heads=self.action_heads,
             prediction_horizon=self.prediction_horizon,
-            decoder_name=self.__class__.__name__,
+            owner_name=self.__class__.__name__,
         )
         timesteps = extract_timestep_conditioning(
             features=features,
-            batch_size=batch_size,
-            action_device=action_device,
+            batch_size=noisy_actions.shape[0],
+            action_device=noisy_actions.device,
         )
         observation_features = filter_timestep_feature(features=features)
         (
@@ -296,10 +291,6 @@ class DiffusionActionTransformer(ActionDecoder):
         ) = self._prepare_observation_tokens(observation_features)
         if observation_positional_encodings is not None:
             observation_tokens = observation_tokens + observation_positional_encodings
-        action_tensors = []
-        for action_key in sorted(actions.keys()):
-            action_tensors.append(actions[action_key])
-        noisy_actions = torch.cat(action_tensors, dim=-1)
         noisy_embedding = self.noisy_input_projection(noisy_actions)
 
         if self._caching_enabled and isinstance(self.transformer, CrossAttentionDiT):
@@ -307,7 +298,7 @@ class DiffusionActionTransformer(ActionDecoder):
                 self._conditioning_cache = self.transformer.precompute_conditioning_kv(
                     encoder_hidden_states=observation_tokens,
                 )
-            noise_predictions = self.transformer(
+            action_hidden, action_conditioning = self.transformer.forward_features(
                 decoder_hidden_states=noisy_embedding,
                 timesteps=timesteps,
                 conditioning_cache=self._conditioning_cache,
@@ -315,21 +306,18 @@ class DiffusionActionTransformer(ActionDecoder):
                 decoder_padding_mask=None,
             )
         else:
-            noise_predictions = self.transformer(
+            action_hidden, action_conditioning = self.transformer.forward_features(
                 decoder_hidden_states=noisy_embedding,
                 timesteps=timesteps,
                 encoder_hidden_states=observation_tokens,
                 encoder_padding_mask=observation_padding_mask,
                 decoder_padding_mask=None,
             )
-
-        outputs = {}
-        start_index = 0
-        for action_key in sorted(actions.keys()):
-            head = self.action_heads[action_key]
-            end_index = start_index + head.output_dim
-            action_slice = noise_predictions[..., start_index:end_index]
-            outputs[action_key] = action_slice
-            start_index = end_index
-
-        return outputs
+        noise_predictions = self._conditional_action_head()(
+            action_hidden,
+            action_conditioning,
+        )
+        return self.action_space.split_action_tensor(
+            action_tensor=noise_predictions,
+            owner_name=self.__class__.__name__,
+        )

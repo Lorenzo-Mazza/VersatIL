@@ -2,6 +2,7 @@
 
 import logging
 import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -128,3 +129,8 @@ class PolicyLoader(BasePolicyLoader):
     def policy(self) -> Policy:
         """Get the loaded policy."""
         return self._policy
+
+    @property
+    def client_identifier(self) -> str:
+        """Identify rollouts by checkpoint directory and checkpoint stem."""
+        return str(Path(self._checkpoint_path) / Path(self._checkpoint_name).stem)

@@ -33,19 +33,17 @@ from versatil.post_training_compression.pruning import (
     StructuredPruner,
     UnstructuredPruner,
 )
-from versatil.quantization.torch_patches import patch_get_source_partitions
 
 
 @pytest.fixture(autouse=True, scope="session")
 def _configure_quantization_env():
-    """Set env vars and patch source partitions once per session."""
+    """Set env vars for quantization integration tests."""
     original_freezing = os.environ.get("TORCHINDUCTOR_FREEZING")
     original_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
     original_cpp = inductor_config.cpp_wrapper
     os.environ["TORCHINDUCTOR_FREEZING"] = "1"
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     inductor_config.cpp_wrapper = True
-    patch_get_source_partitions()
     yield
     if original_freezing is None:
         os.environ.pop("TORCHINDUCTOR_FREEZING", None)

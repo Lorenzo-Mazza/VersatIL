@@ -19,6 +19,7 @@ from versatil.data.constants import (
 )
 from versatil.data.metadata import (
     CameraMetadata,
+    DepthCameraMetadata,
     GripperActionMetadata,
     GripperObservationMetadata,
     OnTheFlyActionMetadata,
@@ -26,34 +27,47 @@ from versatil.data.metadata import (
     OrientationObservationMetadata,
     PositionActionMetadata,
     PositionObservationMetadata,
+    RGBCameraMetadata,
 )
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import LossOutput
 from versatil.models.policy import Policy
 
 MINIMUM_VRAM_GB = 8.0
+MINIMUM_FREE_VRAM_GB = 2.0
 
 
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     """Skip ``@pytest.mark.requires_gpu`` tests when CUDA is unavailable."""
-    if torch.cuda.is_available():
+    if _cuda_has_sufficient_memory():
         return
     skip_requires_gpu = pytest.mark.skip(
-        reason="requires CUDA; unavailable in this environment"
+        reason="requires CUDA with sufficient free memory; unavailable in this environment"
     )
     for item in items:
         if "requires_gpu" in item.keywords:
             item.add_marker(skip_requires_gpu)
 
 
+def _cuda_has_sufficient_memory() -> bool:
+    """Return whether CUDA is available with enough total and free VRAM for tests."""
+    if not torch.cuda.is_available():
+        return False
+    total_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+    try:
+        free_memory_bytes, _ = torch.cuda.mem_get_info(0)
+    except RuntimeError:
+        return False
+    free_vram_gb = free_memory_bytes / 1e9
+    return total_vram_gb > MINIMUM_VRAM_GB and free_vram_gb > MINIMUM_FREE_VRAM_GB
+
+
 def get_test_device() -> torch.device:
     """Return CUDA device if available with sufficient VRAM, else CPU."""
-    if torch.cuda.is_available():
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-        if vram_gb > MINIMUM_VRAM_GB:
-            return torch.device("cuda")
+    if _cuda_has_sufficient_memory():
+        return torch.device("cuda")
     return torch.device("cpu")
 
 
@@ -292,15 +306,37 @@ def gripper_observation_metadata_factory() -> Callable[..., GripperObservationMe
 def camera_metadata_factory() -> Callable[..., CameraMetadata]:
     def factory(
         camera_key: str = Cameras.LEFT.value,
-        dtype: str = "uint8",
+        dtype: str | None = None,
         channels: int = 3,
         image_width: int = 64,
         image_height: int = 64,
     ) -> CameraMetadata:
-        return CameraMetadata(
+        if camera_key == Cameras.DEPTH.value:
+            if channels != 1:
+                raise ValueError(
+                    f"Depth camera metadata uses one channel, got {channels}"
+                )
+            if dtype is None:
+                dtype = "float32"
+            return DepthCameraMetadata(
+                camera_key=camera_key,
+                dtype=dtype,
+                image_width=image_width,
+                image_height=image_height,
+            )
+        if dtype is None:
+            dtype = "uint8"
+        if channels != 3:
+            return CameraMetadata(
+                camera_key=camera_key,
+                dtype=dtype,
+                channels=channels,
+                image_width=image_width,
+                image_height=image_height,
+            )
+        return RGBCameraMetadata(
             camera_key=camera_key,
             dtype=dtype,
-            channels=channels,
             image_width=image_width,
             image_height=image_height,
         )

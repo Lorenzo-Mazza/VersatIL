@@ -2,13 +2,16 @@
 
 import re
 from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 import torch.nn as nn
 
 from versatil.models.decoding.action_heads.blocks import (
+    AdaNormBlock,
     AttentionBlock,
+    LayerNormBlock,
     MLPBlock,
     ResidualBlock,
 )
@@ -61,6 +64,31 @@ def attention_block_factory() -> Callable[..., AttentionBlock]:
     return factory
 
 
+@pytest.fixture
+def adanorm_block_factory() -> Callable[..., AdaNormBlock]:
+    def factory(
+        input_dim: int = 64,
+        condition_dim: int = 16,
+        activation: str = ActivationFunction.SILU.value,
+    ) -> AdaNormBlock:
+        return AdaNormBlock(
+            input_dim=input_dim,
+            condition_dim=condition_dim,
+            activation=activation,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def layer_norm_block_factory() -> Callable[..., LayerNormBlock]:
+    def factory(input_dim: int = 64) -> LayerNormBlock:
+        return LayerNormBlock(input_dim=input_dim)
+
+    return factory
+
+
+@pytest.mark.unit
 class TestMLPBlockInitialization:
     @pytest.mark.parametrize("input_dim", [32, 128])
     @pytest.mark.parametrize(
@@ -111,32 +139,41 @@ class TestMLPBlockInitialization:
         assert isinstance(block.norm, expected_type)
 
 
+@pytest.mark.unit
 class TestMLPBlockForward:
-    @pytest.mark.parametrize(
-        "hidden_dims, output_dim",
-        [
-            ([32], None),
-            ([64, 16], None),
-            (None, 48),
-        ],
-    )
-    def test_output_shape(
+    def test_passes_normalized_embedding_to_mlp(
         self,
         mlp_block_factory: Callable[..., MLPBlock],
         embedding_tensor_factory: Callable[..., torch.Tensor],
-        hidden_dims: list[int] | None,
-        output_dim: int | None,
     ):
-        block = mlp_block_factory(
-            input_dim=64,
-            hidden_dims=hidden_dims,
-            output_dim=output_dim,
-        )
+        block = mlp_block_factory(input_dim=64, hidden_dims=[32])
         embedding = embedding_tensor_factory(embedding_dimension=64)
-        result = block(embedding)
-        expected_last_dim = output_dim if output_dim is not None else hidden_dims[-1]
-        assert result.shape == (2, 8, expected_last_dim)
+        normalized_embedding = torch.full_like(embedding, 2.0)
+        expected_output = torch.ones(embedding.shape[0], embedding.shape[1], 32)
+        norm_forward = MagicMock(
+            spec=block.norm.forward,
+            return_value=normalized_embedding,
+        )
+        mlp_forward = MagicMock(
+            spec=block.mlp.forward,
+            return_value=expected_output,
+        )
 
+        with (
+            patch.object(block.norm, "forward", norm_forward),
+            patch.object(block.mlp, "forward", mlp_forward),
+        ):
+            result = block(embedding)
+
+        norm_forward.assert_called_once()
+        mlp_forward.assert_called_once()
+        torch.testing.assert_close(norm_forward.call_args.args[0], embedding)
+        torch.testing.assert_close(mlp_forward.call_args.args[0], normalized_embedding)
+        torch.testing.assert_close(result, expected_output)
+
+
+@pytest.mark.integration
+class TestMLPBlockBehaviour:
     def test_different_activations_produce_different_outputs(
         self,
         mlp_block_factory: Callable[..., MLPBlock],
@@ -152,6 +189,97 @@ class TestMLPBlockForward:
         assert not torch.allclose(result_gelu, result_relu)
 
 
+@pytest.mark.unit
+class TestLayerNormBlockInitialization:
+    @pytest.mark.parametrize("input_dim", [32, 128])
+    def test_stores_dimensions(
+        self,
+        layer_norm_block_factory: Callable[..., LayerNormBlock],
+        input_dim: int,
+    ) -> None:
+        block = layer_norm_block_factory(input_dim=input_dim)
+
+        assert block.input_dim == input_dim
+        assert block.output_dim == input_dim
+        assert isinstance(block.norm, nn.LayerNorm)
+
+
+@pytest.mark.unit
+class TestLayerNormBlockForward:
+    def test_passes_embedding_to_layer_norm(
+        self,
+        layer_norm_block_factory: Callable[..., LayerNormBlock],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        block = layer_norm_block_factory(input_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        expected_output = torch.ones_like(embedding)
+        norm_forward = MagicMock(
+            spec=block.norm.forward,
+            return_value=expected_output,
+        )
+
+        with patch.object(block.norm, "forward", norm_forward):
+            result = block(embedding)
+
+        norm_forward.assert_called_once()
+        torch.testing.assert_close(norm_forward.call_args.args[0], embedding)
+        torch.testing.assert_close(result, expected_output)
+
+
+@pytest.mark.unit
+class TestAdaNormBlockInitialization:
+    @pytest.mark.parametrize("input_dim", [32, 128])
+    @pytest.mark.parametrize("condition_dim", [16, 64])
+    def test_stores_dimensions(
+        self,
+        adanorm_block_factory: Callable[..., AdaNormBlock],
+        input_dim: int,
+        condition_dim: int,
+    ) -> None:
+        block = adanorm_block_factory(
+            input_dim=input_dim,
+            condition_dim=condition_dim,
+        )
+
+        assert block.input_dim == input_dim
+        assert block.output_dim == input_dim
+
+
+@pytest.mark.unit
+class TestAdaNormBlockForward:
+    def test_passes_action_embedding_and_condition_to_adaptive_norm(
+        self,
+        adanorm_block_factory: Callable[..., AdaNormBlock],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        condition_dim = 16
+        block = adanorm_block_factory(input_dim=64, condition_dim=condition_dim)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        condition = torch.ones(embedding.shape[0], condition_dim)
+        expected_output = torch.ones_like(embedding)
+        ada_norm_forward = MagicMock(
+            spec=block.ada_norm.forward,
+            return_value=(expected_output, None),
+        )
+
+        with patch.object(
+            block.ada_norm,
+            "forward",
+            ada_norm_forward,
+        ):
+            result = block(
+                action_embedding=embedding,
+                condition=condition,
+            )
+
+        ada_norm_forward.assert_called_once()
+        torch.testing.assert_close(ada_norm_forward.call_args.args[0], embedding)
+        torch.testing.assert_close(ada_norm_forward.call_args.args[1], condition)
+        torch.testing.assert_close(result, expected_output)
+
+
+@pytest.mark.unit
 class TestAttentionBlockInitialization:
     @pytest.mark.parametrize("embedding_dimension", [32, 128])
     def test_stores_dimensions(
@@ -180,17 +308,50 @@ class TestAttentionBlockInitialization:
         assert isinstance(block.norm, expected_type)
 
 
+@pytest.mark.unit
 class TestAttentionBlockForward:
-    def test_output_shape_preserves_input_shape(
+    def test_passes_normalized_embedding_to_attention_and_dropout(
         self,
         attention_block_factory: Callable[..., AttentionBlock],
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        block = attention_block_factory(embedding_dimension=64)
+        block = attention_block_factory(embedding_dimension=64, dropout=0.0)
         embedding = embedding_tensor_factory(embedding_dimension=64)
-        result = block(embedding)
-        assert result.shape == embedding.shape
+        normalized_embedding = torch.full_like(embedding, 2.0)
+        attention_output = torch.ones_like(embedding)
+        dropout_output = torch.full_like(embedding, 3.0)
+        norm_forward = MagicMock(
+            spec=block.norm.forward,
+            return_value=normalized_embedding,
+        )
+        attention_forward = MagicMock(
+            spec=block.attention.forward,
+            return_value=(attention_output, None),
+        )
+        dropout_forward = MagicMock(
+            spec=block.dropout.forward,
+            return_value=dropout_output,
+        )
 
+        with (
+            patch.object(block.norm, "forward", norm_forward),
+            patch.object(block.attention, "forward", attention_forward),
+            patch.object(block.dropout, "forward", dropout_forward),
+        ):
+            result = block(embedding)
+
+        norm_forward.assert_called_once()
+        attention_forward.assert_called_once()
+        dropout_forward.assert_called_once()
+        torch.testing.assert_close(norm_forward.call_args.args[0], embedding)
+        for attention_argument in attention_forward.call_args.args:
+            torch.testing.assert_close(attention_argument, normalized_embedding)
+        torch.testing.assert_close(dropout_forward.call_args.args[0], attention_output)
+        torch.testing.assert_close(result, embedding + dropout_output)
+
+
+@pytest.mark.integration
+class TestAttentionBlockBehaviour:
     def test_residual_adds_attention_output_to_input(
         self,
         attention_block_factory: Callable[..., AttentionBlock],
@@ -201,9 +362,10 @@ class TestAttentionBlockForward:
         normalized = block.norm(embedding)
         attention_output, _ = block.attention(normalized, normalized, normalized)
         result = block(embedding)
-        assert torch.allclose(result, embedding + attention_output)
+        torch.testing.assert_close(result, embedding + attention_output)
 
 
+@pytest.mark.unit
 class TestResidualBlockInitialization:
     @pytest.mark.parametrize("dim", [32, 64])
     def test_stores_configuration(self, dim: int):
@@ -224,17 +386,41 @@ class TestResidualBlockInitialization:
             ResidualBlock(block=inner)
 
 
+@pytest.mark.unit
 class TestResidualBlockForward:
-    def test_output_shape_preserves_input_shape(
+    def test_passes_embedding_to_wrapped_block_and_dropout(
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
         inner = MLPBlock(input_dim=64, hidden_dims=[64])
         block = ResidualBlock(block=inner)
         embedding = embedding_tensor_factory(embedding_dimension=64)
-        result = block(embedding)
-        assert result.shape == embedding.shape
+        inner_output = torch.ones_like(embedding)
+        dropout_output = torch.full_like(embedding, 2.0)
+        inner_forward = MagicMock(
+            spec=inner.forward,
+            return_value=inner_output,
+        )
+        dropout_forward = MagicMock(
+            spec=block.dropout.forward,
+            return_value=dropout_output,
+        )
 
+        with (
+            patch.object(inner, "forward", inner_forward),
+            patch.object(block.dropout, "forward", dropout_forward),
+        ):
+            result = block(embedding)
+
+        inner_forward.assert_called_once()
+        dropout_forward.assert_called_once()
+        torch.testing.assert_close(inner_forward.call_args.args[0], embedding)
+        torch.testing.assert_close(dropout_forward.call_args.args[0], inner_output)
+        torch.testing.assert_close(result, embedding + dropout_output)
+
+
+@pytest.mark.integration
+class TestResidualBlockBehaviour:
     def test_residual_adds_block_output_to_input(
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],
@@ -244,4 +430,4 @@ class TestResidualBlockForward:
         embedding = embedding_tensor_factory(embedding_dimension=64)
         inner_output = inner(embedding)
         result = block(embedding)
-        assert torch.allclose(result, embedding + inner_output)
+        torch.testing.assert_close(result, embedding + inner_output)

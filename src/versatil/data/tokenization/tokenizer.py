@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 from versatil.configs.data.tokenizer import TokenizationConfig
-from versatil.data.constants import TokenizerType
+from versatil.data.constants import ActionDiscretizerType, ActionTokenIdMappingType
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 
@@ -123,7 +123,8 @@ class Tokenizer:
         )
 
 
-def validate_tokenizer_config(config: TokenizationConfig):
+def validate_tokenizer_config(config: TokenizationConfig) -> None:
+    """Validate observation and action tokenizer configuration consistency."""
     if config.tokenize_observations and config.observation_tokenizer is None:
         raise ValueError(
             "observation_tokenizer must be provided when tokenize_observations=True"
@@ -132,17 +133,26 @@ def validate_tokenizer_config(config: TokenizationConfig):
         raise ValueError("action_tokenizer must be provided when tokenize_actions=True")
 
     if config.action_tokenizer is not None:
-        valid_tokenizers = [t.value for t in TokenizerType]
-        for tokenizer in config.action_tokenizer.tokenizer_chain:
-            if tokenizer not in valid_tokenizers:
-                raise ValueError(
-                    f"Invalid tokenizer '{tokenizer}' in chain. Must be one of {valid_tokenizers}"
-                )
-        # Validate language tokenizer model is provided if needed
+        valid_discretizers = [t.value for t in ActionDiscretizerType]
+        action_discretizer = config.action_tokenizer.action_discretizer
+        if action_discretizer.type not in valid_discretizers:
+            raise ValueError(
+                f"Invalid action discretizer '{action_discretizer.type}'. "
+                f"Must be one of {valid_discretizers}"
+            )
+
+        valid_mappings = [t.value for t in ActionTokenIdMappingType]
+        token_id_mapping = config.action_tokenizer.token_id_mapping
+        if token_id_mapping.type not in valid_mappings:
+            raise ValueError(
+                f"Invalid action token-id mapping '{token_id_mapping.type}'. "
+                f"Must be one of {valid_mappings}"
+            )
         if (
-            TokenizerType.LANGUAGE.value in config.action_tokenizer.tokenizer_chain
-            and config.action_tokenizer.language_tokenizer_model is None
+            token_id_mapping.type == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+            and token_id_mapping.language_tokenizer_model is None
         ):
             raise ValueError(
-                f"language_tokenizer_model must be provided when '{TokenizerType.LANGUAGE.value}' key is in tokenizer_chain"
+                "language_tokenizer_model must be provided for language-vocabulary "
+                "action token-id mapping"
             )

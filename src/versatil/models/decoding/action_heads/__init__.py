@@ -11,10 +11,14 @@ This package provides composable building blocks for action prediction heads:
 from versatil.models.decoding.action_heads.base import BaseActionHead
 from versatil.models.decoding.action_heads.blocks import (
     ActionHeadBlock,
+    AdaNormBlock,
     AttentionBlock,
+    ConditionalActionHeadBlock,
+    LayerNormBlock,
     MLPBlock,
     ResidualBlock,
 )
+from versatil.models.decoding.action_heads.conditional import ConditionalActionHead
 from versatil.models.decoding.action_heads.gaussian import (
     GaussianHead,
 )
@@ -25,11 +29,15 @@ from versatil.models.decoding.action_heads.single_output import (
 
 __all__ = [
     "ActionHeadBlock",
+    "ConditionalActionHeadBlock",
     "MLPBlock",
+    "LayerNormBlock",
     "AttentionBlock",
     "ResidualBlock",
+    "AdaNormBlock",
     "BaseActionHead",
     "ActionHead",
+    "ConditionalActionHead",
     "GaussianHead",
     "MoEHead",
 ]

@@ -4,13 +4,15 @@ import os
 from pathlib import Path
 
 from hydra.core.config_store import ConfigStore
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from versatil_constants.tso import TSOObsKey
 
+from versatil.configs.adaptation import LoRAAdaptationConfig
 from versatil.configs.data.augmentations import AugmentationPipelineConfig
 from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.configs.data.metadata import (
     CameraMetadataConfig,
+    DepthCameraMetadataConfig,
     GripperActionMetadataConfig,
     GripperObservationMetadataConfig,
     ObservationMetadataConfig,
@@ -19,6 +21,7 @@ from versatil.configs.data.metadata import (
     PositionActionMetadataConfig,
     PositionObservationMetadataConfig,
     PrecomputedActionMetadataConfig,
+    RGBCameraMetadataConfig,
 )
 from versatil.configs.data.raw import (
     CsvDatasetSchemaConfig,
@@ -34,6 +37,8 @@ from versatil.configs.data.task import (
     TaskSpaceConfig,
 )
 from versatil.configs.data.tokenizer import (
+    ActionDiscretizerConfig,
+    ActionTokenIdMappingConfig,
     ActionTokenizationConfig,
     ObservationTokenizationConfig,
     TokenizationConfig,
@@ -41,7 +46,9 @@ from versatil.configs.data.tokenizer import (
 from versatil.configs.decoding.action_head import (
     ActionHeadBlockConfig,
     ActionHeadConfig,
+    AdaNormBlockConfig,
     AttentionBlockConfig,
+    ConditionalActionHeadConfig,
     GaussianHeadConfig,
     MixtureOfExpertsHeadConfig,
     MLPBlockConfig,
@@ -57,17 +64,16 @@ from versatil.configs.decoding.algorithm import (
 from versatil.configs.decoding.decoder import (
     ACTConfig,
     ActionTransformerConfig,
+    AutoregressiveVLAConfig,
     ConditionalActionUNetConfig,
     DecodingNetworkConfig,
     DiffusionActionTransformerConfig,
-    DiscreteDETRActionTransformerConfig,
     DiTBlockActionTransformerConfig,
-    FreeActionTransformerConfig,
     GPTActionTransformerConfig,
     LACTConfig,
     MixtureOfDensitiesActionTransformerConfig,
     MixtureOfExpertsDecoderConfig,
-    MoEFreeActionTransformerConfig,
+    OpenVLAOFTConfig,
     PhaseACTConfig,
     Pi0DecoderConfig,
     SmolVLADecoderConfig,
@@ -87,17 +93,16 @@ from versatil.configs.decoding.latent import (
 from versatil.configs.encoding.encoder import (
     ConditionalCNNEncoderConfig,
     DFormerEncoderConfig,
+    DinoV2SigLIPRGBEncoderConfig,
     EncoderConfig,
     FlatRGBEncoderConfig,
     GeometricRGBDEncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
-    PaliGemmaEncoderConfig,
     ProprioEncoderConfig,
-    SmolVLMEncoderConfig,
     SpatialDepthEncoderConfig,
     SpatialRGBEncoderConfig,
-    TwoTowerVLMEncoderConfig,
+    VLMEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
@@ -165,6 +170,8 @@ from versatil.configs.training import (
 )
 from versatil.data.constants import (
     ActionComputationMethod,
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
@@ -185,6 +192,7 @@ from versatil.data.constants import (
 from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
+from versatil.models.adaptation.constants import LoRATargetModulePreset
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     DiTType,
@@ -194,14 +202,19 @@ from versatil.models.decoding.constants import (
     MoERoutingType,
     TimeConditioning,
 )
+from versatil.models.decoding.generative_language_models.constants import (
+    PRISMATIC_LLM_BACKBONES,
+    PaliGemmaModelType,
+    PrismaticLLMBackboneType,
+    PrismaticModelType,
+    SmolVLMModelType,
+)
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     ImageTextModelType,
     LanguageEncoderType,
-    PaliGemmaModelType,
     PoolingMethod,
     RGBBackboneType,
-    SmolVLMModelType,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
@@ -229,21 +242,24 @@ __all__ = [
     "TrainingStageConfig",
     "TaskSpaceConfig",
     "PolicyConfig",
+    "LoRAAdaptationConfig",
     "EncoderConfig",
     "ImageEncoderConfig",
     "SpatialDepthEncoderConfig",
     "SpatialRGBEncoderConfig",
     "FlatRGBEncoderConfig",
+    "DinoV2SigLIPRGBEncoderConfig",
     "ProprioEncoderConfig",
     "LanguageEncoderConfig",
     "DecodingNetworkConfig",
     "ACTConfig",
     "ConditionalActionUNetConfig",
+    "AutoregressiveVLAConfig",
+    "OpenVLAOFTConfig",
     "Pi0DecoderConfig",
     "SmolVLADecoderConfig",
     "DiTBlockActionTransformerConfig",
     "DiffusionActionTransformerConfig",
-    "FreeActionTransformerConfig",
     "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
     "InferenceConfig",
@@ -260,8 +276,10 @@ __all__ = [
     "DiTPriorConfig",
     "VampPriorConfig",
     "ActionHeadConfig",
+    "ConditionalActionHeadConfig",
     "MixtureOfExpertsHeadConfig",
     "ActionHeadBlockConfig",
+    "AdaNormBlockConfig",
     "AttentionBlockConfig",
     "MLPBlockConfig",
     "ResidualBlockConfig",
@@ -323,6 +341,63 @@ def _stage_split_epoch(num_epochs: int | float | str, fraction: float | str) -> 
     return min(max(split_epoch, 1), total_epochs - 1)
 
 
+def _multiply_resolver(
+    left: int | float | str, right: int | float | str
+) -> int | float:
+    """Multiply numeric OmegaConf resolver inputs.
+
+    Args:
+        left: Left operand.
+        right: Right operand.
+
+    Returns:
+        Integer product for integer operands, otherwise floating-point product.
+    """
+    left_value = float(left)
+    right_value = float(right)
+    product = left_value * right_value
+    if _is_integer_resolver_value(value=left) and _is_integer_resolver_value(
+        value=right
+    ):
+        return int(product)
+    return product
+
+
+def _integer_multiply_resolver(
+    left: int | float | str, right: int | float | str
+) -> int:
+    """Multiply numeric OmegaConf resolver inputs and return an integer."""
+    return int(float(left) * float(right))
+
+
+def _is_integer_resolver_value(value: int | float | str) -> bool:
+    """Return whether a resolver input represents an integer value."""
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return value.is_integer()
+    normalized_value = value.strip()
+    if normalized_value.startswith("-"):
+        normalized_value = normalized_value[1:]
+    return normalized_value.isdecimal()
+
+
+def _action_space_prediction_dimension_resolver(action_space: DictConfig) -> int:
+    """Return total predicted action dimension from an action-space config.
+
+    Args:
+        action_space: Action-space config containing ``actions_metadata``.
+
+    Returns:
+        Total prediction dimension for actions that require prediction heads.
+    """
+    total_dimension = 0
+    for metadata in action_space.actions_metadata.values():
+        if metadata.get("requires_prediction_head", True):
+            total_dimension += int(metadata.prediction_dimension)
+    return total_dimension
+
+
 def register_resolvers():
     """Register custom OmegaConf resolvers for enum access in YAML configs.
 
@@ -356,6 +431,10 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "precision", lambda name: PrecisionType[name].value
         )
+    if not OmegaConf.has_resolver("lora_target_modules"):
+        OmegaConf.register_new_resolver(
+            "lora_target_modules", lambda name: LoRATargetModulePreset[name].value
+        )
     if not OmegaConf.has_resolver("float32_matmul"):
         OmegaConf.register_new_resolver(
             "float32_matmul", lambda name: Float32MatmulPrecision[name].value
@@ -380,6 +459,15 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "paligemma_model", lambda name: PaliGemmaModelType[name].value
         )
+    if not OmegaConf.has_resolver("prismatic_model"):
+        OmegaConf.register_new_resolver(
+            "prismatic_model", lambda name: PrismaticModelType[name].value
+        )
+    if not OmegaConf.has_resolver("prismatic_llm_model"):
+        OmegaConf.register_new_resolver(
+            "prismatic_llm_model",
+            lambda name: PRISMATIC_LLM_BACKBONES[PrismaticLLMBackboneType[name]],
+        )
     if not OmegaConf.has_resolver("activation_function"):
         OmegaConf.register_new_resolver(
             "activation_function", lambda name: ActivationFunction[name].value
@@ -399,6 +487,15 @@ def register_resolvers():
     if not OmegaConf.has_resolver("tokenizer_type"):
         OmegaConf.register_new_resolver(
             "tokenizer_type", lambda name: TokenizerType[name].value
+        )
+    if not OmegaConf.has_resolver("action_discretizer"):
+        OmegaConf.register_new_resolver(
+            "action_discretizer", lambda name: ActionDiscretizerType[name].value
+        )
+    if not OmegaConf.has_resolver("action_token_id_mapping"):
+        OmegaConf.register_new_resolver(
+            "action_token_id_mapping",
+            lambda name: ActionTokenIdMappingType[name].value,
         )
     if not OmegaConf.has_resolver("kinematics_norm_type"):
         OmegaConf.register_new_resolver(
@@ -633,13 +730,24 @@ def register_resolvers():
     if not OmegaConf.has_resolver("mul"):
         OmegaConf.register_new_resolver(
             "mul",
-            lambda a, b: float(a) * float(b),
+            _multiply_resolver,
+        )
+    if not OmegaConf.has_resolver("int_mul"):
+        OmegaConf.register_new_resolver(
+            "int_mul",
+            _integer_multiply_resolver,
+        )
+    if not OmegaConf.has_resolver("action_space_prediction_dimension"):
+        OmegaConf.register_new_resolver(
+            "action_space_prediction_dimension",
+            _action_space_prediction_dimension_resolver,
         )
     if not OmegaConf.has_resolver("stage_split_epoch"):
         OmegaConf.register_new_resolver("stage_split_epoch", _stage_split_epoch)
 
 
-def register_configs():
+def register_configs() -> None:
+    """Register Hydra config groups in the global ConfigStore."""
     cs = ConfigStore.instance()
 
     cs.store(name="config", node=MainConfig)
@@ -674,6 +782,16 @@ def register_configs():
         group="task/dataset_schema/metadata/camera",
         name="base",
         node=CameraMetadataConfig,
+    )
+    cs.store(
+        group="task/dataset_schema/metadata/camera",
+        name="rgb",
+        node=RGBCameraMetadataConfig,
+    )
+    cs.store(
+        group="task/dataset_schema/metadata/camera",
+        name="depth",
+        node=DepthCameraMetadataConfig,
     )
     cs.store(
         group="task/dataset_schema/metadata/precomputed_action",
@@ -725,6 +843,16 @@ def register_configs():
         node=ActionTokenizationConfig,
     )
     cs.store(
+        group="task/dataloader/tokenization/action/discretizer",
+        name="base",
+        node=ActionDiscretizerConfig,
+    )
+    cs.store(
+        group="task/dataloader/tokenization/action/token_id_mapping",
+        name="base",
+        node=ActionTokenIdMappingConfig,
+    )
+    cs.store(
         group="task/dataloader/tokenization/observation",
         name="base",
         node=ObservationTokenizationConfig,
@@ -743,6 +871,7 @@ def register_configs():
     )
 
     cs.store(group="policy", name="base", node=PolicyConfig)
+    cs.store(group="policy/adaptation/lora", name="base", node=LoRAAdaptationConfig)
     cs.store(group="policy/algorithm", name="base", node=DecodingAlgorithmConfig)
     cs.store(group="policy/algorithm", name="bc", node=BehavioralCloningConfig)
     cs.store(group="policy/algorithm", name="diffusion_process", node=DiffusionConfig)
@@ -882,19 +1011,14 @@ def register_configs():
         node=FlatRGBEncoderConfig,
     )
     cs.store(
-        group="policy/encoding_pipeline/encoder/vlm",
-        name="two_tower_vlm",
-        node=TwoTowerVLMEncoderConfig,
+        group="policy/encoding_pipeline/encoder/image",
+        name="dinov2_siglip",
+        node=DinoV2SigLIPRGBEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/vlm",
-        name="paligemma",
-        node=PaliGemmaEncoderConfig,
-    )
-    cs.store(
-        group="policy/encoding_pipeline/encoder/vlm",
-        name="smolvlm",
-        node=SmolVLMEncoderConfig,
+        name="vlm_encoder",
+        node=VLMEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
@@ -949,18 +1073,13 @@ def register_configs():
     cs.store(group="policy/decoder", name="gpt", node=GPTActionTransformerConfig)
     cs.store(
         group="policy/decoder",
-        name="discrete_detr",
-        node=DiscreteDETRActionTransformerConfig,
+        name="autoregressive_vla_config",
+        node=AutoregressiveVLAConfig,
     )
     cs.store(
         group="policy/decoder",
-        name="free_transformer",
-        node=FreeActionTransformerConfig,
-    )
-    cs.store(
-        group="policy/decoder",
-        name="moe_free_transformer",
-        node=MoEFreeActionTransformerConfig,
+        name="openvla_oft_config",
+        node=OpenVLAOFTConfig,
     )
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
     cs.store(group="policy/decoder", name="lact_decoder", node=LACTConfig)
@@ -976,6 +1095,11 @@ def register_configs():
     cs.store(group="policy/decoder", name="smolvla", node=SmolVLADecoderConfig)
     cs.store(group="policy/decoder", name="pi0", node=Pi0DecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
+    cs.store(
+        group="policy/decoder/action_head",
+        name="conditional",
+        node=ConditionalActionHeadConfig,
+    )
     cs.store(
         group="policy/decoder/action_head", name="gaussian", node=GaussianHeadConfig
     )
@@ -995,6 +1119,7 @@ def register_configs():
     cs.store(
         group="policy/decoder/head_block", name="residual", node=ResidualBlockConfig
     )
+    cs.store(group="policy/decoder/head_block", name="adanorm", node=AdaNormBlockConfig)
 
     cs.store(
         name="post_training_compression",

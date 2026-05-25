@@ -8,21 +8,23 @@ import pytest
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.data.tokenization import Tokenizer
+from versatil.data.tokenization import ActionTokenizer, Tokenizer
 from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
 @pytest.fixture
 def mock_tokenizer_factory() -> Callable[..., MagicMock]:
     """Factory for mock Tokenizer with configurable vocab size."""
 
-    def factory(vocab_size: int = 32) -> MagicMock:
+    def factory(vocab_size: int = 32, max_token_len: int = 256) -> MagicMock:
         tokenizer = MagicMock(spec=Tokenizer)
-        tokenizer.action_tokenizer = MagicMock()
+        tokenizer.action_tokenizer = MagicMock(spec=ActionTokenizer)
         eos_token_id = vocab_size
         effective_vocab_size = vocab_size + 1
         tokenizer.action_tokenizer.vocab_size = effective_vocab_size
         tokenizer.action_tokenizer.eos_token_id = eos_token_id
+        tokenizer.action_tokenizer.max_token_len = max_token_len
         return tokenizer
 
     return factory
@@ -45,6 +47,74 @@ def tokenized_actions_factory(
             ).astype(np.int64)
         )
         return {SampleKey.TOKENIZED_ACTIONS.value: token_ids}
+
+    return factory
+
+
+@pytest.fixture
+def tokenized_text_features_factory() -> Callable[..., dict[str, torch.Tensor]]:
+    """Factory for tokenized language observation feature dictionaries."""
+
+    def factory(
+        batch_size: int = 2,
+        text_token_length: int = 4,
+        vocab_size: int = 64,
+        include_padding_mask: bool = True,
+        padded_last_token: bool = False,
+    ) -> dict[str, torch.Tensor]:
+        token_ids = torch.arange(batch_size * text_token_length).reshape(
+            batch_size,
+            text_token_length,
+        )
+        features = {
+            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids.remainder(vocab_size).to(
+                torch.long
+            )
+        }
+        if include_padding_mask:
+            padding_mask = torch.zeros(
+                batch_size,
+                text_token_length,
+                dtype=torch.bool,
+            )
+            if padded_last_token:
+                padding_mask[:, -1] = True
+            features[SampleKey.IS_PAD_OBSERVATION.value] = padding_mask
+        return features
+
+    return factory
+
+
+@pytest.fixture
+def encoded_sequence_features_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    """Factory for encoded sequential observation feature dictionaries."""
+
+    def factory(
+        key: str = "vision_features",
+        batch_size: int = 2,
+        feature_token_length: int = 5,
+        feature_dimension: int = 12,
+        include_padding_mask: bool = False,
+        padded_last_token: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        feature_values = rng.standard_normal(
+            size=(batch_size, feature_token_length, feature_dimension),
+        )
+        features = {
+            key: torch.as_tensor(feature_values, dtype=torch.float32),
+        }
+        if include_padding_mask:
+            padding_mask = torch.zeros(
+                batch_size,
+                feature_token_length,
+                dtype=torch.bool,
+            )
+            if padded_last_token:
+                padding_mask[:, -1] = True
+            features[f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"] = padding_mask
+        return features
 
     return factory
 

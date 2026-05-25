@@ -127,14 +127,11 @@ class EncodingPipeline(nn.Module):
             ValueError: If cameras sharing an encoder have different resolutions.
             ValueError: If encoder has camera keys but none are in the observation space.
         """
-        if isinstance(encoder, ImageEncoderMixin):
-            valid_cameras = encoder._camera_group
-        else:
+        if not isinstance(encoder, ImageEncoderMixin):
             return
 
-        camera_keys = [
-            key for key in encoder.input_specification.keys if key in valid_cameras
-        ]
+        encoder.set_camera_metadata(camera_metadata=camera_metadata)
+        camera_keys = encoder.camera_keys
         if not camera_keys:
             return
         image_sizes = set()

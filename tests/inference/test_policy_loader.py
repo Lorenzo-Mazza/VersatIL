@@ -37,6 +37,7 @@ def mock_config() -> MagicMock:
     config.task.dataloader.tokenization.tokenize_observations = False
     mock_policy = MagicMock()
     mock_policy.observation_space = MagicMock()
+    mock_policy.observation_space.depth_cameras = {}
     mock_policy.action_space = MagicMock()
     mock_policy.prediction_horizon = 16
     mock_policy.decoder.observation_horizon = 2
@@ -204,6 +205,12 @@ class TestPolicyLoaderProperties:
     ):
         loader = policy_loader_factory()
         assert loader.checkpoint_path == str(tmp_path)
+
+    def test_client_identifier_includes_checkpoint_stem(
+        self, policy_loader_factory, tmp_path
+    ):
+        loader = policy_loader_factory(checkpoint_name="latest-99.ckpt")
+        assert loader.client_identifier == str(tmp_path / "latest-99")
 
     def test_policy_property_exposes_loaded_policy(self, policy_loader_factory):
         loader = policy_loader_factory()
@@ -751,6 +758,7 @@ class TestDepthClampRange:
     ):
         loader = policy_loader_factory()
         depth_key = Cameras.DEPTH.value
+        loader._policy.observation_space.depth_cameras = {depth_key: MagicMock()}
         depth_params = nn.ParameterDict()
         loader._policy.normalizer.params_dict = nn.ParameterDict(
             {depth_key: depth_params}
@@ -769,6 +777,7 @@ class TestDepthClampRange:
     ):
         loader = policy_loader_factory()
         depth_key = Cameras.DEPTH.value
+        loader._policy.observation_space.depth_cameras = {depth_key: MagicMock()}
         depth_params = nn.ParameterDict()
         loader._policy.normalizer.params_dict = nn.ParameterDict(
             {depth_key: depth_params}

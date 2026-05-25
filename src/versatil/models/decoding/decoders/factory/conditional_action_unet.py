@@ -9,11 +9,11 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.decoding.constants import ActionHeadLayout
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.decoders.timestep_conditioning import (
     extract_timestep_conditioning,
     filter_timestep_feature,
-    validate_noisy_action_tensors,
 )
 from versatil.models.decoding.unet_input_builder import UNetInputBuilder
 from versatil.models.feature_meta import FeatureType
@@ -38,6 +38,8 @@ class ConditionalActionUNet(ActionDecoder):
     and expects the algorithm to handle noise scheduling and timestep injection.
     """
 
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.NONE
+
     def __init__(
         self,
         input_keys: list[str],
@@ -53,13 +55,13 @@ class ConditionalActionUNet(ActionDecoder):
         num_groups: int = 8,
         use_local_conditioning: bool = False,
         condition_predict_scale: bool = False,
-    ):
+    ) -> None:
         """Initialize Conditional U-Net decoder.
 
         Args:
             input_keys: List of feature keys expected from encoder pipeline
             action_space: Action space configuration
-            action_heads: Dictionary of action head modules
+            action_heads: Must be empty. The U-Net owns its final convolution.
             observation_space: Observation space configuration
             observation_horizon: Number of observation timesteps (for history)
             prediction_horizon: Number of actions to predict (horizon)
@@ -79,17 +81,6 @@ class ConditionalActionUNet(ActionDecoder):
             raises_for_types=[FeatureType.SPATIAL.value],
             requires_actions=True,
         )
-        for k, head in action_heads.items():
-            if len(head.blocks) > 0:
-                logging.warning(
-                    f"Action heads are ignored by ConditionalActionUNet, but one was provided for action '{k}'. Skipping."
-                )
-                action_heads[
-                    k
-                ].blocks = (
-                    nn.ModuleList()
-                )  # Replace with identity; U-Net handles all processing
-
         super().__init__(
             decoder_input=decoder_input,
             action_space=action_space,
@@ -121,7 +112,6 @@ class ConditionalActionUNet(ActionDecoder):
         self.unet_conditioning_builder = UNetInputBuilder(
             embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon > 1
         )
-        self.register_buffer("_device_tracker", torch.zeros(1))
 
         # U-Net will be lazily initialized on first forward pass
         # (once we know the global conditioning dimension)
@@ -145,7 +135,7 @@ class ConditionalActionUNet(ActionDecoder):
             kernel_size=self.kernel_size,
             num_groups=self.num_groups,
             condition_predict_scale=self.condition_predict_scale,
-        ).to(device=self._device_tracker.device, dtype=self._device_tracker.dtype)
+        ).to(device=self.device, dtype=self.dtype)
         logging.info(
             f"Initialized ConditionalUnet1D with global_conditioning_dimension={global_conditioning_dimension}"
         )
@@ -287,27 +277,17 @@ class ConditionalActionUNet(ActionDecoder):
                 "The algorithm should provide noisy actions during forward pass."
             )
 
-        batch_size, action_device = validate_noisy_action_tensors(
+        noisy_actions = self.action_space.concatenate_action_tensors(
             actions=actions,
-            action_heads=self.action_heads,
             prediction_horizon=self.prediction_horizon,
-            decoder_name=self.__class__.__name__,
+            owner_name=self.__class__.__name__,
         )
         timesteps = extract_timestep_conditioning(
             features=features,
-            batch_size=batch_size,
-            action_device=action_device,
+            batch_size=noisy_actions.shape[0],
+            action_device=noisy_actions.device,
         )  # (B,)
         observation_features = filter_timestep_feature(features=features)
-
-        # Concatenate all action modalities into single tensor
-        # Shape: (B, T, action_dimension) where T = prediction_horizon
-        action_tensors = []
-        for action_key in sorted(actions.keys()):
-            action_tensors.append(actions[action_key])
-        noisy_actions = torch.cat(
-            action_tensors, dim=-1
-        )  # (B, T, total_action_dimension)
 
         # Prepare global conditioning
         global_conditioning = self._prepare_global_conditioning(
@@ -327,16 +307,7 @@ class ConditionalActionUNet(ActionDecoder):
             global_conditioning=global_conditioning,
         )  # (B, T, action_dimension)
 
-        # Split denoised output through action heads
-        outputs = {}
-        start_index = 0
-        for action_key in sorted(actions.keys()):
-            head = self.action_heads[action_key]
-            end_index = start_index + head.output_dim
-            action_slice = denoised[
-                ..., start_index:end_index
-            ]  # (B, T, action_dimension_i)
-            outputs[action_key] = action_slice
-            start_index = end_index
-
-        return outputs
+        return self.action_space.split_action_tensor(
+            action_tensor=denoised,
+            owner_name=self.__class__.__name__,
+        )

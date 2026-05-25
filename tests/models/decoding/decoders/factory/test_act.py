@@ -91,6 +91,7 @@ def act_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestACTInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -163,6 +164,7 @@ class TestACTInitialization:
         )
 
 
+@pytest.mark.integration
 class TestACTForward:
     def test_output_keys_match_action_heads(
         self,
@@ -310,6 +312,7 @@ class TestACTForward:
             assert torch.equal(predictions_without[key], predictions_with[key])
 
 
+@pytest.mark.integration
 class TestACTTemporalObservation:
     @pytest.mark.parametrize(
         "observation_horizon, expects_temporal_pe",
@@ -332,6 +335,7 @@ class TestACTTemporalObservation:
             assert layer is None
 
 
+@pytest.mark.integration
 class TestACTDecodeActions:
     def test_decode_actions_output_shape(
         self,

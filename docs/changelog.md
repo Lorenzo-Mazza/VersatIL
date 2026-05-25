@@ -7,28 +7,176 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `AutoregressiveVLADecoder`, the VLM-backed autoregressive action-token
+  decoder used by the OpenVLA and pi0-FAST presets.
+- `OpenVLAOFTDecoder`, a VLM-backed continuous action-chunk decoder with
+  OpenVLA-OFT-style action slots, denoising-algorithm support, and joint
+  action-head output.
+- LIBERO end-to-end VLA presets for OpenVLA, OpenVLA-OFT, pi0-FAST, Pi0,
+  Pi0.5, and SmolVLA.
+- Decoder-local `vision_language_model` Hydra config groups for Prismatic,
+  PaliGemma, and SmolVLM backbones.
+- `PrismaticVLM`, including raw TRI-ML Prismatic checkpoint loading,
+  Prismatic projector construction, and DINOv2+SigLIP visual prefix support.
+- `GenerativeVLM` and `HuggingFaceGenerativeVLM` base classes so raw Prismatic
+  VLMs and HuggingFace AutoModel-backed VLMs share only the common generative
+  VLM contract.
+- `DinoV2SigLIPRGBEncoder`, a reusable flat RGB encoder that concatenates
+  DINOv2 and SigLIP patch features.
+- `VLMEncoder`, an encoder-pipeline module for policies that need image-text
+  VLM embeddings without owning a generative VLA backbone.
+- PEFT LoRA adaptation package, config store entries, and presets for
+  HuggingFace language encoders, VLM encoders, timm image encoders, and
+  generative VLM backbones.
+- `RGBCameraMetadata`, `DepthCameraMetadata`, and `CameraModality` for
+  semantic camera-modality validation.
+- `max_pixel_value` on camera metadata, used by image preprocessing for
+  metadata-driven pixel scaling.
+- Action-tokenization primitives split into `ActionDiscretizer` implementations
+  (`fast`, `binned`) and `ActionTokenIdMapping` implementations (`identity`,
+  `language_vocabulary`).
+- Shared `BinnedValueDiscretizer` for both observation tokenization and binned
+  action-token discretization.
+- `DiscreteDecoder` for tokenized-action decoders and
+  `AutoregressiveDecoderMixin` with cached generation state for GPT-style and
+  VLA autoregressive decoders.
+- Action-head layouts (`none`, `component`, `joint`, `vocabulary`) plus
+  conditional action heads with adaptive-normalization blocks.
+
+### Changed
+- Renamed the previous encoder-pipeline image-text embedding module to
+  `VLMEncoder` and moved its Hydra config to
+  `policy/encoding_pipeline/encoder/vlm/vlm_encoder`.
+- Moved generative VLM components out of the encoding package. VLA decoders now
+  depend on dedicated generative language-model components instead of treating
+  generative models as ordinary encoders.
+- Pi0 and SmolVLA decoders now own their VLM backbones and request raw
+  normalized/tokenized observations from `Policy`, instead of consuming VLM
+  embeddings produced by the encoding pipeline.
+- OpenVLA, OpenVLA-OFT, pi0-FAST, Pi0, Pi0.5, and SmolVLA configs now declare
+  their VLM backbones through decoder-local `vision_language_model` config
+  groups and default to LoRA-enabled HuggingFace/Prismatic backbones.
+- Pi0 and SmolVLA use the generic `policy/encoding_pipeline/proprio` preset for
+  proprioceptive features instead of the old LIBERO-specific VLA filename.
+- Encoder input specifications now declare semantic camera-modality
+  requirements. The validation layer checks those requirements against
+  observation-space metadata instead of relying on drift-prone RGB/depth key
+  lists inside encoder constructors.
+- RGB, depth, RGBD, and VLM encoders now use camera metadata modality checks for
+  generic compatibility, while keeping encoder-local validation for
+  architecture-specific constraints.
+- Action tokenizer configuration now names the action discretizer and token-ID
+  mapping separately, so FAST tokens, binned action tokens, identity IDs, and
+  language-vocabulary IDs can be mixed without encoding that choice in one
+  tokenizer type.
+- OpenVLA and pi0-FAST presets use `AutoregressiveVLADecoder` with discrete
+  action-token targets; OpenVLA maps binned actions into the Prismatic language
+  vocabulary, while pi0-FAST uses FAST action tokens in the VLM vocabulary.
+- OpenVLA-OFT uses a joint L1 regression head for LIBERO by default, with
+  action-slot head input dimensions validated against the configured slot
+  layout.
+- Prismatic visual towers are built through the reusable DINOv2+SigLIP RGB
+  encoder path instead of duplicating separate tower code inside the VLM.
+- `ActionHead` validation is driven by explicit head layouts, separating
+  component-wise, joint, vocabulary, and no-head decoder contracts.
+- GPT-style and VLA autoregressive decoders share cached-generation control
+  flow, while discrete tokenizer/vocabulary concerns live in `DiscreteDecoder`.
+- PyTorch dependency upgraded to 2.12.0 using the `cu130` wheel index,
+  torchao upgraded to 0.17.0, timm upgraded to 1.0.27, torchvision left
+  unpinned against the PyTorch index, and unused torchaudio dependency removed.
+- Python 3.14 PT2E import workaround kept for the torchao 0.17 wheel because
+  the clean wheel still mutates immutable Union aliases at import time.
+
+### Removed
+- Legacy experimental model classes `DiscreteDETRActionTransformer`, `MoEFreeActionTransformer`,
+  `FreeActionTransformer`, and their Hydra configs/tests.
+- Obsolete torch 2.10/torchao 0.16 source-partition monkey patch for
+  X86Inductor PT2E quantization.
+
 ## [0.3.0] - 2026-05-11
 
 ### Added
-- End-to-end config families for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, Multimodal Peg Transfer, and synthetic multimodal benchmarks.
+- End-to-end experiment config families for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, Multimodal Peg Transfer, and synthetic multimodal benchmarks, including state/RGB variants where supported.
 - LIBERO/LIBERO+ configs for GPT-style action transformers, Pi0/SmolVLA-style VLA policies, and vision/language encoder sweeps.
-- Dataset path resolvers and `.env` variables for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, and Multimodal Peg Transfer.
-- Dataset schema, Zarr metadata, observation/action-space configs, and LeRobot/local raw-data wiring for the new benchmark families.
-- Synthetic multimodal benchmark generation, presets, rollout metrics, and config families for mode-recovery experiments.
-- Variational latent-modeling components for multimodal action distributions: VQ posterior encoder, uniform/learned codebook priors, DiT latent priors, conditional MMD losses, and relaxed conditional Sinkhorn/OT losses.
+- Dataset schema, Zarr metadata, observation/action-space configs, OmegaConf path resolvers, and `.env` variables for the new local/LeRobot-compatible benchmark families.
+- Synthetic multimodal benchmark generation, presets, rollout metrics, and training/evaluation configs for mode-recovery experiments.
+- Variational latent-modeling components for multimodal action distributions: VQ posterior encoder, uniform/learned codebook priors, DiT latent prior configs, conditional MMD losses, and relaxed conditional Sinkhorn/OT losses.
 - Staged training support with epoch-indexed trainability, optimizer, and loss-weight overrides, plus prior-target standardization and richer latent/synthetic rollout callbacks.
-- VLA model support through `Pi0Decoder`, `SmolVLADecoder`, generative/two-tower VLM encoders, VLM backbone wiring, and VLA attention masks.
-- Transformer internals refactored into reusable attention/block/layer/cache packages with generation and conditioning caches.
-- `action_execution_horizon` in inference, allowing a policy to execute only part of each predicted action chunk before re-querying.
+- `Pi0Decoder` and `SmolVLADecoder` factories — interleaved VLM-expert joint attention architectures where a pretrained VLM backbone is paired 1:1 with learned expert layers. Pi0 fuses timestep via MLP, Pi0.5 via adaptive normalization. SmolVLA alternates cross-attention and joint self-attention layers.
+- `GenerativeVLMEncoder` abstract base for single-stream VLMs (embed images → embed text → concat → LM). Thin subclasses: `PaliGemmaEncoder`, `SmolVLMEncoder`. Replaces the monolithic `multimodal/vlm.py`.
+- `TwoTowerVLMEncoder` — CLIP-style separate vision/language towers with `ImageEncoderMixin` + `LanguageEncoderMixin`.
+- `ImageEncoderMixin` — abstract base class for multi-camera dispatch with per-camera feature naming (`rgb:left`, `rgb:right`). Subclassed by `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`.
+- Per-camera image sizes — encoding pipeline sets dimensions from `CameraMetadata` in observation space. `set_image_size()` hook on encoders.
+- `LanguageEncoderMixin` — shared tokenized text pad/truncate, attention mask construction, and output padding mask.
+- `FeatureMetadata` frozen dataclass `(key, feature_type, dimension)` with `FeatureType` enum (SPATIAL, SEQUENTIAL, FLAT). Replaces `EncoderOutput`.
+- `GenerationCache` / `GenerationLayerCache` — append-only cache for autoregressive generation. Grows token-by-token.
+- `ConditioningCache` / `ConditioningLayerCache` — write-once cache for static context (observations, encoder features). Stores K/V and optionally Q for bidirectional conditioning. Cache presence implies behavior — no `use_cache` boolean.
+- Cross-attention caching for diffusion decoders — `DiffusionActionTransformer` precomputes conditioning K/V once and reuses across all denoising steps.
+- Transformer package decomposed into `attention/`, `block/`, `layer/`, `cache/` sub-packages — ~1600 lines of duplicated diffusion transformer internals deleted.
+- `TransformerMixin` — shared weight init, positional encoding setup/application with `offset` for cached generation, padding mask expansion.
+- `BlockNormalization` type (`AdaNorm | UnconditionedNorm`) — uniform `(x, condition) → (normed, gate)` interface. Eliminates conditioning branches in transformer blocks.
+- `GatedLinearUnit` generalizes `SwiGLU` — base class with configurable gate activation, plus `SwiGLU` (SiLU gate) and `GeGLU` (GELU-tanh gate) subclasses.
+- Encoder refactoring — encoders renamed by output format (spatial vs flat), not architecture. `CNNEncoder` + `SwinEncoder` → `SpatialRGBEncoder`, `ViTEncoder` → `FlatRGBEncoder`, `DepthCNNEncoder` → `SpatialDepthEncoder`.
+- New backbones: ConvNeXtV2-Nano, TinyViT-21M, DINOv3-ConvNeXt-Small.
+- `exclude_cls` → `num_prefix_tokens` on `TokenPoolingHead` — handles CLS + register tokens.
+- `ImageProcessor` — per-camera image processing extracted into standalone class (resize, augmentation, normalization).
+- `CallbackProvider` protocol for training callbacks — decoders/algorithms declare their own callbacks; Workspace collects via protocol check instead of `isinstance` chains.
+- `action_execution_horizon` parameter on `InferenceClient` — controls how many actions from each predicted chunk to execute before re-querying. Defaults to `prediction_horizon`.
+- `make_attention_mask` supports `causal_actions` flag and `causal_prefix_suffix_length` for VLA prefix-suffix patterns.
+- LR scheduler now uses HuggingFace `transformers.get_scheduler` with `lr_scheduler_kwargs` passthrough.
 
 ### Changed
-- Encoder outputs now use `FeatureMetadata` and feature types to make decoder compatibility validation explicit.
-- Image preprocessing is centralized in `ImageProcessor`, with camera sizes taken from task metadata.
-- Training callbacks are split into focused modules and collected through a `CallbackProvider` protocol.
+- `ActionTransformer` no longer requires spatial features — accepts any feature type.
+- Fusion modules report correct output feature types (SEQUENTIAL when inputs are sequential).
+- `LanguageEncoder` detects CLS token via `AutoTokenizer.cls_token_id` instead of hardcoding.
+- Encoding pipeline YAML defaults cleaned up: removed redundant `_target_`, added missing config group references.
+- `DataLoaderConfig` no longer hardcodes `image_height`/`image_width` — dimensions come from per-camera `CameraMetadata`.
+- `ObservationPreprocessor` uses `ImageProcessor` + `CameraMetadata` instead of raw albumentations transforms.
+- `PolicyLoader` reads precision from checkpoint config instead of requiring a `precision` parameter.
+- `FlowMatchingConfig` adds `reverse_flow_convention` flag.
+- `data/augmentation/` restructured to `data/processing/` — `ActionProcessor` and `TransformBuilder` moved alongside `ImageProcessor`.
+- `depth/dformerv2` and `depth/light_geometric` encoders moved to `cross_modal/rgbd/`.
+- `multimodal/` package renamed by `cross_modal/`, `vlm.py` is now a `vision_language` package.
+- Loss `_target_` paths updated across all YAML configs for metrics package restructure (removed `__init__.py` exports).
+- Diffusion transformer high-level classes (`CrossAttentionDiT`, `MMDiTTransformer`, `DiTBlock`) now delegate to shared `transformer/` blocks and layers
+  instead of maintaining duplicated implementations.
+- All `__init__.py` re-exports removed across transformer, training, and inference packages — consumers import from concrete modules.
 
 ### Fixed
-- Inference without temporal aggregation now respects action chunks instead of sending only the first action.
-- DiT latent prior target selection, EMA step counting, DataLoader worker persistence, trajectory padding metrics, and several VLM/tokenization edge cases.
+- GPT Action Transformer tokenized head had a 64-dim MLP bottleneck before predicting 1025 vocab classes with weight tying in the same space. Removed bottleneck — direct `embedding_dimension` → vocab projection.
+- `DiTPrior` always targeted noise regardless of `prediction_type` — now branches correctly for epsilon, sample, and velocity.
+- `GaussianPrior` used stale `self.device` after `.to()` — now uses `_device_tracker` buffer.
+- `ConditionalCNNEncoder` pooling head not re-frozen after `set_image_size()` when `frozen=True`.
+- EMA callback `optimization_step` incremented per batch instead of per optimizer step — replaced with `trainer.global_step`.
+- Inference client discarded predicted action chunks — without temporal aggregation, only first action was sent. Now sends `action_execution_horizon` actions per inference call.
+- Post-training compression `validate()` skipped in global mode — iterated empty `self.modules` instead of resolved targets.
+- `DictOfTensorMixin.device` raised `StopIteration` when `params_dict` empty — now uses `_device_tracker` buffer.
+- DataLoader `persistent_workers=True` crashed with `num_workers=0` — now conditionally set.
+- `TemporalAggregator` crashed with `IndexError` when exceeding `max_timesteps` — now raises `RuntimeError`.
+- `TrajectoryLengthLoss` zeroed padded timesteps before computing diffs, creating spurious jumps at boundaries.
+- `TrajectorySmoothness` padding mask only checked `is_pad[:, 2:]` but acceleration depends on 3 positions.
+- `DiscreteDETRActionTransformer` had `requires_actions=True` but ignores actions — changed to `False`.
+- `SmolVLADecoder` missing `proprioceptive_projection = None` init.
+- Phantom batch in metrics accumulator from lazy module init — reset after dummy forward pass.
+- SigLIP2 tokenizer fallback when `attention_mask` not returned.
+
+### Removed
+- Legacy encoder files: `rgb/cnn.py`, `rgb/swin.py`, `rgb/vit.py`, `depth/cnn.py` and their tests — superseded by `SpatialRGBEncoder`, `FlatRGBEncoder`, `SpatialDepthEncoder`.
+
+## [0.2.0] - 2026-04-09
+
+### Fixed
+- `Policy.compute_loss` was comparing network predictions against raw ground-truth actions instead of the algorithm-specific targets (velocity field for flow matching, noise for diffusion epsilon mode). Introduced `DecodingAlgorithm.get_targets()` so each algorithm provides the correct regression target to the loss module.
+- Added `DecodingAlgorithm.predicts_in_action_space` and `BaseLoss.requires_action_space_targets` to detect incompatible loss-algorithm pairings at init.
+
+### Added
+- Post-training compression pipeline (`post_training_compression/` + `quantization/`): `PostTrainingCompressor` orchestrates load → prepare → prune → export → quantize → save. Supports per-module `CompressionTarget`, composable pruning (unstructured + structured), PT2E quantization via `X86InductorBackend`, and quantize_() API for dynamic/weight-only quantization. `CompressedPolicyLoader` loads `.pt2` archives with `torch.compile`.
+- Python 3.14 compatibility patch for torchao `Union.__module__` assignment.
+
+### Changed
+- `inference/__init__.py` and `inference/policy_loading/__init__.py` no longer re-export submodules (prevents circular imports)
+- All consumers import from concrete modules (e.g., `from versatil.inference.policy_loading.float_loader import PolicyLoader`)
 
 ## [0.1.1] - 2026-03-20
 
@@ -58,64 +206,14 @@ Migrate to Python 3.13+ and PyTorch 2.10 with CUDA 12.8.
 Initial release of VersatIL — a modular Imitation Learning framework for robotic manipulation.
 
 ### Added
-
-#### Core Architecture
-- **[`Policy`][versatil.models.policy.Policy] = [`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline] + Algorithm + Action Decoder + Loss** — composable, config-driven policy design
-- **[`EncodingPipeline`][versatil.models.encoding.pipeline.EncodingPipeline]** with hierarchical multi-modal observation encoding and fusion
-- **Algorithm/Architecture/Loss separation** — algorithms compose flexibly with action decoder architectures and loss functions
-
-#### Algorithms
-- [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning]
-- [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion]-based action prediction
-- [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching]
-- [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm] — compositional variational inference wrapping any base algorithm with posterior encoders and learned/Gaussian priors
-
-#### Encoders
-- RGB: Any kind of vision encoder from `timm` library, Custom Conditional CNN (FiLM conditioning)
-- Depth: Any kind of CNN from `timm` library, DFormerV2, Custom Geometric Encoder
-- Proprioceptive: MLP-based encoder
-- Language: Any kind of language encoder from `huggingface transformers` library
-- Multimodal: Any kind of vision-language encoder from `huggingface transformers` library
-
-#### Fusion Modules
-- Concatenation, MLP, and Attention fusion modules for custom feature fusion
-
-#### Decoder Factories
-- [`ACT`][versatil.models.decoding.decoders.factory.act.ACT], [`ActionTransformer`][versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer], [`ConditionalActionUNet`][versatil.models.decoding.decoders.factory.conditional_action_unet.ConditionalActionUNet], [`DiffusionActionTransformer`][versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer] (Cross-Attention and MultiModal variants), [`DiscreteDETRActionTransformer`][versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer], [`DiTBlockActionTransformer`][versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer], [`FreeActionTransformer`][versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer], [`GPTActionTransformer`][versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer], Latent Action Transformer ([`LACT`][versatil.models.decoding.decoders.factory.lact.LACT]), Mixture-Of-Density Action Transformer ([`MoDE-ACT`][versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer]), [`MoEDecoder`][versatil.models.decoding.decoders.moe.MoEDecoder], [`MoEFreeActionTransformer`][versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer], [`PhaseACT`][versatil.models.decoding.decoders.factory.phase_act.PhaseACT]
-
-#### Action Heads
-- Single-Output head, Gaussian head (mean and log-variance), Mixture of Experts (MoE) head
-
-#### Data Pipeline
-- Zarr-based episodic store construction
-- Support for CSV (TSO), HDF5, and LeRobot raw data formats
-- Action and observation pre-processing
-- Image augmentation pipeline
-- Normalization and tokenization pipeline
-
-#### Inference
-- Pluggable transport protocol (ZMQ socket implementation)
-- Observation and action preprocessing
-- Temporal aggregation
-- Unified inference client for simulation and on-hardware, through `versatil_constants` and `tso_robotics_sockets` libraries.
-
-#### Training Infrastructure
-- PyTorch Lightning training loop
-- Configuration management with Hydra and OmegaConf
-- WandB for experiment tracking
-- Custom training callbacks and checkpoint management
-
-#### Metrics and Losses
-- Composable loss system through `torch.nn.Module` composition
-- Regression and classification losses
-- Probability measures: KL divergence, Optimal Transport / Sinkhorn divergence loss, Maximum Mean Discrepancy (MMD) with configurable kernels
-
-#### CI/CD and testing
-- GitLab CI and GitHub Actions pipelines
-- Unit and integration test suites with pytest with >90% coverage
-- Ruff formatting and linting
-
-### Main Dependencies
-- Python 3.13+
-- CUDA 12.8
-- PyTorch, PyTorch Lightning, Hydra, HuggingFace Transformers/Diffusers, Albumentations, OpenCV, ZMQ
+- Composable policy architecture: Policy = EncodingPipeline + Algorithm + Action Decoder + Loss.
+- Algorithms: Behavioral Cloning, Diffusion, Flow Matching, VariationalAlgorithm (compositional variational inference wrapping any base algorithm).
+- Encoders: RGB/Depth (timm backbones), Conditional CNN (FiLM), DFormerV2, Geometric RGBD, Proprioceptive (MLP), Language (HuggingFace transformers), Vision-Language (HuggingFace multimodal).
+- Fusion modules: Concatenation, MLP, Attention.
+- Decoder factories: ACT, Action Transformer, Conditional Action U-Net, Diffusion Action Transformer (Cross-Attention and MultiModal), Discrete-DETR, DiT-Block, Free Action Transformer, GPT Action Transformer, LACT, MoDE-ACT, MoE Decoder, MoE Free Action Transformer, Phase-ACT.
+- Action heads: Single-Output, Gaussian (mean + log-variance), Mixture of Experts (MoE).
+- Data pipeline: Zarr episodic store, CSV/HDF5/LeRobot raw formats, action/observation processing, image augmentation, normalization, tokenization.
+- Inference: pluggable transport protocol (ZMQ), observation/action preprocessing, temporal aggregation, unified client for simulation and on-hardware.
+- Training: PyTorch Lightning loop, Hydra/OmegaConf configs, WandB tracking, custom callbacks and checkpoint management.
+- Losses: composable system via `nn.Module` composition — regression, classification, KL divergence, Sinkhorn divergence, MMD.
+- CI/CD: GitLab CI and GitHub Actions, unit and integration tests with >90% coverage, Ruff formatting/linting.

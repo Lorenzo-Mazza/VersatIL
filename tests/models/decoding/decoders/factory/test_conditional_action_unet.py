@@ -30,7 +30,6 @@ POSITION_DIM = 3
 def unet_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
-    action_heads_factory: Callable[..., dict[str, ActionHead]],
 ) -> Callable[..., ConditionalActionUNet]:
     """Factory for ConditionalActionUNet instances with small dimensions."""
 
@@ -62,14 +61,10 @@ def unet_decoder_factory(
             gripper_dim=gripper_dim,
         )
         observation_space = mock_observation_space_factory()
-        action_heads = action_heads_factory(
-            action_space=action_space,
-            input_dim=embedding_dimension,
-        )
         return ConditionalActionUNet(
             input_keys=input_keys,
             action_space=action_space,
-            action_heads=action_heads,
+            action_heads={},
             observation_space=observation_space,
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
@@ -85,6 +80,7 @@ def unet_decoder_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestConditionalActionUNetInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -125,12 +121,12 @@ class TestConditionalActionUNetInitialization:
         decoder = unet_decoder_factory()
         assert decoder._unet is None
 
-    def test_device_tracker_is_persisted(
+    def test_private_module_attr_reference_is_not_persisted(
         self,
         unet_decoder_factory: Callable[..., ConditionalActionUNet],
     ):
         decoder = unet_decoder_factory()
-        assert "_device_tracker" in decoder.state_dict()
+        assert "_module_attr_reference" not in decoder.state_dict()
 
     def test_local_conditioning_raises_not_implemented(
         self,
@@ -159,7 +155,7 @@ class TestConditionalActionUNetInitialization:
         decoder = unet_decoder_factory()
         assert decoder.decoder_input.requires_actions is True
 
-    def test_action_heads_blocks_cleared_when_present(
+    def test_rejects_action_heads_when_configured(
         self,
         mock_action_space_factory: Callable[..., MagicMock],
         mock_observation_space_factory: Callable[..., MagicMock],
@@ -171,22 +167,29 @@ class TestConditionalActionUNetInitialization:
             [torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)]
         )
         action_heads = {"position_action": head_with_blocks}
-        decoder = ConditionalActionUNet(
-            input_keys=["rgb_features"],
-            action_space=action_space,
-            action_heads=action_heads,
-            observation_space=observation_space,
-            observation_horizon=OBSERVATION_HORIZON,
-            prediction_horizon=PREDICTION_HORIZON,
-            device="cpu",
-            embedding_dimension=EMBEDDING_DIMENSION,
-            down_dimensions=list(DOWN_DIMENSIONS),
-            kernel_size=KERNEL_SIZE,
-            num_groups=NUM_GROUPS,
-        )
-        assert len(decoder.action_heads["position_action"].blocks) == 0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "ConditionalActionUNet uses action_head_layout=none, "
+                "so action_heads must be empty. Got ['position_action']."
+            ),
+        ):
+            ConditionalActionUNet(
+                input_keys=["rgb_features"],
+                action_space=action_space,
+                action_heads=action_heads,
+                observation_space=observation_space,
+                observation_horizon=OBSERVATION_HORIZON,
+                prediction_horizon=PREDICTION_HORIZON,
+                device="cpu",
+                embedding_dimension=EMBEDDING_DIMENSION,
+                down_dimensions=list(DOWN_DIMENSIONS),
+                kernel_size=KERNEL_SIZE,
+                num_groups=NUM_GROUPS,
+            )
 
 
+@pytest.mark.integration
 class TestConditionalActionUNetForward:
     def test_raises_without_actions(
         self,

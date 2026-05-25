@@ -24,7 +24,7 @@ encoders:
     batch_norm_handling: ${batch_norm_handling:FROZEN}
 
   instruction:
-    model_name: ${language_model:GEMMA_2B}
+    model_name: ${language_model:BERT_BASE}
     pretrained: true
     frozen: true
     max_token_len: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}

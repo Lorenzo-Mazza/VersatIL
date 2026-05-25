@@ -20,7 +20,6 @@ def mmdit_transformer_factory() -> Callable[..., MMDiTTransformer]:
         number_of_layers: int = 1,
         embedding_dimension: int = 32,
         number_of_heads: int = 4,
-        output_dimension: int | None = None,
         feedforward_dimension: int | None = None,
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
@@ -40,7 +39,6 @@ def mmdit_transformer_factory() -> Callable[..., MMDiTTransformer]:
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
-            output_dimension=output_dimension,
             feedforward_dimension=feedforward_dimension,
             dropout=dropout,
             attention_dropout=attention_dropout,
@@ -77,40 +75,6 @@ class TestMMDiTTransformerInitialization:
         assert model.embedding_dimension == embedding_dimension
         assert model.number_of_layers == number_of_layers
 
-    def test_output_dimension_defaults_to_embedding_dimension(
-        self,
-        mmdit_transformer_factory: Callable[..., MMDiTTransformer],
-    ):
-        embedding_dimension = 32
-        model = mmdit_transformer_factory(
-            embedding_dimension=embedding_dimension,
-            output_dimension=None,
-        )
-        assert model.output_dimension == embedding_dimension
-
-    def test_explicit_output_dimension(
-        self,
-        mmdit_transformer_factory: Callable[..., MMDiTTransformer],
-    ):
-        model = mmdit_transformer_factory(
-            embedding_dimension=32,
-            output_dimension=7,
-        )
-        assert model.output_dimension == 7
-
-    def test_prediction_layer_initialized_to_zero(
-        self,
-        mmdit_transformer_factory: Callable[..., MMDiTTransformer],
-    ):
-        model = mmdit_transformer_factory(
-            embedding_dimension=32,
-            output_dimension=7,
-        )
-        weight = model.prediction_layer.output_linear.weight
-        bias = model.prediction_layer.output_linear.bias
-        assert torch.allclose(weight, torch.zeros_like(weight))
-        assert torch.allclose(bias, torch.zeros_like(bias))
-
     def test_decoder_has_correct_number_of_layers(
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
@@ -122,13 +86,13 @@ class TestMMDiTTransformerInitialization:
 
 class TestMMDiTTransformerForward:
     @pytest.mark.parametrize(
-        "batch_size, encoder_sequence_length, decoder_sequence_length, embedding_dimension, output_dimension",
+        "batch_size, encoder_sequence_length, decoder_sequence_length, embedding_dimension",
         [
-            (2, 6, 4, 32, None),
-            (1, 8, 4, 32, 7),
+            (2, 6, 4, 32),
+            (1, 8, 4, 32),
         ],
     )
-    def test_output_shape(
+    def test_hidden_state_and_condition_shape(
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -137,11 +101,9 @@ class TestMMDiTTransformerForward:
         encoder_sequence_length: int,
         decoder_sequence_length: int,
         embedding_dimension: int,
-        output_dimension: int | None,
     ):
         model = mmdit_transformer_factory(
             embedding_dimension=embedding_dimension,
-            output_dimension=output_dimension,
         )
         encoder_hidden = sequence_tensor_factory(
             batch_size=batch_size,
@@ -154,29 +116,27 @@ class TestMMDiTTransformerForward:
             embedding_dimension=embedding_dimension,
         )
         timesteps = continuous_timestep_factory(batch_size=batch_size)
-        output = model(
+        output, conditioning = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
-        expected_output_dim = output_dimension or embedding_dimension
         assert output.shape == (
             batch_size,
             decoder_sequence_length,
-            expected_output_dim,
+            embedding_dimension,
         )
+        assert conditioning.shape == (batch_size, embedding_dimension)
 
-    def test_returns_only_action_predictions(
+    def test_returns_action_hidden_states_and_conditioning(
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        output_dimension = 7
         model = mmdit_transformer_factory(
             embedding_dimension=embedding_dimension,
-            output_dimension=output_dimension,
         )
         encoder_hidden = sequence_tensor_factory(
             batch_size=2,
@@ -189,13 +149,13 @@ class TestMMDiTTransformerForward:
             embedding_dimension=embedding_dimension,
         )
         timesteps = continuous_timestep_factory(batch_size=2)
-        output = model(
+        output, conditioning = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
-        # MMDiTTransformer returns a single tensor, not a tuple
-        assert output.shape == (2, 4, output_dimension)
+        assert output.shape == (2, 4, embedding_dimension)
+        assert conditioning.shape == (2, embedding_dimension)
 
     def test_different_timesteps_produce_different_outputs(
         self,
@@ -208,7 +168,6 @@ class TestMMDiTTransformerForward:
             use_gating=False,
         )
         reinit_modulation_layers(model)
-        torch.nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         encoder_hidden = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -221,17 +180,18 @@ class TestMMDiTTransformerForward:
         )
         timesteps_low = torch.tensor([0.1, 0.1])
         timesteps_high = torch.tensor([0.9, 0.9])
-        output_low = model(
+        output_low, condition_low = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps_low,
             encoder_hidden_states=encoder_hidden,
         )
-        output_high = model(
+        output_high, condition_high = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps_high,
             encoder_hidden_states=encoder_hidden,
         )
         assert not torch.allclose(output_low, output_high)
+        assert not torch.allclose(condition_low, condition_high)
 
     def test_different_encoder_context_produces_different_outputs(
         self,
@@ -245,7 +205,6 @@ class TestMMDiTTransformerForward:
             use_gating=False,
         )
         reinit_modulation_layers(model)
-        torch.nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         decoder_hidden = sequence_tensor_factory(
             batch_size=2,
             sequence_length=4,
@@ -262,12 +221,12 @@ class TestMMDiTTransformerForward:
             sequence_length=6,
             embedding_dimension=embedding_dimension,
         )
-        output_a = model(
+        output_a, _ = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_a,
         )
-        output_b = model(
+        output_b, _ = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_b,
@@ -286,7 +245,6 @@ class TestMMDiTTransformerForward:
             use_gating=False,
         )
         reinit_modulation_layers(model)
-        torch.nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         encoder_hidden = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -303,12 +261,12 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        output_a = model(
+        output_a, _ = model(
             decoder_hidden_states=decoder_a,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
-        output_b = model(
+        output_b, _ = model(
             decoder_hidden_states=decoder_b,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
@@ -328,7 +286,6 @@ class TestMMDiTTransformerForward:
             use_gating=False,
         )
         reinit_modulation_layers(model)
-        torch.nn.init.xavier_uniform_(model.prediction_layer.output_linear.weight)
         encoder_hidden = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -340,7 +297,7 @@ class TestMMDiTTransformerForward:
             embedding_dimension=embedding_dimension,
         )
         timesteps = continuous_timestep_factory(batch_size=2)
-        output_no_mask = model(
+        output_no_mask, _ = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
@@ -350,7 +307,7 @@ class TestMMDiTTransformerForward:
             sequence_length=6,
             mask_last_n=2,
         )
-        output_with_mask = model(
+        output_with_mask, _ = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
@@ -389,12 +346,13 @@ class TestMMDiTTransformerForward:
             embedding_dimension=embedding_dimension,
         )
         timesteps = continuous_timestep_factory(batch_size=2)
-        output = model(
+        output, conditioning = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
         assert torch.all(torch.isfinite(output))
+        assert torch.all(torch.isfinite(conditioning))
 
     def test_gradient_flows_through_full_model(
         self,
@@ -417,45 +375,13 @@ class TestMMDiTTransformerForward:
         timesteps = continuous_timestep_factory(batch_size=2)
         encoder_hidden.requires_grad_(True)
         decoder_hidden.requires_grad_(True)
-        output = model(
+        output, conditioning = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden,
         )
-        output.sum().backward()
+        (output.sum() + conditioning.sum()).backward()
         assert encoder_hidden.grad is not None
         assert decoder_hidden.grad is not None
         assert torch.all(torch.isfinite(encoder_hidden.grad))
         assert torch.all(torch.isfinite(decoder_hidden.grad))
-
-    def test_prediction_layer_output_near_zero_at_initialization(
-        self,
-        mmdit_transformer_factory: Callable[..., MMDiTTransformer],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-        continuous_timestep_factory: Callable[..., torch.Tensor],
-    ):
-        # FinalPredictionLayer initializes output linear to zeros, so initial
-        # output should be near zero regardless of input
-        embedding_dimension = 32
-        output_dimension = 7
-        model = mmdit_transformer_factory(
-            embedding_dimension=embedding_dimension,
-            output_dimension=output_dimension,
-        )
-        encoder_hidden = sequence_tensor_factory(
-            batch_size=2,
-            sequence_length=6,
-            embedding_dimension=embedding_dimension,
-        )
-        decoder_hidden = sequence_tensor_factory(
-            batch_size=2,
-            sequence_length=4,
-            embedding_dimension=embedding_dimension,
-        )
-        timesteps = continuous_timestep_factory(batch_size=2)
-        output = model(
-            decoder_hidden_states=decoder_hidden,
-            timesteps=timesteps,
-            encoder_hidden_states=encoder_hidden,
-        )
-        assert torch.allclose(output, torch.zeros_like(output), atol=1e-6)

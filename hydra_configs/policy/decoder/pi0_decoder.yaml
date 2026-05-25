@@ -1,9 +1,11 @@
 defaults:
   - pi0
-  - heads@action_heads: libero_vla
+  - heads@action_heads: pi0
+  - vision_language_model@vlm_backbone: paligemma
+  - _self_
 
 input_keys:
-  - vlm_fused_rgb_language
+  - robot_state_proprio
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
@@ -20,6 +22,6 @@ expert_head_dimension: 256
 time_conditioning: ${time_conditioning:CONCAT_MLP}
 min_period: 0.004
 max_period: 4.0
-proprioceptive_feature_key: null
+proprioceptive_feature_key: robot_state_proprio
 normalization_type: ${normalization:RMS_NORM}
 dropout: 0.0

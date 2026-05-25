@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.data.metadata import CameraMetadata
+from versatil.data.metadata import RGBCameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.models.encoding.pipeline import EncodingPipeline
@@ -1010,10 +1010,9 @@ class TestImageSizeSetDuringSetup:
         ) -> ObservationSpace:
             metadata = {}
             for camera_key, (height, width) in cameras.items():
-                metadata[camera_key] = CameraMetadata(
+                metadata[camera_key] = RGBCameraMetadata(
                     camera_key=camera_key,
                     dtype="uint8",
-                    channels=3,
                     image_height=height,
                     image_width=width,
                 )

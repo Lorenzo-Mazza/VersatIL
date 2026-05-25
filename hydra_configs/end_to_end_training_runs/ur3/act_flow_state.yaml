@@ -16,7 +16,6 @@ defaults:
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_synthetic
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: ur3_2d
   - _self_
 
 task:

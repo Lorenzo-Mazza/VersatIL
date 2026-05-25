@@ -21,7 +21,7 @@ from versatil.data.constants import (
     SampleKey,
     TokenPaddingStrategy,
 )
-from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
+from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
 
 
 class ObservationTokenizer:
@@ -73,7 +73,7 @@ class ObservationTokenizer:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
 
         self.vocab_size = len(self.language_tokenizer)
-        self.binning_tokenizers: dict[str, BinningTokenizer] = {}
+        self.binned_value_discretizers: dict[str, BinnedValueDiscretizer] = {}
         self._is_fitted = False
 
     def fit(self, observation_data: dict[str, np.ndarray]) -> None:
@@ -99,14 +99,16 @@ class ObservationTokenizer:
                 continue
 
             data = observation_data[key]
-            binning_tok = BinningTokenizer(num_bins=self.num_bins, device=self.device)
-            binning_tok.fit(data)
-            self.binning_tokenizers[key] = binning_tok
+            discretizer = BinnedValueDiscretizer(
+                num_bins=self.num_bins, device=self.device
+            )
+            discretizer.fit(data)
+            self.binned_value_discretizers[key] = discretizer
 
         self._is_fitted = True
         logging.info(
             f"Fitted observation tokenizer on {len(self.observation_keys)} keys "
-            f"({len(self.binning_tokenizers)} with binning) "
+            f"({len(self.binned_value_discretizers)} with binning) "
             f"(model={self.tokenizer_model}, vocab_size={self.vocab_size})"
         )
 
@@ -240,8 +242,11 @@ class ObservationTokenizer:
                     else:
                         continue
 
-                    if self.bin_continuous_data and key in self.binning_tokenizers:
-                        binned = self.binning_tokenizers[key].encode(sample)
+                    if (
+                        self.bin_continuous_data
+                        and key in self.binned_value_discretizers
+                    ):
+                        binned = self.binned_value_discretizers[key].encode(sample)
                         sample_str = " ".join(
                             map(str, binned.cpu().float().numpy().flatten().tolist())
                         )
@@ -287,8 +292,8 @@ class ObservationTokenizer:
             Self for chaining
         """
         self.device = device
-        for tokenizer in self.binning_tokenizers.values():
-            tokenizer.to(device)
+        for discretizer in self.binned_value_discretizers.values():
+            discretizer.to(device)
         return self
 
     def state_dict(self) -> dict[str, Any]:
@@ -306,8 +311,9 @@ class ObservationTokenizer:
             "vocab_size": self.vocab_size,
             "raw_text": self.raw_text,
             "padding_strategy": self.padding_strategy,
-            "binning_tokenizers": {
-                key: tok.state_dict() for key, tok in self.binning_tokenizers.items()
+            "binned_value_discretizers": {
+                key: discretizer.state_dict()
+                for key, discretizer in self.binned_value_discretizers.items()
             },
             "is_fitted": self._is_fitted,
         }
@@ -329,11 +335,15 @@ class ObservationTokenizer:
             "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
         )
         self._is_fitted = state_dict["is_fitted"]
+        self.binned_value_discretizers = {}
 
-        for key, tok_state in state_dict["binning_tokenizers"].items():
-            binning_tok = BinningTokenizer(num_bins=self.num_bins, device=self.device)
-            binning_tok.load_state_dict(tok_state)
-            self.binning_tokenizers[key] = binning_tok
+        discretizer_states = state_dict["binned_value_discretizers"]
+        for key, discretizer_state in discretizer_states.items():
+            discretizer = BinnedValueDiscretizer(
+                num_bins=self.num_bins, device=self.device
+            )
+            discretizer.load_state_dict(discretizer_state)
+            self.binned_value_discretizers[key] = discretizer
 
     def save_pretrained(self, path: str | Path) -> None:
         """Save tokenizer to disk.

@@ -165,7 +165,7 @@ class InferenceClient:
             max_steps: Maximum number of steps in the episode.
         """
         self.observation_transport.register(
-            client_name=self.policy_loader.checkpoint_path
+            client_name=self.policy_loader.client_identifier
         )
         for _step_idx in range(max_steps):
             try:

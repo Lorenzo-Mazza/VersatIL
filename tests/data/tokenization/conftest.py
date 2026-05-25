@@ -6,35 +6,35 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
+from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
 
 
 @pytest.fixture
-def binning_tokenizer_factory() -> Callable[..., BinningTokenizer]:
-    """Factory for BinningTokenizer with configurable parameters."""
+def binned_value_discretizer_factory() -> Callable[..., BinnedValueDiscretizer]:
+    """Factory for BinnedValueDiscretizer with configurable parameters."""
 
     def factory(
         num_bins: int = 16,
         device: torch.device = torch.device("cpu"),
-    ) -> BinningTokenizer:
-        return BinningTokenizer(num_bins=num_bins, device=device)
+    ) -> BinnedValueDiscretizer:
+        return BinnedValueDiscretizer(num_bins=num_bins, device=device)
 
     return factory
 
 
 @pytest.fixture
-def fitted_binning_tokenizer_factory(
-    rng, binning_tokenizer_factory
-) -> Callable[..., BinningTokenizer]:
-    """Factory for a fitted BinningTokenizer with configurable data."""
+def fitted_binned_value_discretizer_factory(
+    rng, binned_value_discretizer_factory
+) -> Callable[..., BinnedValueDiscretizer]:
+    """Factory for a fitted BinnedValueDiscretizer with configurable data."""
 
     def factory(
         num_bins: int = 16,
         num_samples: int = 100,
         num_dimensions: int = 7,
         device: torch.device = torch.device("cpu"),
-    ) -> BinningTokenizer:
-        tokenizer = binning_tokenizer_factory(num_bins=num_bins, device=device)
+    ) -> BinnedValueDiscretizer:
+        tokenizer = binned_value_discretizer_factory(num_bins=num_bins, device=device)
         data = rng.standard_normal((num_samples, num_dimensions)).astype(np.float32)
         tokenizer.fit(data)
         return tokenizer

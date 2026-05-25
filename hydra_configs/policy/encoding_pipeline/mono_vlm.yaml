@@ -1,5 +1,5 @@
 defaults:
-  - encoder/vlm/two_tower_vlm@encoders.left
+  - encoder/vlm/vlm_encoder@encoders.left
   - _self_
 encoders:
   left:

@@ -13,7 +13,6 @@ from versatil.data.constants import ActionComputationMethod, ProprioKey
 from versatil.data.dataloader import (
     _collect_dataset_paths,
     _ensure_zarr_exists,
-    _log_phase_distributions,
     get_dataloaders,
     validate_dataloader_config,
 )
@@ -549,21 +548,6 @@ class TestEnsureZarrExists:
                     schema=schema,
                     preload_in_memory=False,
                 )
-
-
-@pytest.mark.unit
-class TestLogPhaseDistributions:
-    def test_logs_warning_and_returns(self):
-        train_dataset = MagicMock()
-        val_dataset = MagicMock()
-
-        with patch("versatil.data.dataloader.logging") as mock_logging:
-            _log_phase_distributions(
-                train_dataset=train_dataset,
-                val_dataset=val_dataset,
-            )
-
-            mock_logging.warning.assert_called_once()
 
 
 @pytest.mark.unit

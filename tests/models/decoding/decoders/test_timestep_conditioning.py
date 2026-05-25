@@ -38,6 +38,7 @@ def timestep_action_heads_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestValidateNoisyActionTensors:
     def test_accepts_valid_action_tensors(
         self,
@@ -104,6 +105,7 @@ class TestValidateNoisyActionTensors:
             )
 
 
+@pytest.mark.unit
 class TestExtractTimestepConditioning:
     def test_extracts_vector_timestep(
         self,
@@ -165,6 +167,7 @@ class TestExtractTimestepConditioning:
             )
 
 
+@pytest.mark.unit
 class TestFilterTimestepFeature:
     def test_returns_new_dict_without_timestep(
         self,

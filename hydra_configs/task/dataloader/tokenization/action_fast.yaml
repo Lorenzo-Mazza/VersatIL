@@ -4,7 +4,9 @@ defaults:
 tokenize_observations: false
 tokenize_actions: true
 action_tokenizer:
-  tokenizer_chain:
-    - ${tokenizer_type:FAST}
-  use_pretrained_fast: false
+  action_discretizer:
+    type: ${action_discretizer:FAST}
+    use_pretrained: false
+  token_id_mapping:
+    type: ${action_token_id_mapping:IDENTITY}
   max_token_len: 64

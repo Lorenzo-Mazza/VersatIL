@@ -1,9 +1,11 @@
 defaults:
   - smolvla
-  - heads@action_heads: libero_vla
+  - heads@action_heads: smolvla
+  - vision_language_model@vlm_backbone: smolvlm
+  - _self_
 
 input_keys:
-  - vlm_fused_rgb_language
+  - robot_state_proprio
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
@@ -15,7 +17,7 @@ expert_width_multiplier: 0.5
 num_expert_layers: -1
 num_vlm_layers: -1
 self_attention_every_n_layers: 2
-proprioceptive_feature_key: null
+proprioceptive_feature_key: robot_state_proprio
 min_period: 0.004
 max_period: 4.0
 freeze_vlm: true

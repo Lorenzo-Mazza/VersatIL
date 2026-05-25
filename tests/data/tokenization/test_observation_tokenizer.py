@@ -1,5 +1,6 @@
 """Tests for versatil.data.tokenization.observation_tokenizer."""
 
+import re
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -164,9 +165,11 @@ class TestObservationTokenizerInit:
         )
         assert mock_tok.pad_token == "<eos>"
 
-    def test_empty_binning_tokenizers_on_init(self, observation_tokenizer_factory):
+    def test_empty_binned_value_discretizers_on_init(
+        self, observation_tokenizer_factory
+    ):
         tokenizer = observation_tokenizer_factory()
-        assert tokenizer.binning_tokenizers == {}
+        assert tokenizer.binned_value_discretizers == {}
 
 
 class TestObservationTokenizerFit:
@@ -174,7 +177,7 @@ class TestObservationTokenizerFit:
         tokenizer = observation_tokenizer_factory(bin_continuous_data=False)
         tokenizer.fit({})
         assert tokenizer._is_fitted is True
-        assert len(tokenizer.binning_tokenizers) == 0
+        assert len(tokenizer.binned_value_discretizers) == 0
 
     def test_fit_without_binning_logs_info(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory(bin_continuous_data=False)
@@ -193,7 +196,7 @@ class TestObservationTokenizerFit:
         )
         data = {ObsKey.LANGUAGE.value: ["some text"]}
         tokenizer.fit(data)
-        assert ObsKey.LANGUAGE.value not in tokenizer.binning_tokenizers
+        assert ObsKey.LANGUAGE.value not in tokenizer.binned_value_discretizers
 
     @pytest.mark.parametrize(
         "proprio_key",
@@ -203,7 +206,7 @@ class TestObservationTokenizerFit:
             ProprioKey.GRIPPER_STATE.value,
         ],
     )
-    def test_fit_creates_binning_tokenizer_per_key(
+    def test_fit_creates_binned_value_discretizer_per_key(
         self, observation_tokenizer_factory, training_data_factory, proprio_key
     ):
         tokenizer = observation_tokenizer_factory(
@@ -213,8 +216,8 @@ class TestObservationTokenizerFit:
         )
         data = training_data_factory(proprio_keys=[proprio_key])
         tokenizer.fit(data)
-        assert proprio_key in tokenizer.binning_tokenizers
-        assert tokenizer.binning_tokenizers[proprio_key]._is_fitted is True
+        assert proprio_key in tokenizer.binned_value_discretizers
+        assert tokenizer.binned_value_discretizers[proprio_key]._is_fitted is True
 
     def test_fit_warns_when_key_missing_from_data(self, observation_tokenizer_factory):
         missing_key = ProprioKey.GRIPPER_STATE.value
@@ -241,8 +244,8 @@ class TestObservationTokenizerFit:
         )
         data = training_data_factory(proprio_keys=[robot_key, camera_key])
         tokenizer.fit(data)
-        assert robot_key in tokenizer.binning_tokenizers
-        assert camera_key in tokenizer.binning_tokenizers
+        assert robot_key in tokenizer.binned_value_discretizers
+        assert camera_key in tokenizer.binned_value_discretizers
 
     def test_fit_with_binning_logs_info(
         self, observation_tokenizer_factory, training_data_factory
@@ -416,9 +419,10 @@ class TestObservationTokenizerBuildPrompts:
         tokenizer = observation_tokenizer_factory(bin_continuous_data=False)
         tokenizer._is_fitted = True
         observations = observation_dict_factory(language=12345)
+        expected_message = f"Expected str or list for language data, got {int}"
         with pytest.raises(
             TypeError,
-            match=f"Expected str or list for language data, got {int}",
+            match=re.escape(expected_message),
         ):
             tokenizer._build_prompts(observations)
 
@@ -458,7 +462,10 @@ class TestObservationTokenizerBuildPrompts:
 class TestObservationTokenizerTokenize:
     def test_tokenize_raises_when_not_fitted(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory()
-        with pytest.raises(RuntimeError, match="fitted before encoding"):
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("Tokenizer must be fitted before encoding"),
+        ):
             tokenizer.tokenize({ObsKey.LANGUAGE.value: ["text"]})
 
     def test_tokenize_returns_correct_keys(
@@ -566,7 +573,7 @@ class TestObservationTokenizerTo:
         result = tokenizer.to(device)
         assert result is tokenizer
 
-    def test_to_moves_binning_tokenizers(
+    def test_to_moves_binned_value_discretizers(
         self, observation_tokenizer_factory, training_data_factory, device
     ):
         proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
@@ -578,7 +585,7 @@ class TestObservationTokenizerTo:
         data = training_data_factory(proprio_keys=[proprio_key])
         tokenizer.fit(data)
         tokenizer.to(device)
-        assert tokenizer.binning_tokenizers[proprio_key].device == device
+        assert tokenizer.binned_value_discretizers[proprio_key].device == device
 
 
 class TestObservationTokenizerStateDict:
@@ -597,7 +604,7 @@ class TestObservationTokenizerStateDict:
             "vocab_size",
             "raw_text",
             "padding_strategy",
-            "binning_tokenizers",
+            "binned_value_discretizers",
             "is_fitted",
         }
         assert set(state.keys()) == expected_keys
@@ -639,7 +646,7 @@ class TestObservationTokenizerStateDict:
         assert state["max_token_len"] == max_token_len
         assert state["is_fitted"] is True
 
-    def test_state_dict_includes_binning_tokenizer_states(
+    def test_state_dict_includes_binned_value_discretizer_states(
         self, observation_tokenizer_factory, training_data_factory
     ):
         proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
@@ -651,8 +658,8 @@ class TestObservationTokenizerStateDict:
         data = training_data_factory(proprio_keys=[proprio_key])
         tokenizer.fit(data)
         state = tokenizer.state_dict()
-        assert proprio_key in state["binning_tokenizers"]
-        assert "num_bins" in state["binning_tokenizers"][proprio_key]
+        assert proprio_key in state["binned_value_discretizers"]
+        assert "num_bins" in state["binned_value_discretizers"][proprio_key]
 
 
 class TestObservationTokenizerLoadStateDict:
@@ -705,7 +712,7 @@ class TestObservationTokenizerLoadStateDict:
             "max_token_len": max_token_len,
             "vocab_size": vocab_size,
             "is_fitted": True,
-            "binning_tokenizers": {},
+            "binned_value_discretizers": {},
         }
         tokenizer.load_state_dict(state)
         assert tokenizer.tokenizer_model == tokenizer_model
@@ -716,7 +723,7 @@ class TestObservationTokenizerLoadStateDict:
         assert tokenizer.vocab_size == vocab_size
         assert tokenizer._is_fitted is True
 
-    def test_load_state_dict_restores_binning_tokenizers(
+    def test_load_state_dict_restores_binned_value_discretizers(
         self, observation_tokenizer_factory, training_data_factory
     ):
         proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
@@ -730,8 +737,20 @@ class TestObservationTokenizerLoadStateDict:
         state = original.state_dict()
         restored = observation_tokenizer_factory()
         restored.load_state_dict(state)
-        assert proprio_key in restored.binning_tokenizers
-        assert restored.binning_tokenizers[proprio_key]._is_fitted is True
+        assert proprio_key in restored.binned_value_discretizers
+        assert restored.binned_value_discretizers[proprio_key]._is_fitted is True
+
+    def test_load_state_dict_requires_binned_value_discretizers_key(
+        self, observation_tokenizer_factory
+    ):
+        tokenizer = observation_tokenizer_factory()
+        state = tokenizer.state_dict()
+        del state["binned_value_discretizers"]
+        with pytest.raises(
+            KeyError,
+            match=re.escape("'binned_value_discretizers'"),
+        ):
+            tokenizer.load_state_dict(state)
 
 
 class TestObservationTokenizerSavePretrained:
@@ -769,7 +788,8 @@ class TestObservationTokenizerSavePretrained:
 class TestObservationTokenizerFromPretrained:
     def test_raises_file_not_found(self, tmp_path):
         missing = tmp_path / "missing"
-        with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
+        expected_message = f"Tokenizer path not found: {missing}"
+        with pytest.raises(FileNotFoundError, match=re.escape(expected_message)):
             ObservationTokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.observation_tokenizer.torch.load")
@@ -789,7 +809,7 @@ class TestObservationTokenizerFromPretrained:
             "max_token_len": 256,
             "vocab_size": 30000,
             "is_fitted": True,
-            "binning_tokenizers": {},
+            "binned_value_discretizers": {},
         }
         mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
         mock_tok.__len__ = lambda self: 30000
@@ -818,7 +838,7 @@ class TestObservationTokenizerFromPretrained:
             "max_token_len": 256,
             "vocab_size": 30000,
             "is_fitted": True,
-            "binning_tokenizers": {},
+            "binned_value_discretizers": {},
         }
         mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
         mock_tok.__len__ = lambda self: 30000
@@ -883,7 +903,7 @@ class TestObservationTokenizerIntegrationWithBinning:
             proprio_keys=[proprio_key], num_samples=100
         )
         tokenizer.fit(training_data)
-        assert proprio_key in tokenizer.binning_tokenizers
+        assert proprio_key in tokenizer.binned_value_discretizers
         observations = observation_dict_factory(
             language=["pick up block"],
             proprio_keys=[proprio_key],
@@ -917,7 +937,7 @@ class TestObservationTokenizerIntegrationSaveLoad:
         assert loaded.num_bins == tokenizer.num_bins
         assert loaded.max_token_len == tokenizer.max_token_len
         assert loaded._is_fitted is True
-        assert proprio_key in loaded.binning_tokenizers
+        assert proprio_key in loaded.binned_value_discretizers
 
     def test_loaded_tokenizer_produces_identical_tokens(
         self, training_data_factory, observation_dict_factory, device, tmp_path
@@ -1036,9 +1056,12 @@ class TestRawTextMode:
                 [[1.0, 2.0]], dtype=np.float32
             )
         }
+        expected_message = (
+            f"raw_text mode requires '{ObsKey.LANGUAGE.value}' in observations."
+        )
         with pytest.raises(
             ValueError,
-            match=f"raw_text mode requires '{ObsKey.LANGUAGE.value}' in observations",
+            match=re.escape(expected_message),
         ):
             tokenizer._build_prompts(observations)
 
@@ -1098,8 +1121,9 @@ class TestExtractLanguageText:
         assert result == expected
 
     def test_raises_on_invalid_type(self):
+        expected_message = f"Expected str or list for language data, got {int}"
         with pytest.raises(
             TypeError,
-            match=f"Expected str or list for language data, got {int}",
+            match=re.escape(expected_message),
         ):
             ObservationTokenizer._extract_language_text(data=123, index=0, batch_size=1)

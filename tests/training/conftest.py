@@ -17,7 +17,7 @@ from versatil.configs.training import (
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
 from versatil.training.lightning_policy import LightningPolicy
@@ -83,9 +83,12 @@ def real_policy_factory() -> Callable[..., Policy]:
             algorithm=MagicMock(spec=DecodingAlgorithm),
             decoder=MagicMock(
                 spec=ActionDecoder,
-                decoder_input=MagicMock(requires_vlm_backbone=False),
+                decoder_input=DecoderInput(keys=[]),
             ),
-            observation_space=MagicMock(spec=ObservationSpace),
+            observation_space=MagicMock(
+                spec=ObservationSpace,
+                observations_metadata={},
+            ),
             action_space=MagicMock(spec=ActionSpace),
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,

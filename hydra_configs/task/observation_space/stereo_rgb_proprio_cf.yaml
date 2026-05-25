@@ -13,17 +13,15 @@ observations_metadata:
     frame: ${coordinate_system:CAMERA}
 
   ${cameras:LEFT}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${cameras:LEFT}
     dtype: uint8
-    channels: 3
     image_width: 480
     image_height: 270
 
   ${cameras:RIGHT}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${cameras:RIGHT}
     dtype: uint8
-    channels: 3
     image_width: 480
     image_height: 270

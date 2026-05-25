@@ -16,7 +16,6 @@ defaults:
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_gripper_mse
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: metaworld_mt50
   - _self_
 
 task:

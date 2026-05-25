@@ -1,13 +1,10 @@
 """Observation preprocessing for the inference pipeline."""
 
-import logging
-
 import numpy as np
 import torch
 from tso_robotics_sockets import CompressionType, decompress_array
 from versatil_constants.shared import ObsKey
 
-from versatil.data.constants import Cameras
 from versatil.data.metadata import CameraMetadata
 from versatil.data.processing.image_processor import ImageProcessor
 
@@ -46,11 +43,14 @@ class ObservationPreprocessor:
         self.compression_type = compression_type
         self.rotate_images = rotate_images
         self.depth_clamp_range = depth_clamp_range
+        self.camera_metadata = camera_metadata
 
-        self.depth_key = Cameras.DEPTH.value
-        self.has_depth = self.depth_key in self.camera_keys
+        self.depth_camera_keys = [
+            key for key in self.camera_keys if self.camera_metadata[key].is_depth
+        ]
+        self.has_depth = len(self.depth_camera_keys) > 0
         self.rgb_camera_keys = [
-            key for key in self.camera_keys if key != self.depth_key
+            key for key in self.camera_keys if self.camera_metadata[key].is_rgb
         ]
 
         self.image_processor = ImageProcessor(
@@ -174,33 +174,12 @@ class ObservationPreprocessor:
             processed = self.image_processor.process(
                 images=images, camera_key=camera_key
             )
-            # TODO: this currently assumes that only a camera with key "depth" is a depth camera - should ideally be specified in metadata
-            if camera_key == self.depth_key and self.depth_clamp_range is not None:
+            if (
+                self.camera_metadata[camera_key].is_depth
+                and self.depth_clamp_range is not None
+            ):
                 depth_min, depth_max = self.depth_clamp_range
                 processed = torch.clamp(processed, min=depth_min, max=depth_max)
             result[camera_key] = processed
 
         return result
-
-    @staticmethod
-    def _normalize_image_tensor(image: torch.Tensor) -> torch.Tensor:
-        """Normalize image tensor to [0, 1] range.
-
-        Args:
-            image: Image tensor from albumentations transform.
-
-        Returns:
-            Float tensor in [0, 1] range.
-        """
-        if image.dtype == torch.uint8:
-            return image.float() / 255.0
-        if image.max() > 1.0:
-            logging.warning(
-                "Received float image with max %.1f > 1.0, dividing by 255.",
-                image.max().item(),
-            )
-            return image / 255.0
-        logging.warning(
-            "Received float image already in [0, 1] range, skipping normalization."
-        )
-        return image

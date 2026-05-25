@@ -71,7 +71,6 @@ def quantize_api_compressor_factory():
 def pt2e_mocks():
     """Patch all external dependencies of apply_pt2e_quantization."""
     with (
-        patch(f"{QUANTIZE_MODULE}.patch_get_source_partitions") as mock_patch,
         patch(f"{QUANTIZE_MODULE}.convert_pt2e") as mock_convert,
         patch(f"{QUANTIZE_MODULE}.prepare_pt2e") as mock_prepare,
         patch(f"{QUANTIZE_MODULE}.ComposableQuantizer") as mock_composer,
@@ -80,7 +79,6 @@ def pt2e_mocks():
         mock_convert.return_value.graph = MagicMock()
         mock_convert.return_value.graph.__str__ = MagicMock(return_value="")
         yield {
-            "patch_partitions": mock_patch,
             "convert": mock_convert,
             "prepare": mock_prepare,
             "composer": mock_composer,
@@ -214,19 +212,6 @@ class TestApplyPT2EQuantization:
         )
 
         assert mock_prepared.call_count == 3
-
-    def test_calls_patch_get_source_partitions(
-        self,
-        compression_target_factory,
-        pt2e_mocks,
-    ):
-        apply_pt2e_quantization(
-            exported=MagicMock(spec=nn.Module),
-            pt2e_modules=[compression_target_factory()],
-            calibration=None,
-        )
-
-        pt2e_mocks["patch_partitions"].assert_called_once()
 
     def test_enters_backend_environment_context(
         self,

@@ -4,36 +4,28 @@ Uses DiTBlock Policy architecture, a diffusion transformer with an encoder that 
 Supports encoder caching for inference optimization.
 """
 
-import logging
-
 import torch
-from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.action_heads import ActionHead, ConditionalActionHead
+from versatil.models.decoding.constants import ActionHeadLayout
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.decoders.parallel_transformer import (
+    BaseParallelTransformerDecoder,
+)
 from versatil.models.decoding.decoders.timestep_conditioning import (
     extract_timestep_conditioning,
     filter_timestep_feature,
-    validate_noisy_action_tensors,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.feature_meta import FeatureType
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
-    SinusoidalPositionalEncoding2D,
-)
 
 
-class DiTBlockActionTransformer(ActionDecoder):
+class DiTBlockActionTransformer(BaseParallelTransformerDecoder):
     """Diffusion action transformer decoder using DiTBlock with pooled conditioning.
 
     This architecture:
@@ -42,6 +34,8 @@ class DiTBlockActionTransformer(ActionDecoder):
     - Caches pooled encoder output during inference
 
     """
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.JOINT
 
     def __init__(
         self,
@@ -67,7 +61,7 @@ class DiTBlockActionTransformer(ActionDecoder):
         attention_dropout: float = 0.0,
         positional_encoding_type: str | None = PositionalEncodingType.ROPE.value,
         use_gating: bool = True,
-    ):
+    ) -> None:
         """Initialize DiTBlock action decoder.
 
         Args:
@@ -98,9 +92,7 @@ class DiTBlockActionTransformer(ActionDecoder):
         self.observation_space = observation_space
         self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
-        self.device = device
         self.max_sequence_length = max_sequence_length
-        self.embedding_dimension = embedding_dimension
         self.timestep_embedding_dimension = timestep_embedding_dimension
         self.number_of_heads = number_of_heads
         self.number_of_key_value_heads = number_of_key_value_heads or number_of_heads
@@ -120,13 +112,6 @@ class DiTBlockActionTransformer(ActionDecoder):
             raises_for_types=[FeatureType.SPATIAL.value],
             requires_actions=True,
         )
-        for k, head in action_heads.items():
-            if len(head.blocks) > 0:
-                logging.warning(
-                    f"Action heads are ignored by DiTBlockActionTransformer, but one was provided for action '{k}'. Skipping."
-                )
-                action_heads[k].blocks = nn.ModuleList()
-
         super().__init__(
             decoder_input=decoder_input,
             action_space=action_space,
@@ -135,33 +120,46 @@ class DiTBlockActionTransformer(ActionDecoder):
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
             device=device,
+            embedding_dimension=embedding_dimension,
         )
+        self._validate_conditional_action_head()
         self._build_transformer_components()
+
+    def _conditional_action_head(self) -> ConditionalActionHead:
+        """Return the configured timestep-conditioned action head."""
+        action_head = self._single_action_head()
+        if isinstance(action_head, ConditionalActionHead):
+            return action_head
+        raise ValueError(
+            f"{type(self).__name__} requires a ConditionalActionHead because "
+            "DiT decoder hidden states are projected with timestep conditioning."
+        )
+
+    def _validate_conditional_action_head(self) -> None:
+        """Validate the conditional action-head dimensions."""
+        action_head = self._conditional_action_head()
+        if action_head.input_dim != self.embedding_dimension:
+            raise ValueError(
+                f"{type(self).__name__} action head input_dim must equal "
+                f"embedding_dimension {self.embedding_dimension}, got "
+                f"{action_head.input_dim}."
+            )
+        if action_head.condition_dim != self.embedding_dimension:
+            raise ValueError(
+                f"{type(self).__name__} action head condition_dim must equal "
+                f"embedding_dimension {self.embedding_dimension}, got "
+                f"{action_head.condition_dim}."
+            )
 
     def _build_transformer_components(self) -> None:
         """Build DiTBlock transformer and input processing layers."""
-        image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension, normalize=True
-        )
-        temporal_positional_encoding = None
-        if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            )
-        self.input_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=image_positional_encoding,
-            flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            ),
-            temporal_positional_encoding_layer=temporal_positional_encoding,
+        self.input_builder = self._build_parallel_input_sequence_builder(
+            flat_positional_encoding_type=PositionalEncodingType.SINUSOIDAL.value,
         )
         self.transformer = DiTBlock(
             number_of_encoder_layers=self.number_of_encoder_layers,
             number_of_decoder_layers=self.number_of_decoder_layers,
             embedding_dimension=self.embedding_dimension,
-            output_dimension=self.action_space.get_total_action_dim(),
             number_of_heads=self.number_of_heads,
             number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=self.feedforward_dimension,
@@ -250,16 +248,15 @@ class DiTBlockActionTransformer(ActionDecoder):
                 "DiTBlockActionTransformer requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
-        batch_size, action_device = validate_noisy_action_tensors(
+        noisy_actions = self.action_space.concatenate_action_tensors(
             actions=actions,
-            action_heads=self.action_heads,
             prediction_horizon=self.prediction_horizon,
-            decoder_name=self.__class__.__name__,
+            owner_name=self.__class__.__name__,
         )
         timesteps = extract_timestep_conditioning(
             features=features,
-            batch_size=batch_size,
-            action_device=action_device,
+            batch_size=noisy_actions.shape[0],
+            action_device=noisy_actions.device,
         )
         observation_features = filter_timestep_feature(features=features)
         (
@@ -269,27 +266,24 @@ class DiTBlockActionTransformer(ActionDecoder):
         ) = self._prepare_observation_tokens(observation_features)
         if observation_positional_encodings is not None:
             observation_tokens = observation_tokens + observation_positional_encodings
-        action_tensors = []
-        for action_key in sorted(actions.keys()):
-            action_tensors.append(actions[action_key])
-        noisy_actions = torch.cat(action_tensors, dim=-1)  # (B, T, D_action)
         noisy_embedding = self.noisy_input_projection(noisy_actions)  # (B, T, D)
-        encoder_cache, noise_predictions = self.transformer(
-            decoder_hidden_states=noisy_embedding,
-            timesteps=timesteps,
-            encoder_hidden_states=observation_tokens,
-            encoder_padding_mask=observation_padding_mask,
-            decoder_padding_mask=None,
-            encoder_cache=self._encoder_cache if self._caching_enabled else None,
-        )  # (B, S, D), (B, T, D)
+        encoder_cache, action_hidden, action_conditioning = (
+            self.transformer.forward_features(
+                decoder_hidden_states=noisy_embedding,
+                timesteps=timesteps,
+                encoder_hidden_states=observation_tokens,
+                encoder_padding_mask=observation_padding_mask,
+                decoder_padding_mask=None,
+                encoder_cache=self._encoder_cache if self._caching_enabled else None,
+            )
+        )  # (B, D), (B, T, D), (B, D)
         if self._caching_enabled:
             self._encoder_cache = encoder_cache
-        outputs = {}
-        start_index = 0
-        for action_key in sorted(actions.keys()):
-            head = self.action_heads[action_key]
-            end_index = start_index + head.output_dim
-            action_slice = noise_predictions[..., start_index:end_index]
-            outputs[action_key] = action_slice
-            start_index = end_index
-        return outputs
+        noise_predictions = self._conditional_action_head()(
+            action_hidden,
+            action_conditioning,
+        )
+        return self.action_space.split_action_tensor(
+            action_tensor=noise_predictions,
+            owner_name=self.__class__.__name__,
+        )

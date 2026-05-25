@@ -268,7 +268,7 @@ training:
 
 ### CUDA Issues
 
-Verify CUDA 12.8+ with `nvidia-smi` and check that `torch.cuda.is_available()` returns `True`.
+Verify the installed driver supports the pinned CUDA 13.0 PyTorch wheels with `nvidia-smi`, then check that `torch.cuda.is_available()` returns `True`.
 
 ### Data Loading
 

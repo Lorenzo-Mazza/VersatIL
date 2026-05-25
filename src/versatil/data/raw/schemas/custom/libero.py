@@ -4,7 +4,7 @@ import albumentations as A
 import h5py
 import numpy as np
 
-from versatil.data.constants import Cameras, DatasetType, ObsKey
+from versatil.data.constants import DatasetType, ObsKey
 from versatil.data.metadata import (
     CameraMetadata,
     ObservationMetadata,
@@ -118,7 +118,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             if cam not in obs_group:
                 raise ValueError(f"Camera key '{cam}' not found in HDF5 obs group")
             raw_images = obs_group[cam][:]
-            if cam == Cameras.DEPTH.value:
+            if cam_metadata.is_depth:
                 images = [depth_resizer(image=img)["image"] for img in raw_images]
                 data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)
             else:

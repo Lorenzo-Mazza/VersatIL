@@ -10,7 +10,11 @@ import torch.nn as nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
+from versatil.models.decoding.constants import (
+    ActionHeadLayout,
+    DecoderOutputKey,
+    MoERoutingType,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.decoders.moe import MoEDecoder
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
@@ -38,7 +42,7 @@ class MinimalDecoder(ActionDecoder):
         observation_horizon: int,
         prediction_horizon: int,
         embedding_dimension: int,
-    ):
+    ) -> None:
         super().__init__(
             decoder_input=decoder_input,
             observation_space=observation_space,
@@ -68,11 +72,72 @@ class MinimalDecoder(ActionDecoder):
 class MinimalDecoderWithInitWeights(MinimalDecoder):
     """MinimalDecoder with _init_weights that zeros all Linear layers."""
 
-    def _init_weights(self, module: nn.Module):
+    def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
             nn.init.zeros_(module.weight)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
+
+
+class MinimalJointDecoder(MinimalDecoder):
+    """Minimal joint-head decoder that returns action-space component outputs."""
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.JOINT
+
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        del actions
+        feature = next(iter(features.values()))
+        projected = self.linear(feature)
+        expanded = projected.unsqueeze(1).expand(-1, self.prediction_horizon, -1)
+        joint_action_head = next(iter(self.action_heads.values()))
+        joint_action_output = joint_action_head(expanded)
+        return self.action_space.split_action_tensor(
+            action_tensor=joint_action_output,
+            owner_name=type(self).__name__,
+        )
+
+
+class FeaturelessDecoder(ActionDecoder):
+    """Minimal decoder that does not require expert features."""
+
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.NONE
+
+    def __init__(
+        self,
+        observation_space: ObservationSpace,
+        action_space: ActionSpace,
+        prediction_horizon: int,
+    ) -> None:
+        super().__init__(
+            decoder_input=DecoderInput(keys=[]),
+            observation_space=observation_space,
+            action_space=action_space,
+            action_heads={},
+            device="cpu",
+            observation_horizon=1,
+            prediction_horizon=prediction_horizon,
+        )
+
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        del features, actions
+        return {
+            action_key: torch.zeros(
+                BATCH_SIZE,
+                self.prediction_horizon,
+                action_dimension,
+            )
+            for action_key, action_dimension in (
+                self.action_space.predicted_action_dimensions.items()
+            )
+        }
 
 
 @pytest.fixture
@@ -86,18 +151,31 @@ def base_expert_factory(
     def factory(
         embedding_dimension: int = EMBEDDING_DIMENSION,
         position_dim: int = POSITION_DIM,
+        has_orientation: bool = False,
+        orientation_dim: int = 0,
         prediction_horizon: int = PREDICTION_HORIZON,
         with_init_weights: bool = False,
+        joint_layout: bool = False,
     ) -> MinimalDecoder:
-        action_space = mock_action_space_factory(position_dim=position_dim)
-        observation_space = mock_observation_space_factory()
-        action_heads = {
-            "position_action": action_head_factory(input_dim=embedding_dimension),
-        }
-        decoder_input = DecoderInput(keys=["rgb_features"])
-        decoder_class = (
-            MinimalDecoderWithInitWeights if with_init_weights else MinimalDecoder
+        action_space = mock_action_space_factory(
+            position_dim=position_dim,
+            has_orientation=has_orientation,
+            orientation_dim=orientation_dim,
         )
+        observation_space = mock_observation_space_factory()
+        if joint_layout:
+            action_heads = {
+                "joint_action": action_head_factory(input_dim=embedding_dimension),
+            }
+            decoder_class = MinimalJointDecoder
+        else:
+            action_heads = {
+                "position_action": action_head_factory(input_dim=embedding_dimension),
+            }
+            decoder_class = (
+                MinimalDecoderWithInitWeights if with_init_weights else MinimalDecoder
+            )
+        decoder_input = DecoderInput(keys=["rgb_features"])
         return decoder_class(
             decoder_input=decoder_input,
             observation_space=observation_space,
@@ -107,6 +185,23 @@ def base_expert_factory(
             observation_horizon=1,
             prediction_horizon=prediction_horizon,
             embedding_dimension=embedding_dimension,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def featureless_expert_factory(
+    mock_action_space_factory: Callable[..., MagicMock],
+    mock_observation_space_factory: Callable[..., MagicMock],
+) -> Callable[..., FeaturelessDecoder]:
+    """Factory for decoders that only use gating features."""
+
+    def factory() -> FeaturelessDecoder:
+        return FeaturelessDecoder(
+            observation_space=mock_observation_space_factory(),
+            action_space=mock_action_space_factory(position_dim=POSITION_DIM),
+            prediction_horizon=PREDICTION_HORIZON,
         )
 
     return factory
@@ -157,13 +252,14 @@ def moe_decoder_factory(
 def mock_cuda():
     """Mock CUDA stream operations for CPU testing."""
     with (
-        patch("torch.cuda.Stream", return_value=MagicMock()),
+        patch("torch.cuda.Stream", return_value=MagicMock(spec=torch.cuda.Stream)),
         patch("torch.cuda.stream"),
         patch("torch.cuda.synchronize"),
     ):
         yield
 
 
+@pytest.mark.unit
 class TestMoEDecoderInitialization:
     def test_inherits_from_action_decoder_and_base_moe(
         self,
@@ -189,6 +285,24 @@ class TestMoEDecoderInitialization:
         assert decoder.gating_feature_key == gating_feature_key
         assert decoder.action_keys == ["position_action"]
         assert isinstance(decoder.base_expert, MinimalDecoder)
+
+    def test_joint_layout_routes_action_space_keys(
+        self,
+        base_expert_factory: Callable[..., MinimalDecoder],
+    ):
+        base_expert = base_expert_factory(
+            joint_layout=True,
+            has_orientation=True,
+            orientation_dim=2,
+        )
+        decoder = MoEDecoder(
+            base_expert=base_expert,
+            num_experts=NUM_EXPERTS,
+            gating_feature_key=GATING_FEATURE_KEY,
+            gating_input_dim=EMBEDDING_DIMENSION,
+        )
+
+        assert decoder.action_keys == ["position_action", "orientation_action"]
 
     @pytest.mark.parametrize(
         "inference_gating_key, expected_key",
@@ -230,6 +344,7 @@ class TestMoEDecoderInitialization:
         assert "sentinel" not in decoder.action_heads
 
 
+@pytest.mark.unit
 class TestCreateExpertsFromConfig:
     @pytest.mark.parametrize("num_experts", [2, 5])
     def test_creates_correct_number_of_experts(
@@ -302,6 +417,7 @@ class TestCreateExpertsFromConfig:
             assert not torch.all(expert.linear.weight.data == 0)
 
 
+@pytest.mark.integration
 class TestMoEDecoderForward:
     def test_training_uses_gating_feature_key(
         self,
@@ -416,6 +532,30 @@ class TestMoEDecoderForward:
         decoder(features=features, actions=None)
         assert GATING_FEATURE_KEY in features
 
+    def test_cuda_available_with_only_gating_feature_does_not_require_expert_features(
+        self,
+        featureless_expert_factory: Callable[..., FeaturelessDecoder],
+        mock_cuda: None,
+    ):
+        decoder = MoEDecoder(
+            base_expert=featureless_expert_factory(),
+            num_experts=NUM_EXPERTS,
+            gating_feature_key=GATING_FEATURE_KEY,
+            gating_input_dim=EMBEDDING_DIMENSION,
+        )
+        features = {
+            GATING_FEATURE_KEY: torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION),
+        }
+
+        with patch("torch.cuda.is_available", return_value=True):
+            outputs = decoder(features=features, actions=None)
+
+        assert outputs["position_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            POSITION_DIM,
+        )
+
     @pytest.mark.parametrize(
         "routing_type",
         [
@@ -489,6 +629,7 @@ def moe_routing_weights_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestCombineExpertOutputs:
     def test_combines_all_action_keys(
         self,
@@ -523,6 +664,7 @@ class TestCombineExpertOutputs:
         )
 
 
+@pytest.mark.unit
 def test_auxiliary_output_keys(
     moe_decoder_factory: Callable[..., MoEDecoder],
 ):

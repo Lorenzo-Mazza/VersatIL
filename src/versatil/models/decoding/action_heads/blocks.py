@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.mlp import MLP
+from versatil.models.layers.normalization.ada_norm import AdaNorm
 
 
 class ActionHeadBlock(nn.Module, ABC):
@@ -16,11 +17,6 @@ class ActionHeadBlock(nn.Module, ABC):
     to create complex action prediction heads. Each block processes embeddings
     and outputs tensors with the same shape.
 
-    Example:
-        class CustomBlock(ActionHeadBlock):
-            def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
-                # Process action_embedding and return same-shaped output
-                return self.process(action_embedding)
     """
 
     @abstractmethod
@@ -34,6 +30,25 @@ class ActionHeadBlock(nn.Module, ABC):
             Processed tensor with same shape as input
         """
         raise NotImplementedError
+
+
+class LayerNormBlock(ActionHeadBlock):
+    """Layer-normalization block for action heads."""
+
+    def __init__(self, input_dim: int) -> None:
+        """Initialize the layer-normalization block.
+
+        Args:
+            input_dim: Input and output feature dimension.
+        """
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = input_dim
+        self.norm = nn.LayerNorm(input_dim)
+
+    def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
+        """Apply layer normalization."""
+        return self.norm(action_embedding)
 
 
 class MLPBlock(ActionHeadBlock):
@@ -51,7 +66,7 @@ class MLPBlock(ActionHeadBlock):
         activation: str = ActivationFunction.GELU.value,
         dropout: float = 0.0,
         normalization: bool = True,
-    ):
+    ) -> None:
         """Initialize MLP block.
 
         Args:
@@ -104,7 +119,7 @@ class AttentionBlock(ActionHeadBlock):
         num_heads: int = 8,
         dropout: float = 0.0,
         normalization: bool = True,
-    ):
+    ) -> None:
         """Initialize attention block.
 
         Args:
@@ -148,7 +163,7 @@ class ResidualBlock(ActionHeadBlock):
     Wraps another block and adds a residual connection around it.
     """
 
-    def __init__(self, block: ActionHeadBlock, dropout: float = 0.0):
+    def __init__(self, block: ActionHeadBlock, dropout: float = 0.0) -> None:
         """Initialize residual block.
 
         Args:
@@ -178,3 +193,58 @@ class ResidualBlock(ActionHeadBlock):
             self.block(action_embedding)
         )
         return result
+
+
+class ConditionalActionHeadBlock(nn.Module, ABC):
+    """Abstract base class for action-head blocks with a conditioning input."""
+
+    @abstractmethod
+    def forward(
+        self,
+        action_embedding: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        """Process action embeddings with a conditioning vector."""
+        raise NotImplementedError
+
+
+class AdaNormBlock(ConditionalActionHeadBlock):
+    """Adaptive layer-normalization block for conditional action heads."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        condition_dim: int,
+        activation: str = ActivationFunction.SILU.value,
+    ) -> None:
+        """Initialize adaptive normalization.
+
+        Args:
+            input_dim: Action embedding feature dimension.
+            condition_dim: Conditioning vector dimension.
+            activation: Activation used inside the modulation projection.
+        """
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = input_dim
+        base_norm = nn.LayerNorm(
+            input_dim,
+            elementwise_affine=False,
+            eps=1e-6,
+        )
+        self.ada_norm = AdaNorm(
+            base_norm=base_norm,
+            condition_dim=condition_dim,
+            feature_dim=input_dim,
+            use_gate=False,
+            activation=activation,
+        )
+
+    def forward(
+        self,
+        action_embedding: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply adaptive normalization."""
+        modulated_embedding, _ = self.ada_norm(action_embedding, condition)
+        return modulated_embedding

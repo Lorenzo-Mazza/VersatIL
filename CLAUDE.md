@@ -681,7 +681,4 @@ Extensions:
   - Extract an `ObservationPipeline` class that both training and inference use: normalize, tokenize, transform.
   - Save alongside checkpoint so inference loads the exact same pipeline.
   - Effort: Large but high-value. Prevents the most common deployment bugs.
-- Create a synthetic dataset schema for 1D and 2D vanilla tasks.
-- Introduce support for Pointcloud data and 3D encoders-decoders like RVT
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.
-- Implement two-stage training somehow?

@@ -12,10 +12,34 @@ from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.encoders.base import EncoderInput, EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
+
+
+@pytest.fixture
+def parameter_count() -> Callable[[torch.nn.Module], int]:
+    """Return a module parameter counter."""
+
+    def count_parameters(module: torch.nn.Module) -> int:
+        return sum(parameter.numel() for parameter in module.parameters())
+
+    return count_parameters
+
+
+@pytest.fixture
+def trainable_parameter_count() -> Callable[[torch.nn.Module], int]:
+    """Return a trainable-parameter counter."""
+
+    def count_trainable_parameters(module: torch.nn.Module) -> int:
+        return sum(
+            parameter.numel()
+            for parameter in module.parameters()
+            if parameter.requires_grad
+        )
+
+    return count_trainable_parameters
 
 
 @pytest.fixture
@@ -304,12 +328,22 @@ def policy_factory(
             if algorithm_predict_return is not None:
                 algorithm.predict.return_value = algorithm_predict_return
         if decoder is None:
+            if feature_return_value is None and isinstance(
+                encoding_pipeline.return_value, dict
+            ):
+                feature_return_value = encoding_pipeline.return_value
+            decoder_input_keys = (
+                list(feature_return_value.keys())
+                if feature_return_value is not None
+                else []
+            )
             decoder = MagicMock(
                 spec=ActionDecoder,
-                decoder_input=MagicMock(requires_vlm_backbone=False),
+                decoder_input=DecoderInput(keys=decoder_input_keys),
             )
         if observation_space is None:
             observation_space = MagicMock(spec=ObservationSpace)
+            observation_space.observations_metadata = {}
         if action_space is None:
             action_space = MagicMock(spec=ActionSpace)
         if loss is None:

@@ -14,8 +14,10 @@ import logging
 import torch
 import torch.nn as nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 
-class FeatureProjection(nn.Module):
+
+class FeatureProjection(ModuleAttrMixin):
     """Projects features to a common embedding dimension.
 
     It supports both flat features (B, C), sequential features (B, T, C), and spatial features
@@ -56,9 +58,6 @@ class FeatureProjection(nn.Module):
         # for spatial features would require transposing the tensors,  so we use conv2d instead.
         self.linear_projections = nn.ModuleDict()
         self.spatial_projections = nn.ModuleDict()
-        # Dummy buffer to track the module's device without relying on parameters (which may not exist yet in lazy init).
-        # This ensures lazy-created layers are initialized on the correct device, preventing mismatches in multi-GPU or distributed setups.
-        self.register_buffer("_device_tracker", torch.zeros(1))
 
     def _load_from_state_dict(
         self,
@@ -100,8 +99,8 @@ class FeatureProjection(nn.Module):
                     if feature_name not in spatial_features:
                         spatial_features[feature_name] = {}
                     spatial_features[feature_name][param_name] = value
-        device = self._device_tracker.device
-        dtype = self._device_tracker.dtype
+        device = self.device
+        dtype = self.dtype
         for feature_name, params in linear_features.items():
             if feature_name not in self.linear_projections and "weight" in params:
                 weight = params["weight"]
@@ -139,9 +138,7 @@ class FeatureProjection(nn.Module):
             if channel_dim == self.embedding_dim:
                 return nn.Identity()
             layer: nn.Module = nn.Linear(channel_dim, self.embedding_dim)
-            return layer.to(
-                device=self._device_tracker.device, dtype=self._device_tracker.dtype
-            )
+            return layer.to(device=self.device, dtype=self.dtype)
         else:
             if len(feature.shape) == 4:  # spatial (B, C, H, W)
                 channel_dim = feature.shape[1]
@@ -150,9 +147,7 @@ class FeatureProjection(nn.Module):
             if channel_dim == self.embedding_dim:
                 return nn.Identity()
             layer = nn.Conv2d(channel_dim, self.embedding_dim, kernel_size=1)
-            return layer.to(
-                device=self._device_tracker.device, dtype=self._device_tracker.dtype
-            )
+            return layer.to(device=self.device, dtype=self.dtype)
 
     def forward(
         self,

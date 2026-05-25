@@ -3,7 +3,7 @@
 This module defines what data an experiment uses at runtime:
 """
 
-from versatil_constants.tso import TSOObsKey
+import torch
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.configs.data.dataloader import DataLoaderConfig
@@ -24,6 +24,7 @@ from versatil.data.metadata import (
     PositionObservationMetadata,
     PrecomputedActionMetadata,
     ProprioceptiveObservationMetadata,
+    validate_camera_metadata_keys,
 )
 from versatil.data.raw.schemas.base import DatasetSchema
 
@@ -117,11 +118,165 @@ class ActionSpace:
 
     def get_total_action_dim(self) -> int:
         """Calculate total action dimension for predicted actions."""
-        return sum(
-            meta.prediction_dimension
-            for meta in self.actions_metadata.values()
-            if meta.requires_prediction_head
+        return self.total_prediction_dimension
+
+    @property
+    def predicted_action_keys(self) -> list[str]:
+        """Return action keys predicted by the policy in metadata order."""
+        return [
+            action_key
+            for action_key, metadata in self.actions_metadata.items()
+            if metadata.requires_prediction_head
+        ]
+
+    @property
+    def predicted_action_dimensions(self) -> dict[str, int]:
+        """Return predicted action dimensions keyed by action name."""
+        return {
+            action_key: self.actions_metadata[action_key].prediction_dimension
+            for action_key in self.predicted_action_keys
+        }
+
+    @property
+    def total_prediction_dimension(self) -> int:
+        """Return total predicted continuous action dimension."""
+        return sum(self.predicted_action_dimensions.values())
+
+    def validate_action_tensors(
+        self,
+        actions: dict[str, torch.Tensor],
+        prediction_horizon: int,
+        owner_name: str,
+    ) -> tuple[int, torch.device]:
+        """Validate action tensors against this action-space schema.
+
+        Args:
+            actions: Action tensors keyed by action name.
+            prediction_horizon: Expected action chunk length.
+            owner_name: Name used in error messages.
+
+        Returns:
+            Shared batch size and device.
+
+        Raises:
+            ValueError: If keys, ranks, dimensions, batch size, or devices are invalid.
+        """
+        expected_action_keys = self.predicted_action_keys
+        if not expected_action_keys:
+            raise ValueError(f"{owner_name} requires at least one predicted action.")
+
+        actual_action_keys = set(actions.keys())
+        expected_action_key_set = set(expected_action_keys)
+        if actual_action_keys != expected_action_key_set:
+            raise ValueError(
+                f"{owner_name} expected action keys "
+                f"{expected_action_keys}, got {sorted(actions.keys())}."
+            )
+
+        first_action_key = ""
+        batch_size = 0
+        action_device = torch.device("cpu")
+        for action_key in expected_action_keys:
+            action = actions[action_key]
+            if action.ndim != 3:
+                raise ValueError(
+                    f"Action '{action_key}' must have shape "
+                    f"(B, prediction_horizon, action_dim), got {action.shape}."
+                )
+            if action.shape[1] != prediction_horizon:
+                raise ValueError(
+                    f"Action '{action_key}' must have prediction horizon "
+                    f"{prediction_horizon}, got {action.shape[1]}."
+                )
+            expected_dimension = self.predicted_action_dimensions[action_key]
+            if action.shape[2] != expected_dimension:
+                raise ValueError(
+                    f"Action '{action_key}' must have last dimension "
+                    f"{expected_dimension}, got {action.shape[2]}."
+                )
+            if first_action_key == "":
+                first_action_key = action_key
+                batch_size = action.shape[0]
+                action_device = action.device
+                continue
+            if action.shape[0] != batch_size:
+                raise ValueError(
+                    "All action tensors must have the same batch size, "
+                    f"got {action.shape[0]} for '{action_key}' and "
+                    f"{batch_size} for '{first_action_key}'."
+                )
+            if action.device != action_device:
+                raise ValueError(
+                    "All action tensors must be on the same device, "
+                    f"got {action.device} for '{action_key}' and "
+                    f"{action_device} for '{first_action_key}'."
+                )
+        return batch_size, action_device
+
+    def concatenate_action_tensors(
+        self,
+        actions: dict[str, torch.Tensor],
+        prediction_horizon: int,
+        owner_name: str,
+        dtype: torch.dtype | None = None,
+        device: torch.device | None = None,
+    ) -> torch.Tensor:
+        """Concatenate predicted action tensors in action-space order.
+
+        Args:
+            actions: Action tensors keyed by action name.
+            prediction_horizon: Expected action chunk length.
+            owner_name: Name used in validation errors.
+            dtype: Optional dtype for the returned tensor.
+            device: Optional device for the returned tensor.
+
+        Returns:
+            Concatenated action tensor with shape
+            ``(B, prediction_horizon, total_prediction_dimension)``.
+        """
+        self.validate_action_tensors(
+            actions=actions,
+            prediction_horizon=prediction_horizon,
+            owner_name=owner_name,
         )
+        action_tensors = []
+        for action_key in self.predicted_action_keys:
+            action = actions[action_key]
+            if dtype is not None or device is not None:
+                action = action.to(dtype=dtype, device=device)
+            action_tensors.append(action)
+        return torch.cat(action_tensors, dim=-1)
+
+    def split_action_tensor(
+        self,
+        action_tensor: torch.Tensor,
+        owner_name: str,
+    ) -> dict[str, torch.Tensor]:
+        """Split a joint action tensor into action-space components.
+
+        Args:
+            action_tensor: Tensor with final dimension equal to the total
+                predicted action dimension.
+            owner_name: Name used in validation errors.
+
+        Returns:
+            Action tensors keyed by action name.
+
+        Raises:
+            ValueError: If the final dimension does not match the action space.
+        """
+        if action_tensor.shape[-1] != self.total_prediction_dimension:
+            raise ValueError(
+                f"{owner_name} expected joint action final dimension "
+                f"{self.total_prediction_dimension}, got {action_tensor.shape[-1]}."
+            )
+
+        predictions = {}
+        offset = 0
+        for action_key, dimension in self.predicted_action_dimensions.items():
+            predictions[action_key] = action_tensor[..., offset : offset + dimension]
+            offset += dimension
+        return predictions
 
     @property
     def position_dim(self) -> int:
@@ -200,11 +355,6 @@ class ActionSpace:
         """Check if there are any gripper actions."""
         return len(self.gripper_actions) > 0
 
-    @property
-    def task_has_phases(self) -> bool:
-        """Check if the task has phase labels."""
-        return TSOObsKey.PHASE_LABEL.value in self.actions_metadata
-
     def get_required_zarr_keys(self) -> list[str]:
         """Get zarr keys needed for this action space.
 
@@ -228,6 +378,7 @@ class ObservationSpace:
         observations_metadata: dict[str, ObservationMetadata | CameraMetadata],
     ):
         self.observations_metadata = resolve_dict_keys(observations_metadata)
+        validate_camera_metadata_keys(self.cameras)
 
     @property
     def cameras(self) -> dict[str, CameraMetadata]:
@@ -237,6 +388,16 @@ class ObservationSpace:
             for k, v in self.observations_metadata.items()
             if isinstance(v, CameraMetadata)
         }
+
+    @property
+    def depth_cameras(self) -> dict[str, CameraMetadata]:
+        """Get all depth camera observations."""
+        return {k: v for k, v in self.cameras.items() if v.is_depth}
+
+    @property
+    def rgb_cameras(self) -> dict[str, CameraMetadata]:
+        """Get all RGB camera observations."""
+        return {k: v for k, v in self.cameras.items() if v.is_rgb}
 
     @property
     def position_observations(self) -> dict[str, PositionObservationMetadata]:

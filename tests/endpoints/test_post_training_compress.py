@@ -62,7 +62,6 @@ from versatil.post_training_compression.serialization import save_compressed_mod
 from versatil.quantization.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.strategies import PT2EStrategy
-from versatil.quantization.torch_patches import patch_get_source_partitions
 from versatil.workspace import Workspace
 
 IMAGE_HEIGHT = 32
@@ -104,12 +103,11 @@ LEROBOT_METADATA_PATCH = patch(
 
 @pytest.fixture(autouse=True, scope="session")
 def _configure_inductor():
-    """Set inductor config and patch source partitions once per session."""
+    """Set inductor config once per session."""
     original_freezing = os.environ.get("TORCHINDUCTOR_FREEZING")
     original_cpp_wrapper = inductor_config.cpp_wrapper
     os.environ["TORCHINDUCTOR_FREEZING"] = "1"
     inductor_config.cpp_wrapper = True
-    patch_get_source_partitions()
     yield
     if original_freezing is None:
         os.environ.pop("TORCHINDUCTOR_FREEZING", None)

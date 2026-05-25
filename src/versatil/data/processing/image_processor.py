@@ -12,8 +12,9 @@ class ImageProcessor:
     """Per-camera image processing: resize, augmentation, normalization, channel reorder.
 
     Note:
-        At training time: resize → color augmentation (RGB only) → spatial augmentation → normalize → reorder.
-        At inference time: resize → normalize → reorder.
+        At training time: resize → color augmentation (RGB only) → spatial
+        augmentation → channel reorder → dtype normalization.
+        At inference time: resize → channel reorder → dtype normalization.
     """
 
     def __init__(
@@ -51,10 +52,12 @@ class ImageProcessor:
 
         self._camera_resize: dict[str, A.Resize] = {}
         self._rgb_cameras: set[str] = set()
+        self._camera_max_pixel_values: dict[str, float | None] = {}
         if camera_metadata is not None:
             for camera_key, metadata in camera_metadata.items():
                 if metadata.is_rgb:
                     self._rgb_cameras.add(camera_key)
+                self._camera_max_pixel_values[camera_key] = metadata.max_pixel_value
                 interpolation = (
                     cv2.INTER_NEAREST
                     if metadata.is_single_channel
@@ -66,6 +69,26 @@ class ImageProcessor:
                     interpolation=interpolation,
                     p=1.0,
                 )
+
+    @staticmethod
+    def normalize_image_tensor(
+        image: torch.Tensor,
+        max_pixel_value: float | None = None,
+    ) -> torch.Tensor:
+        """Normalize image tensors to floating point.
+
+        Args:
+            image: Image tensor.
+            max_pixel_value: Value used to scale the image tensor. ``None``
+                disables scaling.
+
+        Returns:
+            Float image tensor.
+        """
+        image = image.float()
+        if max_pixel_value is not None:
+            return image / max_pixel_value
+        return image
 
     def process(self, images: np.ndarray, camera_key: str) -> torch.Tensor:
         """Process camera images: resize, augment, normalize, reorder channels.
@@ -91,12 +114,9 @@ class ImageProcessor:
                 [self.spatial_transform(image=frame)["image"] for frame in images]
             )
 
-        if is_rgb:
-            images = images.astype(np.float32) / 255.0
-            images = np.moveaxis(images, -1, 1)  # (T, H, W, C) → (T, C, H, W)
-        else:
-            images = images.astype(np.float32)
-            # (T, 1, H, W) or  (T, C, H, W)
-            images = images[:, None] if images.ndim == 3 else np.moveaxis(images, -1, 1)
-
-        return torch.from_numpy(images)
+        images = images[:, None] if images.ndim == 3 else np.moveaxis(images, -1, 1)
+        image_tensor = torch.from_numpy(images)  # (T, C, H, W)
+        return self.normalize_image_tensor(
+            image=image_tensor,
+            max_pixel_value=self._camera_max_pixel_values.get(camera_key),
+        )

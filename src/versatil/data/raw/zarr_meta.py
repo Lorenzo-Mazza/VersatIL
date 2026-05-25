@@ -7,7 +7,6 @@ zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/lat
 from dataclasses import dataclass, field
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
-from versatil.data.constants import RAW_TO_CAMERA_MAPPING
 from versatil.data.metadata import (
     CameraMetadata,
     GripperActionMetadata,
@@ -19,6 +18,7 @@ from versatil.data.metadata import (
     PositionObservationMetadata,
     PrecomputedActionMetadata,
     ProprioceptiveObservationMetadata,
+    validate_camera_metadata_keys,
 )
 
 
@@ -60,20 +60,7 @@ class DatasetMetadata:
         if len(camera_keys) != len(set(camera_keys)):
             raise ValueError(f"Duplicate camera keys found: {camera_keys}")
 
-        for dict_key, camera_meta in self.cameras.items():
-            expected_key = RAW_TO_CAMERA_MAPPING.get(camera_meta.raw_camera_key)
-            if expected_key is None:
-                raise ValueError(
-                    f"Unknown raw_camera_key '{camera_meta.raw_camera_key}' "
-                    f"for camera '{dict_key}'. "
-                    f"Expected one of {list(RAW_TO_CAMERA_MAPPING.keys())}"
-                )
-            if expected_key != dict_key:
-                raise ValueError(
-                    f"Camera '{dict_key}' has raw_camera_key "
-                    f"'{camera_meta.raw_camera_key}' which maps to "
-                    f"'{expected_key}', not '{dict_key}'"
-                )
+        validate_camera_metadata_keys(self.cameras)
 
     @property
     def cameras(self) -> dict[str, CameraMetadata]:
@@ -81,6 +68,16 @@ class DatasetMetadata:
         return {
             k: v for k, v in self.observations.items() if isinstance(v, CameraMetadata)
         }
+
+    @property
+    def depth_cameras(self) -> dict[str, CameraMetadata]:
+        """Get all depth camera observations."""
+        return {k: v for k, v in self.cameras.items() if v.is_depth}
+
+    @property
+    def rgb_cameras(self) -> dict[str, CameraMetadata]:
+        """Get all RGB camera observations."""
+        return {k: v for k, v in self.cameras.items() if v.is_rgb}
 
     @property
     def position_observations(self) -> dict[str, PositionObservationMetadata]:

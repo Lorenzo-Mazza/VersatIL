@@ -8,11 +8,11 @@ import numpy as np
 import pytorch_lightning as pl
 import seaborn as sns
 import torch
-import wandb
 from pytorch_lightning.callbacks import Callback
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
+import wandb
 from versatil.metrics.accumulators import MetricsAccumulator
 from versatil.metrics.constants import MetadataKey
 from versatil.training.callbacks.wandb_figure import figure_to_wandb_image

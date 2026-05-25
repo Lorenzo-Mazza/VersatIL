@@ -1,8 +1,10 @@
 import torch
 from torch import nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 
-class DynamicFeatureEmbedding(nn.Module):
+
+class DynamicFeatureEmbedding(ModuleAttrMixin):
     """Learned embeddings for features, created on-demand at runtime.
 
     This module uses lazy initialization - embeddings are created on first access.
@@ -14,7 +16,6 @@ class DynamicFeatureEmbedding(nn.Module):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.embeddings = nn.ParameterDict()
-        self.register_buffer("_device_tracker", torch.zeros(1))
 
     def _load_from_state_dict(
         self,
@@ -32,8 +33,8 @@ class DynamicFeatureEmbedding(nn.Module):
         enabling proper loading even when embeddings don't exist yet due to lazy initialization.
         """
         embeddings_prefix = prefix + "embeddings."
-        device = self._device_tracker.device
-        dtype = self._device_tracker.dtype
+        device = self.device
+        dtype = self.dtype
         for key, value in state_dict.items():
             if key.startswith(embeddings_prefix):
                 feature_name = key[len(embeddings_prefix) :]
@@ -63,7 +64,7 @@ class DynamicFeatureEmbedding(nn.Module):
                     1,
                     self.embedding_dim,
                     device=device,
-                    dtype=self._device_tracker.dtype,
+                    dtype=self.dtype,
                 )
                 * 0.02
             )

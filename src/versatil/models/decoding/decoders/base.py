@@ -1,16 +1,20 @@
+"""Base contracts for action decoders."""
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.data.constants import SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import ActionTokenizer, Tokenizer
+from versatil.models.decoding.action_heads.base import BaseActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
 from versatil.models.feature_meta import FeatureMetadata
 
 
@@ -26,14 +30,15 @@ class DecoderInput:
     raises_for_types: list[str] = field(default_factory=list)
     #: Requires actions during decoding
     requires_actions: bool = False
-    #: Requires VLM backbone layers for interleaved decoding (Pi0/SmolVLA)
-    requires_vlm_backbone: bool = False
+    #: Requires normalized/tokenized observation tensors in the feature dict.
+    #: VLA decoders use this to build image/language prefix tokens internally.
+    needs_raw_observations: bool = False
     # For conditional decoders
     conditioning_key: str | None = None
     conditioning_required: list[str] = field(default_factory=list)
     conditioning_one_of_groups: list[list[str]] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Post-initialization to ensure feature keys are consistent."""
         if self.conditioning_key:
             conditioning_set = {self.conditioning_key}
@@ -52,7 +57,7 @@ class DecoderInput:
     def validate_feature_types(
         self,
         available_features: dict[str, FeatureMetadata],
-    ):
+    ) -> None:
         """Validate that required feature types are available at instantiation time.
 
         Args:
@@ -85,29 +90,23 @@ class DecoderInput:
                     )
 
 
-class ActionDecoder(nn.Module, ABC):
-    """Abstract base class for Neural Network architectures used for action decoding.
+class ActionDecoder(ModuleAttrMixin, ABC):
+    """Abstract base class for neural network action decoders."""
 
-    Attributes:
-        supports_tokenized_actions: Whether this decoder architecture supports discrete tokenized actions.
-
-            Note: This is separate from algorithm support - both decoder AND algorithm must support
-            tokenization for it to work. Set this to True only for specialized autoregressive decoders
-            designed for discrete action tokens.
-    """
-
-    supports_tokenized_actions: bool = False
+    requires_tokenized_actions: bool = False
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.COMPONENT
 
     def __init__(
         self,
         decoder_input: DecoderInput,
         observation_space: ObservationSpace,
         action_space: ActionSpace,
-        action_heads: dict,
+        action_heads: dict[str, BaseActionHead],
         device: str,
         observation_horizon: int,
         prediction_horizon: int,
-    ):
+    ) -> None:
+        """Initialize common action decoder state and action heads."""
         super().__init__()
         self.decoder_input = decoder_input
         resolved_heads = resolve_dict_keys(action_heads)
@@ -123,48 +122,63 @@ class ActionDecoder(nn.Module, ABC):
         self.tokenizer: ActionTokenizer | None = None
 
     def _set_action_head_dimensions(self) -> None:
-        """Set output dimensions on action heads from action_space.
+        """Set output dimensions according to the decoder action-head layout."""
+        match self.action_head_layout:
+            case ActionHeadLayout.NONE:
+                return
+            case ActionHeadLayout.COMPONENT:
+                self._set_component_action_head_dimensions()
+            case ActionHeadLayout.JOINT:
+                self._single_action_head().set_output_dim(self.action_dim)
+            case ActionHeadLayout.VOCABULARY:
+                self._vocabulary_action_head().set_output_dim(1)
 
-        Each action head's output_dim is set based on the corresponding
-        action_space.actions_metadata[key].prediction_dimension.
-
-        Raises:
-            ValueError: If an action head key is not found in action_space.actions_metadata
-                (only for non-tokenized decoders)
-        """
-        if self.supports_tokenized_actions:
-            # Use placeholder dimension - set_tokenizer() will set real dimension
-            for head in self.action_heads.values():
-                head.set_output_dim(1)
-            return
-        predicted_metadata = {
-            k: v
-            for k, v in self.action_space.actions_metadata.items()
-            if v.requires_prediction_head
-        }
+    def _set_component_action_head_dimensions(self) -> None:
+        """Set one action-head output dimension per predicted action component."""
+        predicted_dimensions = self.action_space.predicted_action_dimensions
         for key, head in self.action_heads.items():
-            if key not in predicted_metadata:
+            if key not in predicted_dimensions:
                 raise ValueError(
-                    f"Action head '{key}' not found in action_space.actions_metadata. "
-                    f"Available keys: {list(predicted_metadata.keys())}"
+                    f"Action head '{key}' is not a predicted action-space key. "
+                    f"Predicted keys: {list(predicted_dimensions.keys())}."
                 )
-            dim = predicted_metadata[key].prediction_dimension
-            head.set_output_dim(dim)
+            head.set_output_dim(predicted_dimensions[key])
 
-    def set_tokenizer(self, tokenizer: Tokenizer | None = None):
-        """Set tokenizer for discrete action tokenization.
+    def _single_action_head(self) -> BaseActionHead:
+        """Return the only configured action head."""
+        if len(self.action_heads) != 1:
+            raise ValueError(
+                f"{type(self).__name__} with action_head_layout="
+                f"{ActionHeadLayout.JOINT.value} expects exactly one action head, "
+                f"got {list(self.action_heads.keys())}."
+            )
+        return next(iter(self.action_heads.values()))
+
+    def _vocabulary_action_head(self) -> BaseActionHead:
+        """Return the token-vocabulary action head."""
+        configured_heads = set(self.action_heads.keys())
+        required_heads = {DecoderOutputKey.ACTION_LOGITS.value}
+        if configured_heads != required_heads:
+            raise ValueError(
+                f"{type(self).__name__} with action_head_layout="
+                f"{ActionHeadLayout.VOCABULARY.value} expects action_heads keys "
+                f"{required_heads}, got {configured_heads}."
+            )
+        return self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None = None) -> None:
+        """Set tokenizer for decoders trained on tokenized actions.
 
         This method is called by Policy.set_tokenizer() to pass the tokenizer
-        to the decoder. Only decoders with supports_tokenized_actions=True should
-        use this tokenizer in their forward/predict methods.
+        to the decoder. Continuous decoders ignore it.
 
         Args:
             tokenizer: Tokenizer instance from data pipeline (can be None)
         """
-        if not self.supports_tokenized_actions:
+        if not self.requires_tokenized_actions:
             self.tokenizer = None
             return
-        if tokenizer is None:
+        if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
                 "Tokenizer must be provided for tokenized action decoders."
             )
@@ -210,11 +224,27 @@ class ActionDecoder(nn.Module, ABC):
             Set of auxiliary output key strings.
         """
         auxiliary_keys: set[str] = set()
-        if self.supports_tokenized_actions:
+        if self.requires_tokenized_actions:
             auxiliary_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
         if any(isinstance(head, MoEHead) for head in self.action_heads.values()):
             auxiliary_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
         return auxiliary_keys
+
+    def get_loss_output_keys(self) -> set[str]:
+        """Return decoder output keys that can be supervised as actions."""
+        match self.action_head_layout:
+            case ActionHeadLayout.COMPONENT | ActionHeadLayout.VOCABULARY:
+                return set(self.action_heads.keys())
+            case ActionHeadLayout.JOINT:
+                return set(self.action_space.predicted_action_keys)
+            case ActionHeadLayout.NONE:
+                if self.requires_tokenized_actions:
+                    return set()
+                return set(self.action_space.predicted_action_keys)
+
+    def get_prediction_output_keys(self) -> set[str]:
+        """Return action keys produced by policy inference after postprocessing."""
+        return set(self.action_space.predicted_action_keys)
 
     @property
     def action_dim(self) -> int:
@@ -252,44 +282,68 @@ class ActionDecoder(nn.Module, ABC):
             else None
         )
 
-    def validate_action_heads(self):
-        """Validate that action heads match the action space configuration.
+    def validate_action_heads(self) -> None:
+        """Validate that configured heads match this decoder's head layout."""
+        match self.action_head_layout:
+            case ActionHeadLayout.NONE:
+                self._validate_no_action_heads()
+            case ActionHeadLayout.COMPONENT:
+                self._validate_component_action_heads()
+            case ActionHeadLayout.JOINT:
+                self._validate_joint_action_head()
+            case ActionHeadLayout.VOCABULARY:
+                self._validate_vocabulary_action_head()
 
-        Ensures that:
-        1. Required action modalities have corresponding heads
-        2. Head output dimensions match action space dimensions
-        3. No extra heads are defined for non-existent actions
+    def _validate_no_action_heads(self) -> None:
+        """Validate that a decoder does not receive action heads."""
+        if self.action_heads:
+            raise ValueError(
+                f"{type(self).__name__} uses action_head_layout="
+                f"{ActionHeadLayout.NONE.value}, so action_heads must be empty. "
+                f"Got {list(self.action_heads.keys())}."
+            )
 
-        Raises:
-            ValueError: If validation fails
-        """
-        if self.supports_tokenized_actions:
-            return
-
+    def _validate_component_action_heads(self) -> None:
+        """Validate one configured action head per predicted component."""
         configured_heads = set(self.action_heads.keys())
-        required_heads = {}
-        for key, meta in self.action_space.actions_metadata.items():
-            if meta.requires_prediction_head:
-                required_heads[key] = meta.prediction_dimension
-
-        required_keys = set(required_heads.keys())
-        missing_heads = required_keys - configured_heads
+        required_dimensions = self.action_space.predicted_action_dimensions
+        required_heads = set(required_dimensions.keys())
+        missing_heads = required_heads - configured_heads
         if missing_heads:
             raise ValueError(
-                f"Action space requires heads for {missing_heads}, but they are not configured. "
-                f"Configured heads: {configured_heads}"
+                f"Action space requires action heads for {missing_heads}, "
+                f"but configured heads are {configured_heads}."
             )
-        extra_heads = configured_heads - required_keys
+        extra_heads = configured_heads - required_heads
         if extra_heads:
             raise ValueError(
-                f"Action heads defined for {extra_heads}, but these actions are not in the action space. "
-                f"Required heads: {required_keys}"
+                f"Action heads are configured for {extra_heads}, but predicted "
+                f"action-space keys are {required_heads}."
             )
-        for action_key, expected_dim in required_heads.items():
-            head = self.action_heads[action_key]
-            actual_dim = head.output_dim
-            if actual_dim != expected_dim:
+        for action_key, expected_dimension in required_dimensions.items():
+            actual_dimension = self.action_heads[action_key].output_dim
+            if actual_dimension != expected_dimension:
                 raise ValueError(
-                    f"Action head '{action_key}' has output_dim={actual_dim}, "
-                    f"but action space requires dim={expected_dim}"
+                    f"Action head '{action_key}' has output_dim={actual_dimension}, "
+                    f"but action space requires dim={expected_dimension}."
                 )
+
+    def _validate_joint_action_head(self) -> None:
+        """Validate one head that predicts the full continuous action vector."""
+        joint_action_head = self._single_action_head()
+        if joint_action_head.output_dim != self.action_dim:
+            raise ValueError(
+                f"{type(self).__name__} joint action head output_dim must equal "
+                f"total action dimension {self.action_dim}, got "
+                f"{joint_action_head.output_dim}."
+            )
+
+    def _validate_vocabulary_action_head(self) -> None:
+        """Validate the token-vocabulary action head placeholder."""
+        vocabulary_head = self._vocabulary_action_head()
+        if vocabulary_head.output_dim != 1:
+            raise ValueError(
+                f"{type(self).__name__} vocabulary action head output_dim must "
+                f"be initialized to 1 before tokenizer binding, got "
+                f"{vocabulary_head.output_dim}."
+            )

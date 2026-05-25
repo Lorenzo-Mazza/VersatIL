@@ -3,10 +3,13 @@
 zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
 """
 
+from collections.abc import Mapping
+
 from versatil.data.constants import (
     RAW_TO_CAMERA_MAPPING,
     ActionComputationMethod,
     BinaryGripperRange,
+    CameraModality,
     CoordinateSystem,
     GripperType,
     OrientationRepresentation,
@@ -273,7 +276,7 @@ ProprioceptiveObservationMetadata = (
 
 
 class CameraMetadata(BaseMetadata):
-    """Camera observation metadata.
+    """Shared camera observation metadata.
 
     Note:
         In the dataset schema context, image_width/image_height define storage dimensions.
@@ -285,6 +288,8 @@ class CameraMetadata(BaseMetadata):
         channels: Number of image channels.
         image_width: Target image width.
         image_height: Target image height.
+        max_pixel_value: Optional value used to scale image tensors after
+            resizing and channel reordering.
     """
 
     def __init__(
@@ -294,6 +299,7 @@ class CameraMetadata(BaseMetadata):
         channels: int,
         image_width: int,
         image_height: int,
+        max_pixel_value: float | None = None,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
         if camera_key not in RAW_TO_CAMERA_MAPPING:
@@ -302,10 +308,20 @@ class CameraMetadata(BaseMetadata):
                 f"Got '{camera_key}', expected one of "
                 f"{list(RAW_TO_CAMERA_MAPPING.keys())}"
             )
+        if max_pixel_value is not None and max_pixel_value <= 0:
+            raise ValueError(
+                f"max_pixel_value must be positive or None, got {max_pixel_value}"
+            )
         self.raw_camera_key = camera_key
         self.channels = channels
         self.image_width = image_width
         self.image_height = image_height
+        self.max_pixel_value = max_pixel_value
+
+    @property
+    def camera_key(self) -> str:
+        """Canonical VersatIL camera key for this raw camera."""
+        return RAW_TO_CAMERA_MAPPING[self.raw_camera_key]
 
     @property
     def is_single_channel(self) -> bool:
@@ -315,7 +331,20 @@ class CameraMetadata(BaseMetadata):
     @property
     def is_rgb(self) -> bool:
         """Whether this camera is an RGB camera (3 channels)."""
-        return self.channels == 3
+        return False
+
+    @property
+    def is_depth(self) -> bool:
+        """Whether this camera stores depth values."""
+        return False
+
+    @property
+    def modality(self) -> CameraModality:
+        """Semantic camera modality for encoder compatibility checks."""
+        raise NotImplementedError(
+            "CameraMetadata does not define a modality. Use RGBCameraMetadata "
+            "or DepthCameraMetadata."
+        )
 
     def __eq__(self, other: object) -> bool:
         """Structural equality — compares camera identity and format, not dimensions.
@@ -330,7 +359,110 @@ class CameraMetadata(BaseMetadata):
             super().__eq__(other)
             and self.raw_camera_key == other.raw_camera_key
             and self.channels == other.channels
+            and self.max_pixel_value == other.max_pixel_value
         )
+
+
+class RGBCameraMetadata(CameraMetadata):
+    """RGB camera observation metadata.
+
+    Args:
+        camera_key: Key in the raw dataset corresponding to the RGB camera.
+        dtype: Zarr storage dtype for RGB values.
+        image_width: Target image width.
+        image_height: Target image height.
+        max_pixel_value: Value used to scale RGB image tensors after resizing
+            and channel reordering.
+    """
+
+    def __init__(
+        self,
+        camera_key: str,
+        dtype: str,
+        image_width: int,
+        image_height: int,
+        max_pixel_value: float | None = 255.0,
+    ):
+        super().__init__(
+            camera_key=camera_key,
+            dtype=dtype,
+            channels=3,
+            image_width=image_width,
+            image_height=image_height,
+            max_pixel_value=max_pixel_value,
+        )
+
+    @property
+    def is_rgb(self) -> bool:
+        """Whether this camera is an RGB camera."""
+        return True
+
+    @property
+    def modality(self) -> CameraModality:
+        """Semantic camera modality for encoder compatibility checks."""
+        return CameraModality.RGB
+
+
+class DepthCameraMetadata(CameraMetadata):
+    """Depth camera observation metadata.
+
+    Args:
+        camera_key: Key in the raw dataset corresponding to the depth camera.
+        dtype: Zarr storage dtype for depth values.
+        image_width: Target image width.
+        image_height: Target image height.
+        max_pixel_value: Optional value used to scale depth image tensors after
+            resizing and channel reordering.
+    """
+
+    def __init__(
+        self,
+        camera_key: str,
+        dtype: str,
+        image_width: int,
+        image_height: int,
+        max_pixel_value: float | None = None,
+    ):
+        if "float" not in dtype:
+            raise ValueError(f"Depth camera dtype must be a float type, got {dtype}")
+        super().__init__(
+            camera_key=camera_key,
+            dtype=dtype,
+            channels=1,
+            image_width=image_width,
+            image_height=image_height,
+            max_pixel_value=max_pixel_value,
+        )
+
+    @property
+    def is_depth(self) -> bool:
+        """Whether this camera stores depth values."""
+        return True
+
+    @property
+    def modality(self) -> CameraModality:
+        """Semantic camera modality for encoder compatibility checks."""
+        return CameraModality.DEPTH
+
+
+def validate_camera_metadata_keys(
+    camera_metadata: Mapping[str, CameraMetadata],
+) -> None:
+    """Validate that camera metadata matches its canonical observation key.
+
+    Args:
+        camera_metadata: Camera metadata indexed by canonical VersatIL camera key.
+
+    Raises:
+        ValueError: If a metadata raw camera key maps to a different
+            canonical camera key.
+    """
+    for key, metadata in camera_metadata.items():
+        if metadata.camera_key != key:
+            raise ValueError(
+                f"Camera '{key}' has raw_camera_key '{metadata.raw_camera_key}' "
+                f"which maps to '{metadata.camera_key}', not '{key}'"
+            )
 
 
 class ActionMetadata(BaseMetadata):

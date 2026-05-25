@@ -114,6 +114,7 @@ def spatial_features_with_latent_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestLACTInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -194,6 +195,7 @@ class TestLACTInitialization:
         )
 
 
+@pytest.mark.integration
 class TestLACTForward:
     def test_raises_without_latent_in_features(
         self,

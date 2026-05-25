@@ -8,9 +8,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
+from timm.models._pretrained import PretrainedCfg
+from timm.models.vision_transformer import VisionTransformer
 
-from versatil.data.constants import RGB_CAMERAS
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality
+from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -27,10 +32,16 @@ FEATURE_DIM = 768
 SEQUENCE_LENGTH = 196
 
 
-def _mock_build_backbone(self):
+def _mock_build_backbone(self: FlatRGBEncoder) -> None:
     """Side-effect to set self.backbone with expected attributes."""
-    self.backbone = MagicMock()
+    self.backbone = MagicMock(spec=VisionTransformer)
     self.backbone.num_features = FEATURE_DIM
+    self.backbone.num_prefix_tokens = 1
+    self.backbone.blocks = [
+        MagicMock(spec=nn.Module),
+        MagicMock(spec=nn.Module),
+        MagicMock(spec=nn.Module),
+    ]
     self.expected_image_size = None
     self.requires_strict_image_size = False
     self.patch_size = None
@@ -43,13 +54,19 @@ def _make_mock_timm_backbone(
     patch_size: tuple[int, int] = (14, 14),
     strict_img_size: bool = False,
 ) -> MagicMock:
-    backbone = MagicMock()
+    backbone = MagicMock(spec=VisionTransformer)
     backbone.num_features = num_features
     backbone.num_prefix_tokens = num_prefix_tokens
+    backbone.blocks = [
+        MagicMock(spec=nn.Module),
+        MagicMock(spec=nn.Module),
+        MagicMock(spec=nn.Module),
+        MagicMock(spec=nn.Module),
+    ]
     if patch_embed_img_size is None:
         backbone.patch_embed = None
     else:
-        patch_embed = MagicMock()
+        patch_embed = MagicMock(spec=nn.Module)
         patch_embed.strict_img_size = strict_img_size
         patch_embed.img_size = patch_embed_img_size
         patch_embed.patch_size = patch_size
@@ -69,8 +86,8 @@ def mock_timm_backend():
     """
 
     class _Backend:
-        def __init__(self):
-            self.cfg = MagicMock()
+        def __init__(self) -> None:
+            self.cfg = MagicMock(spec=PretrainedCfg)
             self.cfg.fixed_input_size = False
             self.cfg.input_size = (3, 518, 518)
             self.backbone_kwargs = {
@@ -103,17 +120,28 @@ def mock_timm_backend():
             if strict_img_size is not None:
                 self.backbone_kwargs["strict_img_size"] = strict_img_size
 
-        def _side_effect(self, *args, **kwargs) -> MagicMock:
-            kwargs_override = dict(self.backbone_kwargs)
-            img_size_kwarg = kwargs.get("img_size")
-            if isinstance(img_size_kwarg, tuple):
-                kwargs_override["patch_embed_img_size"] = img_size_kwarg
-            elif isinstance(img_size_kwarg, int):
-                kwargs_override["patch_embed_img_size"] = (
-                    img_size_kwarg,
-                    img_size_kwarg,
-                )
-            return _make_mock_timm_backbone(**kwargs_override)
+        def _side_effect(
+            self,
+            model_name: str,
+            pretrained: bool,
+            img_size: int | tuple[int, int] | None = None,
+            act_layer: str | None = None,
+        ) -> MagicMock:
+            del model_name, pretrained, act_layer
+            patch_embed_img_size = self.backbone_kwargs["patch_embed_img_size"]
+            patch_size = self.backbone_kwargs["patch_size"]
+            strict_img_size = self.backbone_kwargs["strict_img_size"]
+            if isinstance(img_size, tuple):
+                patch_embed_img_size = img_size
+            elif isinstance(img_size, int):
+                patch_embed_img_size = (img_size, img_size)
+            return _make_mock_timm_backbone(
+                num_features=self.backbone_kwargs["num_features"],
+                num_prefix_tokens=self.backbone_kwargs["num_prefix_tokens"],
+                patch_embed_img_size=patch_embed_img_size,
+                patch_size=patch_size,
+                strict_img_size=strict_img_size,
+            )
 
     backend = _Backend()
     cfg_patcher = patch(
@@ -152,6 +180,9 @@ def flat_rgb_encoder_factory(
         pretrained: bool = False,
         frozen: bool = False,
         real_build: bool = False,
+        image_size: int | tuple[int, int] | None = None,
+        intermediate_layer_index: int | None = None,
+        lora_config: LoRAAdaptation | None = None,
     ) -> FlatRGBEncoder:
         if not real_build:
             with patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone):
@@ -161,6 +192,9 @@ def flat_rgb_encoder_factory(
                     pooling_method=pooling_method,
                     pretrained=pretrained,
                     frozen=frozen,
+                    image_size=image_size,
+                    intermediate_layer_index=intermediate_layer_index,
+                    lora_config=lora_config,
                 )
         return FlatRGBEncoder(
             input_keys=input_keys,
@@ -168,6 +202,9 @@ def flat_rgb_encoder_factory(
             pooling_method=pooling_method,
             pretrained=pretrained,
             frozen=frozen,
+            image_size=image_size,
+            intermediate_layer_index=intermediate_layer_index,
+            lora_config=lora_config,
         )
 
     return factory
@@ -250,30 +287,25 @@ class TestFlatRGBEncoderInitialization:
             )
 
     @pytest.mark.parametrize(
-        "input_keys, expectation",
+        "input_keys",
         [
-            ("left", does_not_raise()),
-            ("right", does_not_raise()),
-            (["left", "right"], does_not_raise()),
-            (
-                "invalid_camera",
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        f"At least one from {RGB_CAMERAS} required, got {set()}"
-                    ),
-                ),
-            ),
+            "left",
+            "right",
+            ["left", "right"],
+            "invalid_camera",
         ],
     )
-    def test_input_keys_validation(
+    def test_input_keys_are_stored_without_key_list_validation(
         self,
         flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         input_keys: str | list[str],
-        expectation,
     ):
-        with expectation:
-            flat_rgb_encoder_factory(input_keys=input_keys)
+        encoder = flat_rgb_encoder_factory(input_keys=input_keys)
+        expected_keys = [input_keys] if isinstance(input_keys, str) else input_keys
+        assert encoder.input_specification.keys == expected_keys
+        assert encoder.input_specification.required_camera_modalities == [
+            CameraModality.RGB
+        ]
 
     @pytest.mark.parametrize(
         "pooling_method, expectation",
@@ -490,6 +522,29 @@ class TestFlatRGBEncoderBuildBackbone:
             assert "img_size" not in call_kwargs
 
     @pytest.mark.unit
+    def test_build_backbone_passes_configured_image_size(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        mock_timm_backend,
+    ):
+        flat_rgb_encoder_factory(real_build=True, image_size=224)
+        assert mock_timm_backend.create_model_mock.call_args.kwargs["img_size"] == 224
+
+    @pytest.mark.unit
+    def test_build_backbone_uses_quick_gelu_for_openai_clip(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        mock_timm_backend,
+    ):
+        flat_rgb_encoder_factory(
+            real_build=True,
+            backbone=FlatBackboneType.CLIP_VITL14_336_OPENAI.value,
+        )
+        assert mock_timm_backend.create_model_mock.call_args.kwargs["act_layer"] == (
+            "quick_gelu"
+        )
+
+    @pytest.mark.unit
     def test_build_backbone_reads_patch_embed_properties(
         self,
         flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
@@ -535,6 +590,35 @@ class TestFlatRGBEncoderBuildBackbone:
         assert encoder.feature_dim == FEATURE_DIM
 
     @pytest.mark.unit
+    def test_build_backbone_applies_lora_config(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        lora_passthrough: Callable[
+            [torch.nn.Module, LoRAAdaptation | None, bool], torch.nn.Module
+        ],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+
+        with patch(
+            "versatil.models.encoding.encoders.rgb.flat.apply_lora_config",
+            side_effect=lora_passthrough,
+        ) as mock_apply_lora:
+            encoder = flat_rgb_encoder_factory(
+                real_build=True,
+                frozen=False,
+                lora_config=lora_config,
+            )
+
+        assert mock_apply_lora.call_args.kwargs["model"] is encoder.backbone
+        assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
+        assert mock_apply_lora.call_args.kwargs["frozen"] is False
+
+    @pytest.mark.unit
     def test_set_image_size_refreezes_when_frozen(
         self,
         flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
@@ -574,16 +658,43 @@ class TestFlatRGBEncoderBuildBackbone:
         assert mock_resize.call_args.kwargs["target_height"] == 64
         assert mock_resize.call_args.kwargs["target_width"] == 64
 
+    @pytest.mark.unit
+    def test_encode_uses_configured_intermediate_layer(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+    ):
+        encoder = flat_rgb_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            intermediate_layer_index=-2,
+        )
+        prefix_tokens = torch.zeros(2, 1, FEATURE_DIM)
+        patch_tokens = torch.ones(2, SEQUENCE_LENGTH, FEATURE_DIM)
+        encoder.backbone.forward_intermediates.return_value = [
+            (patch_tokens, prefix_tokens)
+        ]
+        inputs = {"left": torch.zeros(2, 1, 3, 224, 224)}
+
+        output = encoder(inputs)
+
+        features = output[EncoderOutputKeys.RGB.value]
+        torch.testing.assert_close(features, patch_tokens[:, None])
+        encoder.backbone.forward_intermediates.assert_called_once()
+        call = encoder.backbone.forward_intermediates.call_args
+        assert call.args[0].shape == (2, 3, 224, 224)
+        assert call.kwargs["indices"] == [1]
+        assert call.kwargs["return_prefix_tokens"] is True
+        assert call.kwargs["output_fmt"] == "NLC"
+        assert call.kwargs["intermediates_only"] is True
+
 
 class TestFlatRGBEncoderValidateInputMetadata:
     @pytest.mark.parametrize(
         "metadata, expected_error",
         [
             (
-                CameraMetadata(
+                RGBCameraMetadata(
                     camera_key="left",
                     dtype="uint8",
-                    channels=3,
                     image_height=224,
                     image_width=224,
                 ),
@@ -707,6 +818,76 @@ class TestFlatRGBEncoderIntegration:
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGB.value]
         assert features.shape == (batch_size, 1, encoder.output_dim)
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("backbone", [b.value for b in FLAT_BACKBONES])
+    def test_intermediate_layer_forward_pass_per_backbone(
+        self,
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        backbone: str,
+    ):
+        batch_size = 1
+        encoder = FlatRGBEncoder(
+            input_keys="left",
+            backbone=backbone,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            intermediate_layer_index=-2,
+            pretrained=False,
+            frozen=False,
+        )
+        inputs = image_input_factory(batch_size=batch_size)
+        output = encoder(inputs)
+        features = output[EncoderOutputKeys.RGB.value]
+        assert features.shape == (batch_size, 1, encoder.output_dim)
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "backbone",
+        [
+            FlatBackboneType.DINOV2_VITS14.value,
+            FlatBackboneType.DINOV3_VITS16.value,
+        ],
+    )
+    def test_lora_forward_pass_per_backbone(
+        self,
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        parameter_count: Callable[[torch.nn.Module], int],
+        trainable_parameter_count: Callable[[torch.nn.Module], int],
+        backbone: str,
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        encoder = FlatRGBEncoder(
+            input_keys="left",
+            backbone=backbone,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+            lora_config=lora_config,
+        )
+        image_height, image_width = encoder.expected_image_size
+        inputs = image_input_factory(
+            batch_size=1,
+            height=image_height,
+            width=image_width,
+        )
+        output = encoder(inputs)
+        trainable_parameter_names = [
+            name
+            for name, parameter in encoder.backbone.named_parameters()
+            if parameter.requires_grad
+        ]
+        features = output[EncoderOutputKeys.RGB.value]
+        trainable_parameters = trainable_parameter_count(encoder.backbone)
+        total_parameters = parameter_count(encoder.backbone)
+        assert features.shape == (1, 1, encoder.output_dim)
+        assert trainable_parameter_names
+        assert all("lora_" in name for name in trainable_parameter_names)
+        assert 0 < trainable_parameters < total_parameters
 
     @pytest.mark.integration
     @pytest.mark.parametrize("time_steps", [1, 2])

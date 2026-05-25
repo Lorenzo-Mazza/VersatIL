@@ -4,7 +4,7 @@ defaults:
 tokenize_observations: true
 tokenize_actions: false
 observation_tokenizer:
-  tokenizer_model: ${language_model:GEMMA_2B}
+  tokenizer_model: ${language_model:BERT_BASE}
   observation_keys:
     - ${proprio_key:ROBOT_FRAME_CARTESIAN_TIP_POS}
     - ${proprio_key:GRIPPER_STATE}

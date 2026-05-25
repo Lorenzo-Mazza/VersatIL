@@ -7,8 +7,11 @@ from omegaconf import MISSING
 from versatil.configs.decoding.action_head import (
     ActionHeadBlockConfig,
     ActionHeadConfig,
+    AdaNormBlockConfig,
     AttentionBlockConfig,
+    ConditionalActionHeadConfig,
     GaussianHeadConfig,
+    LayerNormBlockConfig,
     MixtureOfExpertsHeadConfig,
     MLPBlockConfig,
     ResidualBlockConfig,
@@ -21,6 +24,17 @@ class TestActionHeadBlockConfig:
     def test_target_defaults_to_missing(self):
         config = ActionHeadBlockConfig()
         assert config._target_ == MISSING
+
+
+@pytest.mark.unit
+class TestLayerNormBlockConfig:
+    def test_target_points_to_layer_norm_block(self) -> None:
+        config = LayerNormBlockConfig(input_dim=256)
+        assert config._target_ == "versatil.models.decoding.action_heads.LayerNormBlock"
+
+    def test_stores_input_dim(self) -> None:
+        config = LayerNormBlockConfig(input_dim=128)
+        assert config.input_dim == 128
 
 
 @pytest.mark.unit
@@ -73,6 +87,27 @@ class TestResidualBlockConfig:
 
 
 @pytest.mark.unit
+class TestAdaNormBlockConfig:
+    def test_target_points_to_adanorm_block(self) -> None:
+        config = AdaNormBlockConfig(input_dim=256, condition_dim=128)
+        assert config._target_ == "versatil.models.decoding.action_heads.AdaNormBlock"
+
+    @pytest.mark.parametrize("input_dim", [128, 512])
+    @pytest.mark.parametrize("condition_dim", [64, 256])
+    def test_stores_configuration(
+        self,
+        input_dim: int,
+        condition_dim: int,
+    ) -> None:
+        config = AdaNormBlockConfig(
+            input_dim=input_dim,
+            condition_dim=condition_dim,
+        )
+        assert config.input_dim == input_dim
+        assert config.condition_dim == condition_dim
+
+
+@pytest.mark.unit
 class TestActionHeadConfig:
     def test_target_points_to_action_head(self):
         config = ActionHeadConfig(input_dim=256)
@@ -85,6 +120,20 @@ class TestActionHeadConfig:
     def test_blocks_default_to_none(self):
         config = ActionHeadConfig(input_dim=256)
         assert config.blocks is None
+
+
+@pytest.mark.unit
+class TestConditionalActionHeadConfig:
+    def test_target_points_to_conditional_action_head(self) -> None:
+        config = ConditionalActionHeadConfig(input_dim=256, condition_dim=128)
+        assert (
+            config._target_
+            == "versatil.models.decoding.action_heads.ConditionalActionHead"
+        )
+
+    def test_condition_dim_required(self) -> None:
+        config = ConditionalActionHeadConfig(input_dim=256)
+        assert config.condition_dim == MISSING
 
 
 @pytest.mark.unit

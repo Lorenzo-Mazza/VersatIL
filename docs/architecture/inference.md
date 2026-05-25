@@ -62,7 +62,7 @@ class ObservationPreprocessor:
         camera_keys: list[str],
         proprioceptive_keys: list[str],
         has_language: bool,
-        camera_metadata: dict[str, CameraMetadata],
+        camera_metadata: dict[str, RGBCameraMetadata | DepthCameraMetadata],
         compression_type: str = "raw",
         rotate_images: bool = False,
         depth_clamp_range: tuple[float, float] | None = None,
@@ -88,7 +88,7 @@ Raw image data from the transport is decompressed using `tso_robotics_sockets.de
 
 The `transform_camera_observations()` method applies consistent transforms to all camera images per timestep:
 
-1. **Resize** -- All RGB and depth images are resized to per-camera dimensions from [`CameraMetadata`][versatil.data.metadata.CameraMetadata] via Albumentations
+1. **Resize** -- All RGB and depth images are resized to per-camera dimensions from [`RGBCameraMetadata`][versatil.data.metadata.RGBCameraMetadata] and [`DepthCameraMetadata`][versatil.data.metadata.DepthCameraMetadata]
 2. **RGB normalization** -- uint8 images are converted to float32 in `[0, 1]`
 3. **Depth clamping** -- Depth values are clamped to `[depth_min, depth_max]` derived from training normalizer statistics
 

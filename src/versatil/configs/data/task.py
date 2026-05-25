@@ -37,7 +37,8 @@ class ObservationSpaceConfig:
 
     Attributes:
         observations_metadata: Dict of all observation metadata, indexed by zarr store key.
-            Values are ObservationMetadataConfig subclasses or CameraMetadataConfig.
+            Values are ObservationMetadataConfig subclasses,
+            RGBCameraMetadataConfig, or DepthCameraMetadataConfig.
     """
 
     _target_: str = "versatil.data.task.ObservationSpace"

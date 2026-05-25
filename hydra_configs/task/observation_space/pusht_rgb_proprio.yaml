@@ -5,10 +5,9 @@ _target_: versatil.data.task.ObservationSpace
 
 observations_metadata:
   ${cameras:AGENTVIEW}:
-    _target_: versatil.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.RGBCameraMetadata
     camera_key: ${raw_camera:IMAGE_PUSHT}
     dtype: uint8
-    channels: 3
     image_width: 96
     image_height: 96
 

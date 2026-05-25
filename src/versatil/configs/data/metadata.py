@@ -67,6 +67,31 @@ class CameraMetadataConfig:
     channels: int = MISSING
     image_width: int | None = None
     image_height: int | None = None
+    max_pixel_value: float | None = None
+
+
+@dataclass
+class RGBCameraMetadataConfig:
+    """Config for RGBCameraMetadata."""
+
+    _target_: str = "versatil.data.metadata.RGBCameraMetadata"
+    camera_key: str = MISSING
+    dtype: str = MISSING
+    image_width: int | None = None
+    image_height: int | None = None
+    max_pixel_value: float | None = 255.0
+
+
+@dataclass
+class DepthCameraMetadataConfig:
+    """Config for DepthCameraMetadata."""
+
+    _target_: str = "versatil.data.metadata.DepthCameraMetadata"
+    camera_key: str = MISSING
+    dtype: str = MISSING
+    image_width: int | None = None
+    image_height: int | None = None
+    max_pixel_value: float | None = None
 
 
 @dataclass

@@ -125,6 +125,7 @@ def mock_policy_factory() -> Callable[..., MagicMock]:
     def factory() -> MagicMock:
         mock_policy = MagicMock()
         mock_policy.observation_space = MagicMock(spec=ObservationSpace)
+        mock_policy.observation_space.depth_cameras = {}
         mock_policy.action_space = MagicMock(spec=ActionSpace)
         mock_policy.prediction_horizon = 16
         mock_policy.decoder.observation_horizon = 2
@@ -390,6 +391,9 @@ class TestDepthClampRange:
         loader = CompressedPolicyLoader.__new__(CompressedPolicyLoader)
         loader._normalizer = normalizer
         loader._policy = mock_policy_factory()
+        loader._policy.observation_space.depth_cameras = {
+            Cameras.DEPTH.value: MagicMock()
+        }
 
         result = loader.depth_clamp_range
 

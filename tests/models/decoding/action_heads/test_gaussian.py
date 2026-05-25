@@ -11,6 +11,7 @@ from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.constants import DecoderOutputKey
 
 
+@pytest.mark.unit
 class TestGaussianHeadInitialization:
     @pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
     @pytest.mark.parametrize("max_logvar", [4.0, 2.0])
@@ -25,6 +26,7 @@ class TestGaussianHeadInitialization:
         assert head.max_logvar == max_logvar
 
 
+@pytest.mark.unit
 class TestGaussianHeadSetOutputDim:
     def test_creates_mean_projection(
         self,
@@ -52,6 +54,7 @@ class TestGaussianHeadSetOutputDim:
         assert head._logvar_proj.in_features == 32
 
 
+@pytest.mark.unit
 class TestGaussianHeadForward:
     def test_raises_if_output_dim_not_set(
         self,

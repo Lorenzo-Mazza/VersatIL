@@ -4,7 +4,7 @@ Action decoders are the neural network architectures that transform encoded obse
 
 ```python
 class ActionDecoder(nn.Module, ABC):
-    supports_tokenized_actions: bool = False
+    requires_tokenized_actions: bool = False
 
     def __init__(
         self,
@@ -36,13 +36,19 @@ class DecoderInput:
     required_types: list[str] = []                         # Must have at least one of these feature types
     raises_for_types: list[str] = []                       # Reject these feature types
     requires_actions: bool = False                         # Whether forward() needs ground-truth actions
-    requires_vlm_backbone: bool = False                    # Whether the decoder needs VLM layers (Pi0/SmolVLA)
+    needs_raw_observations: bool = False                   # Whether raw normalized/tokenized observations pass through
     conditioning_key: str | None = None                    # For conditional decoders
     conditioning_required: list[str] = []                  # Required conditioning keys
     conditioning_one_of_groups: list[list[str]] = []       # Exactly one from each group required
 ```
 
 Feature types are `"spatial"` (C, H, W), `"sequential"` (S, D), or `"flat"` (D,).
+
+`needs_raw_observations=True` is for decoders that need raw
+observation tensors directly, not only encoded features. [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder]
+and [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder]
+use it because they run their configured `vlm_backbone` on image/text
+observations during the decoder forward pass.
 
 ---
 
@@ -56,23 +62,20 @@ These decoders predict all action timesteps in parallel using bidirectional or D
 |---------|-------|-------------|
 | **[`ActionTransformer`][versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer]** | [`ActionTransformer`][versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer] | Bidirectional transformer decoder with cross-attention to observation tokens. Configurable positional encoding, normalization, and activation. |
 | **[`ACT`][versatil.models.decoding.decoders.factory.act.ACT]** | [`ACT`][versatil.models.decoding.decoders.factory.act.ACT] | Action Chunking Transformer ([Zhao et al., 2023](https://arxiv.org/abs/2304.13705)). DETR-style non-autoregressive decoder with learnable queries. Optionally accepts a latent embedding from [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm]. |
-| **[`LACT`][versatil.models.decoding.decoders.factory.lact.LACT]** | [`LACT`][versatil.models.decoding.decoders.factory.lact.LACT] | Latent Action Transformer. Extends [`ActionTransformer`][versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer] with latent-conditioned decoding via AdaLN or FiLM modulation at each layer. Uses PixArt-style cross-attention DiT architecture. |
+| **[`LACT`][versatil.models.decoding.decoders.factory.lact.LACT]** | [`LACT`][versatil.models.decoding.decoders.factory.lact.LACT] | Latent Action Transformer ([Mazza et al., 2026](https://arxiv.org/abs/2605.22493)). Extends [`ActionTransformer`][versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer] with latent-conditioned adaptive normalization at each layer. Uses PixArt-style cross-attention DiT architecture. |
 | **[`PhaseACT`][versatil.models.decoding.decoders.factory.phase_act.PhaseACT]** | [`PhaseACT`][versatil.models.decoding.decoders.factory.phase_act.PhaseACT] | Phase-aware ACT with surgical phase prediction ([Mazza et al., 2026](https://arxiv.org/abs/2601.21971)). Extends [`ACT`][versatil.models.decoding.decoders.factory.act.ACT] with a phase classifier head whose predictions route through MoE action heads. |
 | **MODE-ACT** | [`MixtureOfDensitiesActionTransformer`][versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer] | Mixture Density Network Transformer. Predicts K mixture components per action using multiple Gaussian expert heads and a mode query token for routing. |
 
 ### Tokenized Decoders
 
-These decoders operate on discrete tokenized actions. Autoregressive decoders (GPT, Free, MoE Free) generate action tokens sequentially, while non-autoregressive decoders (DiscreteDETR) predict all tokens in parallel.
+These decoders operate on discrete tokenized actions. GPT-style decoders generate action tokens sequentially from observation-prefix tokens.
 
 | Decoder | Class | Description |
 |---------|-------|-------------|
 | **[`GPTActionTransformer`][versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer]** | [`GPTActionTransformer`][versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer] | Autoregressive GPT-style decoder with self-attention only. Observation features are concatenated as prefix tokens, followed by action token embeddings. Inspired by [Pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast). |
-| **[`FreeActionTransformer`][versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer]** | [`FreeActionTransformer`][versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer] | Autoregressive Free Transformer ([Fleuret, 2025](https://arxiv.org/abs/2510.17558)). Encodes trajectory style/mode in a discrete latent variable and generates action tokens sequentially. |
-| **[`MoEFreeActionTransformer`][versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer]** | [`MoEFreeActionTransformer`][versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer] | Autoregressive. Extends [`FreeActionTransformer`][versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer] with MoE action heads. Uses the Free Transformer's latent layer outputs as gating signals to route through multiple expert heads. |
-| **[`DiscreteDETRActionTransformer`][versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer]** | [`DiscreteDETRActionTransformer`][versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer] | Non-autoregressive DETR-style decoder ([Carion et al., 2020](https://arxiv.org/abs/2005.12872)) adapted for tokenized action prediction. Uses [`ACT`][versatil.models.decoding.decoders.factory.act.ACT]-style parallel decoding with discrete action tokens. |
-
 !!! note "Tokenized decoders"
-    Decoders with `supports_tokenized_actions = True` require a [`Tokenizer`][versatil.data.tokenization.tokenizer.Tokenizer] to be set via `set_tokenizer()`. The tokenizer maps continuous actions to discrete vocabulary indices. Both the decoder **and** the algorithm must support tokenization.
+    Decoders with `requires_tokenized_actions = True` require a [`Tokenizer`][versatil.data.tokenization.tokenizer.Tokenizer] to be set via `set_tokenizer()`. The action tokenizer maps continuous actions to discrete model token IDs through an action discretizer (`fast` or `binned`) and a token-id mapping (`identity` or `language_vocabulary`). Both the decoder **and** the algorithm must support tokenization.
+    Tokenized-action decoders inherit [`DiscreteDecoder`][versatil.models.decoding.decoders.discrete.DiscreteDecoder] for tokenizer setup, optional tied vocabulary heads, teacher-forcing target validation, and sampling.
 
 ### Diffusion / Flow Matching Decoders
 
@@ -84,18 +87,34 @@ These decoders are designed for iterative denoising algorithms. They accept nois
 | **[`DiTBlockActionTransformer`][versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer]** | [`DiTBlockActionTransformer`][versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer] | DiT-Block Policy ([Block et al., 2024](https://arxiv.org/html/2410.10088v1)). Processes observation tokens through an encoder with mean pooling, then conditions the decoder via AdaLN (pooled vector + timestep embedding). Supports encoder caching during inference. |
 | **[`DiffusionActionTransformer`][versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer]** | [`DiffusionActionTransformer`][versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer] | Diffusion action transformer supporting two sub-architectures: **[`CrossAttentionDiT`][versatil.models.layers.diffusion_transformer.cross_attention_dit.CrossAttentionDiT]** (PixArt-style cross-attention to unpooled observation tokens) and **MMDiT** (SD3-style joint attention between observation and action streams). |
 
-### VLA (Vision-Language-Action) Decoders
+### VLA Decoders
 
-These decoders borrow pretrained layers from a generative VLM encoder and pair them with learned expert layers for interleaved processing. They require `requires_vlm_backbone=True` in their [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] and implement `set_backbone()` to receive the VLM layers at initialization.
+These decoders use a vision-language model directly inside the
+action-generation sequence.
+
+There are two wiring patterns:
+
+- [`AutoregressiveVLADecoder`][versatil.models.decoding.decoders.factory.autoregressive_vla.AutoregressiveVLADecoder] and [`OpenVLAOFTDecoder`][versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder] run a configured `vlm_backbone` on raw normalized/tokenized image-text observations, then use the VLM language tower for either autoregressive action tokens or continuous action slots.
+- [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder] and [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder] run a configured `vlm_backbone` on the same raw observations, then pass those VLM tokens to expert action layers.
+
+Reusable HF wrappers for VLM backbones live in
+`versatil.models.decoding.generative_language_models`.
+The VLM backbones used by these decoders include PaliGemma2 3B at
+224/448/896 resolution, SmolVLM 256M/500M/2.2B Instruct, and Prismatic
+checkpoints from TRI-ML.
+These HuggingFace-backed components accept an optional `lora_config` using
+PEFT LoRA presets `auto` and `all-linear`.
 
 | Decoder | Class | Description |
 |---------|-------|-------------|
+| **Autoregressive action-token VLA** | [`AutoregressiveVLADecoder`][versatil.models.decoding.decoders.factory.autoregressive_vla.AutoregressiveVLADecoder] | Generic VLM-backed decoder for discrete action-token generation. The `openvla` and `pi0_fast` Hydra presets choose the VLM backbone, tokenizer mapping, and prefix attention behavior. |
+| **OpenVLA-OFT action chunks** | [`OpenVLAOFTDecoder`][versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder] | VLM-backed continuous action-chunk decoder. Appends learned action slots to the VLM prefix, runs the language tower once, and maps slot hidden states through one joint action head. |
 | **Pi0** | [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder] | Interleaved VLM-expert joint attention. Each VLM layer is paired 1:1 with an expert layer. Pi0 fuses timestep via concat-MLP; Pi0.5 modulates via adaptive normalization. |
 | **SmolVLA** | [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder] | Alternates between joint self-attention (expert attends alongside VLM tokens) and cross-attention (expert attends to VLM key/values) layers. |
 
-References: [Pi0](https://arxiv.org/abs/2410.24164), [Pi0.5](https://arxiv.org/abs/2504.16054), [SmolVLA](https://arxiv.org/abs/2506.01844).
+References: [OpenVLA](https://openvla.github.io/), [OpenVLA-OFT](https://openvla-oft.github.io/), [pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast), [Pi0](https://arxiv.org/abs/2410.24164), [Pi0.5](https://arxiv.org/abs/2504.16054), [SmolVLA](https://arxiv.org/abs/2506.01844).
 
-Both decoders accept noisy actions and timestep conditioning, making them compatible with generative algorithms (Flow Matching, Diffusion).
+[`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder] and [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder] accept noisy actions and timestep conditioning, making them compatible with generative algorithms such as Flow Matching and Diffusion.
 
 #### [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder]
 
@@ -126,10 +145,15 @@ Expert dimensions are derived from the VLM via `expert_width_multiplier`. The la
 | `proprioceptive_feature_key` | `None` | Proprioceptive feature prepended to VLM prefix |
 
 !!! info "VLM backbone wiring"
-    When `requires_vlm_backbone=True`, [`Policy`][versatil.models.policy.Policy] automatically calls `decoder.set_backbone()` at initialization, passing the VLM encoder's transformer layers, rotary embedding, hidden dimension, and text config. The VLM encoder must use `use_embeddings_only=True` so its LM layers remain available for the decoder.
+    Validation checks the configured VLM backbone's observation input specification directly, including image normalization and metadata. Configure these backbones through the decoder's `vlm_backbone` field.
 
-!!! info "Action masking for VLA"
-    VLA decoders use `make_attention_mask()` with `causal_actions` and `causal_prefix_suffix_length` parameters to construct prefix-suffix attention patterns where the prefix (observations) is bidirectional and the suffix (actions) is optionally causal.
+Supported VLM backbones:
+
+| Backbone | Class | Notes |
+|----------|-------|-------|
+| PaliGemma | [`PaliGemmaVLM`][versatil.models.decoding.generative_language_models.vision_language.paligemma.PaliGemmaVLM] | Builds Gemma/PaliGemma image-language prefix tokens for Pi0-style decoders. |
+| Prismatic | [`PrismaticVLM`][versatil.models.decoding.generative_language_models.vision_language.prismatic.PrismaticVLM] | Loads raw TRI-ML Prismatic VLM checkpoints for OpenVLA/OpenVLA-OFT-style decoders. |
+| SmolVLM | [`SmolVLM`][versatil.models.decoding.generative_language_models.vision_language.smolvlm.SmolVLM] | Builds Idefics/SmolVLM prefix tokens with native multi-image handling. |
 
 ### MoE Decoder Wrapper
 
@@ -139,7 +163,14 @@ Expert dimensions are derived from the VLM via `expert_width_multiplier`. The la
 
 ## Action Heads
 
-Action heads are the final projection layers that convert decoder embeddings into action predictions. Each decoder has one action head per action component (position, orientation, gripper).
+Action heads are final projection layers that convert decoder embeddings into action predictions. The decoder declares its action-head layout through [`ActionHeadLayout`][versatil.models.decoding.constants.ActionHeadLayout]:
+
+| Layout | Contract |
+|--------|----------|
+| `component` | One head per predicted action-space component. |
+| `joint` | One head predicts the concatenated action vector; [`ActionSpace`][versatil.data.task.ActionSpace] splits it back into component keys. |
+| `vocabulary` | One token-logit head for tokenized-action decoders. |
+| `none` | The decoder produces action-space outputs internally. |
 
 ### [`ActionHead`][versatil.models.decoding.action_heads.single_output.ActionHead] (Single Output)
 
@@ -162,6 +193,20 @@ class GaussianHead(BaseActionHead):
 ```
 
 The `logvar` output is clamped between `min_logvar` (default -10.0) and `max_logvar` (default 4.0) for training stability.
+
+### [`ConditionalActionHead`][versatil.models.decoding.action_heads.conditional.ConditionalActionHead]
+
+Conditioned projection head for decoders whose final projection depends on a separate conditioning vector, such as DiT-style timestep conditioning.
+
+```python
+class ConditionalActionHead(BaseActionHead):
+    def forward(
+        self,
+        action_embedding: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        # (B, prediction_horizon, input_dim), (B, condition_dim) -> (B, prediction_horizon, action_dim)
+```
 
 ### [`MoEHead`][versatil.models.decoding.action_heads.moe.MoEHead] (Mixture of Experts)
 
@@ -196,6 +241,8 @@ Action heads support composable building blocks inserted before the final projec
 | [`MLPBlock`][versatil.models.decoding.action_heads.blocks.MLPBlock] | LayerNorm + MLP with configurable hidden dims, activation, and dropout |
 | [`AttentionBlock`][versatil.models.decoding.action_heads.blocks.AttentionBlock] | Self-attention with residual connection across the prediction horizon |
 | [`ResidualBlock`][versatil.models.decoding.action_heads.blocks.ResidualBlock] | Wraps any block with a residual connection |
+| [`LayerNormBlock`][versatil.models.decoding.action_heads.blocks.LayerNormBlock] | Layer normalization without changing feature width |
+| [`AdaNormBlock`][versatil.models.decoding.action_heads.blocks.AdaNormBlock] | Adaptive normalization block for [`ConditionalActionHead`][versatil.models.decoding.action_heads.conditional.ConditionalActionHead] |
 
 ```python
 ActionHead(
@@ -228,9 +275,10 @@ All transformer decoder factories follow a unified positional encoding (PE) patt
 
 Two decoder families intentionally diverge from the contract above. They are correct by design within their own attention scheme; the unified contract does not apply.
 
-**DETR-style decoders** ([`ACT`][versatil.models.decoding.decoders.factory.act.ACT], [`DiscreteDETRActionTransformer`][versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer]) use `versatil.models.layers.detr_transformer.Transformer`, which takes `source_positional_encoding` as a separate argument and re-adds it at every attention layer (the original DETR pattern). They do **not** pre-add PE to the tokens before the transformer call. New decoders should follow the standard pre-add contract; the DETR variant is preserved for parity with the published architectures.
+**ACT-style DETR decoders** ([`ACT`][versatil.models.decoding.decoders.factory.act.ACT]) use `versatil.models.layers.detr_transformer.Transformer`, which takes `source_positional_encoding` as a separate argument and re-adds it at every attention layer (the original DETR pattern). They do **not** pre-add PE to the tokens before the transformer call. New decoders should follow the standard pre-add contract.
 
-**VLA decoders** ([`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder], [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder]) bypass [`TransformerInputBuilder`][versatil.models.decoding.transformer_input_builder.TransformerInputBuilder] entirely. They consume pre-embedded VLM prefix tokens and apply RoPE jointly across the concatenated `[prefix, action]` sequence using position IDs derived from a shared validity mask (see `pi0.py:321-328`, `smolvla.py:380-386`). This means RoPE *is* used across what would normally be cross-attention boundaries — it works because the VLM and expert layers share the same position space by construction. If a VLA decoder is ever paired with a non-VLM encoder whose outputs do not carry positional information, the prefix keys will be position-blind and the contract breaks; document this explicitly in any new VLA-style decoder.
+**Interleaved-VLA decoders** ([`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder], [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder]) bypass [`TransformerInputBuilder`][versatil.models.decoding.transformer_input_builder.TransformerInputBuilder] entirely. They consume pre-embedded VLM prefix tokens and apply RoPE jointly across the concatenated `[prefix, action]` sequence using position IDs derived from a shared validity mask. This means RoPE *is* used across what would normally be cross-attention boundaries because the VLM and expert layers share the same position space by construction.
+
 
 ---
 

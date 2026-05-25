@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from versatil_constants.shared import ObsKey
-from versatil_constants.tso import TSOObsKey
 
 from versatil.data.constants import (
     ActionComputationMethod,
@@ -13,6 +12,7 @@ from versatil.data.constants import (
     CoordinateSystem,
     GripperType,
     OrientationRepresentation,
+    RawCameraKey,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -416,38 +416,6 @@ class TestActionSpaceBooleanProperties:
 
         assert not action_space.has_delta_actions
 
-    def test_task_has_phases_when_phase_label_key_present(
-        self,
-        action_space_factory: Callable[..., ActionSpace],
-    ):
-        phase_metadata = ActionMetadata(
-            prediction_dimension=5,
-            is_numerical=True,
-            needs_normalization=False,
-            dtype="int32",
-            is_precomputed=True,
-        )
-        action_space = action_space_factory(
-            actions_metadata={
-                TSOObsKey.PHASE_LABEL.value: phase_metadata,
-            }
-        )
-
-        assert action_space.task_has_phases
-
-    def test_task_has_phases_false_when_no_phase_label(
-        self,
-        action_space_factory: Callable[..., ActionSpace],
-        position_on_the_fly: OnTheFlyActionMetadata,
-    ):
-        action_space = action_space_factory(
-            actions_metadata={
-                "position": position_on_the_fly,
-            }
-        )
-
-        assert not action_space.task_has_phases
-
 
 class TestActionSpaceZarrKeys:
     def test_get_required_zarr_keys_returns_all_metadata_keys(
@@ -459,6 +427,38 @@ class TestActionSpaceZarrKeys:
 
 
 class TestObservationSpacePropertyFiltering:
+    def test_accepts_raw_camera_key_matching_canonical_observation_key(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.AGENTVIEW.value: camera_metadata_factory(
+                    camera_key=RawCameraKey.IMAGE.value
+                ),
+            }
+        )
+
+        assert set(observation_space.rgb_cameras) == {Cameras.AGENTVIEW.value}
+
+    def test_rejects_camera_metadata_under_wrong_observation_key(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        expected_message = (
+            "Camera 'left' has raw_camera_key 'right' which maps to 'right', not 'left'"
+        )
+        with pytest.raises(ValueError, match=expected_message):
+            observation_space_factory(
+                observations_metadata={
+                    Cameras.LEFT.value: camera_metadata_factory(
+                        camera_key=Cameras.RIGHT.value
+                    ),
+                }
+            )
+
     def test_cameras_filters_camera_metadata(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
@@ -478,6 +478,50 @@ class TestObservationSpacePropertyFiltering:
 
         assert Cameras.LEFT.value in observation_space.cameras
         assert "position" not in observation_space.cameras
+
+    def test_depth_cameras_filters_depth_metadata(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            }
+        )
+
+        assert set(observation_space.depth_cameras) == {Cameras.DEPTH.value}
+
+    def test_rgb_cameras_excludes_depth_metadata(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                Cameras.RIGHT.value: camera_metadata_factory(
+                    camera_key=Cameras.RIGHT.value
+                ),
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            }
+        )
+
+        assert set(observation_space.rgb_cameras) == {
+            Cameras.LEFT.value,
+            Cameras.RIGHT.value,
+        }
 
     def test_position_observations_filters_correctly(
         self,

@@ -5,21 +5,23 @@ from hydra.utils import instantiate
 from omegaconf import MISSING, OmegaConf, flag_override
 
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from versatil.configs.decoding.action_head import ActionHeadConfig
+from versatil.configs.decoding.action_head import (
+    ActionHeadConfig,
+    ConditionalActionHeadConfig,
+)
 from versatil.configs.decoding.decoder import (
     ACTConfig,
     ActionTransformerConfig,
+    AutoregressiveVLAConfig,
     ConditionalActionUNetConfig,
     DecodingNetworkConfig,
     DiffusionActionTransformerConfig,
-    DiscreteDETRActionTransformerConfig,
     DiTBlockActionTransformerConfig,
-    FreeActionTransformerConfig,
     GPTActionTransformerConfig,
     LACTConfig,
     MixtureOfDensitiesActionTransformerConfig,
     MixtureOfExpertsDecoderConfig,
-    MoEFreeActionTransformerConfig,
+    OpenVLAOFTConfig,
     PhaseACTConfig,
     Pi0DecoderConfig,
     SmolVLADecoderConfig,
@@ -163,17 +165,38 @@ class TestGPTActionTransformerConfig:
 
 
 @pytest.mark.unit
-class TestDiscreteDETRActionTransformerConfig:
-    def test_target_points_to_discrete_detr(self):
-        config = DiscreteDETRActionTransformerConfig(input_keys=["features"])
+class TestAutoregressiveVLAConfig:
+    def test_target_points_to_autoregressive_vla_decoder(self):
+        config = AutoregressiveVLAConfig(input_keys=[])
         assert (
             config._target_
-            == "versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer"
+            == "versatil.models.decoding.decoders.factory.autoregressive_vla.AutoregressiveVLADecoder"
         )
 
-    def test_activation_default_is_relu_string(self):
-        config = DiscreteDETRActionTransformerConfig(input_keys=["features"])
-        assert config.activation == ActivationFunction.RELU.value
+    def test_defaults_to_vlm_backbone_slot(self):
+        config = AutoregressiveVLAConfig(input_keys=[])
+        assert config.vlm_backbone == MISSING
+        assert config.action_heads == {}
+        assert config.input_keys == []
+
+
+@pytest.mark.unit
+class TestOpenVLAOFTConfig:
+    def test_target_points_to_openvla_oft_decoder(self):
+        config = OpenVLAOFTConfig(input_keys=[])
+        assert (
+            config._target_
+            == "versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder"
+        )
+
+    def test_defaults_to_openvla_oft_style_chunk_slots(self):
+        config = OpenVLAOFTConfig(input_keys=[])
+        assert config.vlm_backbone == MISSING
+        assert config.input_keys == []
+        assert config.slots_per_action_dimension is True
+        assert config.causal_action_slots is True
+        assert config.min_period == 4e-3
+        assert config.max_period == 4.0
 
 
 @pytest.mark.unit
@@ -221,37 +244,6 @@ class TestLACTConfig:
     def test_latent_dimension_required(self):
         config = LACTConfig(input_keys=["features"])
         assert config.latent_dimension == MISSING
-
-
-@pytest.mark.unit
-class TestFreeActionTransformerConfig:
-    def test_target_points_to_free_action_transformer(self):
-        config = FreeActionTransformerConfig(input_keys=["features"])
-        assert (
-            config._target_
-            == "versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer"
-        )
-
-    @pytest.mark.parametrize("use_global_latent", [True, False])
-    def test_stores_global_latent_option(self, use_global_latent):
-        config = FreeActionTransformerConfig(
-            input_keys=["features"], use_global_latent=use_global_latent
-        )
-        assert config.use_global_latent == use_global_latent
-
-
-@pytest.mark.unit
-class TestMoEFreeActionTransformerConfig:
-    def test_target_points_to_moe_free_action_transformer(self):
-        config = MoEFreeActionTransformerConfig(input_keys=["features"])
-        assert (
-            config._target_
-            == "versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer"
-        )
-
-    def test_inherits_from_free_action_transformer_config(self):
-        config = MoEFreeActionTransformerConfig(input_keys=["features"])
-        assert isinstance(config, FreeActionTransformerConfig)
 
 
 @pytest.mark.unit
@@ -318,6 +310,7 @@ class TestSmolVLADecoderConfig:
             config._target_
             == "versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder"
         )
+        assert config.vlm_backbone == MISSING
         assert config.normalization_type == NormalizationType.RMS_NORM.value
         assert config.proprioceptive_feature_key is None
 
@@ -347,6 +340,7 @@ class TestPi0DecoderConfig:
             config._target_
             == "versatil.models.decoding.decoders.factory.pi0.Pi0Decoder"
         )
+        assert config.vlm_backbone == MISSING
         assert config.time_conditioning == TimeConditioning.CONCAT_MLP.value
         assert config.normalization_type == NormalizationType.RMS_NORM.value
         assert config.dropout == 0.0
@@ -369,16 +363,17 @@ class TestDecoderInstantiation:
     ACTION_LOGITS_HEAD = {
         DecoderOutputKey.ACTION_LOGITS.value: ActionHeadConfig(input_dim=256)
     }
+    CONDITIONAL_JOINT_HEAD = {
+        "joint_action": ConditionalActionHeadConfig(
+            input_dim=512,
+            condition_dim=512,
+        )
+    }
 
     @pytest.mark.parametrize(
         "config, expected_class_name, action_heads",
         [
             (ACTConfig(input_keys=["f"]), "ACT", None),
-            (
-                DiscreteDETRActionTransformerConfig(input_keys=["f"]),
-                "DiscreteDETRActionTransformer",
-                ACTION_LOGITS_HEAD,
-            ),
             (
                 ActionTransformerConfig(
                     input_keys=["f"],
@@ -402,22 +397,14 @@ class TestDecoderInstantiation:
                 ACTION_LOGITS_HEAD,
             ),
             (
-                FreeActionTransformerConfig(
-                    input_keys=["f"],
-                    attention_type=AttentionType.MULTI_HEAD.value,
-                ),
-                "FreeActionTransformer",
-                ACTION_LOGITS_HEAD,
-            ),
-            (
                 DiTBlockActionTransformerConfig(input_keys=["f"]),
                 "DiTBlockActionTransformer",
-                None,
+                CONDITIONAL_JOINT_HEAD,
             ),
             (
                 DiffusionActionTransformerConfig(input_keys=["f"]),
                 "DiffusionActionTransformer",
-                None,
+                CONDITIONAL_JOINT_HEAD,
             ),
             (
                 ConditionalActionUNetConfig(input_keys=["f"]),

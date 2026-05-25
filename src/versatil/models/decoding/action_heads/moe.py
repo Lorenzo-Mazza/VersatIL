@@ -43,7 +43,7 @@ class MoEHead(BaseMixtureOfExperts):
         gating_dropout: float = 0.1,
         gating_normalization: bool = True,
         gating_feature_key: str | None = None,
-    ):
+    ) -> None:
         """Initialize Mixture of Experts action head.
 
         Args:

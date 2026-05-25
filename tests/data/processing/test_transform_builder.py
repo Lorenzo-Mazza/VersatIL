@@ -1056,11 +1056,18 @@ class TestCreateTokenizer:
         transform_builder_factory: Callable[..., TransformBuilder],
     ):
         mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = True
 
         mock_config = MagicMock()
         mock_config.tokenize_observations = False
         mock_config.tokenize_actions = True
-        mock_config.action_tokenizer.use_pretrained_fast = True
+        mock_config.action_tokenizer.action_discretizer.type = "fast"
+        mock_config.action_tokenizer.action_discretizer.use_pretrained = True
+        mock_config.action_tokenizer.action_discretizer.tokenizer_model = (
+            "physical-intelligence/fast"
+        )
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
@@ -1091,11 +1098,18 @@ class TestCreateTokenizer:
         rng: np.random.Generator,
     ):
         mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = False
 
         mock_config = MagicMock()
         mock_config.tokenize_observations = False
         mock_config.tokenize_actions = True
-        mock_config.action_tokenizer.use_pretrained_fast = False
+        mock_config.action_tokenizer.action_discretizer.type = "fast"
+        mock_config.action_tokenizer.action_discretizer.use_pretrained = False
+        mock_config.action_tokenizer.action_discretizer.tokenizer_model = (
+            "physical-intelligence/fast"
+        )
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
 
         action_metadata = on_the_fly_action_metadata_factory()
         builder = transform_builder_factory(

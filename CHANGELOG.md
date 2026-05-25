@@ -7,6 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `AutoregressiveVLADecoder`, the VLM-backed autoregressive action-token
+  decoder used by the OpenVLA and pi0-FAST presets.
+- `OpenVLAOFTDecoder`, a VLM-backed continuous action-chunk decoder with
+  OpenVLA-OFT-style action slots, denoising-algorithm support, and joint
+  action-head output.
+- LIBERO end-to-end VLA presets for OpenVLA, OpenVLA-OFT, pi0-FAST, Pi0,
+  Pi0.5, and SmolVLA.
+- Decoder-local `vision_language_model` Hydra config groups for Prismatic,
+  PaliGemma, and SmolVLM backbones.
+- `PrismaticVLM`, including raw TRI-ML Prismatic checkpoint loading,
+  Prismatic projector construction, and DINOv2+SigLIP visual prefix support.
+- `GenerativeVLM` and `HuggingFaceGenerativeVLM` base classes so raw Prismatic
+  VLMs and HuggingFace AutoModel-backed VLMs share only the common generative
+  VLM contract.
+- `DinoV2SigLIPRGBEncoder`, a reusable flat RGB encoder that concatenates
+  DINOv2 and SigLIP patch features.
+- `VLMEncoder`, an encoder-pipeline module for policies that need image-text
+  VLM embeddings without owning a generative VLA backbone.
+- PEFT LoRA adaptation package, config store entries, and presets for
+  HuggingFace language encoders, VLM encoders, timm image encoders, and
+  generative VLM backbones.
+- `RGBCameraMetadata`, `DepthCameraMetadata`, and `CameraModality` for
+  semantic camera-modality validation.
+- `max_pixel_value` on camera metadata, used by image preprocessing for
+  metadata-driven pixel scaling.
+- Action-tokenization primitives split into `ActionDiscretizer` implementations
+  (`fast`, `binned`) and `ActionTokenIdMapping` implementations (`identity`,
+  `language_vocabulary`).
+- Shared `BinnedValueDiscretizer` for both observation tokenization and binned
+  action-token discretization.
+- `DiscreteDecoder` for tokenized-action decoders and
+  `AutoregressiveDecoderMixin` with cached generation state for GPT-style and
+  VLA autoregressive decoders.
+- Action-head layouts (`none`, `component`, `joint`, `vocabulary`) plus
+  conditional action heads with adaptive-normalization blocks.
+
+### Changed
+- Renamed the previous encoder-pipeline image-text embedding module to
+  `VLMEncoder` and moved its Hydra config to
+  `policy/encoding_pipeline/encoder/vlm/vlm_encoder`.
+- Moved generative VLM components out of the encoding package. VLA decoders now
+  depend on dedicated generative language-model components instead of treating
+  generative models as ordinary encoders.
+- Pi0 and SmolVLA decoders now own their VLM backbones and request raw
+  normalized/tokenized observations from `Policy`, instead of consuming VLM
+  embeddings produced by the encoding pipeline.
+- OpenVLA, OpenVLA-OFT, pi0-FAST, Pi0, Pi0.5, and SmolVLA configs now declare
+  their VLM backbones through decoder-local `vision_language_model` config
+  groups and default to LoRA-enabled HuggingFace/Prismatic backbones.
+- Pi0 and SmolVLA use the generic `policy/encoding_pipeline/proprio` preset for
+  proprioceptive features instead of the old LIBERO-specific VLA filename.
+- Encoder input specifications now declare semantic camera-modality
+  requirements. The validation layer checks those requirements against
+  observation-space metadata instead of relying on drift-prone RGB/depth key
+  lists inside encoder constructors.
+- RGB, depth, RGBD, and VLM encoders now use camera metadata modality checks for
+  generic compatibility, while keeping encoder-local validation for
+  architecture-specific constraints.
+- Action tokenizer configuration now names the action discretizer and token-ID
+  mapping separately, so FAST tokens, binned action tokens, identity IDs, and
+  language-vocabulary IDs can be mixed without encoding that choice in one
+  tokenizer type.
+- OpenVLA and pi0-FAST presets use `AutoregressiveVLADecoder` with discrete
+  action-token targets; OpenVLA maps binned actions into the Prismatic language
+  vocabulary, while pi0-FAST uses FAST action tokens in the VLM vocabulary.
+- OpenVLA-OFT uses a joint L1 regression head for LIBERO by default, with
+  action-slot head input dimensions validated against the configured slot
+  layout.
+- Prismatic visual towers are built through the reusable DINOv2+SigLIP RGB
+  encoder path instead of duplicating separate tower code inside the VLM.
+- `ActionHead` validation is driven by explicit head layouts, separating
+  component-wise, joint, vocabulary, and no-head decoder contracts.
+- GPT-style and VLA autoregressive decoders share cached-generation control
+  flow, while discrete tokenizer/vocabulary concerns live in `DiscreteDecoder`.
+- PyTorch dependency upgraded to 2.12.0 using the `cu130` wheel index,
+  torchao upgraded to 0.17.0, timm upgraded to 1.0.27, torchvision left
+  unpinned against the PyTorch index, and unused torchaudio dependency removed.
+- Python 3.14 PT2E import workaround kept for the torchao 0.17 wheel because
+  the clean wheel still mutates immutable Union aliases at import time.
+
+### Removed
+- Legacy experimental model classes `DiscreteDETRActionTransformer`, `MoEFreeActionTransformer`,
+  `FreeActionTransformer`, and their Hydra configs/tests.
+- Obsolete torch 2.10/torchao 0.16 source-partition monkey patch for
+  X86Inductor PT2E quantization.
+
 ## [0.3.0] - 2026-05-11
 
 ### Added
