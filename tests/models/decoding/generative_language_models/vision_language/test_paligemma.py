@@ -606,6 +606,7 @@ class TestPaliGemmaVLMGetVocabSize:
         backbone.resize_token_embeddings(vocabulary_size=VOCAB_SIZE + 1)
 
         backbone.vlm.resize_token_embeddings.assert_called_once_with(VOCAB_SIZE + 1)
+        assert backbone.get_vocab_size() == VOCAB_SIZE + 1
 
 
 @pytest.mark.unit

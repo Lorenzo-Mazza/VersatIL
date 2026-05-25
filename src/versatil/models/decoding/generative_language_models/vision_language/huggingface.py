@@ -88,3 +88,4 @@ class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
     def resize_token_embeddings(self, vocabulary_size: int) -> None:
         """Resize the HuggingFace VLM token embeddings."""
         self.vlm.resize_token_embeddings(vocabulary_size)
+        self._get_language_model().config.vocab_size = vocabulary_size
