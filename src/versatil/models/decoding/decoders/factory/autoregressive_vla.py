@@ -138,45 +138,54 @@ class AutoregressiveVLADecoder(
                 "AutoregressiveVLADecoder requires action_tokenizer.token_id_mapping.type="
                 f"{ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value}."
             )
-        vocab_size = int(action_tokenizer.vocab_size)
+        tokenizer_vocab_size = int(action_tokenizer.vocab_size)
         eos_token_id = int(action_tokenizer.eos_token_id)
-        if eos_token_id < 0 or eos_token_id >= vocab_size:
+        if eos_token_id < 0 or eos_token_id >= tokenizer_vocab_size:
             raise ValueError(
                 "AutoregressiveVLADecoder received an action tokenizer with eos_token_id "
                 "outside the model vocabulary: "
-                f"eos_token_id={eos_token_id}, vocab_size={vocab_size}."
+                f"eos_token_id={eos_token_id}, vocab_size={tokenizer_vocab_size}."
             )
-        self._resize_vlm_to_action_vocabulary(vocab_size=vocab_size)
+        language_vocab_size = self._resize_vlm_to_action_vocabulary(
+            tokenizer_vocab_size=tokenizer_vocab_size
+        )
         self.tokenizer = action_tokenizer
-        self.vocab_size = vocab_size
+        self.vocab_size = language_vocab_size
         self.eos_token_id = eos_token_id
         self.valid_generation_token_ids = self._build_valid_generation_token_ids(
             action_tokenizer=action_tokenizer,
-            vocab_size=vocab_size,
+            tokenizer_vocab_size=tokenizer_vocab_size,
             eos_token_id=eos_token_id,
         )
 
-    def _resize_vlm_to_action_vocabulary(self, vocab_size: int) -> None:
-        """Resize the VLM language vocabulary for action tokens."""
+    def _resize_vlm_to_action_vocabulary(self, tokenizer_vocab_size: int) -> int:
+        """Ensure the VLM language vocabulary covers all action-token IDs."""
         language_vocab_size = self.vlm_backbone.get_vocab_size()
         if language_vocab_size is None:
             raise ValueError(
                 "AutoregressiveVLADecoder vlm_backbone must expose get_vocab_size()."
             )
-        if language_vocab_size < vocab_size:
-            self.vlm_backbone.resize_token_embeddings(vocab_size)
+        if language_vocab_size < tokenizer_vocab_size:
+            self.vlm_backbone.resize_token_embeddings(tokenizer_vocab_size)
             language_vocab_size = self.vlm_backbone.get_vocab_size()
-        if language_vocab_size != vocab_size:
+        if language_vocab_size is None:
             raise ValueError(
-                "AutoregressiveVLADecoder action tokenizer vocabulary must match the VLM "
-                f"language vocabulary after resizing, got tokenizer={vocab_size} "
-                f"and vlm_backbone={language_vocab_size}."
+                "AutoregressiveVLADecoder vlm_backbone must expose get_vocab_size() "
+                "after resizing token embeddings."
             )
+        if language_vocab_size < tokenizer_vocab_size:
+            raise ValueError(
+                "AutoregressiveVLADecoder VLM language vocabulary must cover the "
+                "action tokenizer vocabulary after resizing, got "
+                f"tokenizer_vocab_size={tokenizer_vocab_size} and "
+                f"vlm_backbone_vocab_size={language_vocab_size}."
+            )
+        return int(language_vocab_size)
 
     def _build_valid_generation_token_ids(
         self,
         action_tokenizer: ActionTokenizer,
-        vocab_size: int,
+        tokenizer_vocab_size: int,
         eos_token_id: int,
     ) -> torch.Tensor:
         """Return action-token IDs that inference is allowed to sample."""
@@ -192,11 +201,11 @@ class AutoregressiveVLADecoder(
         valid_token_ids = torch.cat([valid_token_ids, eos_token], dim=0)
         if (
             valid_token_ids.min().item() < 0
-            or valid_token_ids.max().item() >= vocab_size
+            or valid_token_ids.max().item() >= tokenizer_vocab_size
         ):
             raise ValueError(
-                "AutoregressiveVLADecoder valid action-token IDs must lie inside the VLM "
-                f"language vocabulary [0, {vocab_size})."
+                "AutoregressiveVLADecoder valid action-token IDs must lie inside "
+                f"the action tokenizer vocabulary [0, {tokenizer_vocab_size})."
             )
         return valid_token_ids
 

@@ -33,6 +33,7 @@ PREFIX_TOKEN_LENGTH = 5
 ACTION_TOKEN_LENGTH = 4
 LANGUAGE_HIDDEN_DIMENSION = 16
 VOCABULARY_SIZE = 32
+PADDED_VOCABULARY_SIZE = 64
 CAMERA_KEY = "agentview"
 
 
@@ -226,6 +227,28 @@ class TestAutoregressiveVLADecoderTokenizer:
             [0, 1, 2]
         )
 
+    def test_set_tokenizer_accepts_padded_vlm_vocabulary(
+        self,
+        autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
+        language_vocab_tokenizer_factory: Callable[..., MagicMock],
+    ) -> None:
+        decoder = autoregressive_vla_decoder_factory(input_keys=[])
+        decoder.vlm_backbone.get_vocab_size.return_value = PADDED_VOCABULARY_SIZE
+        tokenizer = language_vocab_tokenizer_factory(
+            token_count=3,
+            encoded_token_ids=[10, 11, 12],
+            eos_token_id=VOCABULARY_SIZE - 1,
+        )
+
+        decoder.set_tokenizer(tokenizer=tokenizer)
+
+        assert decoder.vocab_size == PADDED_VOCABULARY_SIZE
+        torch.testing.assert_close(
+            decoder.valid_generation_token_ids,
+            torch.tensor([10, 11, 12, VOCABULARY_SIZE - 1]),
+        )
+        decoder.vlm_backbone.resize_token_embeddings.assert_not_called()
+
     def test_set_tokenizer_resizes_smaller_vlm_vocabulary(
         self,
         autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
@@ -234,7 +257,7 @@ class TestAutoregressiveVLADecoderTokenizer:
         decoder = autoregressive_vla_decoder_factory(input_keys=[])
         decoder.vlm_backbone.get_vocab_size.side_effect = [
             VOCABULARY_SIZE - 1,
-            VOCABULARY_SIZE,
+            PADDED_VOCABULARY_SIZE,
         ]
         tokenizer = language_vocab_tokenizer_factory()
 
@@ -243,7 +266,7 @@ class TestAutoregressiveVLADecoderTokenizer:
         decoder.vlm_backbone.resize_token_embeddings.assert_called_once_with(
             VOCABULARY_SIZE
         )
-        assert decoder.vocab_size == VOCABULARY_SIZE
+        assert decoder.vocab_size == PADDED_VOCABULARY_SIZE
 
     def test_set_tokenizer_rejects_missing_action_tokenizer(
         self,
@@ -308,7 +331,7 @@ class TestAutoregressiveVLADecoderTokenizer:
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             decoder.set_tokenizer(tokenizer=tokenizer)
 
-    def test_set_tokenizer_rejects_vlm_vocab_mismatch_after_resize(
+    def test_set_tokenizer_rejects_vlm_vocab_smaller_after_resize(
         self,
         autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
         language_vocab_tokenizer_factory: Callable[..., MagicMock],
@@ -316,13 +339,13 @@ class TestAutoregressiveVLADecoderTokenizer:
         decoder = autoregressive_vla_decoder_factory(input_keys=[])
         decoder.vlm_backbone.get_vocab_size.side_effect = [
             VOCABULARY_SIZE - 1,
-            VOCABULARY_SIZE + 1,
+            VOCABULARY_SIZE - 1,
         ]
         tokenizer = language_vocab_tokenizer_factory()
         expected_message = (
-            "AutoregressiveVLADecoder action tokenizer vocabulary must match the VLM "
-            "language vocabulary after resizing, got tokenizer=32 "
-            "and vlm_backbone=33."
+            "AutoregressiveVLADecoder VLM language vocabulary must cover the "
+            "action tokenizer vocabulary after resizing, got "
+            "tokenizer_vocab_size=32 and vlm_backbone_vocab_size=31."
         )
 
         with pytest.raises(ValueError, match=re.escape(expected_message)):
@@ -339,8 +362,8 @@ class TestAutoregressiveVLADecoderTokenizer:
             encoded_token_ids=[10, VOCABULARY_SIZE],
         )
         expected_message = (
-            "AutoregressiveVLADecoder valid action-token IDs must lie inside the VLM "
-            "language vocabulary [0, 32)."
+            "AutoregressiveVLADecoder valid action-token IDs must lie inside "
+            "the action tokenizer vocabulary [0, 32)."
         )
 
         with pytest.raises(ValueError, match=re.escape(expected_message)):
