@@ -28,6 +28,8 @@ def setup_cache_directories():
 
 setup_cache_directories()
 
+logging.getLogger("torch.utils._pytree").setLevel(logging.ERROR)
+
 import transformers
 
 from versatil.quantization.torch_patches import patch_pt2e_python314

@@ -1,5 +1,5 @@
 defaults:
-  - /policy/adaptation/lora@lora_config: openvla_all_linear
+  - /policy/adaptation/lora@lora_config: all_linear
   - _self_
 
 _target_: versatil.models.decoding.generative_language_models.vision_language.prismatic.PrismaticVLM
@@ -13,3 +13,4 @@ pretrained: true
 frozen: false
 max_text_length: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
 model_dtype: ${experiment.precision}
+gradient_checkpointing: true

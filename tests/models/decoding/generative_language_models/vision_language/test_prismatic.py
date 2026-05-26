@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 import torch.nn as nn
-from peft import LoraConfig, get_peft_model
 from torch.nn.modules.module import _IncompatibleKeys
 from transformers import (
     AutoModelForCausalLM,
@@ -134,6 +133,7 @@ def tiny_prismatic_backbone_factory(
     def factory(
         lora_config: LoRAAdaptation | None = None,
         hidden_dimension: int = TINY_PRISMATIC_HIDDEN_DIMENSION,
+        gradient_checkpointing: bool = False,
     ) -> PrismaticVLM:
         prismatic_config_dir = prismatic_config_dir_factory()
         tiny_text_config = LlamaConfig(
@@ -181,34 +181,10 @@ def tiny_prismatic_backbone_factory(
                 model_dtype=None,
                 max_text_length=None,
                 lora_config=lora_config,
+                gradient_checkpointing=gradient_checkpointing,
             )
         backbone.eval()
         return backbone
-
-    return factory
-
-
-@pytest.fixture
-def peft_causal_language_model_factory() -> Callable[[], nn.Module]:
-    def factory() -> nn.Module:
-        config = LlamaConfig(
-            vocab_size=VOCABULARY_SIZE,
-            hidden_size=HIDDEN_DIMENSION,
-            intermediate_size=HIDDEN_DIMENSION * 2,
-            num_hidden_layers=1,
-            num_attention_heads=2,
-            num_key_value_heads=1,
-            max_position_embeddings=MAX_TEXT_LENGTH * 4,
-        )
-        language_model = AutoModelForCausalLM.from_config(config)
-        return get_peft_model(
-            language_model,
-            LoraConfig(
-                r=2,
-                lora_alpha=4,
-                target_modules=["q_proj", "v_proj"],
-            ),
-        )
 
     return factory
 
@@ -899,50 +875,21 @@ class TestPrismaticVLMCheckpointLoading:
 
 
 @pytest.mark.integration
-class TestPrismaticVLMPeftIntegration:
-    def test_get_language_model_returns_peft_wrapped_decoder_submodule(
+class TestPrismaticVLMCompositeLoRAIntegration:
+    def test_resize_token_embeddings_after_composite_lora(
         self,
-        peft_causal_language_model_factory: Callable[[], nn.Module],
+        tiny_prismatic_backbone_factory: Callable[..., PrismaticVLM],
     ) -> None:
-        backbone = MagicMock(spec=PrismaticVLM)
-        backbone.lora_config = LoRAAdaptation(
+        lora_config = LoRAAdaptation(
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=(
-                LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value
-            ),
+            target_modules=LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
         )
-        backbone.language_model = peft_causal_language_model_factory()
+        backbone = tiny_prismatic_backbone_factory(lora_config=lora_config)
+        vocabulary_size = int(backbone.language_model.config.vocab_size) + 4
 
-        decoder_model = PrismaticVLM._get_language_model(backbone)
-        input_ids = torch.tensor([[1, 2]], dtype=torch.long)
-        input_embeddings = decoder_model.embed_tokens(input_ids)
-        output = decoder_model(inputs_embeds=input_embeddings, return_dict=True)
-
-        assert input_embeddings.shape == (1, 2, HIDDEN_DIMENSION)
-        assert output.last_hidden_state.shape == (1, 2, HIDDEN_DIMENSION)
-
-    def test_resize_token_embeddings_updates_real_peft_wrapper(
-        self,
-        peft_causal_language_model_factory: Callable[[], nn.Module],
-    ) -> None:
-        backbone = MagicMock(spec=PrismaticVLM)
-        backbone.lora_config = LoRAAdaptation(
-            enabled=True,
-            rank=2,
-            alpha=4,
-            target_modules=(
-                LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value
-            ),
-        )
-        backbone.language_model = peft_causal_language_model_factory()
-        vocabulary_size = VOCABULARY_SIZE + 4
-
-        PrismaticVLM.resize_token_embeddings(
-            backbone,
-            vocabulary_size=vocabulary_size,
-        )
+        backbone.resize_token_embeddings(vocabulary_size=vocabulary_size)
 
         assert backbone.language_model.config.vocab_size == vocabulary_size
         assert backbone.language_model.get_input_embeddings().num_embeddings == (
@@ -1046,7 +993,7 @@ def test_forward_pass_with_real_tiny_modules(
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value,
+            target_modules=LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
         )
         if lora_enabled
         else None
@@ -1100,14 +1047,25 @@ def test_forward_pass_with_real_tiny_modules(
     if lora_enabled:
         trainable_parameter_names = [
             name
-            for name, parameter in backbone.language_model.named_parameters()
+            for name, parameter in backbone.named_parameters()
             if parameter.requires_grad
         ]
-        trainable_parameters = trainable_parameter_count(backbone.language_model)
-        total_parameters = parameter_count(backbone.language_model)
+        trainable_parameters = trainable_parameter_count(backbone)
+        total_parameters = parameter_count(backbone)
         assert trainable_parameter_names
         assert all("lora_" in name for name in trainable_parameter_names)
         assert 0 < trainable_parameters < total_parameters
+
+
+@pytest.mark.integration
+def test_gradient_checkpointing_is_enabled_on_real_tiny_language_model(
+    tiny_prismatic_backbone_factory: Callable[..., PrismaticVLM],
+) -> None:
+    backbone = tiny_prismatic_backbone_factory(gradient_checkpointing=True)
+
+    assert backbone.gradient_checkpointing
+    assert backbone.language_model.is_gradient_checkpointing
+    assert not backbone.language_model.config.use_cache
 
 
 @pytest.mark.integration

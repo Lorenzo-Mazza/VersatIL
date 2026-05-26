@@ -63,6 +63,7 @@ class PrismaticVLM(GenerativeVLM):
         model_dtype: str | None = None,
         max_text_length: int | None = None,
         lora_config: LoRAAdaptation | None = None,
+        gradient_checkpointing: bool = False,
     ) -> None:
         """Load or initialize a raw Prismatic VLM.
 
@@ -81,6 +82,8 @@ class PrismaticVLM(GenerativeVLM):
                 raw Prismatic ``llm_max_length`` field.
             lora_config: Optional LoRA adapter configuration for the language
                 model.
+            gradient_checkpointing: Whether to enable activation checkpointing
+                in the language model during training.
         """
         super().__init__(
             input_keys=input_keys,
@@ -92,6 +95,7 @@ class PrismaticVLM(GenerativeVLM):
         self.model_name = model_name
         self.repository_id = repository_id
         self.lora_config = lora_config
+        self.gradient_checkpointing = gradient_checkpointing
         model_config = self._load_model_config(
             model_name=model_name,
             repository_id=repository_id,
@@ -133,11 +137,13 @@ class PrismaticVLM(GenerativeVLM):
                 repository_id=repository_id,
             )
             self._load_prismatic_checkpoint(checkpoint_path=checkpoint_path)
-        self.language_model = apply_lora_config(
-            model=self.language_model,
-            lora_config=lora_config,
-            frozen=frozen,
-        )
+        if lora_config is not None and lora_config.enabled:
+            # PEFT mutates custom modules in place; assigning the returned wrapper
+            # here would recursively register this module as its own child.
+            apply_lora_config(model=self, lora_config=lora_config, frozen=frozen)
+        if gradient_checkpointing:
+            self.language_model.gradient_checkpointing_enable()
+            self.language_model.config.use_cache = False
         if frozen:
             super()._freeze_weights()
         self._apply_model_dtype()
@@ -435,8 +441,6 @@ class PrismaticVLM(GenerativeVLM):
 
     def _get_language_model(self) -> nn.Module:
         """Return the decoder-only language model submodule."""
-        if self.lora_config is not None and self.lora_config.enabled:
-            return self.language_model.model.model
         return self.language_model.model
 
     def _compute_num_image_tokens(self, config: PretrainedConfig) -> int:

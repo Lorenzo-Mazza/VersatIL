@@ -17,6 +17,10 @@ LLAMA_ATTENTION_AND_FEEDFORWARD_MODULES = [
     "up_proj",
     "down_proj",
 ]
+LLAMA_QUERY_VALUE_MODULES = [
+    "q_proj",
+    "v_proj",
+]
 VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD_PATTERN = (
     r".*(language_model|text_model)\..*\."
     r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
@@ -93,6 +97,8 @@ def _to_peft_target_modules(target_modules: str) -> str | list[str] | None:
         return LoRATargetModulePreset.ALL_LINEAR.value
     if target_modules == LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value:
         return LLAMA_ATTENTION_AND_FEEDFORWARD_MODULES
+    if target_modules == LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value:
+        return LLAMA_QUERY_VALUE_MODULES
     if (
         target_modules
         == LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value

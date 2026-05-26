@@ -20,6 +20,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 8
   dataloader:
+    batch_size: 8
     image_norm_type: ${image_norm_type:ZERO_TO_ONE}
     kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
     tokenization:
@@ -43,12 +44,13 @@ task:
         max_token_len: 64
 
 experiment:
-  precision: ${precision:FP32}
+  precision: ${precision:BF16_MIXED}
   checkpoint_folder: ${checkpoint_dir:libero}
   checkpoint_every: 5
 
 training:
   num_epochs: 10
+  gradient_accumulate_every: 4
   early_stopping_patience: 10
   clip_gradient_norm: true
   clip_max_norm: 1.0

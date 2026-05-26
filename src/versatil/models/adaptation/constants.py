@@ -9,6 +9,7 @@ class LoRATargetModulePreset(enum.StrEnum):
     AUTO = "auto"
     ALL_LINEAR = "all-linear"
     LLAMA_ATTENTION_AND_FEEDFORWARD = "llama-attention-and-feedforward"
+    LLAMA_QUERY_VALUE_PROJECTIONS = "llama-query-value-projections"
     VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD = (
         "vlm-text-model-attention-and-feedforward"
     )

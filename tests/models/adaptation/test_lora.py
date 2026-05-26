@@ -80,6 +80,10 @@ class TestLoRAAdaptation:
                 },
             ),
             (
+                LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
+                {"q_proj", "v_proj"},
+            ),
+            (
                 LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
                 r".*(language_model|text_model)\..*\."
                 r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
@@ -136,6 +140,7 @@ class TestLoRAAdaptation:
                 "Invalid LoRA target_modules 'manual'. "
                 "Must be one of: ['auto', 'all-linear', "
                 "'llama-attention-and-feedforward', "
+                "'llama-query-value-projections', "
                 "'vlm-text-model-attention-and-feedforward', "
                 "'vlm-text-model-query-value-projections'].",
             ),
