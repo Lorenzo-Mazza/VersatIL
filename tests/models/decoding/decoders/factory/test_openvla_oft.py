@@ -15,7 +15,9 @@ from versatil.models.decoding.decoders.factory.openvla_oft import (
     JOINT_ACTION_HEAD_KEY,
     OpenVLAOFTDecoder,
 )
-from versatil.models.decoding.generative_language_models.base import CausalLMOutput
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
+)
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
 )
@@ -55,7 +57,7 @@ def vlm_backbone_factory() -> Callable[..., MagicMock]:
             torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION),
             torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, dtype=torch.bool),
         )
-        language_output = MagicMock(spec=CausalLMOutput)
+        language_output = MagicMock(spec=CausalLanguageModelOutput)
         language_output.hidden_states = (
             torch.ones(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION),
         )
@@ -393,7 +395,7 @@ class TestOpenVLAOFTDecoderPrefix:
         openvla_oft_decoder_factory: Callable[..., OpenVLAOFTDecoder],
     ) -> None:
         decoder = openvla_oft_decoder_factory(input_keys=[])
-        output = MagicMock(spec=CausalLMOutput)
+        output = MagicMock(spec=CausalLanguageModelOutput)
         output.hidden_states = None
         decoder.vlm_backbone.forward_language_model.return_value = output
         tokens = torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION)

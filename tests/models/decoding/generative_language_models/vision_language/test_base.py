@@ -19,7 +19,9 @@ from transformers.models.llama.modeling_llama import (
 )
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.generative_language_models.base import CausalLMOutput
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
+)
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
 )
@@ -158,7 +160,7 @@ class TestGenerativeVLMStaticMethods:
         concrete_vlm: ConcreteGenerativeVLM,
     ) -> None:
         language_model = MagicMock()
-        language_output = MagicMock(spec=CausalLMOutput)
+        language_output = MagicMock(spec=CausalLanguageModelOutput)
         language_output.logits = torch.ones(BATCH_SIZE, 1, TINY_HIDDEN_DIM)
         language_model.return_value = language_output
         concrete_vlm._get_language_model = MagicMock(return_value=language_model)

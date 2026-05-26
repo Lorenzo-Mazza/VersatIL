@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Protocol
+from dataclasses import dataclass
 
 import torch
 from transformers.cache_utils import Cache
@@ -14,8 +14,9 @@ from versatil.models.input_specification import InputSpecification
 from versatil.training.constants import PrecisionType
 
 
-class CausalLMOutput(Protocol):
-    """Minimal output contract for causal language-model logits."""
+@dataclass
+class CausalLanguageModelOutput:
+    """Causal language-model output used by generative language models."""
 
     hidden_states: tuple[torch.Tensor, ...]
     logits: torch.Tensor

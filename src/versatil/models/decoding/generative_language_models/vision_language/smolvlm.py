@@ -70,8 +70,10 @@ class SmolVLM(HuggingFaceGenerativeVLM):
         return num_patches // (scale_factor * scale_factor)
 
     def _get_language_model(self) -> nn.Module:
-        """SmolVLM wraps a Llama-style model as ``vlm.text_model``."""
-        return self.vlm.text_model
+        """Return the nested Llama-style text model."""
+        if self.lora_config is not None and self.lora_config.enabled:
+            return self.vlm.model.model.text_model
+        return self.vlm.model.text_model
 
     def _scale_language_embeddings(
         self, language_embeddings: torch.Tensor
@@ -111,8 +113,8 @@ class SmolVLM(HuggingFaceGenerativeVLM):
         image_features = self.vlm.get_image_features(pixel_values)
         # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dim)
         image_embeddings = image_features.pooler_output
-        # SmolVLM convention: scale embeddings by sqrt(hidden_dim) to match the
-        # magnitude of the LM's token embeddings (which use the same scaling).
+        # SmolVLM convention: scale image embeddings by sqrt(hidden_dim) to match
+        # the magnitude of the language-model token embeddings.
         image_embeddings = image_embeddings * math.sqrt(image_embeddings.shape[-1])
         # Merge camera and token dims back into batch: (B, num_cameras * tokens_per_camera, hidden_dim)
         tokens_per_camera = image_embeddings.shape[1]

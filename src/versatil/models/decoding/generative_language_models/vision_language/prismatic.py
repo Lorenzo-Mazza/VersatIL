@@ -19,7 +19,9 @@ from versatil.data.constants import (
     SIGLIP_RGB_STD,
 )
 from versatil.models.adaptation.lora import LoRAAdaptation, apply_lora_config
-from versatil.models.decoding.generative_language_models.base import CausalLMOutput
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
+)
 from versatil.models.decoding.generative_language_models.constants import (
     PRISMATIC_CHECKPOINT_FILENAME,
     PRISMATIC_CONFIG_FILENAME,
@@ -114,7 +116,7 @@ class PrismaticVLM(GenerativeVLM):
             llm_backbone_id=self.llm_backbone_id,
             attention_type=attention_type,
         )
-        self.hidden_dim = int(self._get_causal_language_model().config.hidden_size)
+        self.hidden_dim = int(self.language_model.config.hidden_size)
         self.projector = self._build_projector(
             arch_specifier=self.arch_specifier,
             vision_dimension=self.vision_embedding_dimension,
@@ -286,7 +288,7 @@ class PrismaticVLM(GenerativeVLM):
         llm_backbone_id: str,
         attention_type: str,
     ) -> nn.Module:
-        """Build the HF causal LM used inside Prismatic.
+        """Build the HuggingFace causal language model used inside Prismatic.
 
         Args:
             llm_backbone_id: Prismatic LLM backbone id.
@@ -431,15 +433,11 @@ class PrismaticVLM(GenerativeVLM):
             renamed_key = renamed_key.replace(source_name, target_name)
         return renamed_key
 
-    def _get_causal_language_model(self) -> nn.Module:
-        """Return the PEFT-unwrapped causal LM module."""
-        if hasattr(self.language_model, "get_base_model"):
-            return self.language_model.get_base_model()
-        return self.language_model
-
     def _get_language_model(self) -> nn.Module:
         """Return the decoder-only language model submodule."""
-        return self._get_causal_language_model().model
+        if self.lora_config is not None and self.lora_config.enabled:
+            return self.language_model.model.model
+        return self.language_model.model
 
     def _compute_num_image_tokens(self, config: PretrainedConfig) -> int:
         """Return Prismatic image-token count per camera."""
@@ -532,11 +530,11 @@ class PrismaticVLM(GenerativeVLM):
 
     def get_vocab_size(self) -> int:
         """Return the Prismatic language vocabulary size."""
-        return int(self._get_causal_language_model().config.vocab_size)
+        return int(self.language_model.config.vocab_size)
 
     def resize_token_embeddings(self, vocabulary_size: int) -> None:
-        """Resize the Prismatic causal LM token embeddings and output head."""
-        self._get_causal_language_model().resize_token_embeddings(vocabulary_size)
+        """Resize the Prismatic causal language-model token embeddings and output head."""
+        self.language_model.resize_token_embeddings(vocabulary_size)
 
     def forward_language_model(
         self,
@@ -547,8 +545,8 @@ class PrismaticVLM(GenerativeVLM):
         use_cache: bool = False,
         cache_position: torch.Tensor | None = None,
         output_hidden_states: bool = True,
-    ) -> CausalLMOutput:
-        """Run the full Prismatic causal LM over caller-provided embeddings."""
+    ) -> CausalLanguageModelOutput:
+        """Run the full Prismatic causal language model over caller-provided embeddings."""
         if cache_position is not None:
             return self.language_model(
                 input_ids=input_ids,

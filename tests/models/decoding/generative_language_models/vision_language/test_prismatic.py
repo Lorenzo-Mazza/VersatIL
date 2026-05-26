@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 import torch.nn as nn
-from peft import PeftModel
+from peft import LoraConfig, get_peft_model
 from torch.nn.modules.module import _IncompatibleKeys
 from transformers import (
     AutoModelForCausalLM,
@@ -184,6 +184,31 @@ def tiny_prismatic_backbone_factory(
             )
         backbone.eval()
         return backbone
+
+    return factory
+
+
+@pytest.fixture
+def peft_causal_language_model_factory() -> Callable[[], nn.Module]:
+    def factory() -> nn.Module:
+        config = LlamaConfig(
+            vocab_size=VOCABULARY_SIZE,
+            hidden_size=HIDDEN_DIMENSION,
+            intermediate_size=HIDDEN_DIMENSION * 2,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            max_position_embeddings=MAX_TEXT_LENGTH * 4,
+        )
+        language_model = AutoModelForCausalLM.from_config(config)
+        return get_peft_model(
+            language_model,
+            LoraConfig(
+                r=2,
+                lora_alpha=4,
+                target_modules=["q_proj", "v_proj"],
+            ),
+        )
 
     return factory
 
@@ -858,19 +883,74 @@ class TestPrismaticVLMCheckpointLoading:
         torch.testing.assert_close(language_state["model.weight"], torch.ones(1))
         backbone.vision_encoders.load_state_dict.assert_not_called()
 
-    def test_get_causal_language_model_unwraps_peft_adapter(
+    def test_get_language_model_returns_decoder_submodule(
         self,
     ) -> None:
         backbone = MagicMock(spec=PrismaticVLM)
-        base_model = MagicMock(spec=nn.Module)
-        language_model = MagicMock(spec=PeftModel)
-        language_model.get_base_model.return_value = base_model
+        backbone.lora_config = None
+        decoder_model = MagicMock(spec=nn.Module)
+        language_model = MagicMock(spec=nn.Module)
+        language_model.model = decoder_model
         backbone.language_model = language_model
 
-        output = PrismaticVLM._get_causal_language_model(backbone)
+        output = PrismaticVLM._get_language_model(backbone)
 
-        language_model.get_base_model.assert_called_once_with()
-        assert output == base_model
+        assert output == decoder_model
+
+
+@pytest.mark.integration
+class TestPrismaticVLMPeftIntegration:
+    def test_get_language_model_returns_peft_wrapped_decoder_submodule(
+        self,
+        peft_causal_language_model_factory: Callable[[], nn.Module],
+    ) -> None:
+        backbone = MagicMock(spec=PrismaticVLM)
+        backbone.lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=(
+                LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value
+            ),
+        )
+        backbone.language_model = peft_causal_language_model_factory()
+
+        decoder_model = PrismaticVLM._get_language_model(backbone)
+        input_ids = torch.tensor([[1, 2]], dtype=torch.long)
+        input_embeddings = decoder_model.embed_tokens(input_ids)
+        output = decoder_model(inputs_embeds=input_embeddings, return_dict=True)
+
+        assert input_embeddings.shape == (1, 2, HIDDEN_DIMENSION)
+        assert output.last_hidden_state.shape == (1, 2, HIDDEN_DIMENSION)
+
+    def test_resize_token_embeddings_updates_real_peft_wrapper(
+        self,
+        peft_causal_language_model_factory: Callable[[], nn.Module],
+    ) -> None:
+        backbone = MagicMock(spec=PrismaticVLM)
+        backbone.lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=(
+                LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value
+            ),
+        )
+        backbone.language_model = peft_causal_language_model_factory()
+        vocabulary_size = VOCABULARY_SIZE + 4
+
+        PrismaticVLM.resize_token_embeddings(
+            backbone,
+            vocabulary_size=vocabulary_size,
+        )
+
+        assert backbone.language_model.config.vocab_size == vocabulary_size
+        assert backbone.language_model.get_input_embeddings().num_embeddings == (
+            vocabulary_size
+        )
+        assert backbone.language_model.get_output_embeddings().out_features == (
+            vocabulary_size
+        )
 
 
 @pytest.mark.unit

@@ -2,11 +2,16 @@
 
 import abc
 
-from transformers import AutoConfig, AutoModel, PretrainedConfig
+import torch
+from transformers import AutoConfig, AutoModelForImageTextToText, PretrainedConfig
+from transformers.cache_utils import Cache
 
 from versatil.models.adaptation.lora import (
     LoRAAdaptation,
     apply_lora_config,
+)
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
 )
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
@@ -15,7 +20,7 @@ from versatil.models.encoding.encoders.constants import AttentionImplementation
 
 
 class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
-    """Base class for VLMs loaded through HuggingFace ``AutoModel``."""
+    """Base class for VLMs loaded through HuggingFace image-text generation APIs."""
 
     def __init__(
         self,
@@ -52,12 +57,12 @@ class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
         self.lora_config = lora_config
         config = AutoConfig.from_pretrained(model_name)
         if pretrained:
-            self.vlm = AutoModel.from_pretrained(
+            self.vlm = AutoModelForImageTextToText.from_pretrained(
                 model_name,
                 attn_implementation=attention_type,
             )
         else:
-            self.vlm = AutoModel.from_config(
+            self.vlm = AutoModelForImageTextToText.from_config(
                 config,
                 attn_implementation=attention_type,
             )
@@ -89,3 +94,46 @@ class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
         """Resize the HuggingFace VLM token embeddings."""
         self.vlm.resize_token_embeddings(vocabulary_size)
         self._get_language_model().config.vocab_size = vocabulary_size
+
+    def forward_language_model(
+        self,
+        input_ids: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: Cache | tuple[tuple[torch.Tensor, ...], ...] | None = None,
+        use_cache: bool = False,
+        cache_position: torch.Tensor | None = None,
+        output_hidden_states: bool = True,
+    ) -> CausalLanguageModelOutput:
+        """Run the nested language model and project hidden states to logits."""
+        language_model = self._get_language_model()
+        if cache_position is not None:
+            language_output = language_model(
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                output_hidden_states=output_hidden_states,
+                return_dict=True,
+            )
+        else:
+            language_output = language_model(
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                use_cache=use_cache,
+                output_hidden_states=output_hidden_states,
+                return_dict=True,
+            )
+        last_hidden_state = language_output.last_hidden_state
+        hidden_states = language_output.hidden_states
+        if hidden_states is None:
+            hidden_states = (last_hidden_state,)
+        return CausalLanguageModelOutput(
+            hidden_states=hidden_states,
+            logits=self.vlm.get_output_embeddings()(last_hidden_state),
+            past_key_values=language_output.past_key_values,
+        )

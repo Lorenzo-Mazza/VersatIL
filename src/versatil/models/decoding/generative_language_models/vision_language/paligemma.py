@@ -22,7 +22,7 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
 
     Each camera image is encoded through SigLIP + multi-modal projector
     separately, scaled by ``sqrt(hidden_dim)`` (Gemma convention), then
-    concatenated with language embeddings before the Gemma LM pass.
+    concatenated with language embeddings before the Gemma language-model pass.
     """
 
     def __init__(
@@ -65,8 +65,10 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
         return config.vision_config.num_image_tokens
 
     def _get_language_model(self) -> nn.Module:
-        """PaliGemma wraps Gemma2Model as ``vlm.language_model``."""
-        return self.vlm.language_model
+        """Return the nested Gemma2 language model."""
+        if self.lora_config is not None and self.lora_config.enabled:
+            return self.vlm.model.model.language_model
+        return self.vlm.model.language_model
 
     def _embed_images(
         self, inputs: dict[str, torch.Tensor], batch_size: int

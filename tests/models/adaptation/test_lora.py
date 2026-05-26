@@ -81,12 +81,12 @@ class TestLoRAAdaptation:
             ),
             (
                 LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
-                r"(language_model|text_model)\..*\."
+                r".*(language_model|text_model)\..*\."
                 r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
             ),
             (
                 LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value,
-                r"(language_model|text_model)\..*\.self_attn\.(q_proj|v_proj)$",
+                r".*(language_model|text_model)\..*\.self_attn\.(q_proj|v_proj)$",
             ),
         ],
     )

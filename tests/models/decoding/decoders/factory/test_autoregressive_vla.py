@@ -19,7 +19,9 @@ from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.autoregressive_vla import (
     AutoregressiveVLADecoder,
 )
-from versatil.models.decoding.generative_language_models.base import CausalLMOutput
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
+)
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
 )
@@ -56,7 +58,7 @@ def vlm_backbone_factory() -> Callable[..., MagicMock]:
             torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION),
             torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, dtype=torch.bool),
         )
-        language_output = MagicMock(spec=CausalLMOutput)
+        language_output = MagicMock(spec=CausalLanguageModelOutput)
         language_output.logits = torch.ones(
             BATCH_SIZE,
             PREFIX_TOKEN_LENGTH,
@@ -736,7 +738,7 @@ class TestAutoregressiveVLADecoderGeneration:
         )
         language_logits = torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, VOCABULARY_SIZE)
         language_logits[:, -1, VOCABULARY_SIZE - 1] = 10.0
-        prefill_output = MagicMock(spec=CausalLMOutput)
+        prefill_output = MagicMock(spec=CausalLanguageModelOutput)
         prefill_output.logits = language_logits
         prefill_output.hidden_states = (
             torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION),
@@ -786,13 +788,13 @@ class TestAutoregressiveVLADecoderGeneration:
         second_logits[:, -1, VOCABULARY_SIZE - 1] = 10.0
         prefill_cache = MagicMock(spec=Cache)
         decode_cache = MagicMock(spec=Cache)
-        prefill_output = MagicMock(spec=CausalLMOutput)
+        prefill_output = MagicMock(spec=CausalLanguageModelOutput)
         prefill_output.logits = first_logits
         prefill_output.hidden_states = (
             torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION),
         )
         prefill_output.past_key_values = prefill_cache
-        decode_output = MagicMock(spec=CausalLMOutput)
+        decode_output = MagicMock(spec=CausalLanguageModelOutput)
         decode_output.logits = second_logits
         decode_output.hidden_states = (
             torch.zeros(BATCH_SIZE, 1, LANGUAGE_HIDDEN_DIMENSION),
@@ -857,7 +859,7 @@ class TestAutoregressiveVLADecoderGeneration:
             PREFIX_TOKEN_LENGTH,
             LANGUAGE_HIDDEN_DIMENSION,
         )
-        prefill_output = MagicMock(spec=CausalLMOutput)
+        prefill_output = MagicMock(spec=CausalLanguageModelOutput)
         prefill_output.logits = torch.zeros(
             BATCH_SIZE,
             PREFIX_TOKEN_LENGTH,

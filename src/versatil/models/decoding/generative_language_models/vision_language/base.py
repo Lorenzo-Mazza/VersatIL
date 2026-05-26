@@ -10,7 +10,7 @@ from transformers.cache_utils import Cache
 from versatil.data.constants import CameraModality, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.decoding.generative_language_models.base import (
-    CausalLMOutput,
+    CausalLanguageModelOutput,
     GenerativeLanguageModel,
 )
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
@@ -20,7 +20,7 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 
 
 class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
-    """Base for VLM components that fuse vision and language in a single LM pass."""
+    """Base for VLM components that fuse vision and language in one language-model pass."""
 
     def __init__(
         self,
@@ -104,7 +104,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         raise NotImplementedError
 
     def _embed_language(self, token_ids: torch.Tensor) -> torch.Tensor:
-        """Map token IDs to dense embeddings via the LM's embedding table."""
+        """Map token IDs to dense embeddings with the language-model embedding table."""
         return self._get_language_model().get_input_embeddings()(token_ids)
 
     def embed_input_ids(self, token_ids: torch.Tensor) -> torch.Tensor:
@@ -120,7 +120,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         use_cache: bool = False,
         cache_position: torch.Tensor | None = None,
         output_hidden_states: bool = True,
-    ) -> CausalLMOutput:
+    ) -> CausalLanguageModelOutput:
         """Run the VLM language tower over caller-provided embeddings."""
         if cache_position is not None:
             return self._get_language_model()(
@@ -286,21 +286,21 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         return self._get_language_model().config.vocab_size
 
     def get_backbone_layers(self) -> nn.ModuleList:
-        """Return the LM transformer layers for interleaved decoding."""
+        """Return the language-model transformer layers for interleaved decoding."""
         return self._get_language_model().layers
 
     @property
     def layers(self) -> nn.ModuleList:
-        """LM transformer layers used by VLA backbones."""
+        """Language-model transformer layers used by VLA backbones."""
         return self.get_backbone_layers()
 
     def get_rotary_embedding(self) -> nn.Module:
-        """Return the LM rotary positional encoding module."""
+        """Return the language-model rotary positional encoding module."""
         return self._get_language_model().rotary_emb
 
     @property
     def rotary_embedding(self) -> nn.Module:
-        """Rotary embedding module used by the LM transformer layers."""
+        """Rotary embedding module used by the language-model transformer layers."""
         return self.get_rotary_embedding()
 
     def get_backbone_hidden_dim(self) -> int:
@@ -348,7 +348,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         """Compute (cos, sin) RoPE components for given positions.
 
         Args:
-            rotary_embedding: The LM's rotary embedding module.
+            rotary_embedding: The language-model rotary embedding module.
             hidden_states: Tensor whose dtype/device to match.
             position_ids: Position indices (B, S).
 
@@ -406,7 +406,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         Args:
             vlm_layer: Pretrained VLM transformer layer.
             hidden_states: (B, S, D).
-            rotary_embedding: The LM's rotary embedding module.
+            rotary_embedding: The language-model rotary embedding module.
             position_ids: (B, S) position indices.
 
         Returns:
@@ -454,7 +454,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         Args:
             vlm_layer: Pretrained VLM transformer layer.
             hidden_states: (B, S, D).
-            rotary_embedding: The LM's rotary embedding module.
+            rotary_embedding: The language-model rotary embedding module.
             position_ids: (B, S) position indices.
 
         Returns:

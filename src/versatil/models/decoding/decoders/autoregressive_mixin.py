@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import torch
 from transformers.cache_utils import Cache
 
-from versatil.models.decoding.generative_language_models.base import CausalLMOutput
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
+)
 from versatil.models.layers.transformer.cache.generation import GenerationCache
 
 type PastKeyValues = Cache | GenerationCache | tuple[tuple[torch.Tensor, ...], ...]
@@ -42,13 +44,13 @@ class AutoregressiveDecoderMixin:
     def _decode_next_autoregressive_step(
         self,
         state: CachedAutoregressiveGenerationState,
-    ) -> tuple[torch.Tensor | CausalLMOutput, PastKeyValues]:
+    ) -> tuple[torch.Tensor | CausalLanguageModelOutput, PastKeyValues]:
         """Decode one incremental autoregressive step."""
         raise NotImplementedError
 
     def _sample_next_autoregressive_output(
         self,
-        step_output: torch.Tensor | CausalLMOutput,
+        step_output: torch.Tensor | CausalLanguageModelOutput,
     ) -> torch.Tensor:
         """Sample or choose the next generated value from one step output."""
         raise NotImplementedError
@@ -97,7 +99,7 @@ class AutoregressiveDecoderMixin:
         self,
         initial_state: CachedAutoregressiveGenerationState,
         max_generation_steps: int,
-        initial_step_output: torch.Tensor | CausalLMOutput | None = None,
+        initial_step_output: torch.Tensor | CausalLanguageModelOutput | None = None,
     ) -> dict[str, torch.Tensor]:
         """Run cached autoregressive generation from a prepared state.
 

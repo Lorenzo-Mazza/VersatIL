@@ -48,7 +48,7 @@ dependencies = [
   "torchao==0.17.0",
   "torchvision",
   "tqdm==4.67.1",
-  "transformers==5.8.0",
+  "transformers==5.9.0",
   "tso-robotics-sockets",
   "versatil-constants==0.2.1",
   "pre-commit",

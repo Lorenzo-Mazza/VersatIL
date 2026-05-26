@@ -25,7 +25,7 @@ from versatil.models.decoding.decoders.llm_prefix_suffix_attention import (
 )
 from versatil.models.decoding.decoders.vlm import VLMBackboneDecoderMixin
 from versatil.models.decoding.generative_language_models.base import (
-    CausalLMOutput,
+    CausalLanguageModelOutput,
 )
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
@@ -302,8 +302,10 @@ class AutoregressiveVLADecoder(
         return self._extract_language_model_logits(output=output)
 
     @staticmethod
-    def _extract_language_model_logits(output: CausalLMOutput) -> torch.Tensor:
-        """Return vocabulary logits from the VLM causal LM output."""
+    def _extract_language_model_logits(
+        output: CausalLanguageModelOutput,
+    ) -> torch.Tensor:
+        """Return vocabulary logits from the VLM causal language-model output."""
         return output.logits
 
     def _build_cached_generation_attention_mask(
@@ -319,7 +321,7 @@ class AutoregressiveVLADecoder(
     def _decode_next_autoregressive_step(
         self,
         state: CachedAutoregressiveGenerationState,
-    ) -> tuple[CausalLMOutput, PastKeyValues]:
+    ) -> tuple[CausalLanguageModelOutput, PastKeyValues]:
         """Decode one cached VLM language-model action-token step."""
         output = self.vlm_backbone.forward_language_model(
             input_ids=state.next_inputs,
@@ -337,7 +339,7 @@ class AutoregressiveVLADecoder(
 
     def _sample_next_autoregressive_output(
         self,
-        step_output: CausalLMOutput,
+        step_output: CausalLanguageModelOutput,
     ) -> torch.Tensor:
         """Sample the next action token from language logits."""
         language_logits = self._extract_language_model_logits(output=step_output)

@@ -62,7 +62,8 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         language_model.config.vocab_size = VOCAB_SIZE
         language_model.layers = [MagicMock(spec=nn.Module)]
         language_model.rotary_emb = MagicMock(spec=nn.Module)
-        mock_vlm.language_model = language_model
+        mock_vlm.model = MagicMock(spec=nn.Module)
+        mock_vlm.model.language_model = language_model
 
         total_image_tokens = NUM_IMAGE_TOKENS * num_cameras
         mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
@@ -73,14 +74,14 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
 
         mock_embed = MagicMock(spec=nn.Embedding)
         mock_embed.return_value = torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
-        mock_vlm.language_model.get_input_embeddings.return_value = mock_embed
+        mock_vlm.model.language_model.get_input_embeddings.return_value = mock_embed
 
         total_seq = total_image_tokens + MAX_TEXT_LENGTH
         mock_lm_output = MagicMock(spec=BaseModelOutput)
         mock_lm_output.last_hidden_state = torch.zeros(
             batch_size, total_seq, HIDDEN_DIM
         )
-        mock_vlm.language_model.return_value = mock_lm_output
+        mock_vlm.model.language_model.return_value = mock_lm_output
 
         return mock_vlm
 
@@ -107,11 +108,11 @@ def paligemma_backbone_factory(
                 return_value=mock_config,
             ),
             patch(
-                "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoModel.from_pretrained",
+                "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoModelForImageTextToText.from_pretrained",
                 return_value=mock_vlm,
             ),
             patch(
-                "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoModel.from_config",
+                "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoModelForImageTextToText.from_config",
                 return_value=mock_vlm,
             ),
         ):
@@ -172,13 +173,13 @@ def _setup_mock_vlm_for_batch(
         MAX_TEXT_LENGTH,
         HIDDEN_DIM,
     )
-    backbone.vlm.language_model.get_input_embeddings.return_value = mock_embed
+    backbone.vlm.model.language_model.get_input_embeddings.return_value = mock_embed
     total_seq = backbone.total_image_tokens + MAX_TEXT_LENGTH
     mock_lm_output = MagicMock(spec=BaseModelOutput)
     mock_lm_output.last_hidden_state = torch.zeros(
         effective_batch_size, total_seq, HIDDEN_DIM
     )
-    backbone.vlm.language_model.return_value = mock_lm_output
+    backbone.vlm.model.language_model.return_value = mock_lm_output
 
 
 @pytest.mark.unit
@@ -354,7 +355,7 @@ class TestPaliGemmaVLMForward:
             include_padding_mask=False,
         )
         backbone(inputs=inputs)
-        call_kwargs = backbone.vlm.language_model.call_args.kwargs
+        call_kwargs = backbone.vlm.model.language_model.call_args.kwargs
         expected_seq_length = NUM_IMAGE_TOKENS + MAX_TEXT_LENGTH
         assert call_kwargs["inputs_embeds"].shape == (
             batch_size,
@@ -380,7 +381,9 @@ class TestPaliGemmaVLMForward:
             sequence_length=sequence_length,
         )
         backbone(inputs=inputs)
-        attention_mask = backbone.vlm.language_model.call_args.kwargs["attention_mask"]
+        attention_mask = backbone.vlm.model.language_model.call_args.kwargs[
+            "attention_mask"
+        ]
         image_attention = attention_mask[:, :NUM_IMAGE_TOKENS]
         text_attention = attention_mask[:, NUM_IMAGE_TOKENS:]
         assert image_attention.all()
@@ -470,7 +473,7 @@ class TestPaliGemmaVLMForward:
         total_seq = NUM_IMAGE_TOKENS + MAX_TEXT_LENGTH
         assert fused.shape == (batch_size, 1, total_seq, HIDDEN_DIM)
         assert backbone.padding_mask_name in output
-        backbone.vlm.language_model.assert_called_once()
+        backbone.vlm.model.language_model.assert_called_once()
 
     def test_missing_language_key_raises(
         self,
@@ -621,7 +624,7 @@ class TestPaliGemmaVLMBackboneAccessors:
             frozen=False,
         )
         result = backbone.get_backbone_layers()
-        assert result == backbone.vlm.language_model.layers
+        assert result == backbone.vlm.model.language_model.layers
 
     def test_get_rotary_embedding_accesses_language_model_rotary_emb(
         self,
@@ -633,7 +636,7 @@ class TestPaliGemmaVLMBackboneAccessors:
             frozen=False,
         )
         result = backbone.get_rotary_embedding()
-        assert result == backbone.vlm.language_model.rotary_emb
+        assert result == backbone.vlm.model.language_model.rotary_emb
 
     def test_get_backbone_hidden_dim_returns_hidden_dim(
         self,
@@ -709,6 +712,46 @@ class TestPaliGemmaVLMIntegration:
             assert all("lora_" in name for name in trainable_parameter_names)
             assert all(".language_model." in name for name in trainable_parameter_names)
             assert 0 < trainable_parameters < total_parameters
+
+    @pytest.mark.integration
+    def test_forward_language_model_with_real_peft_resized_vocabulary(
+        self,
+        real_paligemma_backbone: Callable[..., PaliGemmaVLM],
+    ) -> None:
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=3,
+            alpha=6,
+            target_modules=(
+                LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
+            ),
+        )
+        backbone = real_paligemma_backbone(
+            model_dtype=PrecisionType.FP32.value,
+            frozen=False,
+            lora_config=lora_config,
+        )
+        backbone.eval()
+        resized_vocab_size = backbone.get_vocab_size() + 1
+        backbone.resize_token_embeddings(vocabulary_size=resized_vocab_size)
+        token_ids = torch.tensor([[0, resized_vocab_size - 1]], dtype=torch.long)
+        attention_mask = torch.ones_like(token_ids)
+        inputs_embeds = backbone.embed_input_ids(token_ids=token_ids)
+
+        with torch.no_grad():
+            output = backbone.forward_language_model(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                use_cache=True,
+            )
+
+        assert output.logits.shape == (
+            token_ids.shape[0],
+            token_ids.shape[1],
+            resized_vocab_size,
+        )
+        assert output.hidden_states[-1].shape == inputs_embeds.shape
+        assert output.past_key_values is not None
 
     @pytest.mark.integration
     def test_backbone_accessors_return_real_modules(
