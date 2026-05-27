@@ -15,6 +15,7 @@ from pytorch_lightning.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
     StochasticWeightAveraging,
+    TQDMProgressBar,
 )
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
@@ -295,7 +296,8 @@ class Workspace:
         Returns:
             List of Lightning callbacks
         """
-        callbacks = []
+        callbacks = [TQDMProgressBar(refresh_rate=1)]
+        logging.info("Added TQDM progress bar callback (refresh every batch)")
         has_validation = self.val_loader is not None
 
         if self.config.training.use_ema:

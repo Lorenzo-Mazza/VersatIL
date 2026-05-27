@@ -24,6 +24,7 @@ task:
       ${proprio_key:GRIPPER_STATE}:
         needs_normalization: true
   dataloader:
+    batch_size: 2
     image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
     kinematics_norm_type: ${kinematics_norm_type:GAUSSIAN}
     tokenization:
@@ -41,12 +42,13 @@ task:
         padding_strategy: ${token_padding:MAX_LENGTH}
 
 experiment:
-  precision: ${precision:FP32}
+  precision: ${precision:BF16_MIXED}
   checkpoint_folder: ${checkpoint_dir:libero}
   checkpoint_every: 5
 
 training:
   num_epochs: 10
+  gradient_accumulate_every: 16
   early_stopping_patience: 10
   clip_gradient_norm: true
   clip_max_norm: 1.0

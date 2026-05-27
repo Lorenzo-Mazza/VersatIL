@@ -20,7 +20,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 8
   dataloader:
-    batch_size: 8
+    batch_size: 2
     image_norm_type: ${image_norm_type:ZERO_TO_ONE}
     kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
     tokenization:
@@ -50,7 +50,7 @@ experiment:
 
 training:
   num_epochs: 10
-  gradient_accumulate_every: 4
+  gradient_accumulate_every: 16
   early_stopping_patience: 10
   clip_gradient_norm: true
   clip_max_norm: 1.0

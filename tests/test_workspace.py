@@ -14,6 +14,7 @@ from pytorch_lightning.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
     StochasticWeightAveraging,
+    TQDMProgressBar,
 )
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
@@ -537,6 +538,23 @@ class TestCreateCallbacks:
         assert ModelCheckpoint in callback_types
         assert GradientNormCallback in callback_types
         assert LearningRateMonitor in callback_types
+        assert TQDMProgressBar in callback_types
+
+    def test_tqdm_progress_bar_refreshes_every_batch(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        progress_callbacks = [
+            callback for callback in callbacks if isinstance(callback, TQDMProgressBar)
+        ]
+        assert len(progress_callbacks) == 1
+        assert progress_callbacks[0].refresh_rate == 1
 
     def test_no_checkpoint_callbacks_when_save_checkpoints_disabled(
         self, workspace_factory, mock_workspace_policy_factory
