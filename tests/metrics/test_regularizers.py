@@ -6,6 +6,8 @@ from collections.abc import Callable
 import pytest
 import torch
 
+from versatil.common.tensor_ops import to_device
+from versatil.data.constants import ObsKey, SampleKey
 from versatil.metrics.constants import MetricKey
 from versatil.metrics.regularization_context import PolicyRegularizationGraph
 from versatil.metrics.regularizers import (
@@ -200,6 +202,40 @@ class TestJacobianFrobeniusLipschitzRegularizer:
         }
         for component_value in output.component_losses.values():
             assert torch.equal(component_value, torch.tensor(0.0))
+
+    @pytest.mark.integration
+    @pytest.mark.requires_gpu
+    def test_policy_loss_accepts_cuda_batch_with_raw_language_metadata(
+        self,
+        regularizer_policy_factory: Callable[..., Policy],
+        regularizer_batch_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        device = torch.device("cuda")
+        regularizer = JacobianFrobeniusLipschitzRegularizer(
+            input_domain=RegularizerInputDomain.ENCODED_FEATURES.value,
+            input_keys=["feature"],
+            output_keys=["action"],
+            weight=1e-4,
+            number_of_probes=1,
+            max_batch_size=2,
+        )
+        policy = regularizer_policy_factory().to(device=device)
+        policy.regularizers = torch.nn.ModuleDict(
+            {"feature_jacobian": regularizer.to(device=device)}
+        )
+        batch = regularizer_batch_factory(batch_size=3, feature_dimension=3)
+        language_values = ["pick up object", "place object", "push object"]
+        batch[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value] = language_values
+        batch = to_device(data=batch, device=device)
+
+        output = policy.compute_loss(batch=batch)
+
+        regularizer_key = (
+            f"feature_jacobian/{MetricKey.LIPSCHITZ_JACOBIAN_FROBENIUS_LOSS.value}"
+        )
+        assert regularizer_key in output.component_losses
+        assert output.total_loss.device.type == "cuda"
+        assert torch.isfinite(output.total_loss)
 
 
 def test_spectral_jacobian_computes_linear_feature_spectral_norm(

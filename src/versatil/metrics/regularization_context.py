@@ -7,6 +7,8 @@ from enum import StrEnum
 
 import torch
 
+from versatil.common.tensor_ops import TensorTree
+
 
 class PolicyGraphInputDomain(StrEnum):
     """Policy graph boundary names where tensors can be replaced."""
@@ -21,8 +23,9 @@ class PolicyForwardContext:
     """Intermediate tensors from one normalized policy training forward pass.
 
     Attributes:
-        observation: Normalized raw observation tensors after metadata-only keys
-            have been stripped. Values are batched as ``(B, ...)``.
+        observation: Normalized raw observations after metadata-only keys have
+            been stripped. Tensor values are batched as ``(B, ...)``; metadata
+            values such as raw language can remain non-tensor.
         encoded_features: Output tensors from the encoding pipeline. Values are
             batched as ``(B, ...)`` or ``(B, T, ...)`` depending on the encoder.
         decoder_features: Feature dictionary selected for the decoder contract,
@@ -34,7 +37,7 @@ class PolicyForwardContext:
             action-free graph evaluations.
     """
 
-    observation: dict[str, torch.Tensor]
+    observation: dict[str, TensorTree]
     encoded_features: dict[str, torch.Tensor]
     decoder_features: dict[str, torch.Tensor]
     predictions: dict[str, torch.Tensor]

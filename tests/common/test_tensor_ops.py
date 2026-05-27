@@ -81,6 +81,33 @@ class TestTensorDictionaryUtilities:
         torch.testing.assert_close(result["feature"], values["feature"][:2])
         assert result["short"] is values["short"]
 
+    def test_slice_tensor_dictionary_slices_batch_aligned_metadata(self):
+        values = {
+            "feature": torch.arange(12).reshape(3, 4),
+            "language": ["pick", "place", "push"],
+        }
+
+        result = slice_tensor_dictionary(values=values, max_batch_size=2)
+
+        torch.testing.assert_close(result["feature"], values["feature"][:2])
+        assert result["language"] == ["pick", "place"]
+
+    def test_slice_tensor_dictionary_slices_time_major_collated_metadata(self):
+        values = {
+            "feature": torch.arange(12).reshape(3, 4),
+            "language": [
+                ("pick step zero", "place step zero", "push step zero"),
+                ("pick step one", "place step one", "push step one"),
+            ],
+        }
+
+        result = slice_tensor_dictionary(values=values, max_batch_size=2)
+
+        assert result["language"] == [
+            ("pick step zero", "place step zero"),
+            ("pick step one", "place step one"),
+        ]
+
 
 @pytest.mark.unit
 class TestBatchTensorUtilities:

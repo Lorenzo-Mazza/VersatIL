@@ -9,6 +9,9 @@ type NestedDictionary[Leaf] = dict[str, Leaf | NestedDictionary[Leaf]]
 type TensorTree = (
     torch.Tensor
     | str
+    | int
+    | float
+    | bool
     | None
     | dict[str, TensorTree]
     | OrderedDict[str, TensorTree]
@@ -54,9 +57,9 @@ def tensor_to_str(tensor: torch.Tensor) -> str:
 
 
 def clone_tensor_dictionary_with_replacements(
-    values: dict[str, torch.Tensor],
+    values: dict[str, TensorTree],
     replacements: dict[str, torch.Tensor],
-) -> dict[str, torch.Tensor]:
+) -> dict[str, TensorTree]:
     """Copy a tensor dictionary and replace selected entries.
 
     Args:
@@ -74,41 +77,124 @@ def clone_tensor_dictionary_with_replacements(
 
 
 def detach_floating_tensor_dictionary(
-    values: dict[str, torch.Tensor],
-) -> dict[str, torch.Tensor]:
+    values: dict[str, TensorTree],
+) -> dict[str, TensorTree]:
     """Detach floating-point tensor values from their autograd graph.
 
     Args:
-        values: Tensor dictionary to detach. Values can have any shape.
+        values: Dictionary to detach. Tensor values can have any shape.
+            Non-tensor metadata values are preserved.
 
     Returns:
-        Tensor dictionary where floating tensors are detached and non-floating
-        tensors are preserved.
+        Dictionary where floating tensors are detached and all other values are
+        preserved.
     """
     return {
-        key: value.detach() if torch.is_floating_point(value) else value
+        key: value.detach()
+        if isinstance(value, torch.Tensor) and torch.is_floating_point(value)
+        else value
         for key, value in values.items()
     }
 
 
+def _first_tensor_batch_size(value: TensorTree) -> int | None:
+    """Return the first leading tensor dimension found in a tensor tree."""
+    if isinstance(value, torch.Tensor):
+        if value.ndim == 0:
+            raise ValueError("Expected a batched tensor, got a scalar tensor.")
+        return value.shape[0]
+    if isinstance(value, dict | OrderedDict):
+        for child in value.values():
+            batch_size = _first_tensor_batch_size(value=child)
+            if batch_size is not None:
+                return batch_size
+    if isinstance(value, list | tuple):
+        for child in value:
+            batch_size = _first_tensor_batch_size(value=child)
+            if batch_size is not None:
+                return batch_size
+    return None
+
+
+def _has_batch_aligned_child(
+    value: list[TensorTree] | tuple[TensorTree, ...],
+    batch_size: int,
+) -> bool:
+    """Return whether a sequence holds nested batch-aligned rows."""
+    return any(isinstance(child, tuple) and len(child) == batch_size for child in value)
+
+
+def _slice_batch_value(
+    value: TensorTree,
+    max_batch_size: int,
+    batch_size: int | None,
+) -> TensorTree:
+    """Slice tensor values and batch-aligned metadata sequences."""
+    if isinstance(value, torch.Tensor):
+        if value.ndim == 0:
+            raise ValueError("Expected a batched tensor, got a scalar tensor.")
+        return value[:max_batch_size] if value.shape[0] > max_batch_size else value
+    if isinstance(value, dict | OrderedDict):
+        return type(value)(
+            [
+                (
+                    key,
+                    _slice_batch_value(
+                        value=child,
+                        max_batch_size=max_batch_size,
+                        batch_size=batch_size,
+                    ),
+                )
+                for key, child in value.items()
+            ]
+        )
+    if isinstance(value, list | tuple):
+        if batch_size is None:
+            return value
+        if _has_batch_aligned_child(value=value, batch_size=batch_size):
+            return type(value)(
+                [
+                    _slice_batch_value(
+                        value=child,
+                        max_batch_size=max_batch_size,
+                        batch_size=batch_size,
+                    )
+                    for child in value
+                ]
+            )
+        if len(value) == batch_size and len(value) > max_batch_size:
+            return type(value)(value[:max_batch_size])
+    return value
+
+
 def slice_tensor_dictionary(
-    values: dict[str, torch.Tensor] | None,
+    values: dict[str, TensorTree] | None,
     max_batch_size: int | None,
-) -> dict[str, torch.Tensor] | None:
-    """Slice the leading batch dimension of tensor dictionary values.
+) -> dict[str, TensorTree] | None:
+    """Slice the leading batch dimension of batched dictionary values.
 
     Args:
-        values: Tensor dictionary to slice, or ``None``. Every tensor is expected
-            to be batched with shape ``(B, ...)``.
+        values: Dictionary to slice, or ``None``. Every tensor is expected to be
+            batched with shape ``(B, ...)``. Batch-aligned list or tuple metadata
+            values are sliced with the same batch cap.
         max_batch_size: Maximum number of leading batch elements to keep.
 
     Returns:
-        Sliced tensor dictionary, or the original ``None`` value.
+        Sliced dictionary, or the original ``None`` value.
     """
     if values is None or max_batch_size is None:
         return values
+    batch_size = None
+    for value in values.values():
+        batch_size = _first_tensor_batch_size(value=value)
+        if batch_size is not None:
+            break
     return {
-        key: value[:max_batch_size] if value.shape[0] > max_batch_size else value
+        key: _slice_batch_value(
+            value=value,
+            max_batch_size=max_batch_size,
+            batch_size=batch_size,
+        )
         for key, value in values.items()
     }
 

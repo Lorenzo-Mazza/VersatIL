@@ -9,6 +9,7 @@ import torch.nn as nn
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.common.tensor_ops import (
+    TensorTree,
     clone_tensor_dictionary_with_replacements,
     to_device,
 )
@@ -158,7 +159,7 @@ class Policy(nn.Module):
                 module.pos_weight = pos_weight
 
     def forward(
-        self, batch: dict[str, dict[str, torch.Tensor]]
+        self, batch: dict[str, dict[str, TensorTree]]
     ) -> dict[str, torch.Tensor]:
         """Forward pass through observation encoding → action decoding.
 
@@ -172,7 +173,7 @@ class Policy(nn.Module):
 
     def compute_loss(
         self,
-        batch: dict[str, dict[str, torch.Tensor]],
+        batch: dict[str, dict[str, TensorTree]],
     ) -> LossOutput:
         """Compute loss using the configured loss module.
 
@@ -218,7 +219,7 @@ class Policy(nn.Module):
 
     def _build_forward_context(
         self,
-        batch: dict[str, dict[str, torch.Tensor]],
+        batch: dict[str, dict[str, TensorTree]],
     ) -> PolicyForwardContext:
         """Run the policy once and retain graph-boundary tensors.
 
@@ -412,9 +413,9 @@ class Policy(nn.Module):
 
     def _collect_metadata_passthrough(
         self,
-        batch: dict[str, dict[str, torch.Tensor]],
+        batch: dict[str, dict[str, TensorTree]],
         predictions: dict[str, torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, TensorTree]:
         """Collect configured tensors from training dictionaries into metadata."""
         source_dictionaries = {
             MetadataPassthroughSource.OBSERVATION.value: batch.get(
@@ -435,8 +436,8 @@ class Policy(nn.Module):
 
     def _strip_metadata_passthrough_observations(
         self,
-        observation: dict[str, torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
+        observation: dict[str, TensorTree],
+    ) -> dict[str, TensorTree]:
         """Remove metadata-only observation keys before model encoding."""
         observation_metadata = self.metadata_passthrough.get(
             MetadataPassthroughSource.OBSERVATION.value, {}
@@ -462,8 +463,8 @@ class Policy(nn.Module):
 
     def _build_algorithm_features(
         self,
-        observation: dict[str, torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
+        observation: dict[str, TensorTree],
+    ) -> dict[str, TensorTree]:
         """Build the feature dictionary passed into the decoding algorithm.
 
         The policy boundary is responsible only for collecting model inputs from
@@ -479,7 +480,7 @@ class Policy(nn.Module):
 
     def _encode_observation(
         self,
-        observation: dict[str, torch.Tensor],
+        observation: dict[str, TensorTree],
     ) -> dict[str, torch.Tensor]:
         """Encode normalized observations through the encoding pipeline.
 
@@ -495,9 +496,9 @@ class Policy(nn.Module):
 
     def _select_decoder_features(
         self,
-        observation: dict[str, torch.Tensor],
+        observation: dict[str, TensorTree],
         encoded_features: dict[str, torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, TensorTree]:
         """Select the feature dictionary consumed by the decoder.
 
         Args:
@@ -515,7 +516,7 @@ class Policy(nn.Module):
                 raw observations or encoded features.
         """
         available_features = {**observation, **encoded_features}
-        selected_features: dict[str, torch.Tensor] = {}
+        selected_features: dict[str, TensorTree] = {}
         missing_keys: list[str] = []
         for key in self.decoder.decoder_input.keys:
             if key not in available_features:
@@ -536,8 +537,8 @@ class Policy(nn.Module):
 
     def forward_from_decoder_features(
         self,
-        decoder_features: dict[str, torch.Tensor],
-        actions: dict[str, torch.Tensor] | None,
+        decoder_features: dict[str, TensorTree],
+        actions: dict[str, TensorTree] | None,
     ) -> dict[str, torch.Tensor]:
         """Run algorithm and decoder from decoder-ready features.
 
@@ -558,9 +559,9 @@ class Policy(nn.Module):
 
     def forward_from_encoded_features(
         self,
-        observation: dict[str, torch.Tensor],
+        observation: dict[str, TensorTree],
         encoded_features: dict[str, torch.Tensor],
-        actions: dict[str, torch.Tensor] | None,
+        actions: dict[str, TensorTree] | None,
     ) -> dict[str, torch.Tensor]:
         """Run the downstream policy graph from encoded features.
 
@@ -587,8 +588,8 @@ class Policy(nn.Module):
 
     def forward_from_observation(
         self,
-        observation: dict[str, torch.Tensor],
-        actions: dict[str, torch.Tensor] | None,
+        observation: dict[str, TensorTree],
+        actions: dict[str, TensorTree] | None,
     ) -> dict[str, torch.Tensor]:
         """Run the full policy graph from normalized observations.
 

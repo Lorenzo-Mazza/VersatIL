@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import wandb
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
@@ -23,6 +22,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
+import wandb
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
@@ -538,7 +538,7 @@ class Workspace:
         self.lightning_policy.to(device)
         self.lightning_policy.train()
         with (
-            torch.no_grad(),
+            torch.enable_grad(),
             torch.autocast(
                 device_type=device.type,
                 dtype=PrecisionType(

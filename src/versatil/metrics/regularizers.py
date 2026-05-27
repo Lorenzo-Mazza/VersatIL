@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch.func import jvp
 
 from versatil.common.tensor_ops import (
+    TensorTree,
     batch_rms,
     combined_batch_rms,
     detach_floating_tensor_dictionary,
@@ -145,7 +146,7 @@ class PolicyRegularizer(nn.Module, abc.ABC):
     def _domain_inputs(
         self,
         context: PolicyForwardContext,
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, TensorTree]:
         """Return tensors at the configured graph boundary.
 
         Args:
@@ -153,8 +154,9 @@ class PolicyRegularizer(nn.Module, abc.ABC):
                 features, decoder-ready features, and predictions.
 
         Returns:
-            Tensor dictionary for ``self.input_domain``. Values must be batched
-            tensors with shape ``(B, ...)`` for perturbation-based regularizers.
+            Dictionary for ``self.input_domain``. Selected ``input_keys`` must
+            resolve to batched tensors with shape ``(B, ...)`` for
+            perturbation-based regularizers.
         """
         match self.input_domain:
             case RegularizerInputDomain.OBSERVATION:
@@ -181,6 +183,16 @@ class PolicyRegularizer(nn.Module, abc.ABC):
                 f"{type(self).__name__} input keys {missing_keys} were not found "
                 f"in domain '{self.input_domain.value}'. "
                 f"Available keys: {sorted(domain_inputs)}."
+            )
+        non_tensor_keys = [
+            key
+            for key in self.input_keys
+            if not isinstance(domain_inputs[key], torch.Tensor)
+        ]
+        if non_tensor_keys:
+            raise ValueError(
+                f"{type(self).__name__} can only perturb tensor inputs, "
+                f"got non-tensor input keys: {non_tensor_keys}."
             )
         non_floating_keys = [
             key
@@ -296,7 +308,7 @@ class PolicyRegularizer(nn.Module, abc.ABC):
 
     def _differentiable_input_tensors(
         self,
-        domain_inputs: dict[str, torch.Tensor],
+        domain_inputs: dict[str, TensorTree],
     ) -> tuple[torch.Tensor, ...]:
         """Return selected input tensors prepared for Jacobian products.
 
@@ -312,6 +324,11 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         input_tensors: list[torch.Tensor] = []
         for key in self.input_keys:
             value = domain_inputs[key]
+            if not isinstance(value, torch.Tensor):
+                raise ValueError(
+                    f"{type(self).__name__} can only perturb tensor inputs, "
+                    f"got non-tensor input key: {key}."
+                )
             if self.detach_inputs:
                 input_tensors.append(value.detach().requires_grad_(True))
                 continue

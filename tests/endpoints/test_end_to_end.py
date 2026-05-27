@@ -27,6 +27,7 @@ from tests.endpoints.conftest import (
     resolve_dataset_type,
     start_mock_observation_server,
 )
+from versatil.data.constants import ObsKey
 from versatil.inference.inference_client import InferenceClient
 from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.inference.socket_transport import (
@@ -212,5 +213,73 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
 
         del policy_loader, client
         gc.collect()
+    finally:
+        _cleanup_temporary_artifacts(tmp_path)
+
+
+@pytest.mark.integration
+@pytest.mark.requires_gpu
+def test_regularized_workspace_lazy_initialization_accepts_raw_language_batch(
+    tmp_path,
+) -> None:
+    try:
+        config_name = (
+            "end_to_end_training_runs/libero_lerobot/"
+            "action_transformer_jacobian_frobenius_lipschitz"
+        )
+        rng = np.random.default_rng(42)
+        zarr_path = str(tmp_path / "data.zarr")
+        checkpoint_dir = str(tmp_path / "checkpoints")
+
+        _create_synthetic_zarr(
+            zarr_path=zarr_path,
+            dataset_type="libero_lerobot",
+            rng=rng,
+        )
+
+        common_overrides = [
+            override
+            for override in COMMON_OVERRIDES
+            if not override.startswith("task.dataloader.num_workers=")
+        ]
+        all_overrides = (
+            common_overrides
+            + build_tiny_overrides(config_name)
+            + [
+                "task.dataloader.num_workers=0",
+                "task.dataloader.shuffle=false",
+                "task.dataloader.tokenization.tokenize_observations=false",
+                "task.dataloader.tokenization.observation_tokenizer=null",
+                "policy.encoding_pipeline.encoders.left.pretrained=false",
+                "policy.encoding_pipeline.encoders.right.pretrained=false",
+                f"experiment.checkpoint_folder={checkpoint_dir}",
+                f"task.dataset_schema.zarr_path={zarr_path}",
+            ]
+        )
+
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            yaml_config = compose(
+                config_name=config_name,
+                overrides=all_overrides,
+            )
+            with patch(
+                "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
+                lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
+            ):
+                config = hydra.utils.instantiate(yaml_config)
+
+        config.policy.to(E2E_DEVICE)
+
+        with patch("versatil.workspace.HydraConfig") as mock_hydra:
+            mock_hydra.get.return_value = MagicMock()
+            mock_hydra.get.return_value.job.config_name = "test_regularizer_e2e"
+            workspace = Workspace(config, original_yaml_config=yaml_config)
+            workspace._setup_data()
+            batch = next(iter(workspace.train_loader))
+            assert isinstance(batch["observation"][ObsKey.LANGUAGE.value], list)
+            workspace._setup_policy()
+            assert "visual_lipschitz" in workspace.policy.regularizers
+
+        assert workspace.lightning_policy is not None
     finally:
         _cleanup_temporary_artifacts(tmp_path)
