@@ -1,0 +1,14 @@
+_target_: versatil.metrics.regularizers.SpectralJacobianLipschitzRegularizer
+input_domain: encoded_features
+input_keys:
+  - left_rgb
+  - right_rgb
+output_keys: null
+weight: 0.0001
+target: 1.0
+number_of_power_iterations: 1
+detach_inputs: true
+max_batch_size: 4
+apply_during_eval: false
+eps: 1.0e-12
+disable_decoder_stochastic: true

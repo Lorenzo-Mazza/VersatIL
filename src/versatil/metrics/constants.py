@@ -64,6 +64,13 @@ class MetricKey(StrEnum):
     VQ_CODEBOOK_MAX_FREQUENCY = "vq_codebook_max_frequency"
     VQ_CODEBOOK_DEAD_CODES = "vq_codebook_dead_codes"
     VQ_PRIOR_CROSS_ENTROPY = "vq_prior_cross_entropy"
+    LIPSCHITZ_FINITE_DIFFERENCE_LOSS = "lipschitz_finite_difference_loss"
+    LIPSCHITZ_JACOBIAN_FROBENIUS_LOSS = "lipschitz_jacobian_frobenius_loss"
+    LIPSCHITZ_JACOBIAN_FROBENIUS_NORM = "lipschitz_jacobian_frobenius_norm"
+    LIPSCHITZ_SPECTRAL_JACOBIAN_LOSS = "lipschitz_spectral_jacobian_loss"
+    LIPSCHITZ_SLOPE_MEAN = "lipschitz_slope_mean"
+    LIPSCHITZ_SLOPE_MAX = "lipschitz_slope_max"
+    LIPSCHITZ_SIGMA = "lipschitz_sigma"
 
 
 class LossModuleName(StrEnum):

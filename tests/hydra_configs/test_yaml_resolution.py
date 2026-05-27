@@ -19,6 +19,12 @@ from versatil.data.constants import (
     ObsKey,
     ProprioKey,
 )
+from versatil.metrics.regularization_context import PolicyGraphInputDomain
+from versatil.metrics.regularizers import (
+    FiniteDifferenceLipschitzRegularizer,
+    JacobianFrobeniusLipschitzRegularizer,
+    SpectralJacobianLipschitzRegularizer,
+)
 from versatil.models.decoding.constants import LatentKey, TimeConditioning
 
 HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
@@ -310,6 +316,59 @@ class TestHydraComposition:
             ProprioKey.EE_ORI.value,
             ProprioKey.GRIPPER_STATE.value,
         ]
+
+    @pytest.mark.parametrize(
+        (
+            "config_name",
+            "expected_target",
+            "expected_max_batch_size",
+        ),
+        [
+            pytest.param(
+                "end_to_end_training_runs/libero_lerobot/"
+                "action_transformer_finite_difference_lipschitz",
+                f"{FiniteDifferenceLipschitzRegularizer.__module__}."
+                f"{FiniteDifferenceLipschitzRegularizer.__name__}",
+                8,
+                id="finite-difference",
+            ),
+            pytest.param(
+                "end_to_end_training_runs/libero_lerobot/"
+                "action_transformer_spectral_jacobian_lipschitz",
+                f"{SpectralJacobianLipschitzRegularizer.__module__}."
+                f"{SpectralJacobianLipschitzRegularizer.__name__}",
+                4,
+                id="spectral-jacobian",
+            ),
+            pytest.param(
+                "end_to_end_training_runs/libero_lerobot/"
+                "action_transformer_jacobian_frobenius_lipschitz",
+                f"{JacobianFrobeniusLipschitzRegularizer.__module__}."
+                f"{JacobianFrobeniusLipschitzRegularizer.__name__}",
+                4,
+                id="jacobian-frobenius",
+            ),
+        ],
+    )
+    def test_libero_action_transformer_lipschitz_variants_target_visual_features(
+        self,
+        config_name: str,
+        expected_target: str,
+        expected_max_batch_size: int,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name=config_name)
+
+        regularizer = config.policy.regularizers.visual_lipschitz
+
+        assert regularizer._target_ == expected_target
+        assert regularizer.input_domain == PolicyGraphInputDomain.ENCODED_FEATURES.value
+        assert list(regularizer.input_keys) == ["left_rgb", "right_rgb"]
+        assert regularizer.output_keys is None
+        assert regularizer.detach_inputs is True
+        assert regularizer.disable_decoder_stochastic is True
+        assert regularizer.max_batch_size == expected_max_batch_size
+        assert list(config.policy.decoder.input_keys) == ["left_rgb", "right_rgb"]
 
     @pytest.mark.parametrize(
         "preset_name", ["vae_frozen_prior", "vae_frozen_prior_with_backbone"]

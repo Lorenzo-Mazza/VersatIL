@@ -310,6 +310,7 @@ def policy_factory(
         loss: BaseLoss | None = None,
         device: str = "cpu",
         metadata_passthrough: dict[str, dict[str, str]] | None = None,
+        regularizers: dict[str, torch.nn.Module] | None = None,
         feature_return_value: dict[str, torch.Tensor] | None = None,
         algorithm_forward_return: dict[str, torch.Tensor] | None = None,
         algorithm_predict_return: dict[str, torch.Tensor] | None = None,
@@ -359,6 +360,7 @@ def policy_factory(
             loss=loss,
             device=device,
             metadata_passthrough=metadata_passthrough,
+            regularizers=regularizers,
         )
 
     return factory

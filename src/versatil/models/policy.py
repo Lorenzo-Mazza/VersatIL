@@ -1,11 +1,17 @@
 """Policy module that handles the sequence of input encoding, output decoding, and loss computation."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import torch
 import torch.nn as nn
 
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.omegaconf_ops import resolve_dict_keys
-from versatil.common.tensor_ops import to_device
+from versatil.common.tensor_ops import (
+    clone_tensor_dictionary_with_replacements,
+    to_device,
+)
 from versatil.data.constants import Cameras, MetadataPassthroughSource, SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform import (
@@ -18,6 +24,11 @@ from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
+from versatil.metrics.regularization_context import (
+    PolicyForwardContext,
+    PolicyGraphInputDomain,
+    PolicyRegularizationGraph,
+)
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
@@ -40,6 +51,7 @@ class Policy(nn.Module):
         loss: BaseLoss,
         device: str,
         metadata_passthrough: dict[str, dict[str, str]] | None = None,
+        regularizers: dict[str, nn.Module] | None = None,
         validate_loss_keys: bool = True,
     ) -> None:
         """Initialize policy.
@@ -56,6 +68,9 @@ class Policy(nn.Module):
             device: Device to run on.
             metadata_passthrough: Mapping from source dictionaries to metadata
                 keys for logging/visualization.
+            regularizers: Optional training regularizers. Each module receives a
+                ``PolicyRegularizationGraph`` built from the current batch rather
+                than the policy itself.
             validate_loss_keys: Deprecated, kept for backwards compatibility.
         """
         super().__init__()
@@ -71,6 +86,7 @@ class Policy(nn.Module):
         self.metadata_passthrough = self._resolve_metadata_passthrough(
             metadata_passthrough=metadata_passthrough
         )
+        self.regularizers = nn.ModuleDict(regularizers or {})
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
         self.denoising_thresholds = DictOfTensorMixin()
@@ -152,14 +168,7 @@ class Policy(nn.Module):
         Returns:
             Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
-        observation = self._strip_metadata_passthrough_observations(
-            observation=batch[SampleKey.OBSERVATION.value]
-        )
-        actions = batch.get(SampleKey.ACTION.value)
-        features = self._build_algorithm_features(observation=observation)
-        return self.algorithm.forward(
-            features=features, actions=actions, network=self.decoder
-        )
+        return self._build_forward_context(batch=batch).predictions
 
     def compute_loss(
         self,
@@ -178,7 +187,8 @@ class Policy(nn.Module):
         Returns:
             LossOutput with total loss and component losses
         """
-        output = self.forward(batch)
+        context = self._build_forward_context(batch=batch)
+        output = context.predictions
         ground_truth_actions = batch[SampleKey.ACTION.value]
         targets = self.algorithm.get_targets(
             algorithm_output=output,
@@ -189,6 +199,11 @@ class Policy(nn.Module):
             targets=targets,
             is_pad=ground_truth_actions.get(SampleKey.IS_PAD_ACTION.value),
         )
+        if self.regularizers:
+            loss_output = self._add_regularizer_losses(
+                loss_output=loss_output,
+                context=context,
+            )
         metadata = self._collect_metadata_passthrough(
             batch=batch,
             predictions=output,
@@ -200,6 +215,181 @@ class Policy(nn.Module):
             component_losses=loss_output.component_losses,
             metadata={**loss_output.metadata, **metadata},
         )
+
+    def _build_forward_context(
+        self,
+        batch: dict[str, dict[str, torch.Tensor]],
+    ) -> PolicyForwardContext:
+        """Run the policy once and retain graph-boundary tensors.
+
+        Args:
+            batch: Normalized training batch with observation and action
+                dictionaries. Tensor values are expected to share leading batch
+                dimension ``B``.
+
+        Returns:
+            Forward context containing raw observations, encoded features,
+            decoder-ready features, predictions, and actions from the same graph.
+        """
+        observation = self._strip_metadata_passthrough_observations(
+            observation=batch[SampleKey.OBSERVATION.value]
+        )
+        actions = batch.get(SampleKey.ACTION.value)
+        encoded_features = self._encode_observation(observation=observation)
+        decoder_features = self._select_decoder_features(
+            observation=observation,
+            encoded_features=encoded_features,
+        )
+        predictions = self.forward_from_decoder_features(
+            decoder_features=decoder_features,
+            actions=actions,
+        )
+        return PolicyForwardContext(
+            observation=observation,
+            encoded_features=encoded_features,
+            decoder_features=decoder_features,
+            predictions=predictions,
+            actions=actions,
+        )
+
+    def _add_regularizer_losses(
+        self,
+        loss_output: LossOutput,
+        context: PolicyForwardContext,
+    ) -> LossOutput:
+        """Add configured regularizer losses to the main training loss.
+
+        Args:
+            loss_output: Loss output produced by the main configured loss module.
+            context: Forward context from the same training batch.
+
+        Returns:
+            Loss output whose total loss includes every regularizer loss. Component
+            losses are namespaced as ``"{regularizer_name}/{component_name}"``.
+        """
+        total_loss = loss_output.total_loss
+        component_losses = dict(loss_output.component_losses)
+        metadata = dict(loss_output.metadata)
+        regularization_graph = self._build_regularization_graph(context=context)
+        for regularizer_name, regularizer in self.regularizers.items():
+            regularizer_output = regularizer(graph=regularization_graph)
+            total_loss = total_loss + regularizer_output.total_loss
+            for (
+                component_name,
+                component_value,
+            ) in regularizer_output.component_losses.items():
+                component_losses[f"{regularizer_name}/{component_name}"] = (
+                    component_value
+                )
+            metadata.update(regularizer_output.metadata)
+        return LossOutput(
+            total_loss=total_loss,
+            component_losses=component_losses,
+            metadata=metadata,
+        )
+
+    def _build_regularization_graph(
+        self,
+        context: PolicyForwardContext,
+    ) -> PolicyRegularizationGraph:
+        """Create a policy-owned graph re-entry interface for regularizers.
+
+        Args:
+            context: Forward context from the current training batch.
+
+        Returns:
+            Batch-local graph object. Regularizers use it to re-run the same
+            policy operation order with selected tensor replacements, without
+            receiving the policy or its submodules directly.
+        """
+        return PolicyRegularizationGraph(
+            context=context,
+            training=self.training,
+            default_output_keys=sorted(self.decoder.get_loss_output_keys()),
+            evaluate_with_replacements=self._evaluate_regularization_graph,
+            deterministic_scope=self._decoder_deterministic_scope,
+        )
+
+    def _evaluate_regularization_graph(
+        self,
+        input_domain: str,
+        context: PolicyForwardContext,
+        replacements: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Evaluate the policy graph from a named boundary with replacements.
+
+        Args:
+            input_domain: Boundary to replace. Valid values are
+                ``"observation"``, ``"encoded_features"``, and
+                ``"decoder_features"``.
+            context: Forward context used as the base graph state.
+            replacements: Tensor replacements for keys at ``input_domain``. Each
+                replacement must match the shape of its context tensor.
+
+        Returns:
+            Prediction dictionary from the re-entered policy graph. The operation
+            order is still owned by ``Policy``: observation replacements re-run
+            encoding, encoded-feature replacements re-run feature selection and
+            decoding, and decoder-feature replacements re-run only the algorithm
+            and decoder boundary.
+        """
+        domain = PolicyGraphInputDomain(input_domain)
+        match domain:
+            case PolicyGraphInputDomain.OBSERVATION:
+                observation = clone_tensor_dictionary_with_replacements(
+                    values=context.observation,
+                    replacements=replacements,
+                )
+                return self.forward_from_observation(
+                    observation=observation,
+                    actions=context.actions,
+                )
+            case PolicyGraphInputDomain.ENCODED_FEATURES:
+                encoded_features = clone_tensor_dictionary_with_replacements(
+                    values=context.encoded_features,
+                    replacements=replacements,
+                )
+                return self.forward_from_encoded_features(
+                    observation=context.observation,
+                    encoded_features=encoded_features,
+                    actions=context.actions,
+                )
+            case PolicyGraphInputDomain.DECODER_FEATURES:
+                decoder_features = clone_tensor_dictionary_with_replacements(
+                    values=context.decoder_features,
+                    replacements=replacements,
+                )
+                return self.forward_from_decoder_features(
+                    decoder_features=decoder_features,
+                    actions=context.actions,
+                )
+
+    @contextmanager
+    def _decoder_deterministic_scope(
+        self,
+        enabled: bool,
+    ) -> Iterator[None]:
+        """Temporarily run decoder modules in eval mode.
+
+        Args:
+            enabled: If false, leaves decoder training states unchanged.
+
+        Yields:
+            ``None`` while decoder stochastic layers are disabled. Original
+            training states are restored after the scope exits.
+        """
+        if not enabled:
+            yield
+            return
+        modules = list(self.decoder.modules())
+        training_states = [module.training for module in modules]
+        for module in modules:
+            module.eval()
+        try:
+            yield
+        finally:
+            for module, training_state in zip(modules, training_states):
+                module.train(mode=training_state)
 
     def _resolve_metadata_passthrough(
         self,
@@ -281,7 +471,49 @@ class Policy(nn.Module):
         Algorithms add their own control tensors later, such as diffusion/flow
         timesteps or variational latents.
         """
-        encoded_features = self.encoding_pipeline(observation)
+        encoded_features = self._encode_observation(observation=observation)
+        return self._select_decoder_features(
+            observation=observation,
+            encoded_features=encoded_features,
+        )
+
+    def _encode_observation(
+        self,
+        observation: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Encode normalized observations through the encoding pipeline.
+
+        Args:
+            observation: Normalized observation dictionary. Image tensors are
+                typically ``(B, T, C, H, W)`` or ``(B, C, H, W)`` and vector
+                observations are typically ``(B, T, D)`` or ``(B, D)``.
+
+        Returns:
+            Encoded feature dictionary produced by the configured pipeline.
+        """
+        return self.encoding_pipeline(observation)
+
+    def _select_decoder_features(
+        self,
+        observation: dict[str, torch.Tensor],
+        encoded_features: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Select the feature dictionary consumed by the decoder.
+
+        Args:
+            observation: Normalized raw observation tensors keyed by observation
+                name.
+            encoded_features: Encoding-pipeline outputs keyed by feature name.
+
+        Returns:
+            Decoder input dictionary containing exactly the keys requested by
+            ``decoder.decoder_input.keys`` plus matching padding-mask tensors
+            named ``"{feature_key}_padding_mask"`` when available.
+
+        Raises:
+            ValueError: If the decoder requests a key that is not available from
+                raw observations or encoded features.
+        """
         available_features = {**observation, **encoded_features}
         selected_features: dict[str, torch.Tensor] = {}
         missing_keys: list[str] = []
@@ -301,6 +533,81 @@ class Policy(nn.Module):
                 f"Available keys: {sorted(available_features.keys())}."
             )
         return selected_features
+
+    def forward_from_decoder_features(
+        self,
+        decoder_features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None,
+    ) -> dict[str, torch.Tensor]:
+        """Run algorithm and decoder from decoder-ready features.
+
+        Args:
+            decoder_features: Feature dictionary satisfying
+                ``decoder.decoder_input``. Values are batched as ``(B, ...)``.
+            actions: Normalized action dictionary used by training algorithms, or
+                ``None`` for action-free evaluations.
+
+        Returns:
+            Prediction dictionary from ``algorithm.forward``.
+        """
+        return self.algorithm.forward(
+            features=decoder_features,
+            actions=actions,
+            network=self.decoder,
+        )
+
+    def forward_from_encoded_features(
+        self,
+        observation: dict[str, torch.Tensor],
+        encoded_features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None,
+    ) -> dict[str, torch.Tensor]:
+        """Run the downstream policy graph from encoded features.
+
+        Args:
+            observation: Normalized raw observations. Raw observation tensors may
+                still be selected if the decoder directly requests them.
+            encoded_features: Replacement-capable encoded feature dictionary.
+                Values are batched as ``(B, ...)``.
+            actions: Normalized action dictionary used by training algorithms, or
+                ``None`` for action-free evaluations.
+
+        Returns:
+            Prediction dictionary after decoder feature selection and
+            ``algorithm.forward``.
+        """
+        decoder_features = self._select_decoder_features(
+            observation=observation,
+            encoded_features=encoded_features,
+        )
+        return self.forward_from_decoder_features(
+            decoder_features=decoder_features,
+            actions=actions,
+        )
+
+    def forward_from_observation(
+        self,
+        observation: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None,
+    ) -> dict[str, torch.Tensor]:
+        """Run the full policy graph from normalized observations.
+
+        Args:
+            observation: Normalized observation dictionary with tensors sharing
+                leading batch dimension ``B``.
+            actions: Normalized action dictionary used by training algorithms, or
+                ``None`` for action-free evaluations.
+
+        Returns:
+            Prediction dictionary after encoding, feature selection, and
+            ``algorithm.forward``.
+        """
+        encoded_features = self._encode_observation(observation=observation)
+        return self.forward_from_encoded_features(
+            observation=observation,
+            encoded_features=encoded_features,
+            actions=actions,
+        )
 
     def predict_action(
         self,

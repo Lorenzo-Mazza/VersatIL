@@ -159,6 +159,12 @@ from versatil.configs.quantization import (
     QuantizeApiStrategyConfig,
     X86InductorBackendConfig,
 )
+from versatil.configs.regularizer import (
+    BaseRegularizerConfig,
+    FiniteDifferenceLipschitzRegularizerConfig,
+    JacobianFrobeniusLipschitzRegularizerConfig,
+    SpectralJacobianLipschitzRegularizerConfig,
+)
 from versatil.configs.training import (
     AdamConfig,
     AdamWConfig,
@@ -293,12 +299,16 @@ __all__ = [
     "PosteriorGeometryLossConfig",
     "RegressionLossConfig",
     "BaseLossConfig",
+    "BaseRegularizerConfig",
     "GripperLossConfig",
     "KLDivergenceLossConfig",
     "BinaryKLDivergenceLossConfig",
+    "FiniteDifferenceLipschitzRegularizerConfig",
+    "JacobianFrobeniusLipschitzRegularizerConfig",
     "TrajectoryLengthLossConfig",
     "TrajectorySmoothnessConfig",
     "PhaseClassificationLossConfig",
+    "SpectralJacobianLipschitzRegularizerConfig",
     "BasePT2EBackendConfig",
     "BasePrunerConfig",
     "Int4WeightOnlyQuantizeConfig",
@@ -986,6 +996,26 @@ def register_configs() -> None:
         group="policy/loss",
         name="relaxed_conditional_latent_ot",
         node=RelaxedConditionalLatentOptimalTransportLossConfig,
+    )
+    cs.store(
+        group="policy/regularizer",
+        name="base",
+        node=BaseRegularizerConfig,
+    )
+    cs.store(
+        group="policy/regularizer",
+        name="finite_difference_lipschitz",
+        node=FiniteDifferenceLipschitzRegularizerConfig,
+    )
+    cs.store(
+        group="policy/regularizer",
+        name="jacobian_frobenius_lipschitz",
+        node=JacobianFrobeniusLipschitzRegularizerConfig,
+    )
+    cs.store(
+        group="policy/regularizer",
+        name="spectral_jacobian_lipschitz",
+        node=SpectralJacobianLipschitzRegularizerConfig,
     )
     cs.store(
         group="policy/encoding_pipeline",

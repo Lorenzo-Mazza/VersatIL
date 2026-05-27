@@ -47,6 +47,10 @@ class TestPolicyConfig:
         config = PolicyConfig()
         assert config.metadata_passthrough == {}
 
+    def test_regularizers_default_to_empty_dict(self):
+        config = PolicyConfig()
+        assert config.regularizers == {}
+
     def test_has_all_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(PolicyConfig)}
         expected = {
@@ -60,6 +64,7 @@ class TestPolicyConfig:
             "observation_horizon",
             "device",
             "loss",
+            "regularizers",
             "metadata_passthrough",
             "validate_loss_keys",
         }

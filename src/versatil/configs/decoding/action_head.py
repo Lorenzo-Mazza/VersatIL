@@ -9,8 +9,6 @@ from omegaconf import MISSING
 
 from versatil.models.decoding.constants import MoERoutingType
 
-type ActionHeadBlockConfigDict = dict[str, Any]
-
 
 @dataclass
 class ActionHeadBlockConfig:
@@ -56,7 +54,7 @@ class ResidualBlockConfig(ActionHeadBlockConfig):
     """Configuration for residual wrapper block."""
 
     _target_: str = "versatil.models.decoding.action_heads.ResidualBlock"
-    block: ActionHeadBlockConfigDict = MISSING
+    block: dict[str, Any] = MISSING
     dropout: float = 0.1
 
 
@@ -80,7 +78,7 @@ class ActionHeadConfig:
 
     _target_: str = "versatil.models.decoding.action_heads.ActionHead"
     input_dim: int = MISSING  # Set from decoder embedding_dimension
-    blocks: list[ActionHeadBlockConfigDict] | None = None
+    blocks: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -90,7 +88,7 @@ class ConditionalActionHeadConfig:
     _target_: str = "versatil.models.decoding.action_heads.ConditionalActionHead"
     input_dim: int = MISSING
     condition_dim: int = MISSING
-    blocks: list[ActionHeadBlockConfigDict] | None = None
+    blocks: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -99,7 +97,7 @@ class GaussianHeadConfig:
 
     _target_: str = "versatil.models.decoding.action_heads.GaussianHead"
     input_dim: int = MISSING
-    blocks: list[ActionHeadBlockConfigDict] | None = None
+    blocks: list[dict[str, Any]] | None = None
     min_logvar: float = -10.0
     max_logvar: float = 4.0
 

@@ -1,0 +1,5 @@
+# @package _global_
+defaults:
+  - action_transformer
+  - /policy/regularizer@policy.regularizers.visual_lipschitz: jacobian_frobenius_lipschitz_visual_features
+  - _self_

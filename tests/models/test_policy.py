@@ -21,7 +21,8 @@ from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
-from versatil.metrics.constants import MetadataKey
+from versatil.metrics.constants import MetadataKey, MetricKey
+from versatil.metrics.regularization_context import PolicyRegularizationGraph
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
@@ -29,6 +30,26 @@ from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.policy import Policy
 
 register_resolvers()
+
+
+class _ConstantRegularizer(torch.nn.Module):
+    def __init__(self, value: float) -> None:
+        super().__init__()
+        self.value = value
+        self.graph: PolicyRegularizationGraph | None = None
+
+    def forward(
+        self,
+        graph: PolicyRegularizationGraph,
+    ) -> LossOutput:
+        self.graph = graph
+        regularizer_loss = torch.tensor(self.value)
+        return LossOutput(
+            total_loss=regularizer_loss,
+            component_losses={
+                MetricKey.LIPSCHITZ_FINITE_DIFFERENCE_LOSS.value: regularizer_loss
+            },
+        )
 
 
 class TestPolicyInitialization:
@@ -565,6 +586,38 @@ class TestForward:
         call_kwargs = policy.algorithm.forward.call_args.kwargs
         assert call_kwargs["actions"] is None
 
+    def test_forward_from_encoded_features_rebuilds_decoder_features(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        feature_key = "rgb_features"
+        raw_key = Cameras.LEFT.value
+        encoded_features = {
+            feature_key: torch.ones(2, 4),
+            "unused_features": torch.zeros(2, 4),
+        }
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(keys=[feature_key, raw_key]),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(decoder=decoder)
+        batch = batch_dictionary_factory()
+        observation = batch[SampleKey.OBSERVATION.value]
+        observation[raw_key] = torch.ones(2, 3, 8, 8)
+
+        policy.forward_from_encoded_features(
+            observation=observation,
+            encoded_features=encoded_features,
+            actions=batch[SampleKey.ACTION.value],
+        )
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert set(actual_features) == {feature_key, raw_key}
+        assert torch.equal(actual_features[feature_key], encoded_features[feature_key])
+        assert torch.equal(actual_features[raw_key], observation[raw_key])
+
 
 class TestComputeLoss:
     def test_calls_forward_then_loss_module(
@@ -623,6 +676,42 @@ class TestComputeLoss:
         policy.compute_loss(batch=batch)
         call_kwargs = loss_module.call_args.kwargs
         assert torch.equal(call_kwargs["is_pad"], is_pad)
+
+    def test_adds_regularizer_loss_components(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        forward_output = {"prediction": torch.zeros(2, 4, 7)}
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = LossOutput(
+            total_loss=torch.tensor(0.5),
+            component_losses={"base_loss": torch.tensor(0.5)},
+        )
+        regularizer = _ConstantRegularizer(value=0.25)
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(keys=[]),
+        )
+        decoder.get_loss_output_keys.return_value = {"prediction"}
+        policy = policy_factory(
+            loss=loss_module,
+            decoder=decoder,
+            algorithm_forward_return=forward_output,
+            regularizers={"visual_lipschitz": regularizer},
+        )
+        batch = batch_dictionary_factory()
+
+        result = policy.compute_loss(batch=batch)
+
+        assert torch.equal(result.total_loss, torch.tensor(0.75))
+        assert torch.equal(result.component_losses["base_loss"], torch.tensor(0.5))
+        regularizer_key = (
+            f"visual_lipschitz/{MetricKey.LIPSCHITZ_FINITE_DIFFERENCE_LOSS.value}"
+        )
+        assert torch.equal(result.component_losses[regularizer_key], torch.tensor(0.25))
+        assert regularizer.graph is not None
+        assert regularizer.graph.context.predictions is forward_output
 
     def test_adds_configured_observation_metadata_to_loss_output(
         self,
