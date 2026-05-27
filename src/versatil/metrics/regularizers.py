@@ -5,6 +5,7 @@ import abc
 import torch
 import torch.nn as nn
 from torch.func import jvp
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from versatil.common.tensor_ops import (
     TensorTree,
@@ -696,7 +697,10 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
             )
 
         probe_penalties: list[torch.Tensor] = []
-        with graph.deterministic_scope(enabled=self.disable_decoder_stochastic):
+        with (
+            graph.deterministic_scope(enabled=self.disable_decoder_stochastic),
+            sdpa_kernel([SDPBackend.MATH]),
+        ):
             flat_outputs = evaluate(input_values=input_tensors)
             for _ in range(self.number_of_probes):
                 probe = torch.empty_like(flat_outputs).bernoulli_(0.5)
@@ -873,7 +877,10 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
                 output_keys=output_keys,
             )
 
-        with graph.deterministic_scope(enabled=self.disable_decoder_stochastic):
+        with (
+            graph.deterministic_scope(enabled=self.disable_decoder_stochastic),
+            sdpa_kernel([SDPBackend.MATH]),
+        ):
             direction = tuple(torch.randn_like(value) for value in input_tensors)
             direction = normalize_tensor_tuple(tensors=direction, eps=self.eps)
 

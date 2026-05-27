@@ -219,14 +219,19 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.requires_gpu
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "end_to_end_training_runs/libero_lerobot/action_transformer_jacobian_frobenius_lipschitz",
+        "end_to_end_training_runs/libero_lerobot/action_transformer_spectral_jacobian_lipschitz",
+    ],
+    ids=["jacobian-frobenius", "spectral-jacobian"],
+)
 def test_regularized_workspace_lazy_initialization_accepts_raw_language_batch(
     tmp_path,
+    config_name: str,
 ) -> None:
     try:
-        config_name = (
-            "end_to_end_training_runs/libero_lerobot/"
-            "action_transformer_jacobian_frobenius_lipschitz"
-        )
         rng = np.random.default_rng(42)
         zarr_path = str(tmp_path / "data.zarr")
         checkpoint_dir = str(tmp_path / "checkpoints")

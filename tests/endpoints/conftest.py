@@ -552,6 +552,11 @@ E2E_EXTRA_ARCHITECTURE_CONFIGS = (
     "end_to_end_training_runs/bowel_retraction/phase_act",
 )
 
+E2E_REGULARIZED_CONFIGS = (
+    "end_to_end_training_runs/libero_lerobot/action_transformer_jacobian_frobenius_lipschitz",
+    "end_to_end_training_runs/libero_lerobot/action_transformer_spectral_jacobian_lipschitz",
+)
+
 TINY_SCALAR_FIELDS: dict[str, int] = {
     "embedding_dimension": 16,
     "feedforward_dimension": 32,
@@ -573,6 +578,7 @@ def discover_e2e_configs() -> list[str]:
         E2E_FULL_COVERAGE_CONFIGS
         + E2E_REPRESENTATIVE_CONFIGS
         + E2E_EXTRA_ARCHITECTURE_CONFIGS
+        + E2E_REGULARIZED_CONFIGS
     )
     runnable_configs = []
     seen_configs = set()
