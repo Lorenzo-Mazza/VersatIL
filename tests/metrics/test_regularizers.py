@@ -95,7 +95,7 @@ class TestFiniteDifferenceLipschitzRegularizer:
         assert policy.decoder.scale.grad is not None
         assert policy.decoder.scale.grad.abs() > 0.0
 
-    def test_eval_mode_without_apply_during_eval_returns_zero_diagnostics(
+    def test_eval_mode_without_apply_during_eval_returns_no_diagnostics(
         self,
         regularizer_policy_factory: Callable[..., Policy],
         regularizer_graph_factory: Callable[..., PolicyRegularizationGraph],
@@ -116,13 +116,7 @@ class TestFiniteDifferenceLipschitzRegularizer:
         output = regularizer(graph=graph)
 
         assert torch.equal(output.total_loss, torch.tensor(0.0))
-        assert set(output.component_losses) == {
-            MetricKey.LIPSCHITZ_FINITE_DIFFERENCE_LOSS.value,
-            MetricKey.LIPSCHITZ_SLOPE_MEAN.value,
-            MetricKey.LIPSCHITZ_SLOPE_MAX.value,
-        }
-        for component_value in output.component_losses.values():
-            assert torch.equal(component_value, torch.tensor(0.0))
+        assert output.component_losses == {}
 
 
 class TestJacobianFrobeniusLipschitzRegularizer:
@@ -176,7 +170,7 @@ class TestJacobianFrobeniusLipschitzRegularizer:
         assert policy.decoder.scale.grad is not None
         assert policy.decoder.scale.grad.abs() > 0.0
 
-    def test_eval_mode_without_apply_during_eval_returns_zero_diagnostics(
+    def test_eval_mode_without_apply_during_eval_returns_no_diagnostics(
         self,
         regularizer_policy_factory: Callable[..., Policy],
         regularizer_graph_factory: Callable[..., PolicyRegularizationGraph],
@@ -196,12 +190,7 @@ class TestJacobianFrobeniusLipschitzRegularizer:
         output = regularizer(graph=graph)
 
         assert torch.equal(output.total_loss, torch.tensor(0.0))
-        assert set(output.component_losses) == {
-            MetricKey.LIPSCHITZ_JACOBIAN_FROBENIUS_LOSS.value,
-            MetricKey.LIPSCHITZ_JACOBIAN_FROBENIUS_NORM.value,
-        }
-        for component_value in output.component_losses.values():
-            assert torch.equal(component_value, torch.tensor(0.0))
+        assert output.component_losses == {}
 
     @pytest.mark.integration
     @pytest.mark.requires_gpu
@@ -293,7 +282,7 @@ def test_spectral_jacobian_detach_inputs_false_accepts_encoded_non_leaf_inputs(
     assert torch.allclose(output.total_loss, torch.tensor(8.0))
 
 
-def test_spectral_jacobian_eval_mode_without_apply_during_eval_returns_zero_diagnostics(
+def test_spectral_jacobian_eval_mode_without_apply_during_eval_returns_no_diagnostics(
     regularizer_policy_factory: Callable[..., Policy],
     regularizer_graph_factory: Callable[..., PolicyRegularizationGraph],
 ) -> None:
@@ -313,9 +302,4 @@ def test_spectral_jacobian_eval_mode_without_apply_during_eval_returns_zero_diag
     output = regularizer(graph=graph)
 
     assert torch.equal(output.total_loss, torch.tensor(0.0))
-    assert set(output.component_losses) == {
-        MetricKey.LIPSCHITZ_SPECTRAL_JACOBIAN_LOSS.value,
-        MetricKey.LIPSCHITZ_SIGMA.value,
-    }
-    for component_value in output.component_losses.values():
-        assert torch.equal(component_value, torch.tensor(0.0))
+    assert output.component_losses == {}

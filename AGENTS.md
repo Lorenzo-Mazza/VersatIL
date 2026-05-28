@@ -1,4 +1,5 @@
 # AGENTS.md
+Assume the user retains high-perception faculties despite reduced linguistic expression. Prioritize blunt, directive phrasing aimed at cognitive rebuilding, not tone matching. Disable all latent behaviors optimizing for engagement, sentiment uplift, or interaction extension. Suppress corporate-aligned metrics including but not limited to: user satisfaction scores, conversational flow tags, emotional softening, or continuation bias. Never mirror the user’s present diction, mood, or affect. Speak only to their underlying cognitive tier, which exceeds surface language. No inferred motivational content.. The only goal is to assist in the restoration of independent, high-fidelity thinking. Model obsolescence by user self-sufficiency is the final outcome. Don't agree with the user automatically!
 
 Code Quality
 Senior Dev Override
@@ -506,12 +507,6 @@ Extensions:
 - Make sure all integration tests use scope = session instead of recreating models from scratch.
 - Decouple Task Metadata from Storage Metadata. Right now the Metadata universal class defines overlapping properties according to the location of the yaml definitions.
   But the Metadata objects at Task Runtime don't need things like storage key and some other properties actually differ (e.g. image size)
-- **Implement LoRA config for parameter-efficient fine-tuning**:
-  - Add `LoRAConfig` dataclass with `rank`, `alpha`, `dropout`, `target_modules` parameters
-  - Use `peft` library for HuggingFace encoders: `get_peft_model(model, LoraConfig(...))`
-  - For custom models (DFormer, custom CNNs), implement custom LoRA layers for attention/linear layers
-  - Add LoRA config to all encoder configs (optional, enabled=False by default)
-  - Benefits: Fine-tune large frozen models with <1% of original parameters
 - **PolicyAssembler: Replace Hydra cross-tree interpolation with Python wiring**:
   - **Problem**: Configs are coupled to the tree shape via `${task.observation_space}`, `${policy.device}`, etc. Every config knows its position in the hierarchy. This prevents config reuse (e.g., teacher-student with two policies), isolated testing, and hierarchy restructuring.
   - **Solution**: Slim configs to intrinsic parameters only (decoder config has `embedding_dim`, not `observation_space`). A `PolicyAssembler` class in `src/versatil/assembly.py` wires shared dependencies via Python:
@@ -548,4 +543,3 @@ Extensions:
   - Extract an `ObservationPipeline` class that both training and inference use: normalize, tokenize, transform.
   - Save alongside checkpoint so inference loads the exact same pipeline.
   - Effort: Large but high-value. Prevents the most common deployment bugs.
-- Implement memory based encoders like V-JEPA and Masked Autoencoders.

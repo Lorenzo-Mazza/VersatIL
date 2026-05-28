@@ -5,7 +5,7 @@ input_keys:
   - right_rgb
 output_keys: null
 weight: 0.0001
-target: 1.0
+target: 0.1
 number_of_power_iterations: 1
 detach_inputs: true
 max_batch_size: 4

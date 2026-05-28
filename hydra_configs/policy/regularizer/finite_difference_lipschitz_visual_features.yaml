@@ -5,7 +5,7 @@ input_keys:
   - right_rgb
 output_keys: null
 weight: 0.001
-target: 1.0
+target: 0.01
 noise_scale: 0.01
 symmetric: true
 detach_inputs: true

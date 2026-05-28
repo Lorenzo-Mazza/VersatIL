@@ -338,25 +338,20 @@ class PolicyRegularizer(nn.Module, abc.ABC):
             input_tensors.append(value)
         return tuple(input_tensors)
 
-    def _zero_output(
+    def _disabled_output(
         self,
         device: torch.device,
-        component_keys: list[str],
     ) -> LossOutput:
-        """Return zero loss with stable component keys.
+        """Return zero loss without diagnostics for disabled regularizers.
 
         Args:
             device: Device for the returned scalar tensors.
-            component_keys: Diagnostic keys to include in ``component_losses``.
 
         Returns:
-            Loss output with zero total loss and zero-valued components.
+            Loss output with zero total loss and no component losses.
         """
         zero = torch.tensor(0.0, device=device)
-        return LossOutput(
-            total_loss=zero,
-            component_losses=dict.fromkeys(component_keys, zero),
-        )
+        return LossOutput(total_loss=zero)
 
 
 class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
@@ -496,14 +491,7 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
         context = graph.context
         device = next(iter(context.predictions.values())).device
         if not graph.training and not self.apply_during_eval:
-            return self._zero_output(
-                device=device,
-                component_keys=[
-                    MetricKey.LIPSCHITZ_FINITE_DIFFERENCE_LOSS.value,
-                    MetricKey.LIPSCHITZ_SLOPE_MEAN.value,
-                    MetricKey.LIPSCHITZ_SLOPE_MAX.value,
-                ],
-            )
+            return self._disabled_output(device=device)
 
         regularizer_context = self._prepare_context(context=context)
         self._validate_input_keys(context=regularizer_context)
@@ -665,13 +653,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
         context = graph.context
         device = next(iter(context.predictions.values())).device
         if not graph.training and not self.apply_during_eval:
-            return self._zero_output(
-                device=device,
-                component_keys=[
-                    MetricKey.LIPSCHITZ_JACOBIAN_FROBENIUS_LOSS.value,
-                    MetricKey.LIPSCHITZ_JACOBIAN_FROBENIUS_NORM.value,
-                ],
-            )
+            return self._disabled_output(device=device)
 
         regularizer_context = self._prepare_context(context=context)
         self._validate_input_keys(context=regularizer_context)
@@ -846,13 +828,7 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
         context = graph.context
         device = next(iter(context.predictions.values())).device
         if not graph.training and not self.apply_during_eval:
-            return self._zero_output(
-                device=device,
-                component_keys=[
-                    MetricKey.LIPSCHITZ_SPECTRAL_JACOBIAN_LOSS.value,
-                    MetricKey.LIPSCHITZ_SIGMA.value,
-                ],
-            )
+            return self._disabled_output(device=device)
 
         regularizer_context = self._prepare_context(context=context)
         self._validate_input_keys(context=regularizer_context)
