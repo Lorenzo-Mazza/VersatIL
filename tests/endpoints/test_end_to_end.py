@@ -222,10 +222,11 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
 @pytest.mark.parametrize(
     "config_name",
     [
+        "end_to_end_training_runs/libero_lerobot/action_transformer_finite_difference_lipschitz",
         "end_to_end_training_runs/libero_lerobot/action_transformer_jacobian_frobenius_lipschitz",
         "end_to_end_training_runs/libero_lerobot/action_transformer_spectral_jacobian_lipschitz",
     ],
-    ids=["jacobian-frobenius", "spectral-jacobian"],
+    ids=["finite-difference", "jacobian-frobenius", "spectral-jacobian"],
 )
 def test_regularized_workspace_lazy_initialization_accepts_raw_language_batch(
     tmp_path,

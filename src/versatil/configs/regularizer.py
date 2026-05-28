@@ -39,6 +39,8 @@ class FiniteDifferenceLipschitzRegularizerConfig(BaseRegularizerConfig):
         eps: Minimum denominator/norm used for numerical stability.
         disable_decoder_stochastic: Whether perturbed forwards should run decoder
             stochastic layers in eval mode.
+        scale_by_dimension_ratio: Whether to multiply raw L2 slopes by
+            ``sqrt(D_in) / sqrt(D_out)``.
     """
 
     _target_: str = "versatil.metrics.regularizers.FiniteDifferenceLipschitzRegularizer"
@@ -54,6 +56,7 @@ class FiniteDifferenceLipschitzRegularizerConfig(BaseRegularizerConfig):
     apply_during_eval: bool = False
     eps: float = 1e-12
     disable_decoder_stochastic: bool = True
+    scale_by_dimension_ratio: bool = False
 
 
 @dataclass
@@ -73,6 +76,8 @@ class JacobianFrobeniusLipschitzRegularizerConfig(BaseRegularizerConfig):
         apply_during_eval: Whether to compute the regularizer in eval mode.
         disable_decoder_stochastic: Whether probe evaluations should run decoder
             stochastic layers in eval mode.
+        scale_by_dimension_ratio: Whether to multiply the Frobenius-squared
+            estimate by ``D_in / D_out``.
     """
 
     _target_: str = (
@@ -87,6 +92,7 @@ class JacobianFrobeniusLipschitzRegularizerConfig(BaseRegularizerConfig):
     max_batch_size: int | None = None
     apply_during_eval: bool = False
     disable_decoder_stochastic: bool = True
+    scale_by_dimension_ratio: bool = False
 
 
 @dataclass
@@ -108,6 +114,8 @@ class SpectralJacobianLipschitzRegularizerConfig(BaseRegularizerConfig):
         eps: Minimum denominator/norm used for numerical stability.
         disable_decoder_stochastic: Whether JVP/VJP forwards should run decoder
             stochastic layers in eval mode.
+        scale_by_dimension_ratio: Whether to multiply the spectral estimate by
+            ``sqrt(D_in) / sqrt(D_out)``.
     """
 
     _target_: str = "versatil.metrics.regularizers.SpectralJacobianLipschitzRegularizer"
@@ -122,3 +130,4 @@ class SpectralJacobianLipschitzRegularizerConfig(BaseRegularizerConfig):
     apply_during_eval: bool = False
     eps: float = 1e-12
     disable_decoder_stochastic: bool = True
+    scale_by_dimension_ratio: bool = False

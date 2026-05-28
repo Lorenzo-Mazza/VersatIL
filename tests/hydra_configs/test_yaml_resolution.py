@@ -367,6 +367,7 @@ class TestHydraComposition:
         assert regularizer.output_keys is None
         assert regularizer.detach_inputs is True
         assert regularizer.disable_decoder_stochastic is True
+        assert regularizer.scale_by_dimension_ratio is False
         assert regularizer.max_batch_size == expected_max_batch_size
         assert list(config.policy.decoder.input_keys) == ["left_rgb", "right_rgb"]
 

@@ -10,7 +10,6 @@ from torch.nn.attention import SDPBackend, sdpa_kernel
 from versatil.common.tensor_ops import (
     TensorTree,
     batch_rms,
-    combined_batch_rms,
     detach_floating_tensor_dictionary,
     normalize_tensor_tuple,
     reshape_batch_scale_for_broadcast,
@@ -281,6 +280,88 @@ class PolicyRegularizer(nn.Module, abc.ABC):
             dim=1,
         )
 
+    @staticmethod
+    def _flatten_batch_tensors(
+        tensors: list[torch.Tensor] | tuple[torch.Tensor, ...],
+    ) -> list[torch.Tensor]:
+        """Flatten batched tensors while preserving the leading batch axis.
+
+        Args:
+            tensors: Non-empty collection of tensors with matching leading batch
+                dimensions.
+
+        Returns:
+            Flattened tensors with shape ``(B, D_i)``.
+
+        Raises:
+            ValueError: If no tensors are provided, a tensor is scalar, or batch
+                sizes do not match.
+        """
+        if not tensors:
+            raise ValueError("At least one tensor is required.")
+        batch_size: int | None = None
+        flattened_tensors: list[torch.Tensor] = []
+        for tensor in tensors:
+            if tensor.ndim == 0:
+                raise ValueError("Batched tensors must have at least one dimension.")
+            if batch_size is None:
+                batch_size = tensor.shape[0]
+            elif tensor.shape[0] != batch_size:
+                raise ValueError(
+                    "Batched tensors must share the same leading batch dimension."
+                )
+            flattened_tensors.append(tensor.reshape(tensor.shape[0], -1))
+        return flattened_tensors
+
+    @classmethod
+    def _combined_batch_l2(
+        cls,
+        tensors: list[torch.Tensor] | tuple[torch.Tensor, ...],
+        eps: float,
+    ) -> torch.Tensor:
+        """Compute one raw L2 norm per batch item across selected tensors.
+
+        Args:
+            tensors: Batched tensors to concatenate after flattening.
+            eps: Minimum returned norm.
+
+        Returns:
+            Tensor with shape ``(B,)`` containing raw L2 norms.
+        """
+        flattened_tensors = cls._flatten_batch_tensors(tensors=tensors)
+        return torch.cat(flattened_tensors, dim=1).norm(dim=1).clamp_min(eps)
+
+    @classmethod
+    def _combined_feature_dimension(
+        cls,
+        tensors: list[torch.Tensor] | tuple[torch.Tensor, ...],
+    ) -> int:
+        """Return the flattened non-batch dimension across selected tensors."""
+        return sum(
+            flattened_tensor.shape[1]
+            for flattened_tensor in cls._flatten_batch_tensors(tensors=tensors)
+        )
+
+    @staticmethod
+    def _dimension_ratio_scale(
+        input_dimension: int,
+        output_dimension: int,
+        exponent: float,
+        reference: torch.Tensor,
+    ) -> torch.Tensor:
+        """Build a tensor scalar for dimension-ratio normalization."""
+        if input_dimension < 1:
+            raise ValueError(
+                f"input_dimension must be positive, got {input_dimension}."
+            )
+        if output_dimension < 1:
+            raise ValueError(
+                f"output_dimension must be positive, got {output_dimension}."
+            )
+        return reference.new_tensor(
+            float(input_dimension) / float(output_dimension)
+        ).pow(exponent)
+
     def _forward_with_replacements(
         self,
         graph: PolicyRegularizationGraph,
@@ -366,12 +447,11 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
         ``PolicyRegularizationGraph`` then re-runs the same policy operation
         order with ``x_k + delta_k`` and, in symmetric mode, ``x_k - delta_k``.
 
-        The selected output tensors are flattened and concatenated per batch
-        item. The slope for each sample is
-        ``rms(y_plus - y_minus) / rms(2 * delta)`` in symmetric mode, or
-        ``rms(y_plus - y_base) / rms(delta)`` in one-sided mode. When multiple
-        input keys are perturbed, the denominator RMS is computed after
-        concatenating all flattened input deltas. The raw loss is
+        The selected output deltas are flattened and concatenated, so the
+        numerator is the raw output norm ``||delta_y||_2``. The denominator is
+        the raw concatenated input perturbation norm ``||delta_x||_2``. When
+        enabled, ``scale_by_dimension_ratio`` multiplies this slope by
+        ``sqrt(D_in) / sqrt(D_out)``. The raw loss is
         ``mean(max(slope - target, 0)^2)`` and ``weight`` scales that raw loss.
     """
 
@@ -389,6 +469,7 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
         apply_during_eval: bool = False,
         eps: float = 1e-12,
         disable_decoder_stochastic: bool = True,
+        scale_by_dimension_ratio: bool = False,
     ) -> None:
         """Initialize finite-difference local Lipschitz regularization.
 
@@ -414,6 +495,8 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
             eps: Minimum denominator/norm used for numerical stability.
             disable_decoder_stochastic: Whether to run decoder stochastic layers
                 in eval mode during perturbed forwards.
+            scale_by_dimension_ratio: Whether to multiply the raw L2 slope by
+                ``sqrt(D_in) / sqrt(D_out)``.
 
         Raises:
             ValueError: If scalar hyperparameters are outside valid ranges.
@@ -440,6 +523,7 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
         self.noise_scale = noise_scale
         self.symmetric = symmetric
         self.eps = eps
+        self.scale_by_dimension_ratio = scale_by_dimension_ratio
 
     def _build_perturbations(
         self,
@@ -486,7 +570,8 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
         Returns:
             Loss output containing ``weight * mean(max(slope - target, 0)^2)``.
             Diagnostic components include the raw penalty, mean slope, and max
-            slope. Slopes are computed from RMS output and input differences.
+            slope. Slopes are raw L2/L2 when ``scale_by_dimension_ratio=False``
+            and RMS/RMS when ``scale_by_dimension_ratio=True``.
         """
         context = graph.context
         device = next(iter(context.predictions.values())).device
@@ -522,13 +607,10 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
                     context=regularizer_context,
                     replacements=minus_replacements,
                 )
-                output_delta = self._flatten_outputs(
-                    predictions=plus_predictions,
-                    output_keys=output_keys,
-                ) - self._flatten_outputs(
-                    predictions=minus_predictions,
-                    output_keys=output_keys,
-                )
+                output_delta = {
+                    key: plus_predictions[key] - minus_predictions[key]
+                    for key in output_keys
+                }
                 input_deltas = [
                     2.0 * perturbation for perturbation in perturbations.values()
                 ]
@@ -538,18 +620,28 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
                     context=regularizer_context,
                     replacements={},
                 )
-                output_delta = self._flatten_outputs(
-                    predictions=plus_predictions,
-                    output_keys=output_keys,
-                ) - self._flatten_outputs(
-                    predictions=base_predictions,
-                    output_keys=output_keys,
-                )
+                output_delta = {
+                    key: plus_predictions[key] - base_predictions[key]
+                    for key in output_keys
+                }
                 input_deltas = list(perturbations.values())
 
-        output_rms = batch_rms(tensor=output_delta, eps=self.eps)
-        input_rms = combined_batch_rms(tensors=input_deltas, eps=self.eps)
-        local_slope = output_rms / input_rms
+        flat_output_delta = self._flatten_outputs(
+            predictions=output_delta,
+            output_keys=output_keys,
+        )
+        output_l2 = flat_output_delta.norm(dim=1)
+        output_dimension = flat_output_delta.shape[1]
+        input_l2 = self._combined_batch_l2(tensors=input_deltas, eps=self.eps)
+        local_slope = output_l2 / input_l2
+        if self.scale_by_dimension_ratio:
+            input_dimension = self._combined_feature_dimension(tensors=input_deltas)
+            local_slope = local_slope * self._dimension_ratio_scale(
+                input_dimension=input_dimension,
+                output_dimension=output_dimension,
+                exponent=0.5,
+                reference=local_slope,
+            )
         raw_penalty = torch.clamp(local_slope - self.target, min=0.0).pow(2).mean()
         return LossOutput(
             total_loss=self.weight * raw_penalty,
@@ -577,8 +669,9 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
         estimate is the sum of squared gradients across all selected input
         tensors. Averaging over samples and probes gives
         ``E_r ||J^T r||_2^2 = ||J||_F^2`` for the selected graph boundary.
-        The raw loss is that mean squared Frobenius estimate, and ``weight``
-        scales the raw loss.
+        When enabled, ``scale_by_dimension_ratio`` multiplies the squared
+        estimate by ``D_in / D_out``. The raw loss is that squared Frobenius
+        estimate, and ``weight`` scales the raw loss.
     """
 
     def __init__(
@@ -592,6 +685,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
         max_batch_size: int | None = None,
         apply_during_eval: bool = False,
         disable_decoder_stochastic: bool = True,
+        scale_by_dimension_ratio: bool = False,
     ) -> None:
         """Initialize Hutchinson Jacobian Frobenius regularization.
 
@@ -613,6 +707,8 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
                 policy graphs.
             disable_decoder_stochastic: Whether probe evaluations should run
                 decoder stochastic layers in eval mode.
+            scale_by_dimension_ratio: Whether to multiply the Frobenius-squared
+                estimate by ``D_in / D_out``.
 
         Raises:
             ValueError: If scalar hyperparameters are outside valid ranges.
@@ -634,6 +730,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
             )
         self.weight = weight
         self.number_of_probes = number_of_probes
+        self.scale_by_dimension_ratio = scale_by_dimension_ratio
 
     def forward(
         self,
@@ -684,6 +781,18 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
             sdpa_kernel([SDPBackend.MATH]),
         ):
             flat_outputs = evaluate(input_values=input_tensors)
+            output_dimension = flat_outputs.shape[1]
+            dimension_scale = flat_outputs.new_tensor(1.0)
+            if self.scale_by_dimension_ratio:
+                input_dimension = self._combined_feature_dimension(
+                    tensors=input_tensors,
+                )
+                dimension_scale = self._dimension_ratio_scale(
+                    input_dimension=input_dimension,
+                    output_dimension=output_dimension,
+                    exponent=1.0,
+                    reference=flat_outputs,
+                )
             for _ in range(self.number_of_probes):
                 probe = torch.empty_like(flat_outputs).bernoulli_(0.5)
                 probe = probe.mul(2.0).sub(1.0)
@@ -708,6 +817,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
                         .pow(2)
                         .sum(dim=1)
                     )
+                per_sample_squared_norm = per_sample_squared_norm * dimension_scale
                 probe_penalties.append(per_sample_squared_norm)
 
         raw_penalty = torch.stack(probe_penalties, dim=0).mean()
@@ -740,8 +850,10 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
         respect to the selected input tensors to compute the vector-Jacobian
         product ``J^T u``. Repeating these two products performs power iteration
         on ``J^T J``. After the configured iterations,
-        ``sigma_hat = norm(J v)`` and the raw loss is
-        ``max(sigma_hat - target, 0)^2``. ``weight`` scales that raw loss.
+        ``sigma_hat = norm(J v)``. When enabled,
+        ``scale_by_dimension_ratio`` multiplies ``sigma_hat`` by
+        ``sqrt(D_in) / sqrt(D_out)``. The raw loss is
+        ``max(sigma_hat - target, 0)^2`` and ``weight`` scales that raw loss.
     """
 
     def __init__(
@@ -757,6 +869,7 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
         apply_during_eval: bool = False,
         eps: float = 1e-12,
         disable_decoder_stochastic: bool = True,
+        scale_by_dimension_ratio: bool = False,
     ) -> None:
         """Initialize local spectral-Jacobian Lipschitz regularization.
 
@@ -780,6 +893,8 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
             eps: Minimum denominator/norm used for numerical stability.
             disable_decoder_stochastic: Whether to run decoder stochastic layers
                 in eval mode during JVP/VJP evaluation.
+            scale_by_dimension_ratio: Whether to multiply the spectral estimate
+                by ``sqrt(D_in) / sqrt(D_out)``.
 
         Raises:
             ValueError: If scalar hyperparameters are outside valid ranges.
@@ -808,6 +923,7 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
         self.target = target
         self.number_of_power_iterations = number_of_power_iterations
         self.eps = eps
+        self.scale_by_dimension_ratio = scale_by_dimension_ratio
 
     def forward(
         self,
@@ -882,6 +998,15 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
             _, jacobian_vector = jvp(evaluate, (input_tensors,), (direction,))
 
         sigma = jacobian_vector.norm()
+        if self.scale_by_dimension_ratio:
+            input_dimension = self._combined_feature_dimension(tensors=input_tensors)
+            output_dimension = jacobian_vector.shape[1]
+            sigma = sigma * self._dimension_ratio_scale(
+                input_dimension=input_dimension,
+                output_dimension=output_dimension,
+                exponent=0.5,
+                reference=sigma,
+            )
         raw_penalty = torch.clamp(sigma - self.target, min=0.0).pow(2)
         return LossOutput(
             total_loss=self.weight * raw_penalty,

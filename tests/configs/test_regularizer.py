@@ -39,6 +39,7 @@ class TestFiniteDifferenceLipschitzRegularizerConfig:
         assert config.max_batch_size is None
         assert config.apply_during_eval is False
         assert config.disable_decoder_stochastic is True
+        assert config.scale_by_dimension_ratio is False
 
 
 @pytest.mark.unit
@@ -60,6 +61,7 @@ class TestJacobianFrobeniusLipschitzRegularizerConfig:
         assert config.max_batch_size is None
         assert config.apply_during_eval is False
         assert config.disable_decoder_stochastic is True
+        assert config.scale_by_dimension_ratio is False
 
 
 @pytest.mark.unit
@@ -82,3 +84,4 @@ class TestSpectralJacobianLipschitzRegularizerConfig:
         assert config.max_batch_size is None
         assert config.apply_during_eval is False
         assert config.disable_decoder_stochastic is True
+        assert config.scale_by_dimension_ratio is False

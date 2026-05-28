@@ -50,9 +50,16 @@ class ScalingEncodingPipeline(torch.nn.Module):
 class ScalingDecoder(torch.nn.Module):
     """Decoder fixture that scales one feature into one action output."""
 
-    def __init__(self, scale: float = 3.0) -> None:
+    def __init__(
+        self,
+        scale: float = 3.0,
+        output_dimension: int | None = None,
+        chunk_count: int = 1,
+    ) -> None:
         super().__init__()
         self.scale = torch.nn.Parameter(torch.tensor(scale))
+        self.output_dimension = output_dimension
+        self.chunk_count = chunk_count
         self.decoder_input = DecoderInput(keys=["feature"])
 
     def forward(
@@ -60,7 +67,11 @@ class ScalingDecoder(torch.nn.Module):
         features: dict[str, torch.Tensor],
         actions: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
-        return {"action": self.scale * features["feature"].unsqueeze(1)}
+        feature = features["feature"]
+        if self.output_dimension is not None:
+            feature = feature[..., : self.output_dimension]
+        output = self.scale * feature.unsqueeze(1)
+        return {"action": output.repeat(1, self.chunk_count, 1)}
 
     def get_loss_output_keys(self) -> set[str]:
         return {"action"}
@@ -142,6 +153,8 @@ def regularizer_policy_factory() -> Callable[..., Policy]:
     def factory(
         encoder_scale: float = 2.0,
         decoder_scale: float = 3.0,
+        decoder_output_dimension: int | None = None,
+        decoder_chunk_count: int = 1,
     ) -> Policy:
         observation_space = MagicMock(spec=ObservationSpace)
         observation_space.observations_metadata = {}
@@ -149,7 +162,11 @@ def regularizer_policy_factory() -> Callable[..., Policy]:
         return Policy(
             encoding_pipeline=ScalingEncodingPipeline(scale=encoder_scale),
             algorithm=DirectAlgorithm(),
-            decoder=ScalingDecoder(scale=decoder_scale),
+            decoder=ScalingDecoder(
+                scale=decoder_scale,
+                output_dimension=decoder_output_dimension,
+                chunk_count=decoder_chunk_count,
+            ),
             observation_space=observation_space,
             action_space=action_space,
             prediction_horizon=1,

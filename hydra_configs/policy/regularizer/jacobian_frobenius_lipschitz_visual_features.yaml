@@ -4,9 +4,10 @@ input_keys:
   - left_rgb
   - right_rgb
 output_keys: null
-weight: 0.0001
+weight: 1.0
 number_of_probes: 1
 detach_inputs: true
 max_batch_size: 4
 apply_during_eval: false
 disable_decoder_stochastic: true
+scale_by_dimension_ratio: false

@@ -4,7 +4,7 @@ input_keys:
   - left_rgb
   - right_rgb
 output_keys: null
-weight: 0.001
+weight: 1.0
 target: 0.01
 noise_scale: 0.01
 symmetric: true
@@ -13,3 +13,4 @@ max_batch_size: 8
 apply_during_eval: false
 eps: 1.0e-12
 disable_decoder_stochastic: true
+scale_by_dimension_ratio: false
