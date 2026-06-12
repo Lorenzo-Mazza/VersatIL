@@ -1,0 +1,25 @@
+# Geometric consistency on the static agentview camera only. Eye-in-hand images
+# are pose-coupled: a shifted or rescaled view corresponds to a different
+# end-effector pose, where the correct behavior is equivariance, not invariance.
+_target_: versatil.metrics.regularizers.ImageAugmentationConsistencyRegularizer
+input_keys:
+  - agentview_rgb
+output_keys: null
+weight: 1.0
+loss_mode: position_trajectory_l2
+color_augmentation: null
+spatial_augmentation:
+  _target_: albumentations.Compose
+  transforms:
+    - _target_: albumentations.Affine
+      scale: [0.5, 1.6]
+      translate_percent: [-0.0625, 0.0625]
+      rotate: [0, 0]
+      p: 0.5
+detach_inputs: true
+detach_targets: true
+max_batch_size: 8
+apply_during_eval: false
+input_min: -1.0
+input_max: 1.0
+max_pixel_value: 255.0

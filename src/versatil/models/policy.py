@@ -1,5 +1,6 @@
 """Policy module that handles the sequence of input encoding, output decoding, and loss computation."""
 
+import functools
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -301,21 +302,62 @@ class Policy(nn.Module):
         Returns:
             Batch-local graph object. Regularizers use it to re-run the same
             policy operation order with selected tensor replacements, without
-            receiving the policy or its submodules directly.
+            receiving the policy or its submodules directly. Every re-entry
+            replays the RNG snapshot captured here, so stochastic sampling
+            (algorithm timesteps, noise, dropout masks) is identical across
+            perturbed forwards of the same graph.
         """
+        cpu_rng_state, device_rng_state = self._capture_rng_snapshot()
         return PolicyRegularizationGraph(
             context=context,
             training=self.training,
             default_output_keys=sorted(self.decoder.get_loss_output_keys()),
-            evaluate_with_replacements=self._evaluate_regularization_graph,
+            evaluate_with_replacements=functools.partial(
+                self._evaluate_regularization_graph,
+                cpu_rng_state=cpu_rng_state,
+                device_rng_state=device_rng_state,
+            ),
             deterministic_scope=self._decoder_deterministic_scope,
+            action_metadata=self.action_space.actions_metadata,
         )
+
+    def _capture_rng_snapshot(self) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Capture CPU and policy-device RNG states for graph replay."""
+        cpu_rng_state = torch.get_rng_state()
+        device_rng_state = (
+            torch.cuda.get_rng_state(device=self.device)
+            if self.device.type == "cuda"
+            else None
+        )
+        return cpu_rng_state, device_rng_state
+
+    @contextmanager
+    def _replayed_rng_scope(
+        self,
+        cpu_rng_state: torch.Tensor,
+        device_rng_state: torch.Tensor | None,
+    ) -> Iterator[None]:
+        """Restore an RNG snapshot for one graph re-entry.
+
+        Inside the scope, random draws (algorithm timestep and noise sampling,
+        dropout masks) replay the snapshot, so perturbed evaluations of one
+        regularization graph differ only through the replaced tensors. The
+        outer RNG stream is restored on exit.
+        """
+        devices = [self.device] if self.device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            torch.set_rng_state(cpu_rng_state)
+            if device_rng_state is not None:
+                torch.cuda.set_rng_state(device_rng_state, device=self.device)
+            yield
 
     def _evaluate_regularization_graph(
         self,
         input_domain: str,
         context: PolicyForwardContext,
         replacements: dict[str, torch.Tensor],
+        cpu_rng_state: torch.Tensor,
+        device_rng_state: torch.Tensor | None,
     ) -> dict[str, torch.Tensor]:
         """Evaluate the policy graph from a named boundary with replacements.
 
@@ -326,6 +368,8 @@ class Policy(nn.Module):
             context: Forward context used as the base graph state.
             replacements: Tensor replacements for keys at ``input_domain``. Each
                 replacement must match the shape of its context tensor.
+            cpu_rng_state: CPU RNG snapshot replayed for this evaluation.
+            device_rng_state: Policy-device RNG snapshot, or ``None`` on CPU.
 
         Returns:
             Prediction dictionary from the re-entered policy graph. The operation
@@ -335,35 +379,39 @@ class Policy(nn.Module):
             and decoder boundary.
         """
         domain = PolicyGraphInputDomain(input_domain)
-        match domain:
-            case PolicyGraphInputDomain.OBSERVATION:
-                observation = clone_tensor_dictionary_with_replacements(
-                    values=context.observation,
-                    replacements=replacements,
-                )
-                return self.forward_from_observation(
-                    observation=observation,
-                    actions=context.actions,
-                )
-            case PolicyGraphInputDomain.ENCODED_FEATURES:
-                encoded_features = clone_tensor_dictionary_with_replacements(
-                    values=context.encoded_features,
-                    replacements=replacements,
-                )
-                return self.forward_from_encoded_features(
-                    observation=context.observation,
-                    encoded_features=encoded_features,
-                    actions=context.actions,
-                )
-            case PolicyGraphInputDomain.DECODER_FEATURES:
-                decoder_features = clone_tensor_dictionary_with_replacements(
-                    values=context.decoder_features,
-                    replacements=replacements,
-                )
-                return self.forward_from_decoder_features(
-                    decoder_features=decoder_features,
-                    actions=context.actions,
-                )
+        with self._replayed_rng_scope(
+            cpu_rng_state=cpu_rng_state,
+            device_rng_state=device_rng_state,
+        ):
+            match domain:
+                case PolicyGraphInputDomain.OBSERVATION:
+                    observation = clone_tensor_dictionary_with_replacements(
+                        values=context.observation,
+                        replacements=replacements,
+                    )
+                    return self.forward_from_observation(
+                        observation=observation,
+                        actions=context.actions,
+                    )
+                case PolicyGraphInputDomain.ENCODED_FEATURES:
+                    encoded_features = clone_tensor_dictionary_with_replacements(
+                        values=context.encoded_features,
+                        replacements=replacements,
+                    )
+                    return self.forward_from_encoded_features(
+                        observation=context.observation,
+                        encoded_features=encoded_features,
+                        actions=context.actions,
+                    )
+                case PolicyGraphInputDomain.DECODER_FEATURES:
+                    decoder_features = clone_tensor_dictionary_with_replacements(
+                        values=context.decoder_features,
+                        replacements=replacements,
+                    )
+                    return self.forward_from_decoder_features(
+                        decoder_features=decoder_features,
+                        actions=context.actions,
+                    )
 
     @contextmanager
     def _decoder_deterministic_scope(

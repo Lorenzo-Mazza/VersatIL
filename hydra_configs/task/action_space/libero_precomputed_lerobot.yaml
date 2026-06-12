@@ -14,6 +14,7 @@ actions_metadata:
     storage_dimension: 7
     prediction_dimension: 3
     needs_normalization: true
+    computation_method: ${action_computation:DELTA}
     slice_start: 0
     slice_end: 3
 

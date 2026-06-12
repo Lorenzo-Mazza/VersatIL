@@ -1,0 +1,55 @@
+_target_: versatil.metrics.regularizers.ImageAugmentationConsistencyRegularizer
+input_keys:
+  - agentview_rgb
+  - eye_in_hand_rgb
+output_keys: null
+weight: 1.0
+loss_mode: position_trajectory_l2
+color_augmentation:
+  _target_: albumentations.Compose
+  transforms:
+    - _target_: albumentations.ColorJitter
+      brightness: 0.3
+      contrast: 0.4
+      saturation: 0.5
+      hue: 0.1
+      p: 0.5
+    - _target_: albumentations.RandomSunFlare
+      flare_roi: [0, 0, 1, 0.5]
+      src_color: [255, 255, 255]
+      p: 0.6
+    - _target_: albumentations.RandomBrightnessContrast
+      brightness_limit: 0.4
+      contrast_limit: 0.4
+      p: 0.6
+    - _target_: albumentations.RandomGamma
+      gamma_limit: [80, 120]
+      p: 0.3
+    - _target_: albumentations.CLAHE
+      clip_limit: 4.0
+      p: 0.3
+    - _target_: albumentations.RandomShadow
+      p: 0.4
+    - _target_: albumentations.ImageCompression
+      quality_range: [50, 100]
+      p: 0.2
+# Appearance nuisances only (blur, occlusion). Geometric warps imply a different
+# camera/end-effector pose and live in the agentview-only geometric config.
+spatial_augmentation:
+  _target_: albumentations.Compose
+  transforms:
+    - _target_: albumentations.GaussianBlur
+      blur_limit: [3, 7]
+      p: 0.5
+    - _target_: albumentations.CoarseDropout
+      num_holes_range: [1, 8]
+      hole_height_range: [8, 8]
+      hole_width_range: [8, 8]
+      p: 0.3
+detach_inputs: true
+detach_targets: true
+max_batch_size: 8
+apply_during_eval: false
+input_min: -1.0
+input_max: 1.0
+max_pixel_value: 255.0

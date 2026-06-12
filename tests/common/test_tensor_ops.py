@@ -128,6 +128,14 @@ class TestBatchTensorUtilities:
         expected = torch.tensor([(9.0 + 16.0) / 2.0, 1e-12]).sqrt()
         torch.testing.assert_close(result, expected)
 
+    def test_batch_rms_casts_reduction_to_float32(self):
+        tensor = torch.tensor([[3.0, 4.0]], dtype=torch.float16)
+
+        result = batch_rms(tensor=tensor, eps=1e-6)
+
+        assert result.dtype == torch.float32
+        torch.testing.assert_close(result, torch.tensor([3.5355]), rtol=1e-4, atol=1e-4)
+
     def test_batch_rms_rejects_scalar_tensor(self):
         expected_message = "Expected a batched tensor, got a scalar tensor."
 
@@ -142,6 +150,15 @@ class TestBatchTensorUtilities:
 
         expected = torch.tensor([(9.0 + 16.0) / 2.0, 1e-12]).sqrt()
         torch.testing.assert_close(result, expected)
+
+    def test_combined_batch_rms_casts_reduction_to_float32(self):
+        first = torch.tensor([[3.0]], dtype=torch.float16)
+        second = torch.tensor([[4.0]], dtype=torch.float16)
+
+        result = combined_batch_rms(tensors=[first, second], eps=1e-6)
+
+        assert result.dtype == torch.float32
+        torch.testing.assert_close(result, torch.tensor([3.5355]), rtol=1e-4, atol=1e-4)
 
     def test_combined_batch_rms_rejects_empty_input(self):
         expected_message = "Expected at least one tensor for RMS computation."
@@ -158,6 +175,20 @@ class TestBatchTensorUtilities:
             eps=1e-6,
         )
 
+        torch.testing.assert_close(result_first, torch.tensor([0.6]))
+        torch.testing.assert_close(result_second, torch.tensor([0.8]))
+
+    def test_normalize_tensor_tuple_casts_reduction_to_float32(self):
+        first = torch.tensor([3.0], dtype=torch.float16)
+        second = torch.tensor([4.0], dtype=torch.float16)
+
+        result_first, result_second = normalize_tensor_tuple(
+            tensors=(first, second),
+            eps=1e-6,
+        )
+
+        assert result_first.dtype == torch.float32
+        assert result_second.dtype == torch.float32
         torch.testing.assert_close(result_first, torch.tensor([0.6]))
         torch.testing.assert_close(result_second, torch.tensor([0.8]))
 

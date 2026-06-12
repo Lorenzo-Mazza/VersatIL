@@ -48,18 +48,25 @@ class ScalingEncodingPipeline(torch.nn.Module):
 
 
 class ScalingDecoder(torch.nn.Module):
-    """Decoder fixture that scales one feature into one action output."""
+    """Decoder fixture that scales one feature into one action output.
+
+    With ``output_noise_scale > 0`` the decoder adds Gaussian noise drawn from
+    the global RNG on every forward, emulating stochastic algorithms whose
+    sampling must be replayed across regularization graph re-entries.
+    """
 
     def __init__(
         self,
         scale: float = 3.0,
         output_dimension: int | None = None,
         chunk_count: int = 1,
+        output_noise_scale: float = 0.0,
     ) -> None:
         super().__init__()
         self.scale = torch.nn.Parameter(torch.tensor(scale))
         self.output_dimension = output_dimension
         self.chunk_count = chunk_count
+        self.output_noise_scale = output_noise_scale
         self.decoder_input = DecoderInput(keys=["feature"])
 
     def forward(
@@ -70,7 +77,9 @@ class ScalingDecoder(torch.nn.Module):
         feature = features["feature"]
         if self.output_dimension is not None:
             feature = feature[..., : self.output_dimension]
-        output = self.scale * feature.unsqueeze(1)
+        output = self.scale * feature.unsqueeze(1)  # (B, D) -> (B, 1, D)
+        if self.output_noise_scale > 0.0:
+            output = output + self.output_noise_scale * torch.randn_like(output)
         return {"action": output.repeat(1, self.chunk_count, 1)}
 
     def get_loss_output_keys(self) -> set[str]:
@@ -155,10 +164,12 @@ def regularizer_policy_factory() -> Callable[..., Policy]:
         decoder_scale: float = 3.0,
         decoder_output_dimension: int | None = None,
         decoder_chunk_count: int = 1,
+        decoder_output_noise_scale: float = 0.0,
     ) -> Policy:
         observation_space = MagicMock(spec=ObservationSpace)
         observation_space.observations_metadata = {}
         action_space = MagicMock(spec=ActionSpace)
+        action_space.actions_metadata = {}
         return Policy(
             encoding_pipeline=ScalingEncodingPipeline(scale=encoder_scale),
             algorithm=DirectAlgorithm(),
@@ -166,6 +177,7 @@ def regularizer_policy_factory() -> Callable[..., Policy]:
                 scale=decoder_scale,
                 output_dimension=decoder_output_dimension,
                 chunk_count=decoder_chunk_count,
+                output_noise_scale=decoder_output_noise_scale,
             ),
             observation_space=observation_space,
             action_space=action_space,

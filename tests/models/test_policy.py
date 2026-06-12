@@ -22,7 +22,10 @@ from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.metrics.constants import MetadataKey, MetricKey
-from versatil.metrics.regularization_context import PolicyRegularizationGraph
+from versatil.metrics.regularization_context import (
+    PolicyGraphInputDomain,
+    PolicyRegularizationGraph,
+)
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
@@ -712,6 +715,59 @@ class TestComputeLoss:
         assert torch.equal(result.component_losses[regularizer_key], torch.tensor(0.25))
         assert regularizer.graph is not None
         assert regularizer.graph.context.predictions is forward_output
+
+    def test_regularization_graph_reentry_replays_stochastic_draws(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ) -> None:
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = LossOutput(total_loss=torch.tensor(0.0))
+        algorithm = MagicMock(spec=DecodingAlgorithm)
+
+        def stochastic_forward(
+            features: dict[str, torch.Tensor],
+            actions: dict[str, torch.Tensor] | None,
+            network: ActionDecoder,
+        ) -> dict[str, torch.Tensor]:
+            return {"prediction": torch.randn(2, 4, 7)}
+
+        algorithm.forward.side_effect = stochastic_forward
+        regularizer = _ConstantRegularizer(value=0.0)
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(keys=[]),
+        )
+        decoder.get_loss_output_keys.return_value = {"prediction"}
+        policy = policy_factory(
+            loss=loss_module,
+            algorithm=algorithm,
+            decoder=decoder,
+            regularizers={"noise_probe": regularizer},
+        )
+        batch = batch_dictionary_factory()
+
+        policy.compute_loss(batch=batch)
+        graph = regularizer.graph
+        rng_state_before = torch.get_rng_state()
+        first_predictions = graph.evaluate(
+            input_domain=PolicyGraphInputDomain.DECODER_FEATURES.value,
+            context=graph.context,
+            replacements={},
+        )
+        second_predictions = graph.evaluate(
+            input_domain=PolicyGraphInputDomain.DECODER_FEATURES.value,
+            context=graph.context,
+            replacements={},
+        )
+
+        assert torch.equal(
+            first_predictions["prediction"], second_predictions["prediction"]
+        )
+        assert not torch.equal(
+            first_predictions["prediction"], graph.context.predictions["prediction"]
+        )
+        assert torch.equal(rng_state_before, torch.get_rng_state())
 
     def test_adds_configured_observation_metadata_to_loss_output(
         self,

@@ -13,3 +13,4 @@ apply_during_eval: false
 eps: 1.0e-12
 disable_decoder_stochastic: true
 scale_by_dimension_ratio: false
+perturbation_mode: gaussian_channel_broadcast

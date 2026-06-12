@@ -1,6 +1,7 @@
 """Tests for Hydra YAML configuration composition and validation."""
 
 import glob
+import warnings
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
+from hydra.utils import instantiate
 from omegaconf import ListConfig, OmegaConf
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
@@ -19,9 +21,11 @@ from versatil.data.constants import (
     ObsKey,
     ProprioKey,
 )
+from versatil.metrics.constants import ImageAugmentationConsistencyLossMode
 from versatil.metrics.regularization_context import PolicyGraphInputDomain
 from versatil.metrics.regularizers import (
     FiniteDifferenceLipschitzRegularizer,
+    ImageAugmentationConsistencyRegularizer,
     JacobianFrobeniusLipschitzRegularizer,
     SpectralJacobianLipschitzRegularizer,
 )
@@ -370,6 +374,93 @@ class TestHydraComposition:
         assert regularizer.scale_by_dimension_ratio is False
         assert regularizer.max_batch_size == expected_max_batch_size
         assert list(config.policy.decoder.input_keys) == ["left_rgb", "right_rgb"]
+
+    def test_libero_action_transformer_channel_broadcast_fd_targets_visual_features(
+        self,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(
+                config_name="end_to_end_training_runs/libero_lerobot/"
+                "action_transformer_finite_difference_lipschitz_channel_broadcast"
+            )
+
+        regularizer = config.policy.regularizers.visual_lipschitz
+
+        assert (
+            regularizer._target_
+            == f"{FiniteDifferenceLipschitzRegularizer.__module__}."
+            f"{FiniteDifferenceLipschitzRegularizer.__name__}"
+        )
+        assert regularizer.input_domain == PolicyGraphInputDomain.ENCODED_FEATURES.value
+        assert list(regularizer.input_keys) == ["left_rgb", "right_rgb"]
+        assert regularizer.weight == 1.0
+        assert regularizer.target == 0.01
+        assert regularizer.noise_scale == 0.01
+        assert regularizer.perturbation_mode == "gaussian_channel_broadcast"
+        assert regularizer.max_batch_size == 8
+
+    def test_libero_action_transformer_image_augmentation_consistency_targets_rgb_observations(
+        self,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(
+                config_name="end_to_end_training_runs/libero_lerobot/"
+                "action_transformer_image_augmentation_consistency"
+            )
+
+        regularizer = config.policy.regularizers.visual_consistency
+
+        assert (
+            regularizer._target_
+            == f"{ImageAugmentationConsistencyRegularizer.__module__}."
+            f"{ImageAugmentationConsistencyRegularizer.__name__}"
+        )
+        assert list(regularizer.input_keys) == ["agentview_rgb", "eye_in_hand_rgb"]
+        assert regularizer.output_keys is None
+        assert regularizer.weight == 1.0
+        assert (
+            regularizer.loss_mode
+            == ImageAugmentationConsistencyLossMode.POSITION_TRAJECTORY_L2.value
+        )
+        assert regularizer.max_batch_size == 8
+        assert regularizer.detach_inputs is True
+        assert regularizer.detach_targets is True
+        assert len(regularizer.color_augmentation.transforms) == 7
+        assert len(regularizer.spatial_augmentation.transforms) == 2
+
+        geometric = config.policy.regularizers.agentview_geometric_consistency
+        assert list(geometric.input_keys) == ["agentview_rgb"]
+        assert geometric.color_augmentation is None
+        assert len(geometric.spatial_augmentation.transforms) == 1
+        assert (
+            geometric.loss_mode
+            == ImageAugmentationConsistencyLossMode.POSITION_TRAJECTORY_L2.value
+        )
+
+    def test_image_augmentation_regularizers_instantiate_albumentations_cleanly(
+        self,
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(
+                config_name="end_to_end_training_runs/libero_lerobot/"
+                "action_transformer_image_augmentation_consistency"
+            )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            visual = instantiate(config.policy.regularizers.visual_consistency)
+            geometric = instantiate(
+                config.policy.regularizers.agentview_geometric_consistency
+            )
+
+        compression = visual.color_augmentation.transforms[-1]
+        assert compression.quality_range == (50, 100)
+        dropout = visual.spatial_augmentation.transforms[-1]
+        assert dropout.num_holes_range == (1, 8)
+        assert dropout.hole_height_range == (8, 8)
+        assert dropout.hole_width_range == (8, 8)
+        assert geometric.color_augmentation is None
+        assert len(geometric.spatial_augmentation.transforms) == 1
 
     @pytest.mark.parametrize(
         "preset_name", ["vae_frozen_prior", "vae_frozen_prior_with_backbone"]

@@ -1,0 +1,5 @@
+# @package _global_
+defaults:
+  - action_transformer
+  - /policy/regularizer@policy.regularizers.visual_lipschitz: finite_difference_lipschitz_visual_features_channel_broadcast
+  - _self_

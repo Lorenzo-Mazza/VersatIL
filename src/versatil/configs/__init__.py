@@ -162,6 +162,7 @@ from versatil.configs.quantization import (
 from versatil.configs.regularizer import (
     BaseRegularizerConfig,
     FiniteDifferenceLipschitzRegularizerConfig,
+    ImageAugmentationConsistencyRegularizerConfig,
     JacobianFrobeniusLipschitzRegularizerConfig,
     SpectralJacobianLipschitzRegularizerConfig,
 )
@@ -304,6 +305,7 @@ __all__ = [
     "KLDivergenceLossConfig",
     "BinaryKLDivergenceLossConfig",
     "FiniteDifferenceLipschitzRegularizerConfig",
+    "ImageAugmentationConsistencyRegularizerConfig",
     "JacobianFrobeniusLipschitzRegularizerConfig",
     "TrajectoryLengthLossConfig",
     "TrajectorySmoothnessConfig",
@@ -1006,6 +1008,11 @@ def register_configs() -> None:
         group="policy/regularizer",
         name="finite_difference_lipschitz",
         node=FiniteDifferenceLipschitzRegularizerConfig,
+    )
+    cs.store(
+        group="policy/regularizer",
+        name="image_augmentation_consistency",
+        node=ImageAugmentationConsistencyRegularizerConfig,
     )
     cs.store(
         group="policy/regularizer",

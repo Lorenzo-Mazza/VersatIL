@@ -347,6 +347,7 @@ def policy_factory(
             observation_space.observations_metadata = {}
         if action_space is None:
             action_space = MagicMock(spec=ActionSpace)
+            action_space.actions_metadata = {}
         if loss is None:
             loss = MagicMock(spec=BaseLoss)
         return Policy(

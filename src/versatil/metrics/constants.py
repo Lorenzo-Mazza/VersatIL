@@ -71,6 +71,29 @@ class MetricKey(StrEnum):
     LIPSCHITZ_SLOPE_MEAN = "lipschitz_slope_mean"
     LIPSCHITZ_SLOPE_MAX = "lipschitz_slope_max"
     LIPSCHITZ_SIGMA = "lipschitz_sigma"
+    IMAGE_AUGMENTATION_CONSISTENCY_LOSS = "image_augmentation_consistency_loss"
+    IMAGE_AUGMENTATION_FLAT_OUTPUT_MSE = "image_augmentation_flat_output_mse"
+    IMAGE_AUGMENTATION_OUTPUT_DELTA_L2 = "image_augmentation_output_delta_l2"
+    IMAGE_AUGMENTATION_POSITION_FINAL_L2 = "image_augmentation_position_final_l2"
+    IMAGE_AUGMENTATION_POSITION_PER_STEP_L2 = "image_augmentation_position_per_step_l2"
+    IMAGE_AUGMENTATION_POSITION_PER_STEP_L2_MAX = (
+        "image_augmentation_position_per_step_l2_max"
+    )
+    IMAGE_AUGMENTATION_INPUT_DELTA_RMS = "image_augmentation_input_delta_rms"
+
+
+class FiniteDifferencePerturbationMode(StrEnum):
+    """Finite-difference perturbation sampling strategies."""
+
+    GAUSSIAN_DENSE = "gaussian_dense"
+    GAUSSIAN_CHANNEL_BROADCAST = "gaussian_channel_broadcast"
+
+
+class ImageAugmentationConsistencyLossMode(StrEnum):
+    """Loss reductions for image augmentation consistency."""
+
+    FLAT_OUTPUT_MSE = "flat_output_mse"
+    POSITION_TRAJECTORY_L2 = "position_trajectory_l2"
 
 
 class LossModuleName(StrEnum):

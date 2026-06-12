@@ -2,6 +2,8 @@
 
 import abc
 
+import albumentations as A
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.func import jvp
@@ -15,15 +17,19 @@ from versatil.common.tensor_ops import (
     reshape_batch_scale_for_broadcast,
     slice_tensor_dictionary,
 )
+from versatil.data.constants import ActionComputationMethod, ProprioceptiveType
+from versatil.data.metadata import OnTheFlyActionMetadata, PositionActionMetadata
 from versatil.metrics.base import LossOutput
-from versatil.metrics.constants import MetricKey
+from versatil.metrics.constants import (
+    FiniteDifferencePerturbationMode,
+    ImageAugmentationConsistencyLossMode,
+    MetricKey,
+)
 from versatil.metrics.regularization_context import (
     PolicyForwardContext,
     PolicyGraphInputDomain,
     PolicyRegularizationGraph,
 )
-
-RegularizerInputDomain = PolicyGraphInputDomain
 
 
 class PolicyRegularizer(nn.Module, abc.ABC):
@@ -60,7 +66,7 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         """
         super().__init__()
         self.input_keys = input_keys
-        self.input_domain = RegularizerInputDomain(input_domain)
+        self.input_domain = PolicyGraphInputDomain(input_domain)
         self.output_keys = output_keys
         self.apply_during_eval = apply_during_eval
         self.max_batch_size = max_batch_size
@@ -85,19 +91,10 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         raise NotImplementedError
 
     def _prepare_context(self, context: PolicyForwardContext) -> PolicyForwardContext:
-        """Apply sub-batching and optional detachment to graph-boundary tensors.
+        """Slice the context to ``max_batch_size`` rows and apply detachment.
 
-        Args:
-            context: Original policy forward context. Tensor dictionaries are
-                expected to share the same leading batch dimension ``B``.
-
-        Returns:
-            Context containing sliced tensors with at most ``max_batch_size``
-            rows. Floating tensors in the configured input domain are detached
-            when ``detach_inputs`` is enabled.
-
-        Raises:
-            ValueError: If a required context dictionary is missing.
+        Floating tensors in the configured input domain are detached when
+        ``detach_inputs`` is enabled.
         """
         observation = slice_tensor_dictionary(
             values=context.observation,
@@ -125,13 +122,13 @@ class PolicyRegularizer(nn.Module, abc.ABC):
             raise ValueError("PolicyForwardContext predictions cannot be None.")
         if self.detach_inputs:
             match self.input_domain:
-                case RegularizerInputDomain.OBSERVATION:
+                case PolicyGraphInputDomain.OBSERVATION:
                     observation = detach_floating_tensor_dictionary(values=observation)
-                case RegularizerInputDomain.ENCODED_FEATURES:
+                case PolicyGraphInputDomain.ENCODED_FEATURES:
                     encoded_features = detach_floating_tensor_dictionary(
                         values=encoded_features
                     )
-                case RegularizerInputDomain.DECODER_FEATURES:
+                case PolicyGraphInputDomain.DECODER_FEATURES:
                     decoder_features = detach_floating_tensor_dictionary(
                         values=decoder_features
                     )
@@ -147,35 +144,17 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         self,
         context: PolicyForwardContext,
     ) -> dict[str, TensorTree]:
-        """Return tensors at the configured graph boundary.
-
-        Args:
-            context: Policy forward context containing raw observations, encoded
-                features, decoder-ready features, and predictions.
-
-        Returns:
-            Dictionary for ``self.input_domain``. Selected ``input_keys`` must
-            resolve to batched tensors with shape ``(B, ...)`` for
-            perturbation-based regularizers.
-        """
+        """Return the context dictionary for ``self.input_domain``."""
         match self.input_domain:
-            case RegularizerInputDomain.OBSERVATION:
+            case PolicyGraphInputDomain.OBSERVATION:
                 return context.observation
-            case RegularizerInputDomain.ENCODED_FEATURES:
+            case PolicyGraphInputDomain.ENCODED_FEATURES:
                 return context.encoded_features
-            case RegularizerInputDomain.DECODER_FEATURES:
+            case PolicyGraphInputDomain.DECODER_FEATURES:
                 return context.decoder_features
 
     def _validate_input_keys(self, context: PolicyForwardContext) -> None:
-        """Validate that configured input tensors can be perturbed.
-
-        Args:
-            context: Prepared policy forward context.
-
-        Raises:
-            ValueError: If an input key is absent from the configured domain or
-                points to a non-floating tensor.
-        """
+        """Raise if a configured input key is missing or not a floating tensor."""
         domain_inputs = self._domain_inputs(context=context)
         missing_keys = sorted(set(self.input_keys) - set(domain_inputs))
         if missing_keys:
@@ -210,20 +189,11 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         graph: PolicyRegularizationGraph,
         predictions: dict[str, torch.Tensor],
     ) -> list[str]:
-        """Resolve prediction tensors used to measure sensitivity.
+        """Resolve prediction keys used to measure sensitivity.
 
-        Args:
-            graph: Batch-local policy graph with default loss output keys.
-            predictions: Prediction dictionary from the original forward pass.
-                Each selected value must be floating point and batched as
-                ``(B, ...)``.
-
-        Returns:
-            Ordered list of prediction keys to flatten and compare.
-
-        Raises:
-            ValueError: If selected output keys are missing, non-floating, or
-                cannot be inferred.
+        Falls back to the graph's default loss output keys, then to all
+        floating prediction keys. Raises if keys are missing, non-floating,
+        or cannot be inferred.
         """
         if self.output_keys is not None:
             keys = self.output_keys
@@ -261,17 +231,7 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         predictions: dict[str, torch.Tensor],
         output_keys: list[str],
     ) -> torch.Tensor:
-        """Flatten selected predictions into one vector per batch item.
-
-        Args:
-            predictions: Prediction tensor dictionary. Selected tensors must have
-                shape ``(B, ...)`` and matching batch size.
-            output_keys: Keys in ``predictions`` to concatenate.
-
-        Returns:
-            Tensor with shape ``(B, D_out)`` where ``D_out`` is the total flattened
-            size across selected prediction tensors.
-        """
+        """Concatenate selected ``(B, ...)`` predictions into ``(B, D_out)``."""
         return torch.cat(
             [
                 predictions[key].reshape(predictions[key].shape[0], -1)
@@ -284,19 +244,7 @@ class PolicyRegularizer(nn.Module, abc.ABC):
     def _flatten_batch_tensors(
         tensors: list[torch.Tensor] | tuple[torch.Tensor, ...],
     ) -> list[torch.Tensor]:
-        """Flatten batched tensors while preserving the leading batch axis.
-
-        Args:
-            tensors: Non-empty collection of tensors with matching leading batch
-                dimensions.
-
-        Returns:
-            Flattened tensors with shape ``(B, D_i)``.
-
-        Raises:
-            ValueError: If no tensors are provided, a tensor is scalar, or batch
-                sizes do not match.
-        """
+        """Flatten ``(B, ...)`` tensors to ``(B, D_i)``, validating batch sizes."""
         if not tensors:
             raise ValueError("At least one tensor is required.")
         batch_size: int | None = None
@@ -319,17 +267,9 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         tensors: list[torch.Tensor] | tuple[torch.Tensor, ...],
         eps: float,
     ) -> torch.Tensor:
-        """Compute one raw L2 norm per batch item across selected tensors.
-
-        Args:
-            tensors: Batched tensors to concatenate after flattening.
-            eps: Minimum returned norm.
-
-        Returns:
-            Tensor with shape ``(B,)`` containing raw L2 norms.
-        """
+        """Compute one raw ``(B,)`` L2 norm across flattened selected tensors."""
         flattened_tensors = cls._flatten_batch_tensors(tensors=tensors)
-        return torch.cat(flattened_tensors, dim=1).norm(dim=1).clamp_min(eps)
+        return torch.cat(flattened_tensors, dim=1).float().norm(dim=1).clamp_min(eps)
 
     @classmethod
     def _combined_feature_dimension(
@@ -368,20 +308,7 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         context: PolicyForwardContext,
         replacements: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Evaluate the policy graph after replacing configured-domain tensors.
-
-        Args:
-            graph: Batch-local graph re-entry interface owned by ``Policy``.
-            context: Prepared forward context whose tensors form the base state
-                for the re-entry.
-            replacements: Tensor values keyed by ``input_keys``. Each replacement
-                must have the same shape as the corresponding tensor in
-                ``self.input_domain``.
-
-        Returns:
-            Prediction dictionary produced by the policy graph after applying the
-            replacements.
-        """
+        """Re-enter the policy graph with replacements at ``self.input_domain``."""
         return graph.evaluate(
             input_domain=self.input_domain.value,
             context=context,
@@ -394,14 +321,11 @@ class PolicyRegularizer(nn.Module, abc.ABC):
     ) -> tuple[torch.Tensor, ...]:
         """Return selected input tensors prepared for Jacobian products.
 
-        Args:
-            domain_inputs: Tensor dictionary for the configured graph boundary.
-
-        Returns:
-            Tuple of selected tensors in ``input_keys`` order. With
-            ``detach_inputs=True``, each tensor is a detached leaf requiring grad.
-            With ``detach_inputs=False``, tensors stay connected to the existing
-            graph and are marked as requiring grad only when needed.
+        Returns the tensors in ``input_keys`` order. With ``detach_inputs=True``
+        each tensor is a detached leaf requiring grad; with
+        ``detach_inputs=False`` graph-connected tensors are used as-is, and
+        grad-free tensors become fresh leaves so the shared context is never
+        mutated in place.
         """
         input_tensors: list[torch.Tensor] = []
         for key in self.input_keys:
@@ -411,11 +335,9 @@ class PolicyRegularizer(nn.Module, abc.ABC):
                     f"{type(self).__name__} can only perturb tensor inputs, "
                     f"got non-tensor input key: {key}."
                 )
-            if self.detach_inputs:
-                input_tensors.append(value.detach().requires_grad_(True))
-                continue
-            if not value.requires_grad:
-                value = value.requires_grad_(True)
+            value = value.float()
+            if self.detach_inputs or not value.requires_grad:
+                value = value.detach().requires_grad_(True)
             input_tensors.append(value)
         return tuple(input_tensors)
 
@@ -423,29 +345,25 @@ class PolicyRegularizer(nn.Module, abc.ABC):
         self,
         device: torch.device,
     ) -> LossOutput:
-        """Return zero loss without diagnostics for disabled regularizers.
-
-        Args:
-            device: Device for the returned scalar tensors.
-
-        Returns:
-            Loss output with zero total loss and no component losses.
-        """
+        """Return a zero loss without diagnostics for disabled regularizers."""
         zero = torch.tensor(0.0, device=device)
         return LossOutput(total_loss=zero)
 
 
 class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
-    """Estimate local Lipschitz slopes with finite-difference perturbations.
+    """Estimate local directional sensitivity with finite-difference probes.
 
     Note:
         The regularizer estimates the local slope of the policy graph at the
         tensors selected by ``input_domain`` and ``input_keys``. For each
-        selected tensor ``x_k`` with shape ``(B, ...)``, it draws
-        ``n_k = torch.randn_like(x_k)``, normalizes ``n_k`` per batch item to RMS
-        one, and sets ``delta_k = noise_scale * rms(x_k) * n_k``. The
-        ``PolicyRegularizationGraph`` then re-runs the same policy operation
-        order with ``x_k + delta_k`` and, in symmetric mode, ``x_k - delta_k``.
+        selected tensor ``x_k`` with shape ``(B, ...)``, it draws a random
+        direction according to ``perturbation_mode``, normalizes it per batch
+        item to RMS one, and sets ``delta_k = noise_scale * rms(x_k) * n_k``.
+        The ``PolicyRegularizationGraph`` then re-runs the same policy
+        operation order with ``x_k + delta_k`` and ``x_k - delta_k`` (centered
+        differences); the graph replays one RNG snapshot per batch, so both
+        forwards share identical stochastic draws and the delta isolates input
+        sensitivity.
 
         The selected output deltas are flattened and concatenated, so the
         numerator is the raw output norm ``||delta_y||_2``. The denominator is
@@ -453,25 +371,33 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
         enabled, ``scale_by_dimension_ratio`` multiplies this slope by
         ``sqrt(D_in) / sqrt(D_out)``. The raw loss is
         ``mean(max(slope - target, 0)^2)`` and ``weight`` scales that raw loss.
+
+        In ``"gaussian_dense"`` mode the slope satisfies
+        ``E[slope^2] = ||J||_F^2 / D_in`` at small ``noise_scale`` — an
+        average-direction gain comparable to
+        ``JacobianFrobeniusLipschitzRegularizer``, not a worst-case Lipschitz
+        constant (use ``SpectralJacobianLipschitzRegularizer`` for that).
+        ``"gaussian_channel_broadcast"`` instead probes spatially constant
+        per-channel shifts, mimicking global illumination changes.
     """
 
     def __init__(
         self,
         input_keys: list[str],
-        input_domain: str = RegularizerInputDomain.ENCODED_FEATURES.value,
+        input_domain: str = PolicyGraphInputDomain.ENCODED_FEATURES.value,
         output_keys: list[str] | None = None,
         weight: float = 1e-3,
         target: float = 1.0,
         noise_scale: float = 1e-2,
-        symmetric: bool = True,
         detach_inputs: bool = True,
         max_batch_size: int | None = None,
         apply_during_eval: bool = False,
         eps: float = 1e-12,
         disable_decoder_stochastic: bool = True,
         scale_by_dimension_ratio: bool = False,
+        perturbation_mode: str = FiniteDifferencePerturbationMode.GAUSSIAN_DENSE.value,
     ) -> None:
-        """Initialize finite-difference local Lipschitz regularization.
+        """Initialize finite-difference local sensitivity regularization.
 
         Args:
             input_keys: Tensor keys to perturb in ``input_domain``. Selected
@@ -484,8 +410,6 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
             noise_scale: RMS-relative perturbation magnitude. A value of ``1e-2``
                 samples perturbations with RMS equal to one percent of each
                 input tensor's per-sample RMS.
-            symmetric: Whether to use ``f(x + delta) - f(x - delta)``. If false,
-                uses ``f(x + delta) - f(x)``.
             detach_inputs: Whether to detach the configured input-domain tensors
                 before perturbation.
             max_batch_size: Optional leading-batch slice for cheaper regularizer
@@ -497,6 +421,11 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
                 in eval mode during perturbed forwards.
             scale_by_dimension_ratio: Whether to multiply the raw L2 slope by
                 ``sqrt(D_in) / sqrt(D_out)``.
+            perturbation_mode: Random direction sampler. ``"gaussian_dense"``
+                samples independent Gaussian values for every element.
+                ``"gaussian_channel_broadcast"`` samples one Gaussian value per
+                batch/time/channel and broadcasts over spatial axes for 4D/5D
+                image-like tensors.
 
         Raises:
             ValueError: If scalar hyperparameters are outside valid ranges.
@@ -518,42 +447,80 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
             raise ValueError(f"noise_scale must be positive, got {noise_scale}.")
         if eps <= 0.0:
             raise ValueError(f"eps must be positive, got {eps}.")
+        valid_modes = {mode.value for mode in FiniteDifferencePerturbationMode}
+        if perturbation_mode not in valid_modes:
+            raise ValueError(
+                f"perturbation_mode must be one of {sorted(valid_modes)}, "
+                f"got {perturbation_mode}."
+            )
         self.weight = weight
         self.target = target
         self.noise_scale = noise_scale
-        self.symmetric = symmetric
         self.eps = eps
         self.scale_by_dimension_ratio = scale_by_dimension_ratio
+        self.perturbation_mode = FiniteDifferencePerturbationMode(perturbation_mode)
+
+    def _sample_random_direction(
+        self,
+        key: str,
+        value: torch.Tensor,
+    ) -> torch.Tensor:
+        """Sample a finite-difference direction with the configured structure."""
+        match self.perturbation_mode:
+            case FiniteDifferencePerturbationMode.GAUSSIAN_DENSE:
+                return torch.randn_like(value)
+            case FiniteDifferencePerturbationMode.GAUSSIAN_CHANNEL_BROADCAST:
+                return self._sample_channel_broadcast_direction(key=key, value=value)
+
+    @staticmethod
+    def _sample_channel_broadcast_direction(
+        key: str,
+        value: torch.Tensor,
+    ) -> torch.Tensor:
+        """Sample per-channel Gaussian directions broadcast over spatial axes."""
+        if value.ndim == 4:
+            noise_shape = (value.shape[0], value.shape[1], 1, 1)
+        elif value.ndim == 5:
+            noise_shape = (value.shape[0], value.shape[1], value.shape[2], 1, 1)
+        else:
+            raise ValueError(
+                "FiniteDifferenceLipschitzRegularizer "
+                "perturbation_mode='gaussian_channel_broadcast' requires input "
+                f"key '{key}' to have shape (B, C, H, W) or (B, T, C, H, W), "
+                f"got {tuple(value.shape)}."
+            )
+        return torch.randn(
+            noise_shape,
+            device=value.device,
+            dtype=value.dtype,
+        ).expand_as(value)
 
     def _build_perturbations(
         self,
         domain_inputs: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Sample per-sample RMS-normalized perturbations.
-
-        Args:
-            domain_inputs: Tensor dictionary for the configured graph boundary.
-                Values for ``input_keys`` must have shape ``(B, ...)``.
-
-        Returns:
-            Perturbation dictionary keyed like ``input_keys``. Each tensor has the
-            same shape as the corresponding input tensor and per-sample RMS
-            ``noise_scale * rms(input)``.
-        """
+        """Sample perturbations with per-sample RMS ``noise_scale * rms(input)``."""
         perturbations: dict[str, torch.Tensor] = {}
         for key in self.input_keys:
             value = domain_inputs[key]
-            random_direction = torch.randn_like(value)
+            value_float = value.float()
+            random_direction = self._sample_random_direction(
+                key=key,
+                value=value_float,
+            )
             direction_rms = batch_rms(tensor=random_direction, eps=self.eps)
             normalized_direction = random_direction / reshape_batch_scale_for_broadcast(
                 scale=direction_rms,
-                tensor=value,
+                tensor=value_float,
             )
-            input_rms = batch_rms(tensor=value, eps=self.eps)
+            input_rms = batch_rms(tensor=value_float, eps=self.eps)
             perturbations[key] = (
                 normalized_direction
                 * self.noise_scale
-                * reshape_batch_scale_for_broadcast(scale=input_rms, tensor=value)
+                * reshape_batch_scale_for_broadcast(
+                    scale=input_rms,
+                    tensor=value_float,
+                )
             )
         return perturbations
 
@@ -597,39 +564,24 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
                 context=regularizer_context,
                 replacements=plus_replacements,
             )
-            if self.symmetric:
-                minus_replacements = {
-                    key: domain_inputs[key] - perturbation
-                    for key, perturbation in perturbations.items()
-                }
-                minus_predictions = self._forward_with_replacements(
-                    graph=graph,
-                    context=regularizer_context,
-                    replacements=minus_replacements,
-                )
-                output_delta = {
-                    key: plus_predictions[key] - minus_predictions[key]
-                    for key in output_keys
-                }
-                input_deltas = [
-                    2.0 * perturbation for perturbation in perturbations.values()
-                ]
-            else:
-                base_predictions = self._forward_with_replacements(
-                    graph=graph,
-                    context=regularizer_context,
-                    replacements={},
-                )
-                output_delta = {
-                    key: plus_predictions[key] - base_predictions[key]
-                    for key in output_keys
-                }
-                input_deltas = list(perturbations.values())
+            minus_replacements = {
+                key: domain_inputs[key] - perturbation
+                for key, perturbation in perturbations.items()
+            }
+            minus_predictions = self._forward_with_replacements(
+                graph=graph,
+                context=regularizer_context,
+                replacements=minus_replacements,
+            )
+        output_delta = {
+            key: plus_predictions[key] - minus_predictions[key] for key in output_keys
+        }
+        input_deltas = [2.0 * perturbation for perturbation in perturbations.values()]
 
         flat_output_delta = self._flatten_outputs(
             predictions=output_delta,
             output_keys=output_keys,
-        )
+        ).float()
         output_l2 = flat_output_delta.norm(dim=1)
         output_dimension = flat_output_delta.shape[1]
         input_l2 = self._combined_batch_l2(tensors=input_deltas, eps=self.eps)
@@ -642,13 +594,403 @@ class FiniteDifferenceLipschitzRegularizer(PolicyRegularizer):
                 exponent=0.5,
                 reference=local_slope,
             )
-        raw_penalty = torch.clamp(local_slope - self.target, min=0.0).pow(2).mean()
+        raw_penalty = (
+            torch.clamp(local_slope.float() - self.target, min=0.0).pow(2).mean()
+        )
         return LossOutput(
             total_loss=self.weight * raw_penalty,
             component_losses={
                 MetricKey.LIPSCHITZ_FINITE_DIFFERENCE_LOSS.value: raw_penalty,
                 MetricKey.LIPSCHITZ_SLOPE_MEAN.value: local_slope.detach().mean(),
                 MetricKey.LIPSCHITZ_SLOPE_MAX.value: local_slope.detach().max(),
+            },
+        )
+
+
+class ImageAugmentationConsistencyRegularizer(PolicyRegularizer):
+    """Penalize output changes under image augmentations of observations."""
+
+    def __init__(
+        self,
+        input_keys: list[str],
+        output_keys: list[str] | None = None,
+        weight: float = 1e-3,
+        color_augmentation: A.Compose | None = None,
+        spatial_augmentation: A.Compose | None = None,
+        loss_mode: str = ImageAugmentationConsistencyLossMode.POSITION_TRAJECTORY_L2.value,
+        detach_inputs: bool = True,
+        detach_targets: bool = True,
+        max_batch_size: int | None = None,
+        apply_during_eval: bool = False,
+        input_min: float = -1.0,
+        input_max: float = 1.0,
+        max_pixel_value: float = 255.0,
+    ) -> None:
+        """Initialize image augmentation consistency regularization.
+
+        Args:
+            input_keys: Observation image keys to augment. Tensors must be
+                ``(B, C, H, W)`` or ``(B, T, C, H, W)``.
+            output_keys: Prediction keys whose consistency is penalized. If
+                omitted, the graph default loss output keys are used.
+            weight: Multiplier applied to the raw consistency MSE.
+            color_augmentation: Optional Albumentations color transform. Applied
+                before spatial augmentation, matching ``ImageProcessor``.
+            spatial_augmentation: Optional Albumentations spatial transform.
+            loss_mode: Consistency reduction. ``"position_trajectory_l2"`` uses
+                normalized position action trajectory distance; ``"flat_output_mse"``
+                preserves the previous flat output MSE behavior.
+            detach_inputs: Whether to detach observations before augmentation.
+            detach_targets: Whether clean predictions are stop-gradient targets.
+            max_batch_size: Optional leading-batch slice for cheaper passes.
+            apply_during_eval: Whether to compute the regularizer in eval mode.
+            input_min: Normalized value corresponding to image intensity zero.
+            input_max: Normalized value corresponding to ``max_pixel_value``.
+            max_pixel_value: Pixel range used for Albumentations conversion.
+
+        Raises:
+            ValueError: If no augmentation is configured or scalar parameters are
+                invalid.
+        """
+        super().__init__(
+            input_keys=input_keys,
+            input_domain=PolicyGraphInputDomain.OBSERVATION.value,
+            output_keys=output_keys,
+            apply_during_eval=apply_during_eval,
+            max_batch_size=max_batch_size,
+            detach_inputs=detach_inputs,
+            disable_decoder_stochastic=True,
+        )
+        if weight < 0.0:
+            raise ValueError(f"weight must be non-negative, got {weight}.")
+        if input_max <= input_min:
+            raise ValueError(
+                f"input_max must be greater than input_min, got "
+                f"input_min={input_min} and input_max={input_max}."
+            )
+        if max_pixel_value <= 0.0:
+            raise ValueError(
+                f"max_pixel_value must be positive, got {max_pixel_value}."
+            )
+        valid_loss_modes = {mode.value for mode in ImageAugmentationConsistencyLossMode}
+        if loss_mode not in valid_loss_modes:
+            raise ValueError(
+                f"loss_mode must be one of {sorted(valid_loss_modes)}, got {loss_mode}."
+            )
+        self.color_augmentation = (
+            color_augmentation
+            if self._has_augmentation(augmentation=color_augmentation)
+            else None
+        )
+        self.spatial_augmentation = (
+            spatial_augmentation
+            if self._has_augmentation(augmentation=spatial_augmentation)
+            else None
+        )
+        if self.color_augmentation is None and self.spatial_augmentation is None:
+            raise ValueError(
+                "At least one of color_augmentation or spatial_augmentation must "
+                "contain transforms."
+            )
+        self.weight = weight
+        self.loss_mode = ImageAugmentationConsistencyLossMode(loss_mode)
+        self.detach_targets = detach_targets
+        self.input_min = input_min
+        self.input_max = input_max
+        self.max_pixel_value = max_pixel_value
+
+    @staticmethod
+    def _has_augmentation(augmentation: A.Compose | None) -> bool:
+        """Return whether an Albumentations pipeline has work to do."""
+        return augmentation is not None and len(augmentation.transforms) > 0
+
+    @property
+    def _input_range(self) -> float:
+        return self.input_max - self.input_min
+
+    def _to_uint8_frame(self, frame: torch.Tensor) -> np.ndarray:
+        """Convert a normalized ``(C, H, W)`` frame to Albumentations format."""
+        zero_to_one = ((frame - self.input_min) / self._input_range).clamp(0.0, 1.0)
+        pixel_frame = (
+            (zero_to_one * self.max_pixel_value).round().to(torch.uint8).numpy()
+        )
+        if pixel_frame.shape[0] == 1:
+            return pixel_frame[0]
+        return np.moveaxis(pixel_frame, 0, -1)
+
+    def _from_augmented_frame(
+        self,
+        frame: np.ndarray,
+        channel_count: int,
+    ) -> torch.Tensor:
+        """Convert an augmented Albumentations frame back to ``(C, H, W)``."""
+        frame_array = np.asarray(frame)
+        if frame_array.ndim == 2:
+            channel_first = frame_array[None]
+        else:
+            channel_first = np.moveaxis(frame_array, -1, 0)
+        if channel_first.shape[0] != channel_count:
+            raise ValueError(
+                f"Augmented image channel count changed from {channel_count} to "
+                f"{channel_first.shape[0]}."
+            )
+        zero_to_one = (
+            torch.from_numpy(channel_first.copy()).float() / self.max_pixel_value
+        )
+        return zero_to_one * self._input_range + self.input_min
+
+    def _augment_sample(self, frames: torch.Tensor) -> torch.Tensor:
+        """Augment one sample's ``(T, C, H, W)`` window with shared parameters.
+
+        All frames of one temporal window pass through Albumentations as one
+        ``images=`` batch, so the sampled transform parameters are identical
+        across the window and the augmented sequence stays temporally coherent.
+        """
+        channel_count = frames.shape[1]
+        if self.color_augmentation is not None and channel_count != 3:
+            raise ValueError(
+                "color_augmentation requires RGB image tensors with 3 channels, "
+                f"got {channel_count} channels."
+            )
+        pixel_frames = [self._to_uint8_frame(frame=frame) for frame in frames]
+        if self.color_augmentation is not None:
+            pixel_frames = self.color_augmentation(images=pixel_frames)["images"]
+        if self.spatial_augmentation is not None:
+            pixel_frames = self.spatial_augmentation(images=pixel_frames)["images"]
+        augmented_frames = [
+            self._from_augmented_frame(frame=frame, channel_count=channel_count)
+            for frame in pixel_frames
+        ]
+        return torch.stack(augmented_frames, dim=0)
+
+    def _augment_tensor(self, value: torch.Tensor) -> torch.Tensor:
+        """Apply image augmentations per sample to a batched image tensor."""
+        value_float = value.detach().float().cpu()
+        if value_float.ndim == 4:
+            sample_windows = value_float.unsqueeze(1)  # (B, 1, C, H, W)
+        elif value_float.ndim == 5:
+            sample_windows = value_float
+        else:
+            raise ValueError(
+                "ImageAugmentationConsistencyRegularizer input tensors must have "
+                f"shape (B, C, H, W) or (B, T, C, H, W), got {tuple(value.shape)}."
+            )
+
+        augmented = torch.stack(
+            [self._augment_sample(frames=window) for window in sample_windows],
+            dim=0,
+        )
+        if value_float.ndim == 4:
+            augmented = augmented.squeeze(1)  # (B, 1, C, H, W) -> (B, C, H, W)
+        return augmented.to(device=value.device, dtype=value.dtype)
+
+    def _build_augmented_replacements(
+        self,
+        domain_inputs: dict[str, TensorTree],
+    ) -> dict[str, torch.Tensor]:
+        """Build augmented observation replacements for configured image keys."""
+        replacements: dict[str, torch.Tensor] = {}
+        for key in self.input_keys:
+            value = domain_inputs[key]
+            if not isinstance(value, torch.Tensor):
+                raise ValueError(
+                    "ImageAugmentationConsistencyRegularizer can only augment "
+                    f"tensor observations, got non-tensor input key: {key}."
+                )
+            replacements[key] = self._augment_tensor(value=value)
+        return replacements
+
+    def _input_delta_rms(
+        self,
+        domain_inputs: dict[str, TensorTree],
+        replacements: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Compute per-sample RMS of the applied image augmentation delta."""
+        deltas = [
+            replacements[key] - domain_inputs[key]
+            for key in self.input_keys
+            if isinstance(domain_inputs[key], torch.Tensor)
+        ]
+        flat_delta = torch.cat(
+            [delta.reshape(delta.shape[0], -1).float() for delta in deltas],
+            dim=1,
+        )
+        return flat_delta.pow(2).mean(dim=1).sqrt()
+
+    def _resolve_position_action_keys(
+        self,
+        graph: PolicyRegularizationGraph,
+        predictions: dict[str, torch.Tensor],
+    ) -> list[str]:
+        """Resolve position action outputs for trajectory consistency."""
+        keys = [
+            key
+            for key, metadata in graph.action_metadata.items()
+            if metadata.action_type == ProprioceptiveType.POSITION.value
+            and key in predictions
+        ]
+        if not keys:
+            raise ValueError(
+                "ImageAugmentationConsistencyRegularizer "
+                "loss_mode='position_trajectory_l2' requires at least one "
+                "position action output in policy action metadata."
+            )
+        return keys
+
+    def _uses_delta_position_actions(
+        self,
+        graph: PolicyRegularizationGraph,
+        key: str,
+    ) -> bool:
+        """Return whether a position action key represents per-step deltas."""
+        metadata = graph.action_metadata.get(key)
+        if metadata is None:
+            return False
+        if not isinstance(metadata, PositionActionMetadata | OnTheFlyActionMetadata):
+            return False
+        return metadata.computation_method == ActionComputationMethod.DELTA.value
+
+    def _position_trajectory_components(
+        self,
+        graph: PolicyRegularizationGraph,
+        clean_predictions: dict[str, torch.Tensor],
+        augmented_predictions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Compute normalized position trajectory consistency diagnostics."""
+        position_keys = self._resolve_position_action_keys(
+            graph=graph,
+            predictions=augmented_predictions,
+        )
+        per_key_per_step_l2: list[torch.Tensor] = []
+        for key in position_keys:
+            clean_position = clean_predictions[key]
+            if self.detach_targets:
+                clean_position = clean_position.detach()
+            position_delta = (augmented_predictions[key] - clean_position).float()
+            if position_delta.ndim != 3:
+                raise ValueError(
+                    "ImageAugmentationConsistencyRegularizer "
+                    "loss_mode='position_trajectory_l2' expects position action "
+                    f"key '{key}' to have shape (B, T, D), got "
+                    f"{tuple(position_delta.shape)}."
+                )
+            if self._uses_delta_position_actions(graph=graph, key=key):
+                position_delta = position_delta.cumsum(dim=1)
+            per_key_per_step_l2.append(position_delta.norm(dim=-1))
+        per_step_l2 = torch.stack(per_key_per_step_l2, dim=0).mean(dim=0)
+        return {
+            MetricKey.IMAGE_AUGMENTATION_POSITION_PER_STEP_L2.value: (
+                per_step_l2.mean()
+            ),
+            MetricKey.IMAGE_AUGMENTATION_POSITION_PER_STEP_L2_MAX.value: (
+                per_step_l2.max()
+            ),
+            MetricKey.IMAGE_AUGMENTATION_POSITION_FINAL_L2.value: (
+                per_step_l2[:, -1].mean()
+            ),
+        }
+
+    def _raw_penalty_and_components(
+        self,
+        graph: PolicyRegularizationGraph,
+        clean_predictions: dict[str, torch.Tensor],
+        augmented_predictions: dict[str, torch.Tensor],
+        output_keys: list[str],
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Reduce clean/augmented predictions to a raw consistency penalty."""
+        clean_outputs = self._flatten_outputs(
+            predictions=clean_predictions,
+            output_keys=output_keys,
+        ).float()
+        if self.detach_targets:
+            clean_outputs = clean_outputs.detach()
+        augmented_outputs = self._flatten_outputs(
+            predictions=augmented_predictions,
+            output_keys=output_keys,
+        ).float()
+        output_delta = augmented_outputs - clean_outputs
+        flat_output_mse = output_delta.pow(2).mean()
+        components = {
+            MetricKey.IMAGE_AUGMENTATION_FLAT_OUTPUT_MSE.value: flat_output_mse,
+            MetricKey.IMAGE_AUGMENTATION_OUTPUT_DELTA_L2.value: (
+                output_delta.detach().norm(dim=1).mean()
+            ),
+        }
+        match self.loss_mode:
+            case ImageAugmentationConsistencyLossMode.FLAT_OUTPUT_MSE:
+                return flat_output_mse, components
+            case ImageAugmentationConsistencyLossMode.POSITION_TRAJECTORY_L2:
+                position_components = self._position_trajectory_components(
+                    graph=graph,
+                    clean_predictions=clean_predictions,
+                    augmented_predictions=augmented_predictions,
+                )
+                components.update(position_components)
+                return (
+                    position_components[
+                        MetricKey.IMAGE_AUGMENTATION_POSITION_PER_STEP_L2.value
+                    ],
+                    components,
+                )
+
+    def forward(
+        self,
+        graph: PolicyRegularizationGraph,
+    ) -> LossOutput:
+        """Compute output consistency under configured image augmentations."""
+        context = graph.context
+        device = next(iter(context.predictions.values())).device
+        if not graph.training and not self.apply_during_eval:
+            return self._disabled_output(device=device)
+
+        regularizer_context = self._prepare_context(context=context)
+        self._validate_input_keys(context=regularizer_context)
+        output_keys = self._resolve_output_keys(
+            graph=graph,
+            predictions=regularizer_context.predictions,
+        )
+        domain_inputs = self._domain_inputs(context=regularizer_context)
+        replacements = self._build_augmented_replacements(domain_inputs=domain_inputs)
+
+        with graph.deterministic_scope(enabled=self.disable_decoder_stochastic):
+            if self.detach_targets:
+                with torch.no_grad():
+                    clean_predictions = self._forward_with_replacements(
+                        graph=graph,
+                        context=regularizer_context,
+                        replacements={},
+                    )
+            else:
+                clean_predictions = self._forward_with_replacements(
+                    graph=graph,
+                    context=regularizer_context,
+                    replacements={},
+                )
+            augmented_predictions = self._forward_with_replacements(
+                graph=graph,
+                context=regularizer_context,
+                replacements=replacements,
+            )
+
+        raw_penalty, consistency_components = self._raw_penalty_and_components(
+            graph=graph,
+            clean_predictions=clean_predictions,
+            augmented_predictions=augmented_predictions,
+            output_keys=output_keys,
+        )
+        return LossOutput(
+            total_loss=self.weight * raw_penalty,
+            component_losses={
+                MetricKey.IMAGE_AUGMENTATION_CONSISTENCY_LOSS.value: raw_penalty,
+                **consistency_components,
+                MetricKey.IMAGE_AUGMENTATION_INPUT_DELTA_RMS.value: (
+                    self._input_delta_rms(
+                        domain_inputs=domain_inputs,
+                        replacements=replacements,
+                    )
+                    .detach()
+                    .mean()
+                ),
             },
         )
 
@@ -677,7 +1019,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
     def __init__(
         self,
         input_keys: list[str],
-        input_domain: str = RegularizerInputDomain.ENCODED_FEATURES.value,
+        input_domain: str = PolicyGraphInputDomain.ENCODED_FEATURES.value,
         output_keys: list[str] | None = None,
         weight: float = 1e-4,
         number_of_probes: int = 1,
@@ -773,7 +1115,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
             return self._flatten_outputs(
                 predictions=predictions,
                 output_keys=output_keys,
-            )
+            ).float()
 
         probe_penalties: list[torch.Tensor] = []
         with (
@@ -814,6 +1156,7 @@ class JacobianFrobeniusLipschitzRegularizer(PolicyRegularizer):
                             gradient.shape[0],
                             -1,
                         )
+                        .float()
                         .pow(2)
                         .sum(dim=1)
                     )
@@ -859,7 +1202,7 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
     def __init__(
         self,
         input_keys: list[str],
-        input_domain: str = RegularizerInputDomain.ENCODED_FEATURES.value,
+        input_domain: str = PolicyGraphInputDomain.ENCODED_FEATURES.value,
         output_keys: list[str] | None = None,
         weight: float = 1e-4,
         target: float = 1.0,
@@ -967,7 +1310,7 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
             return self._flatten_outputs(
                 predictions=predictions,
                 output_keys=output_keys,
-            )
+            ).float()
 
         with (
             graph.deterministic_scope(enabled=self.disable_decoder_stochastic),
@@ -997,7 +1340,7 @@ class SpectralJacobianLipschitzRegularizer(PolicyRegularizer):
 
             _, jacobian_vector = jvp(evaluate, (input_tensors,), (direction,))
 
-        sigma = jacobian_vector.norm()
+        sigma = jacobian_vector.float().norm()
         if self.scale_by_dimension_ratio:
             input_dimension = self._combined_feature_dimension(tensors=input_tensors)
             output_dimension = jacobian_vector.shape[1]

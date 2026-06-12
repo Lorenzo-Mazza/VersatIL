@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - action_transformer
+  - /policy/regularizer@policy.regularizers.visual_consistency: image_augmentation_consistency_libero_rgb
+  - /policy/regularizer@policy.regularizers.agentview_geometric_consistency: image_augmentation_geometric_consistency_libero_agentview
+  - _self_

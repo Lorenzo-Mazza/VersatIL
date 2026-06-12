@@ -225,14 +225,14 @@ def batch_rms(tensor: torch.Tensor, eps: float) -> torch.Tensor:
         eps: Lower bound for the returned RMS values.
 
     Returns:
-        Per-sample RMS vector with shape ``(B,)``.
+        Per-sample RMS vector with shape ``(B,)`` computed in fp32.
 
     Raises:
         ValueError: If ``tensor`` is scalar.
     """
     if tensor.ndim == 0:
         raise ValueError("Expected a batched tensor, got a scalar tensor.")
-    flattened = tensor.reshape(tensor.shape[0], -1)
+    flattened = tensor.reshape(tensor.shape[0], -1).float()
     return flattened.pow(2).mean(dim=1).sqrt().clamp_min(eps)
 
 
@@ -249,14 +249,14 @@ def combined_batch_rms(
 
     Returns:
         Per-sample RMS vector with shape ``(B,)`` over the concatenated
-        non-batch dimensions.
+        non-batch dimensions, computed in fp32.
 
     Raises:
         ValueError: If ``tensors`` is empty.
     """
     if not tensors:
         raise ValueError("Expected at least one tensor for RMS computation.")
-    flattened = [tensor.reshape(tensor.shape[0], -1) for tensor in tensors]
+    flattened = [tensor.reshape(tensor.shape[0], -1).float() for tensor in tensors]
     return torch.cat(flattened, dim=1).pow(2).mean(dim=1).sqrt().clamp_min(eps)
 
 
@@ -271,11 +271,12 @@ def normalize_tensor_tuple(
         eps: Lower bound for the product-space norm.
 
     Returns:
-        Tensor tuple divided by the shared product-space norm.
+        Tensor tuple divided by the shared product-space norm, computed in fp32.
     """
-    squared_norm = sum(tensor.pow(2).sum() for tensor in tensors)
+    float_tensors = tuple(tensor.float() for tensor in tensors)
+    squared_norm = sum(tensor.pow(2).sum() for tensor in float_tensors)
     norm = torch.sqrt(squared_norm).clamp_min(eps)
-    return tuple(tensor / norm for tensor in tensors)
+    return tuple(tensor / norm for tensor in float_tensors)
 
 
 def recursive_dict_list_tuple_apply(
