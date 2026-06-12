@@ -99,8 +99,9 @@ PTQ_TEST_CONFIGS = [
 # denoiser appears num_inference_steps times in the exported graph. torchao's
 # X86InductorQuantizer linear+add fusion annotation builds one SourcePartition
 # per module and raises "Input partition has more than one output node" when a
-# module has multiple call sites. Exporting a single denoising step (loop outside
-# the artifact) would avoid the duplication and is the structural fix.
+# module has multiple call sites (https://github.com/pytorch/ao/issues/4478).
+# Exporting a single denoising step (loop outside the artifact) would avoid the
+# duplication and is the structural fix.
 GLOBAL_PT2E_PARAMS = [
     pytest.param(config_name, id=config_name.split("/")[-1])
     if "flow" not in config_name.split("/")[-1]
@@ -113,7 +114,7 @@ GLOBAL_PT2E_PARAMS = [
             reason=(
                 "torchao 0.17 X86InductorQuantizer cannot annotate graphs where "
                 "one nn.Linear has multiple call sites (unrolled flow-matching "
-                "denoising loop)."
+                "denoising loop): https://github.com/pytorch/ao/issues/4478"
             ),
         ),
     )
