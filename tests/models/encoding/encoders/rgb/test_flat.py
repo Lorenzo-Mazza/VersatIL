@@ -659,6 +659,64 @@ class TestFlatRGBEncoderBuildBackbone:
         assert mock_resize.call_args.kwargs["target_width"] == 64
 
     @pytest.mark.unit
+    def test_resolve_intermediate_index_raises_when_not_configured(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+    ):
+        encoder = flat_rgb_encoder_factory(pooling_method=PoolingMethod.NONE.value)
+        encoder.intermediate_layer_index = None
+
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("intermediate_layer_index is not configured."),
+        ):
+            encoder._resolve_configured_intermediate_layer_index()
+
+    @pytest.mark.unit
+    def test_resolve_intermediate_index_raises_without_vit_blocks(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+    ):
+        encoder = flat_rgb_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            intermediate_layer_index=-2,
+        )
+        encoder.backbone.blocks = None
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Backbone '{FlatBackboneType.DINOV2_VITB14.value}' does not expose "
+                "ViT blocks for intermediate-layer extraction."
+            ),
+        ):
+            encoder._resolve_configured_intermediate_layer_index()
+
+    @pytest.mark.unit
+    def test_forward_backbone_raises_without_forward_intermediates(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+    ):
+        encoder = flat_rgb_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            intermediate_layer_index=-2,
+        )
+        backbone_without_intermediates = nn.Module()
+        backbone_without_intermediates.blocks = nn.ModuleList(
+            [nn.Identity() for _ in range(4)]
+        )
+        encoder.backbone = backbone_without_intermediates
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Backbone '{FlatBackboneType.DINOV2_VITB14.value}' does not support "
+                "intermediate-layer extraction."
+            ),
+        ):
+            encoder._forward_backbone_features(torch.zeros(2, 3, 224, 224))
+
+    @pytest.mark.unit
     def test_encode_uses_configured_intermediate_layer(
         self,
         flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],

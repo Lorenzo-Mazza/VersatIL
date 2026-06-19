@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "VersatIL"
-version = "0.3.0"
+version = "0.4.0"
 description = "A python library for training any robot policy through Imitation Learning, with dependencies handled by uv"
 authors = [
     { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" },
@@ -122,6 +122,8 @@ python_functions = "test_*"
 [tool.ruff]
 # Same as Black
 line-length = 88
+# Pinned below requires-python: py314 enables TC003 fixes that move imports
+# into TYPE_CHECKING blocks, breaking OmegaConf runtime type resolution.
 target-version = "py313"
 
 # Exclude directories

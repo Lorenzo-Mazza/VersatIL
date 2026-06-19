@@ -521,6 +521,7 @@ class DiTPrior(PriorLatentEncoder):
             def velocity_fn(
                 current_latent: torch.Tensor, current_time: torch.Tensor
             ) -> torch.Tensor:
+                """Predict the flow velocity at a continuous timestep."""
                 timestep_embedding = self._get_timestep_embedding_continuous(
                     current_time
                 )  # (B, D)

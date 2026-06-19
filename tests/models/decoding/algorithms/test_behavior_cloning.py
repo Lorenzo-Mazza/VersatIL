@@ -20,14 +20,25 @@ def bc_factory() -> Callable[..., BehavioralCloning]:
     return factory
 
 
-class TestBehavioralCloningInitialization:
-    def test_inherits_from_decoding_algorithm(
-        self,
-        bc_factory: Callable[..., BehavioralCloning],
-    ):
-        bc = bc_factory()
-        assert isinstance(bc, DecodingAlgorithm)
-        assert bc.predicts_in_action_space is True
+def test_inherits_from_decoding_algorithm(
+    bc_factory: Callable[..., BehavioralCloning],
+):
+    bc = bc_factory()
+    assert isinstance(bc, DecodingAlgorithm)
+
+
+def test_predicts_in_action_space_is_true(
+    bc_factory: Callable[..., BehavioralCloning],
+):
+    bc = bc_factory()
+    assert bc.predicts_in_action_space is True
+
+
+def test_auxiliary_output_keys_are_empty(
+    bc_factory: Callable[..., BehavioralCloning],
+):
+    bc = bc_factory()
+    assert bc.get_auxiliary_output_keys() == set()
 
 
 def test_get_targets_returns_ground_truth_actions(
@@ -48,7 +59,7 @@ def test_get_targets_returns_ground_truth_actions(
 
 
 class TestBehavioralCloningForward:
-    def test_delegates_to_network(
+    def test_forwards_features_and_actions_to_network(
         self,
         bc_factory: Callable[..., BehavioralCloning],
         mock_action_decoder_factory: Callable[..., MagicMock],
@@ -64,7 +75,7 @@ class TestBehavioralCloningForward:
             action_dimension=3,
         )
         bc.forward(network=mock_network, features=features, actions=actions)
-        mock_network.assert_called_once()
+        mock_network.assert_called_once_with(features=features, actions=actions)
 
     def test_returns_network_output(
         self,
@@ -80,7 +91,7 @@ class TestBehavioralCloningForward:
 
 
 class TestBehavioralCloningPredict:
-    def test_delegates_to_network_without_actions(
+    def test_forwards_features_with_actions_none(
         self,
         bc_factory: Callable[..., BehavioralCloning],
         mock_action_decoder_factory: Callable[..., MagicMock],
@@ -90,9 +101,7 @@ class TestBehavioralCloningPredict:
         mock_network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         bc.predict(network=mock_network, features=features)
-        mock_network.assert_called_once()
-        call_kwargs = mock_network.call_args
-        assert call_kwargs.kwargs.get("actions") is None
+        mock_network.assert_called_once_with(features=features, actions=None)
 
     def test_returns_network_output(
         self,

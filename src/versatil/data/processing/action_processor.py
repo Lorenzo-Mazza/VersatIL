@@ -104,7 +104,11 @@ class ActionProcessor:
                     action_slice_start:action_slice_end
                 ]
             else:
-                assert isinstance(meta, OnTheFlyActionMetadata)
+                if not isinstance(meta, OnTheFlyActionMetadata):
+                    raise TypeError(
+                        f"Action '{key}' is not precomputed, so its metadata must "
+                        f"be OnTheFlyActionMetadata, got {type(meta).__name__}"
+                    )
                 obs_for_action = padded_data[key]
                 next_obs = obs_for_action[action_slice_start + 1 : action_slice_end + 1]
                 current_obs = obs_for_action[action_slice_start:action_slice_end]

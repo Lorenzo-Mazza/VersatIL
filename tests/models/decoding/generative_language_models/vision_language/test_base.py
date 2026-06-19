@@ -548,32 +548,27 @@ class TestGenerativeVLMTemporalHandling:
         temporal_length = 3
         sequence_length = 4
         hidden_dimension = 5
-        fused = torch.arange(
+        embeddings = torch.arange(
             batch_size * temporal_length * sequence_length * hidden_dimension,
             dtype=torch.float32,
-        ).reshape(batch_size, temporal_length, sequence_length, hidden_dimension)
+        ).reshape(batch_size * temporal_length, sequence_length, hidden_dimension)
         padding_mask = torch.zeros(
-            batch_size,
-            temporal_length,
+            batch_size * temporal_length,
             sequence_length,
             dtype=torch.bool,
         )
-        padding_mask[:, :, -1] = True
+        padding_mask[:, -1] = True
 
-        def forward(
+        def assemble(
             inputs: dict[str, torch.Tensor],
-        ) -> dict[str, torch.Tensor]:
+        ) -> tuple[torch.Tensor, torch.Tensor]:
             assert inputs[SampleKey.TOKENIZED_OBSERVATIONS.value].shape == (
-                batch_size,
-                temporal_length,
+                batch_size * temporal_length,
                 sequence_length,
             )
-            return {
-                EncoderOutputKeys.FUSED_RGB_LANGUAGE.value: fused,
-                concrete_vlm.padding_mask_name: padding_mask,
-            }
+            return embeddings, padding_mask
 
-        concrete_vlm.forward = forward
+        concrete_vlm._assemble_multimodal_embeddings = assemble
 
         prefix, mask = concrete_vlm.build_prefix(
             inputs={
@@ -588,7 +583,7 @@ class TestGenerativeVLMTemporalHandling:
 
         torch.testing.assert_close(
             prefix,
-            fused.reshape(
+            embeddings.reshape(
                 batch_size, temporal_length * sequence_length, hidden_dimension
             ),
         )

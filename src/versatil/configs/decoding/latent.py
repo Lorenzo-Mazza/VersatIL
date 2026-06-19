@@ -82,6 +82,8 @@ class GaussianPriorConfig(PriorLatentEncoderConfig):
 
 @dataclass
 class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
+    """Configuration for the transformer-based prior latent encoder."""
+
     _target_: str = "versatil.models.decoding.latent.prior.transformer_encoder.PriorTransformerEncoder"
     latent_dimension: int = MISSING
     embedding_dimension: int = MISSING

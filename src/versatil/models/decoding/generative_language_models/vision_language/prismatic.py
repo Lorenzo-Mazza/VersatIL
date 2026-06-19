@@ -111,7 +111,9 @@ class PrismaticVLM(GenerativeVLM):
             self.vision_backbone_type
         ]
         self.image_size = PRISMATIC_VISION_IMAGE_SIZES[self.vision_backbone_type]
-        self.vision_encoders = self._build_vision_encoders(pretrained=not pretrained)
+        # Raw DinoSigLIP checkpoints do not store the frozen vision towers, so
+        # the timm towers must load their own pretrained weights.
+        self.vision_encoders = self._build_vision_encoders(pretrained=pretrained)
         self.num_image_tokens_per_camera = self._resolve_num_image_tokens()
         self.vision_embedding_dimension = sum(
             int(encoder.feature_dim) for encoder in self.vision_encoders
@@ -531,6 +533,36 @@ class PrismaticVLM(GenerativeVLM):
                 )
             )
         return image_embeddings, image_pad_masks
+
+    def _merge_image_language_embeddings(
+        self,
+        image_embeddings: list[torch.Tensor],
+        image_pad_masks: list[torch.Tensor],
+        language_embeddings: torch.Tensor,
+        language_pad_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Insert image patch tokens after the BOS token (Prismatic convention).
+
+        The pretrained Prismatic LLM expects ``[BOS, patches, text]``; the text
+        is right-padded so BOS is always at position zero.
+        """
+        merged_embeddings = torch.cat(
+            [
+                language_embeddings[:, :1, :],
+                *image_embeddings,
+                language_embeddings[:, 1:, :],
+            ],
+            dim=1,
+        )
+        merged_padding_mask = torch.cat(
+            [
+                language_pad_mask[:, :1],
+                *image_pad_masks,
+                language_pad_mask[:, 1:],
+            ],
+            dim=1,
+        )
+        return merged_embeddings, merged_padding_mask
 
     def get_vocab_size(self) -> int:
         """Return the Prismatic language vocabulary size."""

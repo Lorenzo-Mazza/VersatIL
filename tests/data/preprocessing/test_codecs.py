@@ -36,38 +36,85 @@ def array_spec_factory() -> Callable[..., ArraySpec]:
     return factory
 
 
-class TestProtectiveSqueeze:
-    @pytest.mark.parametrize(
-        "input_shape, expected_shape",
-        [
-            ((32, 32, 3), (32, 32, 3)),
-            ((1, 32, 32, 3), (32, 32, 3)),
-            ((1, 1, 32, 32, 3), (32, 32, 3)),
-            ((4, 32, 32, 3), (4, 32, 32, 3)),
-            ((2, 3, 16, 16, 3), (6, 16, 16, 3)),
-        ],
-        ids=[
-            "3d_hwc_unchanged",
-            "single_batch_squeezed",
-            "nested_unit_batch_squeezed",
-            "multi_image_batch_preserved",
-            "multi_dim_batch_flattened",
-        ],
-    )
-    def test_output_shape(
-        self,
-        rng: np.random.Generator,
-        input_shape: tuple[int, ...],
-        expected_shape: tuple[int, ...],
-    ):
-        array = rng.integers(0, 255, size=input_shape, dtype=np.uint8)
+@pytest.fixture
+def noisy_image_factory(rng: np.random.Generator) -> Callable[..., np.ndarray]:
+    """Factory for random uint8 images shaped (N, H, W, C)."""
 
-        result = _protective_squeeze(array)
+    def factory(
+        batch_size: int = 1,
+        image_height: int = 32,
+        image_width: int = 32,
+        channels: int = 3,
+    ) -> np.ndarray:
+        return rng.integers(
+            0,
+            255,
+            size=(batch_size, image_height, image_width, channels),
+            dtype=np.uint8,
+        )
 
-        assert result.shape == expected_shape
+    return factory
+
+
+@pytest.fixture
+def gradient_image_factory(rng: np.random.Generator) -> Callable[..., np.ndarray]:
+    """Factory for a smooth gradient plus sensor noise resembling camera frames."""
+
+    def factory(
+        image_height: int = 128,
+        image_width: int = 128,
+        noise_amplitude: int = 10,
+    ) -> np.ndarray:
+        rows = np.linspace(0, 255, image_height).astype(np.uint8)
+        columns = np.linspace(0, 200, image_width).astype(np.uint8)
+        image = np.zeros((1, image_height, image_width, 3), dtype=np.uint8)
+        image[0, :, :, 0] = rows[:, None]
+        image[0, :, :, 1] = columns[None, :]
+        image[0, :, :, 2] = 128
+        noise = rng.integers(
+            -noise_amplitude,
+            noise_amplitude,
+            size=(image_height, image_width, 3),
+            dtype=np.int16,
+        )
+        image[0] = np.clip(image[0].astype(np.int16) + noise, 0, 255).astype(np.uint8)
+        return image
+
+    return factory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "input_shape, expected_shape",
+    [
+        ((32, 32, 3), (32, 32, 3)),
+        ((1, 32, 32, 3), (32, 32, 3)),
+        ((1, 1, 32, 32, 3), (32, 32, 3)),
+        ((4, 32, 32, 3), (4, 32, 32, 3)),
+        ((2, 3, 16, 16, 3), (6, 16, 16, 3)),
+    ],
+    ids=[
+        "3d_hwc_unchanged",
+        "single_batch_squeezed",
+        "nested_unit_batch_squeezed",
+        "multi_image_batch_preserved",
+        "multi_dim_batch_flattened",
+    ],
+)
+def test_protective_squeeze_output_shape(
+    rng: np.random.Generator,
+    input_shape: tuple[int, ...],
+    expected_shape: tuple[int, ...],
+):
+    array = rng.integers(0, 255, size=input_shape, dtype=np.uint8)
+
+    result = _protective_squeeze(array)
+
+    assert result.shape == expected_shape
 
 
 class TestWebPCodecInit:
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "level",
         [1, 50, 99, 100],
@@ -78,11 +125,13 @@ class TestWebPCodecInit:
 
         assert codec.level == level
 
+    @pytest.mark.unit
     def test_default_quality_level(self):
         codec = WebPCodec()
 
         assert codec.level == 99
 
+    @pytest.mark.unit
     def test_frozen_dataclass_prevents_mutation(self):
         codec = WebPCodec(level=80)
 
@@ -91,6 +140,7 @@ class TestWebPCodecInit:
 
 
 class TestWebPCodecSerialization:
+    @pytest.mark.unit
     def test_to_dict_includes_name_and_level(self):
         codec = WebPCodec(level=75)
 
@@ -101,6 +151,7 @@ class TestWebPCodecSerialization:
             "configuration": {"level": 75},
         }
 
+    @pytest.mark.unit
     def test_from_dict_restores_level(self):
         serialized = {
             "name": WEBP_CODEC_NAME,
@@ -111,6 +162,7 @@ class TestWebPCodecSerialization:
 
         assert codec.level == 85
 
+    @pytest.mark.unit
     def test_from_dict_without_configuration_uses_default(self):
         serialized = {"name": WEBP_CODEC_NAME}
 
@@ -118,6 +170,7 @@ class TestWebPCodecSerialization:
 
         assert codec.level == 99
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("level", [1, 42, 100])
     def test_roundtrip_preserves_level(self, level: int):
         original = WebPCodec(level=level)
@@ -128,13 +181,14 @@ class TestWebPCodecSerialization:
 
 
 class TestWebPCodecEncode:
+    @pytest.mark.integration
     def test_encode_produces_non_empty_buffer(
         self,
-        rng: np.random.Generator,
         array_spec_factory: Callable[..., ArraySpec],
+        noisy_image_factory: Callable[..., np.ndarray],
     ):
         spec = array_spec_factory(shape=(1, 32, 32, 3))
-        image = rng.integers(0, 255, size=(1, 32, 32, 3), dtype=np.uint8)
+        image = noisy_image_factory(image_height=32, image_width=32)
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=99)
 
@@ -144,6 +198,7 @@ class TestWebPCodecEncode:
         encoded_bytes = np.asarray(result.as_array_like())
         assert encoded_bytes.nbytes > 0
 
+    @pytest.mark.integration
     def test_encode_rgb_converts_to_bgr_for_opencv(
         self,
         array_spec_factory: Callable[..., ArraySpec],
@@ -164,6 +219,7 @@ class TestWebPCodecEncode:
         assert bgr_decoded[0, 0, 2] == 255
         assert bgr_decoded[0, 0, 0] == 0
 
+    @pytest.mark.integration
     @pytest.mark.parametrize(
         "level",
         [50, 99],
@@ -171,12 +227,12 @@ class TestWebPCodecEncode:
     )
     def test_higher_quality_produces_larger_encoded_output(
         self,
-        rng: np.random.Generator,
         array_spec_factory: Callable[..., ArraySpec],
+        noisy_image_factory: Callable[..., np.ndarray],
         level: int,
     ):
         spec = array_spec_factory(shape=(1, 32, 32, 3))
-        image = rng.integers(0, 255, size=(1, 32, 32, 3), dtype=np.uint8)
+        image = noisy_image_factory(image_height=32, image_width=32)
         nd_buffer = NDBuffer.from_ndarray_like(image)
         low_codec = WebPCodec(level=1)
         high_codec = WebPCodec(level=level)
@@ -190,13 +246,14 @@ class TestWebPCodecEncode:
 
 
 class TestWebPCodecDecode:
+    @pytest.mark.integration
     def test_decode_restores_original_shape(
         self,
-        rng: np.random.Generator,
         array_spec_factory: Callable[..., ArraySpec],
+        noisy_image_factory: Callable[..., np.ndarray],
     ):
         spec = array_spec_factory(shape=(1, 32, 32, 3))
-        image = rng.integers(0, 255, size=(1, 32, 32, 3), dtype=np.uint8)
+        image = noisy_image_factory(image_height=32, image_width=32)
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=99)
 
@@ -207,6 +264,7 @@ class TestWebPCodecDecode:
         assert decoded_array.shape == (1, 32, 32, 3)
         assert decoded_array.dtype == np.uint8
 
+    @pytest.mark.integration
     def test_decode_bgr_to_rgb_preserves_dominant_channel(
         self,
         array_spec_factory: Callable[..., ArraySpec],
@@ -227,6 +285,7 @@ class TestWebPCodecDecode:
         assert decoded_array[0, 0, 0, 1] < 5
         assert decoded_array[0, 0, 0, 2] < 5
 
+    @pytest.mark.integration
     @pytest.mark.parametrize(
         "level, max_compression_ratio",
         [
@@ -238,13 +297,13 @@ class TestWebPCodecDecode:
     )
     def test_encoded_size_below_expected_ratio(
         self,
-        rng: np.random.Generator,
         array_spec_factory: Callable[..., ArraySpec],
+        noisy_image_factory: Callable[..., np.ndarray],
         level: int,
         max_compression_ratio: float,
     ):
         spec = array_spec_factory(shape=(1, 64, 64, 3))
-        image = rng.integers(0, 255, size=(1, 64, 64, 3), dtype=np.uint8)
+        image = noisy_image_factory(image_height=64, image_width=64)
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=level)
 
@@ -254,6 +313,7 @@ class TestWebPCodecDecode:
         compression_ratio = encoded_size / image.nbytes
         assert compression_ratio < max_compression_ratio
 
+    @pytest.mark.integration
     @pytest.mark.parametrize(
         "level, max_compression_ratio, max_mean_absolute_error",
         [
@@ -293,45 +353,38 @@ class TestWebPCodecDecode:
         assert mean_absolute_error < max_mean_absolute_error
 
 
-class TestWebPCodecVsBloscOnImages:
-    def test_webp_compresses_much_better_than_blosc_with_low_error(
-        self,
-        rng: np.random.Generator,
-        array_spec_factory: Callable[..., ArraySpec],
-    ):
-        # Smooth gradient + sensor noise: resembles real camera frames
-        spec = array_spec_factory(shape=(1, 128, 128, 3))
-        rows = np.linspace(0, 255, 128).astype(np.uint8)
-        columns = np.linspace(0, 200, 128).astype(np.uint8)
-        image = np.zeros((1, 128, 128, 3), dtype=np.uint8)
-        image[0, :, :, 0] = rows[:, None]
-        image[0, :, :, 1] = columns[None, :]
-        image[0, :, :, 2] = 128
-        noise = rng.integers(-10, 10, size=(128, 128, 3), dtype=np.int16)
-        image[0] = np.clip(image[0].astype(np.int16) + noise, 0, 255).astype(np.uint8)
+@pytest.mark.integration
+def test_webp_compresses_much_better_than_blosc_with_low_error(
+    array_spec_factory: Callable[..., ArraySpec],
+    gradient_image_factory: Callable[..., np.ndarray],
+):
+    spec = array_spec_factory(shape=(1, 128, 128, 3))
+    image = gradient_image_factory(image_height=128, image_width=128)
+    nd_buffer = NDBuffer.from_ndarray_like(image)
+    webp_codec = WebPCodec(level=99)
 
-        nd_buffer = NDBuffer.from_ndarray_like(image)
-        webp_codec = WebPCodec(level=99)
+    webp_encoded = asyncio.run(webp_codec._encode_single(nd_buffer, spec))
+    webp_decoded = asyncio.run(webp_codec._decode_single(webp_encoded, spec))
+    webp_size = np.asarray(webp_encoded.as_array_like()).nbytes
 
-        webp_encoded = asyncio.run(webp_codec._encode_single(nd_buffer, spec))
-        webp_decoded = asyncio.run(webp_codec._decode_single(webp_encoded, spec))
-        webp_size = np.asarray(webp_encoded.as_array_like()).nbytes
+    blosc_codec = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
+    blosc_size = len(blosc_codec.encode(image.tobytes()))
 
-        blosc_codec = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
-        blosc_size = len(blosc_codec.encode(image.tobytes()))
+    assert webp_size < blosc_size * 0.25
 
-        assert webp_size < blosc_size * 0.25
-
-        decoded_array = np.asarray(webp_decoded.as_ndarray_like())
-        mean_absolute_error = np.mean(
-            np.abs(image.astype(np.float32) - decoded_array.astype(np.float32))
-        )
-        assert mean_absolute_error < 5.0
+    decoded_array = np.asarray(webp_decoded.as_ndarray_like())
+    mean_absolute_error = np.mean(
+        np.abs(image.astype(np.float32) - decoded_array.astype(np.float32))
+    )
+    assert mean_absolute_error < 5.0
 
 
-class TestWebPCodecComputeEncodedSize:
-    def test_raises_not_implemented(self):
-        codec = WebPCodec(level=99)
+@pytest.mark.unit
+def test_compute_encoded_size_raises_not_implemented(
+    array_spec_factory: Callable[..., ArraySpec],
+):
+    codec = WebPCodec(level=99)
+    spec = array_spec_factory(shape=(1, 64, 64, 3))
 
-        with pytest.raises(NotImplementedError):
-            codec.compute_encoded_size(input_byte_length=1024, _chunk_spec=None)
+    with pytest.raises(NotImplementedError):
+        codec.compute_encoded_size(input_byte_length=1024, _chunk_spec=spec)

@@ -47,6 +47,7 @@ class BaseActionHead(ABC, nn.Module):
 
     @output_dim.setter
     def output_dim(self, value: int) -> None:
+        """Set the head output dimension."""
         self._output_dim = value
 
     def _get_hidden_dim(self) -> int:

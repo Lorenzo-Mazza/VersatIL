@@ -500,6 +500,7 @@ class ReplayBuffer:
         if_exists: str = "replace",
         **kwargs,
     ) -> LocalStore | MemoryStore:
+        """Write the replay buffer into a Zarr store with optional chunking and codecs."""
         if chunks is None:
             chunks = {}
         if compressors is None:

@@ -5,7 +5,14 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-06
+
+This release adds a full VLA decoder stack (OpenVLA, OpenVLA-OFT, Pi0, Pi0.5,
+pi0-FAST, SmolVLA), a reworked action-tokenization pipeline, PEFT LoRA
+adaptation, and typed camera metadata. **Breaking**: the legacy
+`FreeActionTransformer`, `MoEFreeActionTransformer`, and
+`DiscreteDETRActionTransformer` decoders are removed, and `TwoTowerVLMEncoder`
+is renamed `VLMEncoder` with a new config path.
 
 ### Added
 - `AutoregressiveVLADecoder`, the VLM-backed autoregressive action-token

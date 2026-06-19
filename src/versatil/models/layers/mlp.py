@@ -7,6 +7,8 @@ from versatil.models.layers.gated_linear_unit import GatedLinearUnit
 
 
 class MLP(nn.Module):
+    """Multi-layer perceptron with configurable hidden sizes, activation, and dropout."""
+
     def __init__(
         self,
         input_dim: int,

@@ -20,11 +20,15 @@ class FusionConfig:
 
 @dataclass
 class ConcatFusionConfig(FusionConfig):
+    """Configuration for feature concatenation fusion."""
+
     _target_: str = "versatil.models.encoding.fusion.concat.ConcatFusion"
 
 
 @dataclass
 class AttentionFusionConfig(FusionConfig):
+    """Configuration for cross-attention feature fusion."""
+
     _target_: str = "versatil.models.encoding.fusion.attention.AttentionFusion"
     num_heads: int = 8
     dropout: float = 0.1
@@ -33,6 +37,8 @@ class AttentionFusionConfig(FusionConfig):
 
 @dataclass
 class MLPFusionConfig(FusionConfig):
+    """Configuration for MLP-based feature fusion."""
+
     _target_: str = "versatil.models.encoding.fusion.mlp.MLPFusion"
     mlp_hidden_dims: list[int] = MISSING
     activation_name: str = ActivationFunction.GELU.value
@@ -41,5 +47,7 @@ class MLPFusionConfig(FusionConfig):
 
 @dataclass
 class SpatialFusionConfig(FusionConfig):
+    """Configuration for spatial concatenation of feature maps."""
+
     _target_: str = "versatil.models.encoding.fusion.spatial.SpatialFusion"
     concat_dim: str = ConcatDimension.WIDTH.value

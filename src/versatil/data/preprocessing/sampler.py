@@ -41,7 +41,11 @@ def create_indices(
     Returns:
         Array with rows [buffer_start, buffer_end, pad_start, pad_end] for each sequence.
     """
-    assert episode_mask.shape == episode_ends.shape
+    if episode_mask.shape != episode_ends.shape:
+        raise ValueError(
+            f"episode_mask shape {episode_mask.shape} must match "
+            f"episode_ends shape {episode_ends.shape}"
+        )
     pad_before = min(max(pad_before, 0), sequence_length - 1)
     pad_after = min(max(pad_after, 0), sequence_length - 1)
     indices_list: list[list[int]] = []
@@ -64,11 +68,17 @@ def create_indices(
             end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
             sample_start_idx = 0 + start_offset
             sample_end_idx = sequence_length - end_offset
-            if debug:
-                assert start_offset >= 0
-                assert end_offset >= 0
-                assert (sample_end_idx - sample_start_idx) == (
-                    buffer_end_idx - buffer_start_idx
+            if debug and (
+                start_offset < 0
+                or end_offset < 0
+                or (sample_end_idx - sample_start_idx)
+                != (buffer_end_idx - buffer_start_idx)
+            ):
+                raise RuntimeError(
+                    "Inconsistent sequence sampling offsets: "
+                    f"start_offset={start_offset}, end_offset={end_offset}, "
+                    f"sample=[{sample_start_idx}, {sample_end_idx}), "
+                    f"buffer=[{buffer_start_idx}, {buffer_end_idx})"
                 )
             indices_list.append(
                 [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx]
@@ -133,7 +143,10 @@ def downsample_mask(mask: np.ndarray, max_n: int | None, seed: int = 0) -> np.nd
         train_idxs = curr_train_idxs[train_idxs_idx]
         train_mask = np.zeros_like(train_mask)
         train_mask[train_idxs] = True
-        assert np.sum(train_mask) == n_train
+        if np.sum(train_mask) != n_train:
+            raise RuntimeError(
+                f"Train mask selects {np.sum(train_mask)} episodes, expected {n_train}"
+            )
     return train_mask
 
 
@@ -174,7 +187,8 @@ class SequenceSampler:
         super().__init__()
         if key_first_k is None:
             key_first_k = {}
-        assert sequence_length >= 1
+        if sequence_length < 1:
+            raise ValueError(f"sequence_length must be >= 1, got {sequence_length}")
         if keys is None:
             keys = list(replay_buffer.keys())
 

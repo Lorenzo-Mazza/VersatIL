@@ -6,7 +6,10 @@ import torch.nn as nn
 from peft import LoraConfig as PeftLoRAConfig
 from peft import PeftModel, get_peft_model
 
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import (
+    DEFAULT_LORA_INIT_WEIGHTS,
+    LoRATargetModulePreset,
+)
 
 LLAMA_ATTENTION_AND_FEEDFORWARD_MODULES = [
     "q_proj",
@@ -51,6 +54,8 @@ class LoRAAdaptation:
         exclude_modules: Optional module names to leave unwrapped even if they
             match the selected target preset.
         bias: PEFT bias handling mode.
+        init_lora_weights: PEFT adapter weight initialization strategy passed to
+            ``LoraConfig``. ``gaussian`` matches the OpenVLA-OFT recipe.
     """
 
     enabled: bool = False
@@ -60,6 +65,7 @@ class LoRAAdaptation:
     target_modules: str = LoRATargetModulePreset.AUTO.value
     exclude_modules: list[str] | None = None
     bias: str = "none"
+    init_lora_weights: str = DEFAULT_LORA_INIT_WEIGHTS
 
     def __post_init__(self) -> None:
         """Validate LoRA hyperparameters."""
@@ -132,6 +138,7 @@ def to_peft_lora_config(lora_config: LoRAAdaptation) -> PeftLoRAConfig:
         target_modules=_to_peft_target_modules(lora_config.target_modules),
         exclude_modules=lora_config.exclude_modules,
         bias=lora_config.bias,
+        init_lora_weights=lora_config.init_lora_weights,
     )
 
 

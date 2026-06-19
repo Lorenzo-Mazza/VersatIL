@@ -4,7 +4,7 @@
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
-| Python | 3.14 | Reference environment and CI version. `pyproject.toml` allows 3.13+. |
+| Python | 3.14 | Required by `pyproject.toml` (`requires-python = ">=3.14"`); pinned in `environment.yml`. |
 | CUDA driver | Supports CUDA 13.0 runtime | Required for the pinned `cu130` PyTorch wheels |
 | Git | Latest | Credentials for private repositories if applicable |
 

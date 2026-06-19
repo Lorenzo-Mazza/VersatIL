@@ -197,6 +197,9 @@ class TokenPaddingStrategy(enum.StrEnum):
     LONGEST = "longest"
 
 
+PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER = "{instruction}"
+
+
 class ProprioceptiveType(enum.StrEnum):
     """Proprioceptive data types."""
 

@@ -36,22 +36,41 @@ def input_specification_factory() -> Callable[..., InputSpecification]:
 
 
 @pytest.mark.unit
-def test_stores_camera_modality_constraints(
+@pytest.mark.parametrize("requires_tokenized", [True, False])
+@pytest.mark.parametrize(
+    "keys, expected_keys",
+    [
+        ("left", ["left"]),
+        (["left", "depth"], ["left", "depth"]),
+    ],
+)
+def test_stores_configuration(
     input_specification_factory: Callable[..., InputSpecification],
+    keys: str | list[str],
+    expected_keys: list[str],
+    requires_tokenized: bool,
 ) -> None:
     input_specification = input_specification_factory(
-        keys=["left", "depth"],
-        required=[],
+        keys=keys,
+        required=["left"],
         exactly_one_camera_modality=[CameraModality.RGB],
         required_camera_modalities=[CameraModality.DEPTH],
-        conditioning_key=None,
-        conditioning_required=[],
-        conditioning_one_of_groups=[],
-        requires_tokenized=False,
+        conditioning_key="rgb_embedding",
+        conditioning_required=["rgb_embedding"],
+        conditioning_one_of_groups=[["rgb_embedding", "depth_embedding"]],
+        requires_tokenized=requires_tokenized,
     )
 
+    assert input_specification.keys == expected_keys
+    assert input_specification.required == ["left"]
     assert input_specification.exactly_one_camera_modality == [CameraModality.RGB]
     assert input_specification.required_camera_modalities == [CameraModality.DEPTH]
+    assert input_specification.conditioning_key == "rgb_embedding"
+    assert input_specification.conditioning_required == ["rgb_embedding"]
+    assert input_specification.conditioning_one_of_groups == [
+        ["rgb_embedding", "depth_embedding"]
+    ]
+    assert input_specification.requires_tokenized is requires_tokenized
 
 
 @pytest.mark.unit
@@ -70,6 +89,73 @@ def test_validate_does_not_inspect_observation_metadata(
     )
 
     input_specification.validate()
+
+
+@pytest.mark.unit
+def test_validate_rejects_missing_required_inputs(
+    input_specification_factory: Callable[..., InputSpecification],
+) -> None:
+    input_specification = input_specification_factory(
+        keys=["left"],
+        required=["left", "right"],
+        exactly_one_camera_modality=[],
+        required_camera_modalities=[],
+        conditioning_key=None,
+        conditioning_required=[],
+        conditioning_one_of_groups=[],
+        requires_tokenized=False,
+    )
+
+    with pytest.raises(
+        ValueError, match=re.escape("Missing required inputs: {'right'}")
+    ):
+        input_specification.validate()
+
+
+@pytest.mark.unit
+def test_validate_rejects_missing_required_conditioning(
+    input_specification_factory: Callable[..., InputSpecification],
+) -> None:
+    input_specification = input_specification_factory(
+        keys=["left"],
+        required=[],
+        exactly_one_camera_modality=[],
+        required_camera_modalities=[],
+        conditioning_key="rgb_embedding",
+        conditioning_required=["missing_key"],
+        conditioning_one_of_groups=[],
+        requires_tokenized=False,
+    )
+
+    with pytest.raises(
+        ValueError, match=re.escape("Missing required conditioning: {'missing_key'}")
+    ):
+        input_specification.validate()
+
+
+@pytest.mark.unit
+def test_validate_rejects_conditioning_key_outside_one_of_group(
+    input_specification_factory: Callable[..., InputSpecification],
+) -> None:
+    input_specification = input_specification_factory(
+        keys=["left"],
+        required=[],
+        exactly_one_camera_modality=[],
+        required_camera_modalities=[],
+        conditioning_key="other_key",
+        conditioning_required=[],
+        conditioning_one_of_groups=[["rgb_embedding", "depth_embedding"]],
+        requires_tokenized=False,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "Exactly one from ['rgb_embedding', 'depth_embedding'] "
+            "required for conditioning"
+        ),
+    ):
+        input_specification.validate()
 
 
 @pytest.mark.parametrize(

@@ -20,4 +20,6 @@ class RequiresPosteriorWiring(Protocol):
     shared state it needs (encoder reference, codebook, etc.).
     """
 
-    def wire_posterior(self, posterior: PosteriorLatentEncoder) -> None: ...
+    def wire_posterior(self, posterior: PosteriorLatentEncoder) -> None:
+        """Receive the constructed posterior encoder for shared-state extraction."""
+        ...

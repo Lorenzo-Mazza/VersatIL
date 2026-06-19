@@ -1,5 +1,6 @@
 """Tests for versatil.inference.observation_preprocessor module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import patch
 
@@ -244,6 +245,45 @@ class TestParseResponse:
         ) as mock_single:
             preprocessor.parse_response(response=response)
             mock_single.assert_called_once_with(response=response)
+
+    def test_missing_requested_keys_raises(
+        self,
+        preprocessor_factory,
+        rgb_image_factory,
+    ):
+        preprocessor = preprocessor_factory(
+            camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
+        )
+        response = {Cameras.LEFT.value: rgb_image_factory()}
+        missing_keys = [Cameras.RIGHT.value]
+        with pytest.raises(
+            KeyError,
+            match=re.escape(
+                f"Server response missing requested keys: {missing_keys}. "
+                f"Available keys: {list(response.keys())}"
+            ),
+        ):
+            preprocessor.parse_response(response=response)
+
+    def test_missing_language_key_raises_when_language_enabled(
+        self,
+        preprocessor_factory,
+        rgb_image_factory,
+    ):
+        preprocessor = preprocessor_factory(
+            camera_keys=[Cameras.LEFT.value],
+            has_language=True,
+        )
+        response = {Cameras.LEFT.value: rgb_image_factory()}
+        missing_keys = [ObsKey.LANGUAGE.value]
+        with pytest.raises(
+            KeyError,
+            match=re.escape(
+                f"Server response missing requested keys: {missing_keys}. "
+                f"Available keys: {list(response.keys())}"
+            ),
+        ):
+            preprocessor.parse_response(response=response)
 
 
 @pytest.mark.unit

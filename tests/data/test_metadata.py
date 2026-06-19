@@ -36,7 +36,12 @@ from versatil.data.metadata import (
 
 class TestBaseMetadata:
     def test_non_numerical_with_normalization_raises(self):
-        with pytest.raises(ValueError, match="Non-numerical"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Non-numerical observations should not need normalization."
+            ),
+        ):
             BaseMetadata(dtype="string", is_numerical=False, needs_normalization=True)
 
     def test_non_numerical_without_normalization_succeeds(self):
@@ -60,6 +65,17 @@ class TestBaseMetadata:
     )
     def test_numerical_dtype_validation(self, dtype, expectation):
         with expectation:
+            BaseMetadata(dtype=dtype, is_numerical=True, needs_normalization=True)
+
+    @pytest.mark.parametrize("dtype", ["string", "bool", "datetime64"])
+    def test_numerical_dtype_validation_message(self, dtype):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"dtype for numerical observations must be float or int type, "
+                f"got {dtype}"
+            ),
+        ):
             BaseMetadata(dtype=dtype, is_numerical=True, needs_normalization=True)
 
     def test_equality_same_values(self):
@@ -89,7 +105,9 @@ class TestBaseMetadata:
 
 class TestObservationMetadata:
     def test_empty_raw_data_column_keys_raises(self):
-        with pytest.raises(ValueError, match="cannot be empty"):
+        with pytest.raises(
+            ValueError, match=re.escape("raw_data_column_keys cannot be empty")
+        ):
             ObservationMetadata(
                 raw_data_column_keys=[],
                 dimension=3,
@@ -100,7 +118,10 @@ class TestObservationMetadata:
 
     @pytest.mark.parametrize("dimension", [0, -1])
     def test_non_positive_dimension_raises(self, dimension):
-        with pytest.raises(ValueError, match="must be positive"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"dimension must be positive, got {dimension}"),
+        ):
             ObservationMetadata(
                 raw_data_column_keys=["x"],
                 dimension=dimension,
@@ -110,7 +131,10 @@ class TestObservationMetadata:
             )
 
     def test_negative_slice_start_raises(self):
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("slice_start and slice_end must be non-negative"),
+        ):
             ObservationMetadata(
                 raw_data_column_keys=["x", "y", "z"],
                 dimension=3,
@@ -122,7 +146,10 @@ class TestObservationMetadata:
             )
 
     def test_slice_start_greater_equal_to_end_raises(self):
-        with pytest.raises(ValueError, match="must be less than"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("slice_start (5) must be less than slice_end (2)"),
+        ):
             ObservationMetadata(
                 raw_data_column_keys=["x", "y", "z"],
                 dimension=3,
@@ -134,7 +161,10 @@ class TestObservationMetadata:
             )
 
     def test_slice_range_not_matching_dimension_raises(self):
-        with pytest.raises(ValueError, match="must equal dimension"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Slice range (5) must equal dimension (3)"),
+        ):
             ObservationMetadata(
                 raw_data_column_keys=["x", "y", "z"],
                 dimension=3,
@@ -170,7 +200,6 @@ class TestObservationMetadata:
         assert metadata.slice_end is None
 
     def test_only_slice_start_without_end_skips_validation(self):
-        """When only one of slice_start/slice_end is provided, no slice validation runs."""
         metadata = ObservationMetadata(
             raw_data_column_keys=["x"],
             dimension=1,
@@ -208,7 +237,10 @@ class TestObservationMetadata:
 class TestPositionObservationMetadata:
     @pytest.mark.parametrize("dtype", ["int32", "int64", "bool", "string"])
     def test_non_float_dtype_raises(self, dtype):
-        with pytest.raises(ValueError, match="float type"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Position observations dtype must be a float type."),
+        ):
             PositionObservationMetadata(
                 raw_data_column_keys=["x", "y", "z"],
                 dimension=3,
@@ -220,7 +252,16 @@ class TestPositionObservationMetadata:
         "frame, expectation",
         [(member.value, does_not_raise()) for member in CoordinateSystem]
         + [
-            ("invalid_frame", pytest.raises(ValueError, match="frame must be one of")),
+            (
+                "invalid_frame",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"frame must be one of {[e.value for e in CoordinateSystem]}, "
+                        "got 'invalid_frame'"
+                    ),
+                ),
+            ),
         ],
     )
     def test_frame_validation(self, frame, expectation):
@@ -281,7 +322,10 @@ class TestPositionObservationMetadata:
 class TestOrientationObservationMetadata:
     @pytest.mark.parametrize("dtype", ["int32", "bool"])
     def test_non_float_dtype_raises(self, dtype):
-        with pytest.raises(ValueError, match="float type"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Orientation observations dtype must be a float type."),
+        ):
             OrientationObservationMetadata(
                 raw_data_column_keys=["roll"],
                 dimension=1,
@@ -290,7 +334,13 @@ class TestOrientationObservationMetadata:
             )
 
     def test_invalid_frame_raises(self):
-        with pytest.raises(ValueError, match="frame must be one of"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"frame must be one of {[e.value for e in CoordinateSystem]}, "
+                "got 'invalid'"
+            ),
+        ):
             OrientationObservationMetadata(
                 raw_data_column_keys=["roll"],
                 dimension=1,
@@ -301,7 +351,12 @@ class TestOrientationObservationMetadata:
 
     def test_invalid_orientation_representation_raises(self):
         with pytest.raises(
-            ValueError, match="orientation_representation must be one of"
+            ValueError,
+            match=re.escape(
+                "orientation_representation must be one of "
+                f"{[e.value for e in OrientationRepresentation]}, "
+                "got 'rotation_matrix'"
+            ),
         ):
             OrientationObservationMetadata(
                 raw_data_column_keys=["roll"],
@@ -356,7 +411,13 @@ class TestOrientationObservationMetadata:
 
 class TestGripperObservationMetadata:
     def test_invalid_gripper_type_raises(self):
-        with pytest.raises(ValueError, match="gripper_type must be one of"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"gripper_type must be one of {[e.value for e in GripperType]}, "
+                "got 'invalid'"
+            ),
+        ):
             GripperObservationMetadata(
                 raw_data_column_keys=["gripper"],
                 dimension=1,
@@ -366,7 +427,13 @@ class TestGripperObservationMetadata:
             )
 
     def test_invalid_binary_gripper_range_raises(self):
-        with pytest.raises(ValueError, match="binary_gripper_range must be one of"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "binary_gripper_range must be one of "
+                f"{[e.value for e in BinaryGripperRange]}, got 'zero_two'"
+            ),
+        ):
             GripperObservationMetadata(
                 raw_data_column_keys=["gripper"],
                 dimension=1,
@@ -377,7 +444,9 @@ class TestGripperObservationMetadata:
             )
 
     def test_binary_dimension_not_one_raises(self):
-        with pytest.raises(ValueError, match="dimension must be 1"):
+        with pytest.raises(
+            ValueError, match=re.escape("Binary gripper state dimension must be 1.")
+        ):
             GripperObservationMetadata(
                 raw_data_column_keys=["g1", "g2"],
                 dimension=2,
@@ -387,7 +456,10 @@ class TestGripperObservationMetadata:
             )
 
     def test_binary_with_normalization_raises(self):
-        with pytest.raises(ValueError, match="should not need normalization"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Binary gripper state should not need normalization."),
+        ):
             GripperObservationMetadata(
                 raw_data_column_keys=["gripper"],
                 dimension=1,
@@ -918,7 +990,6 @@ class TestPrecomputedActionMetadata:
         assert metadata.is_precomputed
 
     def test_prediction_dimension_can_differ_from_storage(self):
-        """e.g. phase labels stored as 1 column but predicted as n_classes logits."""
         metadata = PrecomputedActionMetadata(
             raw_data_column_keys=["phase"],
             storage_dimension=1,

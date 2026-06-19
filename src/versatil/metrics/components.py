@@ -200,6 +200,7 @@ class GripperLoss(BaseLoss):
 
     @property
     def requires_action_space_targets(self) -> bool:
+        """Whether the loss needs action-space metadata for BCE targets."""
         return self.bce_weight > 0
 
     @property
@@ -1810,6 +1811,7 @@ class GripperMixtureNLLoss(ScalarWeightedLoss):
             )
 
     def get_required_keys(self) -> set[str]:
+        """Return the prediction key this loss consumes."""
         return {self.key}
 
     def forward(

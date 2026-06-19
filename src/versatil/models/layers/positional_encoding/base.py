@@ -10,17 +10,23 @@ from versatil.models.layers.mlp import MLP
 
 
 class PositionSource(enum.Enum):
+    """Where positional encodings read positions from."""
+
     TENSOR_INDICES = "tensor_indices"  # For encoding positions in a sequence
     SCALAR = "scalar"  # For encoding continuous scalar values like timesteps
     GRID_2D = "grid_2d"  # For encoding 2D grid positions, e.g., images
 
 
 class DenominatorMode(enum.Enum):
+    """Frequency denominator convention for sinusoidal encodings."""
+
     HALF = "half"  # Original Vaswani et al. formulation
     HALF_MINUS_ONE = "half_minus_one"  # DDPM formulation
 
 
 class OrderingMode(enum.Enum):
+    """Sine/cosine channel ordering convention."""
+
     INTERLEAVE_SIN_COS = "interleave_sin_cos"  # Original Vaswani et al. formulation
     CAT_COS_SIN = "cat_cos_sin"  # DDPM formulation
 
@@ -58,6 +64,7 @@ class PositionalEncoding(abc.ABC, nn.Module):
 
     @abstractmethod
     def forward(self, input_tensor: torch.Tensor, offset: int = 0) -> torch.Tensor:
+        """Compute positional encodings for the input tensor."""
         raise NotImplementedError("Subclasses must implement forward")
 
 
@@ -168,6 +175,7 @@ class PositionalEncoding2D(PositionalEncoding, abc.ABC):
         )
 
     def forward(self, input_tensor: torch.Tensor, offset: int = 0) -> torch.Tensor:
+        """Compute 2D positional encodings for (B, C, H, W) feature maps."""
         batch_size, channels, height, width = input_tensor.shape
 
         encodings = self._compute_encodings(

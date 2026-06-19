@@ -90,12 +90,27 @@ These decoders are designed for iterative denoising algorithms. They accept nois
 ### VLA Decoders
 
 These decoders use a vision-language model directly inside the
-action-generation sequence.
+action-generation sequence. They all declare `needs_raw_observations=True`,
+own a `vlm_backbone` ([`GenerativeVLM`][versatil.models.decoding.generative_language_models.vision_language.base.GenerativeVLM]),
+and run it on raw normalized/tokenized image-text observations during the
+decoder forward pass.
 
-There are two wiring patterns:
+The stack splits into two families by how actions are produced:
 
-- [`AutoregressiveVLADecoder`][versatil.models.decoding.decoders.factory.autoregressive_vla.AutoregressiveVLADecoder] and [`OpenVLAOFTDecoder`][versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder] run a configured `vlm_backbone` on raw normalized/tokenized image-text observations, then use the VLM language tower for either autoregressive action tokens or continuous action slots.
-- [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder] and [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder] run a configured `vlm_backbone` on the same raw observations, then pass those VLM tokens to expert action layers.
+- **Discrete autoregressive VLAs** generate action *tokens* one at a time
+  through the VLM's causal language tower. [`AutoregressiveVLADecoder`][versatil.models.decoding.decoders.factory.autoregressive_vla.AutoregressiveVLADecoder]
+  inherits [`DiscreteDecoder`][versatil.models.decoding.decoders.discrete.DiscreteDecoder]
+  (so `requires_tokenized_actions=True`) and the
+  [`AutoregressiveDecoderMixin`][versatil.models.decoding.decoders.autoregressive_mixin.AutoregressiveDecoderMixin]
+  for cached generation. It backs the `openvla` and `pi0_fast` presets.
+- **Continuous interleaved VLAs** predict the full action chunk in continuous
+  space alongside the VLM tokens, and are compatible with denoising algorithms
+  (Flow Matching, Diffusion). [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder]
+  and [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder]
+  pair each VLM layer with an expert action layer (`BaseInterleavedVLMDecoder`);
+  [`OpenVLAOFTDecoder`][versatil.models.decoding.decoders.factory.openvla_oft.OpenVLAOFTDecoder]
+  appends learned action slots to the prefix and runs the language tower once
+  (parallel decoding + L1 regression head).
 
 Reusable HF wrappers for VLM backbones live in
 `versatil.models.decoding.generative_language_models`.
@@ -115,6 +130,61 @@ PEFT LoRA presets `auto` and `all-linear`.
 References: [OpenVLA](https://openvla.github.io/), [OpenVLA-OFT](https://openvla-oft.github.io/), [pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast), [Pi0](https://arxiv.org/abs/2410.24164), [Pi0.5](https://arxiv.org/abs/2504.16054), [SmolVLA](https://arxiv.org/abs/2506.01844).
 
 [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder] and [`SmolVLADecoder`][versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder] accept noisy actions and timestep conditioning, making them compatible with generative algorithms such as Flow Matching and Diffusion.
+
+#### Training the VLA presets
+
+Each VLA has a ready-to-run LIBERO (LeRobot) end-to-end config under
+`hydra_configs/end_to_end_training_runs/libero_lerobot/`:
+
+```bash
+# Discrete autoregressive (binned tokens → Prismatic vocabulary)
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_lerobot/openvla
+
+# Discrete autoregressive (FAST tokens in the VLM vocabulary)
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_lerobot/pi0_fast
+
+# Continuous, parallel decoding + L1 regression head
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_lerobot/openvla_oft
+
+# Continuous interleaved (Flow Matching)
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_lerobot/pi0
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_lerobot/pi05
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_lerobot/smolvla
+```
+
+The discrete presets drive the action-tokenization pipeline. OpenVLA uses a
+[`BinnedActionDiscretizer`][versatil.data.tokenization.action_discretizer.BinnedActionDiscretizer]
+with a [`LanguageVocabularyActionTokenIdMapping`][versatil.data.tokenization.action_token_id_mapping.LanguageVocabularyActionTokenIdMapping]
+(actions occupy the tail of the language vocabulary) and the OpenVLA prompt
+template `"In: What action should the robot take to {instruction}?\nOut:"` via
+[`ObservationTokenizer`][versatil.data.tokenization.observation_tokenizer.ObservationTokenizer]'s
+`prompt_template`. pi0-FAST uses a [`FastActionDiscretizer`][versatil.data.tokenization.action_discretizer.FastActionDiscretizer]
+(`physical-intelligence/fast` or a locally fitted BPE), placing the FAST tokens
+in the VLM vocabulary tail through the same language-vocabulary mapping.
+See [Tokenization](data.md#tokenization) for the discretizer → token-id mapping → [`ActionTokenizer`][versatil.data.tokenization.action_tokenizer.ActionTokenizer] flow.
+
+#### LoRA fine-tuning
+
+The HuggingFace/Prismatic-backed VLM backbones (and HuggingFace language and VLM
+encoders) accept an optional `lora_config`
+([`LoRAAdaptation`][versatil.models.adaptation.lora.LoRAAdaptation]) applied via
+PEFT in [`apply_lora_config`][versatil.models.adaptation.lora.apply_lora_config].
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `enabled` | `False` | Turn LoRA on |
+| `rank` | `8` | LoRA rank |
+| `alpha` | `16` | LoRA scaling |
+| `dropout` | `0.0` | Adapter dropout |
+| `target_modules` | `auto` | Preset from [`LoRATargetModulePreset`][versatil.models.adaptation.constants.LoRATargetModulePreset] |
+| `init_lora_weights` | `gaussian` | PEFT adapter init strategy |
+
+`target_modules` presets: `auto` (PEFT infers), `all-linear`,
+`llama-attention-and-feedforward`, `llama-query-value-projections`,
+`vlm-text-model-attention-and-feedforward`, `vlm-text-model-query-value-projections`.
+Ready-made presets ship under `hydra_configs/policy/adaptation/lora/`. Compose
+one into a decoder's `vlm_backbone`/encoder via the `adaptation/lora` config
+group; the VLA presets default to LoRA-enabled backbones.
 
 #### [`Pi0Decoder`][versatil.models.decoding.decoders.factory.pi0.Pi0Decoder]
 

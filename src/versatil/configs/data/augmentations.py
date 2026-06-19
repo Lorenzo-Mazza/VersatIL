@@ -22,6 +22,8 @@ class AugmentationConfig:
 
 @dataclass
 class ColorJitterConfig(AugmentationConfig):
+    """Random brightness, contrast, saturation, and hue jitter."""
+
     _target_: str = "albumentations.ColorJitter"
     brightness: float = 0.3
     contrast: float = 0.4
@@ -32,6 +34,8 @@ class ColorJitterConfig(AugmentationConfig):
 
 @dataclass
 class RandomSunFlareConfig(AugmentationConfig):
+    """Simulated sun-flare artifacts in the upper image region."""
+
     _target_: str = "albumentations.RandomSunFlare"
     flare_roi: tuple[float, float, float, float] = (0, 0, 1, 0.5)
     src_color: tuple[int, int, int] = (255, 255, 255)
@@ -40,6 +44,8 @@ class RandomSunFlareConfig(AugmentationConfig):
 
 @dataclass
 class RandomBrightnessContrastConfig(AugmentationConfig):
+    """Random brightness and contrast shifts."""
+
     _target_: str = "albumentations.RandomBrightnessContrast"
     brightness_limit: float = 0.4
     contrast_limit: float = 0.4
@@ -48,6 +54,8 @@ class RandomBrightnessContrastConfig(AugmentationConfig):
 
 @dataclass
 class RandomGammaConfig(AugmentationConfig):
+    """Random gamma correction within the configured limits."""
+
     _target_: str = "albumentations.RandomGamma"
     gamma_limit: tuple[int, int] = (80, 120)
     p: float = 0.3
@@ -55,6 +63,8 @@ class RandomGammaConfig(AugmentationConfig):
 
 @dataclass
 class CLAHEConfig(AugmentationConfig):
+    """Contrast-limited adaptive histogram equalization."""
+
     _target_: str = "albumentations.CLAHE"
     clip_limit: float = 4.0
     p: float = 0.3
@@ -62,12 +72,16 @@ class CLAHEConfig(AugmentationConfig):
 
 @dataclass
 class RandomShadowConfig(AugmentationConfig):
+    """Random polygonal shadows cast over the image."""
+
     _target_: str = "albumentations.RandomShadow"
     p: float = 0.4
 
 
 @dataclass
 class ImageCompressionConfig(AugmentationConfig):
+    """Lossy compression artifacts within a random quality range."""
+
     _target_: str = "albumentations.ImageCompression"
     quality_lower: int = 50
     quality_upper: int = 100
@@ -80,6 +94,8 @@ class ImageCompressionConfig(AugmentationConfig):
 
 @dataclass
 class GaussianBlurConfig(AugmentationConfig):
+    """Gaussian blur with a random kernel size."""
+
     _target_: str = "albumentations.GaussianBlur"
     blur_limit: tuple[int, int] = (3, 7)
     p: float = 0.5
@@ -87,6 +103,8 @@ class GaussianBlurConfig(AugmentationConfig):
 
 @dataclass
 class CoarseDropoutConfig(AugmentationConfig):
+    """Random rectangular occlusion holes."""
+
     _target_: str = "albumentations.CoarseDropout"
     max_holes: int = 8
     max_height: int = 8
@@ -96,6 +114,8 @@ class CoarseDropoutConfig(AugmentationConfig):
 
 @dataclass
 class ShiftScaleRotateConfig(AugmentationConfig):
+    """Random shift and scale; rotation stays disabled to keep kinematics consistent."""
+
     _target_: str = "albumentations.ShiftScaleRotate"
     rotate_limit: tuple[float, float] = (
         0,

@@ -261,7 +261,48 @@ class TestPolicyLoaderTokenizer:
     def test_tokenizer_loaded_when_directory_exists(self, policy_loader_factory):
         loader = policy_loader_factory(create_tokenizer_dir=True)
         loader._config.policy.set_tokenizer.assert_called_once()
-        assert loader.tokenizer is not None
+        assert loader.tokenizer is loader._config.policy.set_tokenizer.call_args.args[0]
+
+    def test_set_tokenizer_runs_before_state_dict_load(
+        self, tmp_path, mock_config, mock_checkpoint
+    ):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("dummy: true")
+        (tmp_path / "last.ckpt").write_text("dummy")
+        (tmp_path / "tokenizer").mkdir()
+
+        call_order: list[str] = []
+        mock_config.policy.set_tokenizer.side_effect = lambda tokenizer: (
+            call_order.append("set_tokenizer")
+        )
+        mock_lightning = MagicMock()
+        mock_lightning.state_dict.return_value = dict(mock_checkpoint["state_dict"])
+        mock_lightning.load_state_dict.side_effect = lambda state_dict, strict: (
+            call_order.append("load_state_dict")
+        )
+
+        with (
+            patch(f"{BASE_LOADER_MODULE}.OmegaConf.load", return_value=MagicMock()),
+            patch(
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
+                return_value=mock_config,
+            ),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
+            patch(f"{FLOAT_LOADER_MODULE}.torch.load", return_value=mock_checkpoint),
+            patch(
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy", return_value=mock_lightning
+            ),
+            patch(
+                f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
+                return_value=MagicMock(),
+            ),
+        ):
+            PolicyLoader(
+                device=torch.device("cpu"),
+                checkpoint_path=str(tmp_path),
+            )
+
+        assert call_order == ["set_tokenizer", "load_state_dict"]
 
 
 @pytest.mark.unit

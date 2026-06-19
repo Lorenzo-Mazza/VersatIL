@@ -137,6 +137,7 @@ class OptimalTransportLoss(ScalarWeightedLoss):
         )
 
     def get_required_keys(self) -> set[str]:
+        """Return the action keys this loss consumes."""
         return set(self.action_keys)
 
     def forward(

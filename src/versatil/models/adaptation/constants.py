@@ -2,6 +2,8 @@
 
 import enum
 
+DEFAULT_LORA_INIT_WEIGHTS = "gaussian"
+
 
 class LoRATargetModulePreset(enum.StrEnum):
     """PEFT target-module presets exposed by VersatIL."""

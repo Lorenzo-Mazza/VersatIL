@@ -2,7 +2,7 @@
 
 import importlib
 import importlib.util
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -13,6 +13,16 @@ from versatil.quantization.torch_patches import (
     _PT2E_MODULE_PATCHES,
     patch_pt2e_python314,
 )
+
+
+@pytest.fixture
+def python_314_version() -> Iterator[None]:
+    """Simulate Python 3.14 so the patch gate opens regardless of host version."""
+    with patch(
+        "versatil.quantization.torch_patches.sys.version_info",
+        (3, 14, 0),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -66,6 +76,7 @@ class TestPatchPT2EPython314:
 
     def test_replaces_known_crashing_assignments(
         self,
+        python_314_version: None,
         torchao_package_factory: Callable[[], Path],
     ) -> None:
         package_path = torchao_package_factory()
@@ -98,7 +109,7 @@ class TestPatchPT2EPython314:
         assert "# versatil-pt2e-patched" in quantizer_source
         invalidate_caches_mock.assert_called_once_with()
 
-    def test_skips_when_torchao_is_missing(self) -> None:
+    def test_skips_when_torchao_is_missing(self, python_314_version: None) -> None:
         find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=None)
         invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
 
@@ -117,7 +128,9 @@ class TestPatchPT2EPython314:
         find_spec_mock.assert_called_once_with("torchao")
         invalidate_caches_mock.assert_not_called()
 
-    def test_skips_when_torchao_has_no_package_path(self) -> None:
+    def test_skips_when_torchao_has_no_package_path(
+        self, python_314_version: None
+    ) -> None:
         spec = MagicMock(spec=ModuleSpec)
         spec.submodule_search_locations = None
         find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=spec)
@@ -138,7 +151,9 @@ class TestPatchPT2EPython314:
         find_spec_mock.assert_called_once_with("torchao")
         invalidate_caches_mock.assert_not_called()
 
-    def test_skips_when_pt2e_directory_is_missing(self, tmp_path: Path) -> None:
+    def test_skips_when_pt2e_directory_is_missing(
+        self, python_314_version: None, tmp_path: Path
+    ) -> None:
         package_path = tmp_path / "torchao"
         package_path.mkdir()
         spec = MagicMock(spec=ModuleSpec)
@@ -163,6 +178,7 @@ class TestPatchPT2EPython314:
 
     def test_skips_files_that_are_already_patched(
         self,
+        python_314_version: None,
         torchao_package_factory: Callable[[], Path],
     ) -> None:
         package_path = torchao_package_factory()

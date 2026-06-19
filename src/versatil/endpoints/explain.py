@@ -128,9 +128,8 @@ class ModelExplainer:
         Returns:
             Dictionary of observation tensors
         """
-        assert self.dataset is not None, (
-            "Dataset must be loaded before getting observations"
-        )
+        if self.dataset is None:
+            raise RuntimeError("Dataset must be loaded before getting observations")
         df = self.dataset.iloc[self.timestep : self.timestep + self.observation_horizon]
         obs = {}
 
@@ -205,7 +204,6 @@ class ModelExplainer:
             self.dataset = pd.read_csv(path / self.dataset_schema.dataset_filename)
             self.timestep = 0
 
-            assert self.dataset is not None, "Dataset should be loaded"
             while self.timestep < len(self.dataset) - 1:
                 heatmaps, observation = self.explain_prediction()
 

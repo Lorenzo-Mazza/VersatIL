@@ -44,7 +44,7 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 pre-commit install
 ```
 
-Requirements: Python 3.13+, CUDA 12.8+
+Requirements: Python 3.14+, CUDA 12.8+
 
 ## Common Commands
 
@@ -116,7 +116,7 @@ python -m versatil.endpoints.test \
 ### Code Formatting and Linting
 
 ```bash
-# Format code with Ruff (line length 88, Python 3.13)
+# Format code with Ruff (line length 88)
 ruff format src/ tests/
 
 # Check formatting
@@ -404,7 +404,7 @@ python -m versatil.endpoints.post_training_compress \
 - **Never use `object` as a type annotation** for return types or parameters. Use the actual type, a protocol, or a union.
 
 Additional standards:
-- Ruff formatter and linter (line length 88, Python 3.13 target). Configuration in `pyproject.toml`.
+- Ruff formatter and linter (line length 88; lint target pinned to py313 to keep annotation imports at runtime for OmegaConf). Configuration in `pyproject.toml`.
 - Shared domain constants (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`, etc.) come from the `versatil-constants` PyPI package. Import directly from `versatil_constants.shared`, `versatil_constants.tso`, `versatil_constants.libero`, or `versatil_constants.metaworld`. VersatIL-internal enums (`Cameras`, `ProprioceptiveType`, `TokenizerType`, etc.) live in `versatil.data.constants`.
 - Socket protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`, etc.) come from the `tso-robotics-sockets` PyPI package.
 - Prefer dataclasses for configurations

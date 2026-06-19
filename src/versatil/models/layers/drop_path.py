@@ -13,6 +13,7 @@ class DropPath(nn.Module):
         self.scale_by_keep = bool(scale_by_keep)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Randomly drop whole samples from the residual branch during training."""
         if self.drop_prob == 0.0 or not self.training:
             return x
         keep_prob = 1.0 - self.drop_prob

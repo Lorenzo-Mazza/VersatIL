@@ -182,6 +182,7 @@ class MoEHead(BaseMixtureOfExperts):
 
     @output_dim.setter
     def output_dim(self, value: int) -> None:
+        """Set the output dimension on this head only."""
         self._output_dim = value
 
     def set_output_dim(self, dim: int) -> None:

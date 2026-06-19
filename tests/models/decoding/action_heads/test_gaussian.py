@@ -12,18 +12,16 @@ from versatil.models.decoding.constants import DecoderOutputKey
 
 
 @pytest.mark.unit
-class TestGaussianHeadInitialization:
-    @pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
-    @pytest.mark.parametrize("max_logvar", [4.0, 2.0])
-    def test_stores_configuration(
-        self,
-        gaussian_head_factory: Callable[..., GaussianHead],
-        min_logvar: float,
-        max_logvar: float,
-    ):
-        head = gaussian_head_factory(min_logvar=min_logvar, max_logvar=max_logvar)
-        assert head.min_logvar == min_logvar
-        assert head.max_logvar == max_logvar
+@pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
+@pytest.mark.parametrize("max_logvar", [4.0, 2.0])
+def test_gaussian_head_stores_configuration(
+    gaussian_head_factory: Callable[..., GaussianHead],
+    min_logvar: float,
+    max_logvar: float,
+):
+    head = gaussian_head_factory(min_logvar=min_logvar, max_logvar=max_logvar)
+    assert head.min_logvar == min_logvar
+    assert head.max_logvar == max_logvar
 
 
 @pytest.mark.unit
@@ -115,3 +113,37 @@ class TestGaussianHeadForward:
         logvar = result[DecoderOutputKey.LOGVAR.value]
         assert logvar.min().item() >= min_logvar
         assert logvar.max().item() <= max_logvar
+
+    def test_mean_equals_mean_projection_of_applied_blocks(
+        self,
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
+        head = GaussianHead(input_dim=64, blocks=blocks)
+        head.set_output_dim(3)
+        head.eval()
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        expected_mean = head.output_proj(head._apply_blocks(embedding))
+        result = head(embedding)
+        torch.testing.assert_close(result[DecoderOutputKey.MEAN.value], expected_mean)
+
+    def test_mean_and_logvar_use_independent_projections(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        head = gaussian_head_factory(input_dim=64, max_logvar=100.0, min_logvar=-100.0)
+        head.set_output_dim(3)
+        head.eval()
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        baseline = head(embedding)[DecoderOutputKey.MEAN.value].clone()
+        # Mutating only the logvar projection must leave the mean untouched.
+        with torch.no_grad():
+            head._logvar_proj.weight.add_(5.0)
+            head._logvar_proj.bias.add_(5.0)
+        mutated = head(embedding)
+        torch.testing.assert_close(mutated[DecoderOutputKey.MEAN.value], baseline)
+        assert not torch.allclose(
+            mutated[DecoderOutputKey.LOGVAR.value],
+            head.output_proj(embedding),
+        )

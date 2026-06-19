@@ -1,6 +1,7 @@
 """Tests for versatil.training.callbacks.training_stage module."""
 
 import copy
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -140,7 +141,10 @@ def staged_trainer_factory() -> Callable[..., MagicMock]:
 @pytest.mark.unit
 class TestTrainingStageCallback:
     def test_requires_non_empty_stages(self) -> None:
-        with pytest.raises(ValueError, match="requires a non-empty stage list"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("TrainingStageCallback requires a non-empty stage list."),
+        ):
             TrainingStageCallback(stages=[])
 
     def test_applies_stage_on_train_start(

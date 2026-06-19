@@ -8,6 +8,8 @@ from versatil.models.layers.detr_transformer.attention import FlashAttention
 
 
 class TransformerDecoderLayer(nn.Module):
+    """DETR-style decoder layer with self-attention and cross-attention to memory."""
+
     def __init__(
         self,
         embedding_dimension: int,

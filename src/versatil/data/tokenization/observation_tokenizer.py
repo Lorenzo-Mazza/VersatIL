@@ -17,6 +17,7 @@ import torch
 from transformers import AutoTokenizer
 
 from versatil.data.constants import (
+    PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER,
     ObsKey,
     SampleKey,
     TokenPaddingStrategy,
@@ -42,6 +43,7 @@ class ObservationTokenizer:
         max_token_len: int = 256,
         device: torch.device | None = None,
         raw_text: bool = False,
+        prompt_template: str | None = None,
         padding_strategy: str = TokenPaddingStrategy.MAX_LENGTH.value,
     ):
         """Initialize observation tokenizer.
@@ -56,10 +58,23 @@ class ObservationTokenizer:
             raw_text: If True, pass language text through with only a trailing
                 newline appended (no ``Task:`` prefix, no lowercasing). Use for
                 VLM policies (SmolVLA, Pi0) that expect unformatted text.
+            prompt_template: Optional raw-text template with an
+                ``{instruction}`` placeholder wrapped around the language
+                instruction, which is lowercased and stripped before insertion
+                (OpenVLA convention). Requires ``raw_text=True``.
             padding_strategy: HuggingFace padding strategy. ``"max_length"``
                 pads all sequences to ``max_token_len``. ``"longest"`` pads to
                 the longest sequence in the batch.
         """
+        if prompt_template is not None:
+            if not raw_text:
+                raise ValueError("prompt_template requires raw_text=True.")
+            if PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER not in prompt_template:
+                raise ValueError(
+                    "prompt_template must contain an "
+                    f"'{PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER}' placeholder, "
+                    f"got: {prompt_template!r}"
+                )
         self.tokenizer_model = tokenizer_model
         self.observation_keys = observation_keys
         self.bin_continuous_data = bin_continuous_data
@@ -67,6 +82,7 @@ class ObservationTokenizer:
         self.max_token_len = max_token_len
         self.device = device if device is not None else torch.device("cpu")
         self.raw_text = raw_text
+        self.prompt_template = prompt_template
         self.padding_strategy = padding_strategy
         self.language_tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
         if self.language_tokenizer.pad_token is None:
@@ -266,7 +282,12 @@ class ObservationTokenizer:
     def _build_raw_prompts(
         self, observations: dict[str, Any], batch_size: int
     ) -> list[str]:
-        """Build prompts by passing language text through with a trailing newline."""
+        """Build prompts from raw language text, optionally through a template.
+
+        Without a template the text passes through with a trailing newline.
+        With a template the lowercased instruction is inserted at the
+        ``{instruction}`` placeholder and the template is used verbatim.
+        """
         language_data = observations.get(ObsKey.LANGUAGE.value)
         if language_data is None:
             raise ValueError(
@@ -277,6 +298,11 @@ class ObservationTokenizer:
             text = self._extract_language_text(
                 data=language_data, index=i, batch_size=batch_size
             )
+            if self.prompt_template is not None:
+                prompts.append(
+                    self.prompt_template.format(instruction=text.lower().strip())
+                )
+                continue
             if not text.endswith("\n"):
                 text = text + "\n"
             prompts.append(text)
@@ -310,6 +336,7 @@ class ObservationTokenizer:
             "max_token_len": self.max_token_len,
             "vocab_size": self.vocab_size,
             "raw_text": self.raw_text,
+            "prompt_template": self.prompt_template,
             "padding_strategy": self.padding_strategy,
             "binned_value_discretizers": {
                 key: discretizer.state_dict()
@@ -331,6 +358,7 @@ class ObservationTokenizer:
         self.max_token_len = state_dict["max_token_len"]
         self.vocab_size = state_dict["vocab_size"]
         self.raw_text = state_dict.get("raw_text", False)
+        self.prompt_template = state_dict.get("prompt_template")
         self.padding_strategy = state_dict.get(
             "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
         )
@@ -386,6 +414,7 @@ class ObservationTokenizer:
             max_token_len=state_dict["max_token_len"],
             device=device,
             raw_text=state_dict.get("raw_text", False),
+            prompt_template=state_dict.get("prompt_template"),
             padding_strategy=state_dict.get(
                 "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
             ),

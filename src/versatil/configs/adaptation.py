@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass
 
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import (
+    DEFAULT_LORA_INIT_WEIGHTS,
+    LoRATargetModulePreset,
+)
 
 
 @dataclass
@@ -21,6 +24,7 @@ class LoRAAdaptationConfig:
         target_modules: PEFT target-module preset.
         exclude_modules: Optional module names to leave unwrapped by LoRA.
         bias: PEFT bias handling mode.
+        init_lora_weights: PEFT adapter weight initialization strategy.
     """
 
     _target_: str = "versatil.models.adaptation.lora.LoRAAdaptation"
@@ -31,3 +35,4 @@ class LoRAAdaptationConfig:
     target_modules: str = LoRATargetModulePreset.AUTO.value
     exclude_modules: list[str] | None = None
     bias: str = "none"
+    init_lora_weights: str = DEFAULT_LORA_INIT_WEIGHTS

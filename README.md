@@ -223,7 +223,7 @@ Compression targets can be specified globally (applied to the entire policy) or 
 ### Installation
 
 **Prerequisites:**
-- Python 3.14 for the reference environment and CI. The package metadata allows Python 3.13+, but the shipped `environment.yml` pins 3.14.
+- Python 3.14 — required by `pyproject.toml` (`requires-python = ">=3.14"`) and pinned in the shipped `environment.yml`.
 - NVIDIA driver compatible with CUDA 13.0 PyTorch wheels (required for training)
 
 **Setup:**
@@ -599,7 +599,7 @@ pytest -m "not slow and not integration and not requires_gpu"  # Explicit defaul
 
 - **Docstrings**: Google-style, concise (avoid LLM patterns like numbered lists or excessive words)
 - **Type hints**: Required for all function signatures
-- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, target `py313`)
+- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, lint target pinned to `py313` so annotation imports stay at runtime for OmegaConf)
 - **No inline imports**: All imports at module top
 - **Minimal comments**: Only for tensor shapes or non-obvious logic
 - **Variables**: Use English words, avoid abbreviations
@@ -640,4 +640,4 @@ Pre-commit hooks run ruff automatically on every `git commit`.
 - Ensure sufficient disk space for Zarr cache
 
 ### Python 3.14 Compatibility
-See [Known Issues](#known-issues).
+If Hydra or torchao crash on Python 3.14, see the [Known Issues](https://lorenzo-mazza.github.io/VersatIL/known-issues/) docs for active workarounds.

@@ -445,7 +445,9 @@ class TestPrismaticVLMInitialization:
             prismatic_mock_dependencies.vision_encoder_factory.call_args
         )
         assert vision_factory_call.args[0] is backbone
-        assert vision_factory_call.kwargs == {"pretrained": True}
+        # The towers follow the VLM pretrained flag: raw DinoSigLIP checkpoints
+        # do not store vision weights, so pretrained=True must load timm weights.
+        assert vision_factory_call.kwargs == {"pretrained": False}
         prismatic_mock_dependencies.auto_config.assert_called_once_with(
             PRISMATIC_LLM_BACKBONES[PrismaticLLMBackboneType.LLAMA2_7B_PURE]
         )

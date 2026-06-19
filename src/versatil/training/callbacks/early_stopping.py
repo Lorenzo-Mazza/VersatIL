@@ -11,4 +11,5 @@ class ResumableEarlyStopping(EarlyStopping):
     """
 
     def load_state_dict(self, state_dict):
+        """Ignore restored state so resumed runs never stop on stale counters."""
         pass

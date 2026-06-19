@@ -122,40 +122,38 @@ class TestBaseActionHeadGetHiddenDim:
 
 
 @pytest.mark.unit
-class TestBaseActionHeadApplyBlocks:
-    def test_passes_embedding_through_blocks_in_order(
-        self,
-        embedding_tensor_factory: Callable[..., torch.Tensor],
+def test_apply_blocks_passes_embedding_through_blocks_in_order(
+    embedding_tensor_factory: Callable[..., torch.Tensor],
+):
+    first_block = MLPBlock(input_dim=64, hidden_dims=[64])
+    second_block = MLPBlock(input_dim=64, hidden_dims=[64])
+    head = ConcreteActionHead(
+        input_dim=64,
+        blocks=[first_block, second_block],
+    )
+    embedding = embedding_tensor_factory(embedding_dimension=64)
+    first_output = torch.full_like(embedding, 2.0)
+    second_output = torch.full_like(embedding, 3.0)
+    first_forward = MagicMock(
+        spec=first_block.forward,
+        return_value=first_output,
+    )
+    second_forward = MagicMock(
+        spec=second_block.forward,
+        return_value=second_output,
+    )
+
+    with (
+        patch.object(first_block, "forward", first_forward),
+        patch.object(second_block, "forward", second_forward),
     ):
-        first_block = MLPBlock(input_dim=64, hidden_dims=[64])
-        second_block = MLPBlock(input_dim=64, hidden_dims=[64])
-        head = ConcreteActionHead(
-            input_dim=64,
-            blocks=[first_block, second_block],
-        )
-        embedding = embedding_tensor_factory(embedding_dimension=64)
-        first_output = torch.full_like(embedding, 2.0)
-        second_output = torch.full_like(embedding, 3.0)
-        first_forward = MagicMock(
-            spec=first_block.forward,
-            return_value=first_output,
-        )
-        second_forward = MagicMock(
-            spec=second_block.forward,
-            return_value=second_output,
-        )
+        result = head._apply_blocks(embedding)
 
-        with (
-            patch.object(first_block, "forward", first_forward),
-            patch.object(second_block, "forward", second_forward),
-        ):
-            result = head._apply_blocks(embedding)
-
-        first_forward.assert_called_once()
-        second_forward.assert_called_once()
-        torch.testing.assert_close(first_forward.call_args.args[0], embedding)
-        torch.testing.assert_close(second_forward.call_args.args[0], first_output)
-        torch.testing.assert_close(result, second_output)
+    first_forward.assert_called_once()
+    second_forward.assert_called_once()
+    torch.testing.assert_close(first_forward.call_args.args[0], embedding)
+    torch.testing.assert_close(second_forward.call_args.args[0], first_output)
+    torch.testing.assert_close(result, second_output)
 
 
 @pytest.mark.integration
@@ -173,13 +171,16 @@ class TestBaseActionHeadForward:
         result = head(embedding)
         assert result.shape == (2, 8, output_dim)
 
-    def test_forward_with_blocks(
+    def test_forward_equals_projection_of_applied_blocks(
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
         blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
         head = ConcreteActionHead(input_dim=64, blocks=blocks)
         head.set_output_dim(3)
+        head.eval()
         embedding = embedding_tensor_factory(embedding_dimension=64)
+        expected = head.output_proj(head._apply_blocks(embedding))
         result = head(embedding)
         assert result.shape == (2, 8, 3)
+        torch.testing.assert_close(result, expected)

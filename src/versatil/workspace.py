@@ -621,10 +621,10 @@ class Workspace:
         if "state_dict" not in checkpoint:
             raise ValueError("Checkpoint format not recognized")
 
-        self.lightning_policy.load_state_dict(checkpoint["state_dict"])
-        logging.info("Checkpoint loaded successfully")
-
         # We need to load explicitly the tokenizer because it's not a torch.nn.Module , differently from the normalizer.
+        # The tokenizer must be set before loading the state dict because for VLA
+        # decoders set_tokenizer triggers resize_token_embeddings and LoRA injection,
+        # which change parameter shapes the checkpoint was saved with.
         tokenizer_path = self.output_dir / "tokenizer"
         if tokenizer_path.exists():
             device = torch.device(self.config.experiment.device)
@@ -633,6 +633,9 @@ class Workspace:
             logging.info(f"Tokenizer loaded from {tokenizer_path}")
         else:
             self.tokenizer = None
+
+        self.lightning_policy.load_state_dict(checkpoint["state_dict"])
+        logging.info("Checkpoint loaded successfully")
 
     def predict(self, obs_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Predict actions from observations.

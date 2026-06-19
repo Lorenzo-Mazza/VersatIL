@@ -12,6 +12,7 @@ from transformers import GPT2Config, GPT2LMHeadModel
 from versatil.models.adaptation.constants import LoRATargetModulePreset
 from versatil.models.adaptation.lora import (
     LoRAAdaptation,
+    _to_peft_target_modules,
     apply_lora_config,
     to_peft_lora_config,
 )
@@ -50,6 +51,7 @@ class TestLoRAAdaptation:
         assert peft_config.target_modules is None
         assert peft_config.exclude_modules == {"head"}
         assert peft_config.bias == "none"
+        assert peft_config.init_lora_weights == "gaussian"
 
     def test_converts_all_linear_target_modules_to_peft_string(self) -> None:
         config = LoRAAdaptation(
@@ -63,6 +65,34 @@ class TestLoRAAdaptation:
         peft_config = to_peft_lora_config(lora_config=config)
 
         assert peft_config.target_modules == LoRATargetModulePreset.ALL_LINEAR.value
+
+    @pytest.mark.parametrize("init_lora_weights", ["gaussian", "pissa", "olora"])
+    def test_forwards_init_lora_weights_to_peft(
+        self,
+        init_lora_weights: str,
+    ) -> None:
+        config = LoRAAdaptation(
+            enabled=True,
+            rank=4,
+            alpha=8,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            init_lora_weights=init_lora_weights,
+        )
+
+        peft_config = to_peft_lora_config(lora_config=config)
+
+        assert peft_config.init_lora_weights == init_lora_weights
+
+    def test_to_peft_target_modules_rejects_unknown_preset(self) -> None:
+        unknown_preset = "manual"
+        valid_targets = [preset.value for preset in LoRATargetModulePreset]
+        expected_message = (
+            f"Invalid LoRA target_modules '{unknown_preset}'. "
+            f"Must be one of: {valid_targets}."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            _to_peft_target_modules(target_modules=unknown_preset)
 
     @pytest.mark.parametrize(
         "target_modules, expected_target_modules",

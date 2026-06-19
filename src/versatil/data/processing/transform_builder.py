@@ -447,6 +447,7 @@ class TransformBuilder:
                 max_token_len=obs_config.max_token_len,
                 device=device,
                 raw_text=obs_config.raw_text,
+                prompt_template=obs_config.prompt_template,
                 padding_strategy=obs_config.padding_strategy,
             )
             if obs_config.bin_continuous_data:

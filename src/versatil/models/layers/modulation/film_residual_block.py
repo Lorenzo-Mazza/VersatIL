@@ -53,6 +53,7 @@ class FiLMedResBlock(nn.Module):
         self.downsample = downsample
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        """Apply the FiLM-modulated residual convolution block."""
         identity = x if self.downsample is None else self.downsample(x)
 
         out = self.conv1(x)

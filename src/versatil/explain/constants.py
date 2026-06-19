@@ -4,6 +4,8 @@ import enum
 
 
 class ExplanationType(enum.Enum):
+    """Supported visual-explanation methods."""
+
     GRADCAM = "gradcam"
     GRADCAM_PLUS_PLUS = "gradcam++"
     ABLATION_CAM = "ablation_cam"

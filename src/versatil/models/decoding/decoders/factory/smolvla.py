@@ -197,13 +197,12 @@ class SmolVLADecoder(BaseInterleavedVLMDecoder):
         self.expert_layers = nn.ModuleList()
         self._layer_types = []
         self._expert_to_vlm_index: dict[int, int] = {}
-        expert_counter = 0
         for vlm_idx in range(actual_vlm_count):
             if not layer_has_expert[vlm_idx]:
                 self._layer_types.append(InterleavedLayerType.VLM_ONLY.value)
             elif (
                 self.self_attention_every_n_layers > 0
-                and expert_counter % self.self_attention_every_n_layers == 0
+                and vlm_idx % self.self_attention_every_n_layers == 0
             ):
                 self._expert_to_vlm_index[len(self.expert_layers)] = vlm_idx
                 self.expert_layers.append(
@@ -222,7 +221,6 @@ class SmolVLADecoder(BaseInterleavedVLMDecoder):
                 self._layer_types.append(
                     InterleavedLayerType.JOINT_SELF_ATTENTION.value
                 )
-                expert_counter += 1
             else:
                 self._expert_to_vlm_index[len(self.expert_layers)] = vlm_idx
                 self.expert_layers.append(
@@ -239,7 +237,6 @@ class SmolVLADecoder(BaseInterleavedVLMDecoder):
                     )
                 )
                 self._layer_types.append(InterleavedLayerType.CROSS_ATTENTION.value)
-                expert_counter += 1
         self.to(self.device)
 
     def forward(

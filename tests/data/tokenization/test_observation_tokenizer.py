@@ -36,6 +36,7 @@ def observation_tokenizer_factory(mock_obs_auto_tokenizer):
         max_token_len: int = 256,
         device: torch.device | None = None,
         raw_text: bool = False,
+        prompt_template: str | None = None,
     ) -> ObservationTokenizer:
         if observation_keys is None:
             observation_keys = [ObsKey.LANGUAGE.value]
@@ -47,6 +48,7 @@ def observation_tokenizer_factory(mock_obs_auto_tokenizer):
             max_token_len=max_token_len,
             device=device,
             raw_text=raw_text,
+            prompt_template=prompt_template,
         )
 
     return factory
@@ -603,6 +605,7 @@ class TestObservationTokenizerStateDict:
             "max_token_len",
             "vocab_size",
             "raw_text",
+            "prompt_template",
             "padding_strategy",
             "binned_value_discretizers",
             "is_fitted",
@@ -1103,6 +1106,78 @@ class TestRawTextMode:
         del state["raw_text"]
         tokenizer.load_state_dict(state)
         assert tokenizer.raw_text is False
+
+
+OPENVLA_PROMPT_TEMPLATE = (
+    "In: What action should the robot take to {instruction}?\nOut:"
+)
+
+
+class TestPromptTemplate:
+    @pytest.mark.parametrize(
+        "language_input, expected_prompt",
+        [
+            (
+                "Pick Up The Red Block",
+                "In: What action should the robot take to pick up the red block?\nOut:",
+            ),
+            (
+                "  grasp needle \n",
+                "In: What action should the robot take to grasp needle?\nOut:",
+            ),
+        ],
+    )
+    def test_template_wraps_lowercased_stripped_instruction(
+        self,
+        observation_tokenizer_factory,
+        observation_dict_factory,
+        language_input,
+        expected_prompt,
+    ):
+        tokenizer = observation_tokenizer_factory(
+            raw_text=True,
+            prompt_template=OPENVLA_PROMPT_TEMPLATE,
+            bin_continuous_data=False,
+        )
+        tokenizer._is_fitted = True
+        observations = observation_dict_factory(language=[language_input])
+        prompts = tokenizer._build_prompts(observations)
+        assert prompts == [expected_prompt]
+
+    def test_template_requires_raw_text(self, observation_tokenizer_factory):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("prompt_template requires raw_text=True."),
+        ):
+            observation_tokenizer_factory(
+                raw_text=False,
+                prompt_template=OPENVLA_PROMPT_TEMPLATE,
+            )
+
+    def test_template_requires_instruction_placeholder(
+        self, observation_tokenizer_factory
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("prompt_template must contain an '{instruction}'"),
+        ):
+            observation_tokenizer_factory(
+                raw_text=True,
+                prompt_template="In: do something\nOut:",
+            )
+
+    def test_state_dict_round_trips_prompt_template(
+        self, observation_tokenizer_factory
+    ):
+        tokenizer = observation_tokenizer_factory(
+            raw_text=True,
+            prompt_template=OPENVLA_PROMPT_TEMPLATE,
+        )
+        state = tokenizer.state_dict()
+        assert state["prompt_template"] == OPENVLA_PROMPT_TEMPLATE
+        restored = observation_tokenizer_factory(raw_text=True)
+        restored.load_state_dict(state)
+        assert restored.prompt_template == OPENVLA_PROMPT_TEMPLATE
 
 
 class TestExtractLanguageText:

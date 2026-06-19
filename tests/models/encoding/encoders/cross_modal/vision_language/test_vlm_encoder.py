@@ -562,13 +562,11 @@ class TestVLMEncoderValidateInputMetadata:
         assert result == expected_error
 
 
-class TestVLMEncoderGetVocabSize:
-    def test_returns_text_model_vocab_size(
-        self,
-        vlm_encoder_factory: Callable[..., VLMEncoder],
-    ):
-        encoder = vlm_encoder_factory()
-        assert encoder.get_vocab_size() == VOCAB_SIZE
+def test_get_vocab_size_returns_text_model_vocab_size(
+    vlm_encoder_factory: Callable[..., VLMEncoder],
+) -> None:
+    encoder = vlm_encoder_factory()
+    assert encoder.get_vocab_size() == VOCAB_SIZE
 
 
 class TestVLMEncoderGetOutputSpecification:
@@ -637,65 +635,63 @@ class TestVLMEncoderGetOutputSpecification:
         assert len(feature_keys) == 3
 
 
-class TestVLMEncoderIntegration:
-    @pytest.mark.integration
-    @pytest.mark.parametrize("lora_enabled", [False, True])
-    @pytest.mark.parametrize(
-        "model_name",
-        [model_type.value for model_type in ImageTextModelType],
+@pytest.mark.integration
+@pytest.mark.parametrize("lora_enabled", [False, True])
+@pytest.mark.parametrize(
+    "model_name",
+    [model_type.value for model_type in ImageTextModelType],
+)
+def test_integration_forward_pass_per_model(
+    rng: np.random.Generator,
+    model_name: str,
+    lora_enabled: bool,
+    parameter_count: Callable[[torch.nn.Module], int],
+    trainable_parameter_count: Callable[[torch.nn.Module], int],
+) -> None:
+    batch_size = 2
+    lora_config = (
+        LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        if lora_enabled
+        else None
     )
-    def test_forward_pass_per_model(
-        self,
-        rng: np.random.Generator,
-        model_name: str,
-        lora_enabled: bool,
-        parameter_count: Callable[[torch.nn.Module], int],
-        trainable_parameter_count: Callable[[torch.nn.Module], int],
-    ):
-        batch_size = 2
-        lora_config = (
-            LoRAAdaptation(
-                enabled=True,
-                rank=2,
-                alpha=4,
-                target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
-            )
-            if lora_enabled
-            else None
-        )
-        encoder = VLMEncoder(
-            input_keys=[
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ],
-            pretrained=False,
-            frozen=False,
-            pooling_method=PoolingMethod.DEFAULT.value,
-            model_name=model_name,
-            lora_config=lora_config,
-        )
-        vocab_size = encoder.get_vocab_size()
-        image_shape = (batch_size, 1, 3, 224, 224)
-        text_shape = (batch_size, 1, 10)
-        inputs = {
-            Cameras.LEFT.value: torch.from_numpy(
-                rng.standard_normal(image_shape).astype(np.float32)
-            ),
-            SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
-                rng.integers(low=0, high=vocab_size, size=text_shape).astype(np.int64)
-            ),
-        }
-        output = encoder(inputs=inputs)
-        assert EncoderOutputKeys.RGB.value in output
-        assert EncoderOutputKeys.LANGUAGE.value in output
-        if lora_enabled:
-            trainable_parameter_names = [
-                name
-                for name, parameter in encoder.encoder.named_parameters()
-                if parameter.requires_grad
-            ]
-            trainable_parameters = trainable_parameter_count(encoder.encoder)
-            total_parameters = parameter_count(encoder.encoder)
-            assert trainable_parameter_names
-            assert all("lora_" in name for name in trainable_parameter_names)
-            assert 0 < trainable_parameters < total_parameters
+    encoder = VLMEncoder(
+        input_keys=[
+            Cameras.LEFT.value,
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+        ],
+        pretrained=False,
+        frozen=False,
+        pooling_method=PoolingMethod.DEFAULT.value,
+        model_name=model_name,
+        lora_config=lora_config,
+    )
+    vocab_size = encoder.get_vocab_size()
+    image_shape = (batch_size, 1, 3, 224, 224)
+    text_shape = (batch_size, 1, 10)
+    inputs = {
+        Cameras.LEFT.value: torch.from_numpy(
+            rng.standard_normal(image_shape).astype(np.float32)
+        ),
+        SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
+            rng.integers(low=0, high=vocab_size, size=text_shape).astype(np.int64)
+        ),
+    }
+    output = encoder(inputs=inputs)
+    assert EncoderOutputKeys.RGB.value in output
+    assert EncoderOutputKeys.LANGUAGE.value in output
+    if lora_enabled:
+        trainable_parameter_names = [
+            name
+            for name, parameter in encoder.encoder.named_parameters()
+            if parameter.requires_grad
+        ]
+        trainable_parameters = trainable_parameter_count(encoder.encoder)
+        total_parameters = parameter_count(encoder.encoder)
+        assert trainable_parameter_names
+        assert all("lora_" in name for name in trainable_parameter_names)
+        assert 0 < trainable_parameters < total_parameters

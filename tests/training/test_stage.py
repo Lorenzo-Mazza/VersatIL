@@ -1,5 +1,7 @@
 """Tests for versatil.training.stage module."""
 
+import re
+
 import pytest
 from omegaconf import OmegaConf
 
@@ -52,25 +54,25 @@ class TestTrainingStageInit:
         stage.loss_weights["denoising_prior"]["weight"] = 0.1
         assert stage.loss_weights == {"denoising_prior": {"weight": 0.1}}
 
-    def test_end_epoch_equal_to_start_epoch_raises(self) -> None:
+    @pytest.mark.parametrize("end_epoch", [10, 5])
+    def test_end_epoch_not_greater_than_start_epoch_raises(self, end_epoch) -> None:
         with pytest.raises(
             ValueError,
-            match="TrainingStage 'stage' end_epoch must be greater than start_epoch",
+            match=re.escape(
+                "TrainingStage 'stage' end_epoch must be greater than "
+                f"start_epoch; got {end_epoch} <= 10."
+            ),
         ):
-            TrainingStage(name="stage", start_epoch=10, end_epoch=10)
-
-    def test_end_epoch_less_than_start_epoch_raises(self) -> None:
-        with pytest.raises(
-            ValueError,
-            match="TrainingStage 'stage' end_epoch must be greater than start_epoch",
-        ):
-            TrainingStage(name="stage", start_epoch=10, end_epoch=5)
+            TrainingStage(name="stage", start_epoch=10, end_epoch=end_epoch)
 
     def test_conflicting_trainable_and_frozen_groups_raise(self) -> None:
+        conflicting_groups = ["decoder"]
         with pytest.raises(
             ValueError,
-            match="Training stage 'conflict' lists groups in both "
-            r"trainable_groups and frozen_groups: \['decoder'\]",
+            match=re.escape(
+                "Training stage 'conflict' lists groups in both "
+                f"trainable_groups and frozen_groups: {sorted(conflicting_groups)}."
+            ),
         ):
             TrainingStage(
                 name="conflict",
@@ -82,12 +84,30 @@ class TestTrainingStageInit:
     def test_int_group_weight_decay_value_raises(self) -> None:
         with pytest.raises(
             ValueError,
-            match="group_weight_decays values must be floats; got int",
+            match=re.escape(
+                "TrainingStage.group_weight_decays values must be floats; "
+                f"got {int.__name__} for group 'prior'."
+            ),
         ):
             TrainingStage(
                 name="stage",
                 start_epoch=0,
                 group_weight_decays={"prior": 1},
+            )
+
+    def test_non_mapping_loss_weights_raises(self) -> None:
+        non_mapping = ["denoising_prior"]
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "TrainingStage mapping fields must be dictionaries; "
+                f"got {type(non_mapping).__name__}."
+            ),
+        ):
+            TrainingStage(
+                name="stage",
+                start_epoch=0,
+                loss_weights=non_mapping,
             )
 
 

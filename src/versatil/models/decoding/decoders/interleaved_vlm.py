@@ -783,13 +783,19 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
         vlm_position_embeddings = self.vlm_rotary_embedding(
             prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
         )
+        # Detach the VLM stream only when no VLM layer parameter trains
+        # (frozen backbone without LoRA). A trainable stream also lets
+        # gradients reach the vision tower and projector through the prefix.
+        vlm_gradients_enabled = torch.is_grad_enabled() and any(
+            parameter.requires_grad for parameter in self.vlm_layers.parameters()
+        )
         vlm_layer_index = 0
         expert_layer_index = 0
         for layer_type in self._layer_types:
             vlm_layer = self.vlm_layers[vlm_layer_index]
             match layer_type:
                 case InterleavedLayerType.VLM_ONLY.value:
-                    with torch.no_grad():
+                    with torch.set_grad_enabled(vlm_gradients_enabled):
                         vlm_output = vlm_layer(
                             vlm_hidden,
                             attention_mask=vlm_prefix_attention_mask,
@@ -802,7 +808,7 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
                         )
                     vlm_layer_index += 1
                 case InterleavedLayerType.JOINT_SELF_ATTENTION.value:
-                    with torch.no_grad():
+                    with torch.set_grad_enabled(vlm_gradients_enabled):
                         vlm_query, vlm_key, vlm_value = (
                             GenerativeVLM.extract_query_key_value(
                                 vlm_layer=vlm_layer,
@@ -822,7 +828,7 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
                         joint_attention_mask=attention_mask,
                         precomputed_primary_rope=expert_action_rope,
                     )
-                    with torch.no_grad():
+                    with torch.set_grad_enabled(vlm_gradients_enabled):
                         vlm_hidden = GenerativeVLM.apply_residual_feedforward(
                             vlm_layer=vlm_layer,
                             vlm_residual=vlm_hidden,
@@ -839,7 +845,7 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
                             "Cross-attention interleaved layers require "
                             "cross_attention_mask and expert_cross_attention_rope."
                         )
-                    with torch.no_grad():
+                    with torch.set_grad_enabled(vlm_gradients_enabled):
                         vlm_keys, vlm_values = (
                             GenerativeVLM.extract_key_value_with_rope(
                                 vlm_layer=vlm_layer,

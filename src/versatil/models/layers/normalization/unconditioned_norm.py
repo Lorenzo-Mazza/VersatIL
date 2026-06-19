@@ -20,6 +20,7 @@ class UnconditionedNorm(nn.Module):
         x: torch.Tensor,
         condition: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Normalize the input and return it with a unit gate, ignoring the condition."""
         normed = self.norm(x)
         gate = torch.ones(1, dtype=x.dtype, device=x.device)
         return normed, gate

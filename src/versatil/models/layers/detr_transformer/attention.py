@@ -6,6 +6,8 @@ from versatil.models.layers.positional_encoding.base import add_positional_encod
 
 
 class FlashAttention(nn.Module):
+    """Multi-head attention through PyTorch scaled_dot_product_attention."""
+
     def __init__(
         self, embedding_dimension: int, number_of_heads: int, dropout: float = 0.0
     ):

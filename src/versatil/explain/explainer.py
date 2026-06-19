@@ -150,6 +150,7 @@ def compute_gradcam_custom(
 
         def forward_hook(module, inp, out):
             # Handle modules that return tuples (e.g., DFormerStage)
+            """Record module activations, unwrapping tuple outputs."""
             if isinstance(out, tuple):
                 activations.append(out[0].detach())
             else:
@@ -160,6 +161,7 @@ def compute_gradcam_custom(
         def backward_hook(module, grad_inp, grad_out):
             # Handle None gradients or tuple gradient outputs
             # For modules that return tuples (e.g., DFormerStage), grad_out may have None elements
+            """Record output gradients, skipping None entries in tuples."""
             if grad_out[0] is not None:
                 gradients.append(grad_out[0].detach())
             elif isinstance(grad_out, tuple) and len(grad_out) > 1:
@@ -229,6 +231,7 @@ def compute_gradcam_custom(
                 }
 
                 def ablation_hook_chunk(module, inp, out):
+                    """Zero one activation channel per batch replica."""
                     for j in range(num_channels):
                         start = j * full_batch
                         end = (j + 1) * full_batch
@@ -463,6 +466,7 @@ def compute_gradcam_for_policy(
             predictions: dict[str, torch.Tensor],
         ) -> torch.Tensor:
             # Use position actions if available, otherwise use first available action type
+            """Select position actions, falling back to the first action tensor."""
             if ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in predictions:
                 return predictions[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
             else:

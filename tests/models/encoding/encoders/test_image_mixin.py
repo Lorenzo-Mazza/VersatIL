@@ -260,6 +260,27 @@ class TestSetupCameraKeys:
             == Cameras.DEPTH.value
         )
 
+    def test_camera_key_for_modality_raises_when_no_camera_matches(self):
+        encoder = ConcreteRGBEncoder(input_keys=[Cameras.LEFT.value])
+        encoder.input_specification = InputSpecification(keys=[Cameras.LEFT.value])
+        camera_metadata = {
+            Cameras.LEFT.value: RGBCameraMetadata(
+                camera_key=RawCameraKey.LEFT.value,
+                dtype="uint8",
+                image_width=32,
+                image_height=32,
+            )
+        }
+        encoder.set_camera_metadata(camera_metadata=camera_metadata)
+        expected_message = (
+            f"{ConcreteRGBEncoder.__name__} has no configured "
+            f"{CameraModality.DEPTH.value} camera. "
+            "Run experiment validation and EncodingPipeline setup before forward."
+        )
+
+        with pytest.raises(RuntimeError, match=re.escape(expected_message)):
+            encoder._camera_key_for_modality(modality=CameraModality.DEPTH)
+
 
 class TestSetupCameraKeysRGBMultiCamera:
     def test_multi_camera_detection(self):

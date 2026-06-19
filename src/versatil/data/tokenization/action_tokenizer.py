@@ -31,6 +31,11 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 class ActionTokenizer:
     """Tokenizes continuous action chunks for discrete action-token decoders.
 
+    A single action chunk has shape (time_horizon, action_dim). A batch of
+    chunks has shape (batch_size, time_horizon, action_dim). Encoded model
+    token tensors have shape (max_token_len,) for one chunk or
+    (batch_size, max_token_len) for a batch.
+
     The tokenizer has two explicit parts:
     - an action discretizer, e.g. FAST or per-value binning;
     - a token-id mapping, e.g. identity IDs or language-tokenizer tail IDs.
@@ -74,7 +79,12 @@ class ActionTokenizer:
         self._refresh_vocabulary_if_available()
 
     def fit(self, action_chunks: np.ndarray) -> None:
-        """Fit the action discretizer on normalized action chunks."""
+        """Fit the action discretizer on normalized action chunks.
+
+        Args:
+            action_chunks: Array with shape
+                (num_chunks, time_horizon, action_dim).
+        """
         logging.info(
             f"Fitting action discretizer on {action_chunks.shape[0]} chunks "
             f"(time_horizon={action_chunks.shape[1]}, action_dim={action_chunks.shape[2]})"
@@ -110,7 +120,17 @@ class ActionTokenizer:
         action_chunk: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode one action chunk to fixed-length model token IDs."""
+        """Encode one normalized action chunk.
+
+        Args:
+            action_chunk: Array or tensor with shape (time_horizon, action_dim).
+            is_pad_mask: Optional boolean mask with shape (time_horizon,), where
+                True marks padded action rows to drop before tokenization.
+
+        Returns:
+            Dictionary containing token IDs and token padding mask, each with
+            shape (max_token_len,).
+        """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before encoding")
 
@@ -127,7 +147,18 @@ class ActionTokenizer:
         action_chunks: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode a batch of action chunks to fixed-length model token IDs."""
+        """Encode a batch of normalized action chunks.
+
+        Args:
+            action_chunks: Array or tensor with shape
+                (batch_size, time_horizon, action_dim).
+            is_pad_mask: Optional boolean mask with shape
+                (batch_size, time_horizon), where True marks padded action rows.
+
+        Returns:
+            Dictionary containing token IDs and token padding mask, each with
+            shape (batch_size, max_token_len).
+        """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before encoding")
         all_tokens = []
@@ -148,7 +179,11 @@ class ActionTokenizer:
         action_chunks: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode action chunk(s), dispatching on input rank."""
+        """Encode one action chunk or a batch of action chunks.
+
+        2D input must have shape (time_horizon, action_dim). 3D input must have
+        shape (batch_size, time_horizon, action_dim).
+        """
         action_chunks_data = (
             action_chunks
             if isinstance(action_chunks, torch.Tensor)
@@ -167,7 +202,15 @@ class ActionTokenizer:
         )
 
     def decode_chunk(self, tokens: torch.Tensor | list[int] | np.ndarray) -> np.ndarray:
-        """Decode one model token sequence back to a normalized action chunk."""
+        """Decode one model token sequence into one action chunk.
+
+        Args:
+            tokens: 1D model token IDs with shape (token_sequence_len,). The
+                sequence may include EOS and trailing padding IDs.
+
+        Returns:
+            Normalized action chunk with shape (time_horizon, action_dim).
+        """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before decoding")
 
@@ -176,7 +219,17 @@ class ActionTokenizer:
         return self.action_discretizer.decode([local_tokens.tolist()])[0]
 
     def decode_batch(self, tokens: torch.Tensor | np.ndarray) -> np.ndarray:
-        """Decode a batch of model token sequences back to normalized action chunks."""
+        """Decode a batch of model token sequences into action chunks.
+
+        Args:
+            tokens: 2D model token IDs with shape
+                (batch_size, token_sequence_len). Sequences may include EOS and
+                trailing padding IDs.
+
+        Returns:
+            Normalized action chunks with shape
+            (batch_size, time_horizon, action_dim).
+        """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before decoding")
 
@@ -192,7 +245,13 @@ class ActionTokenizer:
         return self.action_discretizer.decode(local_token_sequences)
 
     def decode(self, tokens: torch.Tensor | list[int] | np.ndarray) -> np.ndarray:
-        """Decode token sequence(s), dispatching on input rank."""
+        """Decode one model token sequence or a batch of model token sequences.
+
+        1D token input has shape (token_sequence_len,) and returns shape
+        (time_horizon, action_dim). 2D token input has shape
+        (batch_size, token_sequence_len) and returns shape
+        (batch_size, time_horizon, action_dim).
+        """
         token_ids_array = self._to_numpy_tokens(tokens)
         if token_ids_array.ndim == 1:
             return self.decode_chunk(tokens)

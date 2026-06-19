@@ -152,14 +152,52 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         """
         return language_embeddings
 
-    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Embed images and text, concatenate, and run the language model.
+    def _merge_image_language_embeddings(
+        self,
+        image_embeddings: list[torch.Tensor],
+        image_pad_masks: list[torch.Tensor],
+        language_embeddings: torch.Tensor,
+        language_pad_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Order image and language token embeddings into one sequence.
+
+        Default places image tokens before the language tokens (PaliGemma and
+        SmolVLM convention). Override for models with a different multimodal
+        token order.
+
+        Args:
+            image_embeddings: Per-camera image token embeddings, each
+                ``(B, image_token_count, D)``.
+            image_pad_masks: Matching boolean padding masks, ``True`` = padded.
+            language_embeddings: Language token embeddings ``(B, S, D)``.
+            language_pad_mask: Language padding mask ``(B, S)``.
+
+        Returns:
+            Merged embeddings ``(B, total_token_count, D)`` and padding mask
+            ``(B, total_token_count)``.
+        """
+        merged_embeddings = torch.cat(
+            image_embeddings + [language_embeddings],
+            dim=1,
+        )
+        merged_padding_mask = torch.cat(
+            image_pad_masks + [language_pad_mask],
+            dim=1,
+        )
+        return merged_embeddings, merged_padding_mask
+
+    def _assemble_multimodal_embeddings(
+        self, inputs: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Embed images and text and merge them into one input sequence.
 
         Args:
             inputs: Camera images, tokenized text, and optional padding mask.
 
         Returns:
-            Dict with fused sequential features and padding mask.
+            Input embeddings ``(B, S, D)`` and padding mask ``(B, S)`` where
+            ``True`` marks padding. The embeddings have not been run through
+            the language-model transformer.
         """
         text_input_ids, language_mask = self._extract_text_inputs(inputs=inputs)
         batch_size = text_input_ids.shape[0]
@@ -173,13 +211,29 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         )
         language_embeddings = self._embed_language(text_input_ids)
         language_embeddings = self._scale_language_embeddings(language_embeddings)
-        all_embeddings = image_embeddings + [language_embeddings]
-        inputs_embeds = torch.cat(all_embeddings, dim=1)
         text_attention_mask = self._build_attention_mask(
             language_mask=language_mask, text_input_ids=text_input_ids
         )
         text_pad_mask = ~text_attention_mask.bool()
-        full_padding_mask = torch.cat(image_pad_masks + [text_pad_mask], dim=1)
+        return self._merge_image_language_embeddings(
+            image_embeddings=image_embeddings,
+            image_pad_masks=image_pad_masks,
+            language_embeddings=language_embeddings,
+            language_pad_mask=text_pad_mask,
+        )
+
+    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Embed images and text, concatenate, and run the language model.
+
+        Args:
+            inputs: Camera images, tokenized text, and optional padding mask.
+
+        Returns:
+            Dict with fused sequential features and padding mask.
+        """
+        inputs_embeds, full_padding_mask = self._assemble_multimodal_embeddings(
+            inputs=inputs
+        )
         full_attention_mask = (~full_padding_mask).to(torch.long)
         lm_outputs = self._get_language_model()(
             inputs_embeds=inputs_embeds,
@@ -254,18 +308,26 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
     def build_prefix(
         self, inputs: dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Build VLM prefix embeddings for VLA decoder execution."""
-        encoded = self.forward(inputs=inputs)
-        prefix = encoded[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
-        padding_mask = encoded[self.padding_mask_name]
-        if prefix.ndim == 4:
-            batch_size, temporal_length, sequence_length, hidden_dim = prefix.shape
-            prefix = prefix.reshape(
-                batch_size, temporal_length * sequence_length, hidden_dim
-            )
-            padding_mask = padding_mask.reshape(
-                batch_size, temporal_length * sequence_length
-            )
+        """Build VLM prefix input embeddings for VLA decoder execution.
+
+        The prefix is the pre-transformer multimodal input sequence. The
+        consuming decoder runs the language-model layers over it exactly once
+        itself (interleaved expert layers or causal-LM prefill), so the prefix
+        must not already be language-model output states.
+        """
+        temporal = self._flatten_temporal(inputs=inputs)
+        if temporal is None:
+            return self._assemble_multimodal_embeddings(inputs=inputs)
+        flattened, batch_size, temporal_length = temporal
+        prefix, padding_mask = self._assemble_multimodal_embeddings(inputs=flattened)
+        sequence_length, hidden_dim = prefix.shape[1], prefix.shape[2]
+        # (B*T, S, D) -> (B, T*S, D)
+        prefix = prefix.reshape(
+            batch_size, temporal_length * sequence_length, hidden_dim
+        )
+        padding_mask = padding_mask.reshape(
+            batch_size, temporal_length * sequence_length
+        )
         return prefix, padding_mask
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:

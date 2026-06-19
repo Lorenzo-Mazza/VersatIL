@@ -24,6 +24,8 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 
 
 class ConditionalUnet1D(nn.Module):
+    """1D U-Net over action sequences with FiLM conditioning on global features."""
+
     def __init__(
         self,
         input_dimension: int,

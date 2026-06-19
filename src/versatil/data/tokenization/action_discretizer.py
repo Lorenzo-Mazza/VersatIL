@@ -14,7 +14,11 @@ from versatil.data.tokenization.fast import load_fast_processor
 
 
 class ActionDiscretizer(ABC):
-    """Converts continuous action chunks to local discrete action IDs."""
+    """Converts continuous action chunks to local discrete action IDs.
+
+    Action chunks use shape (time_horizon, action_dim). Fitting data uses
+    shape (num_chunks, time_horizon, action_dim).
+    """
 
     @property
     @abstractmethod
@@ -28,15 +32,15 @@ class ActionDiscretizer(ABC):
 
     @abstractmethod
     def fit(self, action_chunks: np.ndarray) -> None:
-        """Fit the discretizer on normalized action chunks."""
+        """Fit on chunks with shape (num_chunks, time_horizon, action_dim)."""
 
     @abstractmethod
     def encode(self, action_chunk: np.ndarray) -> list[int]:
-        """Encode one normalized action chunk into local discrete IDs."""
+        """Encode one chunk with shape (time_horizon, action_dim)."""
 
     @abstractmethod
     def decode(self, token_sequences: list[list[int]]) -> np.ndarray:
-        """Decode local discrete ID sequences into normalized action chunks."""
+        """Decode token sequences into shape (batch_size, time_horizon, action_dim)."""
 
     @abstractmethod
     def to(self, device: torch.device) -> None:
@@ -73,6 +77,8 @@ class FastActionDiscretizer(ActionDiscretizer):
         self.processor: ProcessorMixin | None = load_fast_processor(tokenizer_model)
         self._token_count = 2048 if use_pretrained else 1024
         self._is_fitted = use_pretrained
+        self.time_horizon: int | None = None
+        self.action_dim: int | None = None
 
     @property
     def token_count(self) -> int:
@@ -85,7 +91,7 @@ class FastActionDiscretizer(ActionDiscretizer):
         return self._is_fitted
 
     def fit(self, action_chunks: np.ndarray) -> None:
-        """Fit a local FAST processor on normalized action chunks."""
+        """Fit a local FAST processor on shape (num_chunks, time_horizon, action_dim)."""
         if self.use_pretrained:
             raise ValueError(
                 "Cannot fit a pretrained FAST action discretizer. "
@@ -93,24 +99,41 @@ class FastActionDiscretizer(ActionDiscretizer):
             )
         if self.processor is None:
             raise RuntimeError("FAST processor not initialized")
+        self.time_horizon = action_chunks.shape[1]
+        self.action_dim = action_chunks.shape[2]
         self.processor = self.processor.fit(
             action_chunks,
-            time_horizon=action_chunks.shape[1],
-            action_dim=action_chunks.shape[2],
+            time_horizon=self.time_horizon,
+            action_dim=self.action_dim,
         )
         self._is_fitted = True
 
     def encode(self, action_chunk: np.ndarray) -> list[int]:
-        """Encode one normalized action chunk with FAST."""
+        """Encode one chunk with shape (time_horizon, action_dim)."""
         if self.processor is None:
             raise RuntimeError("FAST processor not initialized")
+        self.time_horizon = action_chunk.shape[-2]
+        self.action_dim = action_chunk.shape[-1]
         return self.processor(action_chunk)[0]
 
     def decode(self, token_sequences: list[list[int]]) -> np.ndarray:
-        """Decode FAST token sequences into normalized action chunks."""
+        """Decode FAST tokens into shape (batch_size, time_horizon, action_dim)."""
         if self.processor is None:
             raise RuntimeError("FAST processor not initialized")
-        decoded_actions = self.processor.decode(token_sequences)
+        if self.time_horizon is None or self.action_dim is None:
+            raise RuntimeError(
+                "FAST action discretizer shape is unknown; encode or load a fitted "
+                "discretizer before decoding"
+            )
+        clipped_sequences = [
+            np.clip(sequence, 0, self.token_count - 1).tolist()
+            for sequence in token_sequences
+        ]
+        decoded_actions = self.processor.decode(
+            clipped_sequences,
+            time_horizon=self.time_horizon,
+            action_dim=self.action_dim,
+        )
         if not isinstance(decoded_actions, np.ndarray):
             raise TypeError(
                 f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
@@ -123,17 +146,15 @@ class FastActionDiscretizer(ActionDiscretizer):
 
     def state_dict(self) -> dict[str, Any]:
         """Return serializable FAST discretizer state."""
-        state = {
+        return {
             "type": ActionDiscretizerType.FAST.value,
             "use_pretrained": self.use_pretrained,
             "tokenizer_model": self.tokenizer_model,
             "token_count": self.token_count,
             "is_fitted": self.is_fitted,
+            "time_horizon": self.time_horizon,
+            "action_dim": self.action_dim,
         }
-        if self.processor is not None:
-            state["time_horizon"] = self.processor.time_horizon
-            state["action_dim"] = self.processor.action_dim
-        return state
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """Load FAST discretizer state."""
@@ -141,9 +162,8 @@ class FastActionDiscretizer(ActionDiscretizer):
         self.tokenizer_model = state_dict.get("tokenizer_model", self.tokenizer_model)
         self._token_count = state_dict.get("token_count", self._token_count)
         self._is_fitted = state_dict["is_fitted"]
-        if self.processor is not None:
-            self.processor.time_horizon = state_dict.get("time_horizon")
-            self.processor.action_dim = state_dict.get("action_dim")
+        self.time_horizon = state_dict.get("time_horizon")
+        self.action_dim = state_dict.get("action_dim")
 
     def save_pretrained(self, path: Path) -> None:
         """Save fitted local FAST processor assets."""
@@ -159,7 +179,7 @@ class FastActionDiscretizer(ActionDiscretizer):
 
 
 class BinnedActionDiscretizer(ActionDiscretizer):
-    """Per-value quantile binning for normalized action chunks."""
+    """Per-value quantile binning for chunks with shape (time_horizon, action_dim)."""
 
     def __init__(
         self,
@@ -182,18 +202,18 @@ class BinnedActionDiscretizer(ActionDiscretizer):
         return self.binner._is_fitted
 
     def fit(self, action_chunks: np.ndarray) -> None:
-        """Fit bin edges from normalized action chunks."""
+        """Fit bin edges from shape (num_chunks, time_horizon, action_dim)."""
         self.time_horizon = action_chunks.shape[1]
         self.action_dim = action_chunks.shape[2]
         self.binner.fit(action_chunks)
 
     def encode(self, action_chunk: np.ndarray) -> list[int]:
-        """Encode one normalized action chunk into flattened bin IDs."""
+        """Encode one chunk with shape (time_horizon, action_dim)."""
         tokens = self.binner.encode(action_chunk)
         return tokens.reshape(-1).detach().cpu().tolist()
 
     def decode(self, token_sequences: list[list[int]]) -> np.ndarray:
-        """Decode flattened bin-ID sequences into normalized action chunks."""
+        """Decode bin-ID sequences into shape (batch_size, time_horizon, action_dim)."""
         if self.time_horizon is None or self.action_dim is None:
             raise RuntimeError("Binned action discretizer shape is unknown")
 

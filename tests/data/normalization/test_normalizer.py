@@ -191,7 +191,6 @@ class TestSingleFieldLinearNormalizerMinMax:
         torch.testing.assert_close(result[2], torch.tensor([1.0]))
 
     def test_constant_dimension_handled(self):
-        """Dimensions with zero range should not produce NaN or Inf."""
         data = torch.tensor([[1.0, 5.0], [1.0, 10.0], [1.0, 15.0]])
         normalizer = SingleFieldLinearNormalizer()
         normalizer.fit(
@@ -205,7 +204,6 @@ class TestSingleFieldLinearNormalizerMinMax:
         assert not torch.any(torch.isinf(result))
 
     def test_clamp_range_prevents_extreme_scales(self):
-        """Very small ranges should be clamped to min_range."""
         data = torch.tensor([[0.0, 0.0], [0.001, 0.001]])
         normalizer = SingleFieldLinearNormalizer()
         normalizer.fit(
@@ -250,7 +248,6 @@ class TestSingleFieldLinearNormalizerGaussian:
         assert (result.std(dim=0) - 1.0).abs().max() < 0.1
 
     def test_clamp_std_prevents_extreme_scales(self):
-        """Very small std should be clamped to min_std."""
         data = torch.tensor([[1.0], [1.0001], [1.0002]])
         normalizer = SingleFieldLinearNormalizer()
         normalizer.fit(
@@ -365,30 +362,28 @@ class TestSingleFieldLinearNormalizerFactoryMethods:
         torch.testing.assert_close(result, data)
 
 
-class TestSingleFieldLinearNormalizerOutputStats:
-    def test_get_output_stats_returns_normalized_stats(self):
-        data = torch.tensor([[0.0], [5.0], [10.0]])
-        normalizer = SingleFieldLinearNormalizer()
-        normalizer.fit(
-            data=data,
-            mode=KinematicsNormalizationType.MIN_MAX.value,
-            output_min=-1.0,
-            output_max=1.0,
-        )
+def test_single_field_get_output_stats_returns_normalized_stats():
+    data = torch.tensor([[0.0], [5.0], [10.0]])
+    normalizer = SingleFieldLinearNormalizer()
+    normalizer.fit(
+        data=data,
+        mode=KinematicsNormalizationType.MIN_MAX.value,
+        output_min=-1.0,
+        output_max=1.0,
+    )
 
-        output_stats = normalizer.get_output_stats()
+    output_stats = normalizer.get_output_stats()
 
-        torch.testing.assert_close(
-            output_stats["min"], torch.tensor([-1.0]), atol=1e-5, rtol=1e-5
-        )
-        torch.testing.assert_close(
-            output_stats["max"], torch.tensor([1.0]), atol=1e-5, rtol=1e-5
-        )
+    torch.testing.assert_close(
+        output_stats["min"], torch.tensor([-1.0]), atol=1e-5, rtol=1e-5
+    )
+    torch.testing.assert_close(
+        output_stats["max"], torch.tensor([1.0]), atol=1e-5, rtol=1e-5
+    )
 
 
 class TestSingleFieldLinearNormalizerLastNDims:
     def test_last_n_dims_two_flattens_spatial(self, rng: np.random.Generator):
-        """With last_n_dims=2, a (B, H, W) tensor treats H*W as feature dim."""
         data = torch.from_numpy(rng.standard_normal((10, 4, 4)).astype(np.float32))
         normalizer = SingleFieldLinearNormalizer()
         normalizer.fit(
@@ -403,7 +398,6 @@ class TestSingleFieldLinearNormalizerLastNDims:
         assert result.shape == data.shape
 
     def test_last_n_dims_zero_treats_all_as_batch(self, rng: np.random.Generator):
-        """With last_n_dims=0, all dimensions are batch, feature dim is 1."""
         data = torch.from_numpy(rng.standard_normal((10, 3)).astype(np.float32))
         normalizer = SingleFieldLinearNormalizer()
         normalizer.fit(
@@ -540,7 +534,6 @@ class TestLinearNormalizerNormalize:
         assert result["orientation"].shape == (50, 4)
 
     def test_normalize_dict_skips_keys_without_params(self, rng: np.random.Generator):
-        """Keys not in params_dict should pass through unchanged."""
         data = {
             "position": torch.from_numpy(
                 rng.standard_normal((50, 3)).astype(np.float32)
@@ -727,32 +720,27 @@ class TestLinearNormalizerGetOutputStats:
         )
 
 
-class TestLinearNormalizerStateDictPersistence:
-    def test_state_dict_roundtrip(self, rng: np.random.Generator):
-        data = {
-            "position": torch.from_numpy(
-                rng.standard_normal((50, 3)).astype(np.float32)
-            )
-        }
-        normalizer = LinearNormalizer()
-        normalizer.fit(data=data, mode=KinematicsNormalizationType.MIN_MAX.value)
+def test_linear_normalizer_state_dict_roundtrip(rng: np.random.Generator):
+    data = {
+        "position": torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))
+    }
+    normalizer = LinearNormalizer()
+    normalizer.fit(data=data, mode=KinematicsNormalizationType.MIN_MAX.value)
 
-        state = normalizer.state_dict()
-        loaded = LinearNormalizer()
-        loaded.load_state_dict(state)
+    state = normalizer.state_dict()
+    loaded = LinearNormalizer()
+    loaded.load_state_dict(state)
 
-        test_input = {
-            "position": torch.from_numpy(
-                rng.standard_normal((10, 3)).astype(np.float32)
-            )
-        }
-        original_result = normalizer.normalize(test_input)
-        loaded_result = loaded.normalize(test_input)
+    test_input = {
+        "position": torch.from_numpy(rng.standard_normal((10, 3)).astype(np.float32))
+    }
+    original_result = normalizer.normalize(test_input)
+    loaded_result = loaded.normalize(test_input)
 
-        torch.testing.assert_close(
-            original_result["position"],
-            loaded_result["position"],
-        )
+    torch.testing.assert_close(
+        original_result["position"],
+        loaded_result["position"],
+    )
 
 
 class TestSequentialNormalizerComposition:
@@ -795,7 +783,10 @@ class TestSequentialNormalizerComposition:
             normalizers=[SingleFieldLinearNormalizer.create_identity()],
         )
 
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(
+            NotImplementedError,
+            match="SequentialNormalizer does not support fitting",
+        ):
             normalizer.fit(
                 data=torch.from_numpy(rng.standard_normal((10, 3)).astype(np.float32))
             )

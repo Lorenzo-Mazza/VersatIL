@@ -332,3 +332,63 @@ class TestPriorTargetStandardizationCallback:
             ),
         ):
             callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+
+    def test_non_lightning_policy_module_raises(self) -> None:
+        callback = PriorTargetStandardizationCallback()
+        not_a_lightning_policy = MagicMock()
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "PriorTargetStandardizationCallback requires a LightningPolicy module, "
+                f"got {type(not_a_lightning_policy).__name__}."
+            ),
+        ):
+            callback.on_train_start(
+                trainer=MagicMock(), pl_module=not_a_lightning_policy
+            )
+
+    def test_target_latent_dimension_mismatch_raises(
+        self,
+        lightning_policy_for_standardization_factory: Callable[..., LightningPolicy],
+    ) -> None:
+        wrong_dimension = LATENT_DIMENSION + 1
+        lightning_policy = lightning_policy_for_standardization_factory(
+            posterior_trainable=False,
+            prior_trainable=True,
+            batches=[
+                _batch(
+                    target=[[1.0, 2.0, 3.0]],
+                    feature=[[0.0, 0.0, 0.0]],
+                )
+            ],
+        )
+        callback = PriorTargetStandardizationCallback()
+
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "Prior target latent dimension mismatch: expected "
+                f"{LATENT_DIMENSION}, got {wrong_dimension}."
+            ),
+        ):
+            callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+
+    def test_empty_dataloader_raises(
+        self,
+        lightning_policy_for_standardization_factory: Callable[..., LightningPolicy],
+    ) -> None:
+        lightning_policy = lightning_policy_for_standardization_factory(
+            posterior_trainable=False,
+            prior_trainable=True,
+            batches=[],
+        )
+        callback = PriorTargetStandardizationCallback()
+
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "PriorTargetStandardizationCallback could not fit latent statistics "
+                "from an empty training dataloader."
+            ),
+        ):
+            callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)

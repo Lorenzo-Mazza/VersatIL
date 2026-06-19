@@ -140,6 +140,7 @@ class LeRobotDatasetMetadataV30:
         return table
 
     def get_version(self) -> str:
+        """Return the LeRobot codebase version recorded in the dataset info."""
         return self.info["codebase_version"]
 
     def get_data_file_path(self, episode_index: int) -> Path:
@@ -248,6 +249,7 @@ class LeRobotDatasetMetadataV30:
         ]
 
     def get_total_episodes(self) -> int:
+        """Return the number of episodes recorded in the dataset info."""
         return self.info["total_episodes"]
 
 
@@ -350,6 +352,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         return frames
 
     def get_episode_parquet(self, episode_id: int) -> pa.Table:
+        """Load and filter the parquet table rows belonging to one episode."""
         table = pq.read_table(self.lerobot_metadata.get_data_file_path(episode_id))
         mask = pa.compute.equal(table["episode_index"], episode_id)
         return table.filter(mask)
@@ -450,6 +453,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
     def get_episode_language_instructions(
         self, episode_id: int, preloaded_episode_table: pa.Table = None
     ) -> list[list[str]]:
+        """Return per-frame language instructions for one episode."""
         episode_table = (
             preloaded_episode_table
             if preloaded_episode_table is not None

@@ -45,6 +45,7 @@ class GatedLinearUnit(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the gated projection: activation(gate(x)) * value(x)."""
         gate = self.gate_activation(self.gate_proj(x))
         value = self.value_proj(x)
         return gate * value

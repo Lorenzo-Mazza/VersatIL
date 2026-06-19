@@ -70,6 +70,7 @@ class FusionModule(nn.Module):
 
     @abc.abstractmethod
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
+        """Fuse a list of feature tensors into one tensor."""
         raise NotImplementedError
 
 

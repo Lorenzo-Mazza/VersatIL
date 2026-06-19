@@ -58,13 +58,19 @@ def action_tokenizer_factory(mock_auto_processor):
                     language_tokenizer_model=language_tokenizer_model,
                     num_special_tokens_to_skip=num_special_tokens_to_skip,
                 )
-        return ActionTokenizer(
+        tokenizer = ActionTokenizer(
             action_discretizer=action_discretizer,
             token_id_mapping=token_id_mapping,
             max_token_len=max_token_len,
             pad_token_id=pad_token_id,
             device=device,
         )
+        # A loaded/fitted FAST discretizer knows its action-chunk shape; the mocked
+        # processor returns (1, 5, 7) arrays, so mirror that so decode is callable.
+        if isinstance(tokenizer.action_discretizer, FastActionDiscretizer):
+            tokenizer.action_discretizer.time_horizon = 5
+            tokenizer.action_discretizer.action_dim = 7
+        return tokenizer
 
     return factory
 
@@ -1339,6 +1345,28 @@ class TestActionTokenizerIntegrationSaveLoad:
         original_decoded = tokenizer.decode_chunk(original_tokens)
         np.testing.assert_array_equal(loaded_decoded, original_decoded)
 
+    def test_pretrained_fast_save_load_decode_roundtrip(
+        self, action_chunk_factory, tmp_path
+    ):
+        # Pretrained FAST does not save processor assets, so the loaded tokenizer
+        # must recover its action shape purely from the serialized state.
+        tokenizer = ActionTokenizer(
+            action_discretizer=FastActionDiscretizer(use_pretrained=True),
+        )
+        chunk = action_chunk_factory(time_horizon=5, action_dimension=7, scale=0.5)
+        original_tokens = tokenizer.encode_chunk(chunk)[
+            SampleKey.TOKENIZED_ACTIONS.value
+        ]
+
+        save_path = tmp_path / "action_tokenizer"
+        tokenizer.save_pretrained(save_path)
+        loaded = ActionTokenizer.from_pretrained(save_path)
+
+        loaded_decoded = loaded.decode_chunk(original_tokens)
+        assert loaded_decoded.shape == chunk.shape
+        original_decoded = tokenizer.decode_chunk(original_tokens)
+        np.testing.assert_array_equal(loaded_decoded, original_decoded)
+
     def test_loaded_tokenizer_preserves_vocab_size(
         self, action_chunk_factory, tmp_path
     ):
@@ -1448,3 +1476,90 @@ class TestActionTokenizerIntegrationLanguageMapping:
             if len(non_eos) > 0:
                 assert non_eos.min() >= expected_min
                 assert non_eos.max() <= expected_max
+
+
+@pytest.fixture
+def fast_discretizer_factory(mock_auto_processor):
+    """Factory for a FastActionDiscretizer whose mocked decode echoes its shape."""
+
+    def factory(use_pretrained: bool = True) -> FastActionDiscretizer:
+        discretizer = FastActionDiscretizer(use_pretrained=use_pretrained)
+        processor = discretizer.processor
+
+        def fake_decode(sequences, time_horizon, action_dim):
+            return np.zeros(
+                (len(sequences), time_horizon, action_dim), dtype=np.float32
+            )
+
+        processor.decode.side_effect = fake_decode
+        return discretizer
+
+    return factory
+
+
+class TestFastActionDiscretizerShapeTracking:
+    def test_encode_records_chunk_shape(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory()
+        discretizer.encode(np.zeros((4, 3), dtype=np.float32))
+        assert discretizer.time_horizon == 4
+        assert discretizer.action_dim == 3
+
+    def test_state_dict_serializes_shape_from_discretizer(
+        self, fast_discretizer_factory
+    ):
+        discretizer = fast_discretizer_factory()
+        discretizer.encode(np.zeros((6, 5), dtype=np.float32))
+        # A None on the processor must not leak into the serialized state.
+        discretizer.processor.time_horizon = None
+        discretizer.processor.action_dim = None
+        state = discretizer.state_dict()
+        assert state["time_horizon"] == 6
+        assert state["action_dim"] == 5
+
+    def test_pretrained_discretizer_has_no_shape_before_encode(
+        self, fast_discretizer_factory
+    ):
+        discretizer = fast_discretizer_factory(use_pretrained=True)
+        assert discretizer.is_fitted is True
+        assert discretizer.time_horizon is None
+        assert discretizer.action_dim is None
+
+
+class TestFastActionDiscretizerRoundTrip:
+    def test_save_load_decode_roundtrip_pretrained(self, fast_discretizer_factory):
+        # Reproduces the inference-after-checkpoint bug: encode sets the shape, the
+        # state dict persists it, and a fresh discretizer must decode without ever
+        # having encoded in this process.
+        trained = fast_discretizer_factory(use_pretrained=True)
+        trained.encode(np.zeros((8, 4), dtype=np.float32))
+        state = trained.state_dict()
+
+        loaded = fast_discretizer_factory(use_pretrained=True)
+        assert loaded.time_horizon is None
+        loaded.load_state_dict(state)
+
+        decoded = loaded.decode([[10, 20, 30]])
+        assert decoded.shape == (1, 8, 4)
+
+    def test_decode_forwards_shape_to_processor(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory()
+        discretizer.encode(np.zeros((7, 2), dtype=np.float32))
+        discretizer.decode([[1, 2, 3]])
+        _, kwargs = discretizer.processor.decode.call_args
+        assert kwargs["time_horizon"] == 7
+        assert kwargs["action_dim"] == 2
+
+    def test_decode_raises_when_shape_unknown(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory()
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("FAST action discretizer shape is unknown"),
+        ):
+            discretizer.decode([[1, 2, 3]])
+
+    def test_decode_clips_out_of_range_token_ids(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory(use_pretrained=True)
+        discretizer.encode(np.zeros((3, 2), dtype=np.float32))
+        discretizer.decode([[-5, 0, 99999]])
+        clipped = discretizer.processor.decode.call_args[0][0]
+        assert clipped == [[0, 0, discretizer.token_count - 1]]

@@ -258,6 +258,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         min_range: float = 4e-2,
         sample_size: int = 0,
     ):
+        """Fit scale and offset for one field from data statistics."""
         self.params_dict = _fit(
             data,
             last_n_dims=last_n_dims,
@@ -318,6 +319,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         """Create a normalizer from explicit scale, offset, and input stats."""
 
         def to_tensor(x):
+            """Convert input to a flat float tensor."""
             if not isinstance(x, torch.Tensor):
                 x = torch.from_numpy(x)
             x = x.flatten()
@@ -614,6 +616,7 @@ class SequentialNormalizer(SingleFieldLinearNormalizer):
         min_std: float = 2e-2,
         min_range: float = 4e-2,
     ) -> None:
+        """Fit per-key normalizers over a dict of arrays."""
         raise NotImplementedError("SequentialNormalizer does not support fitting")
 
     def normalize(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:

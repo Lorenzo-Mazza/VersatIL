@@ -25,6 +25,10 @@ class ObservationTokenizationConfig:
     # Pass language text through unformatted (no "Task:" prefix, no lowercasing).
     # Use for VLM policies (SmolVLA, Pi0) that expect raw text.
     raw_text: bool = False
+    # Optional template wrapped around the language instruction in raw-text
+    # mode, with an "{instruction}" placeholder. The instruction is lowercased
+    # and stripped before insertion (OpenVLA convention).
+    prompt_template: str | None = None
     # Padding strategy: "max_length" pads all sequences to max_token_len,
     # "longest" pads to the longest sequence in the batch.
     padding_strategy: str = TokenPaddingStrategy.MAX_LENGTH.value
