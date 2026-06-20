@@ -65,3 +65,13 @@ class QuantizeApiStrategyConfig:
 
     _target_: str = "versatil.quantization.strategies.QuantizeApiStrategy"
     quantize_config: Any = MISSING  # AOBaseConfig subclass via _target_
+
+
+@dataclass
+class QATStrategyConfig:
+    """Training-time fake quantization via torchao QATConfig."""
+
+    _target_: str = "versatil.quantization.strategies.QATStrategy"
+    base_config: Any = MISSING  # AOBaseConfig subclass via _target_
+    module_paths: list[str] = field(default_factory=list)
+    auto_filter_incompatible_linears: bool = True

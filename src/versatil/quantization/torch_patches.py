@@ -1,4 +1,4 @@
-"""Compatibility patch for torchao PT2E imports on Python 3.14."""
+"""Compatibility patches for torchao version-specific issues."""
 
 import importlib
 import importlib.util
@@ -14,6 +14,15 @@ _PT2E_MODULE_PATCHES: dict[str, dict[str, str]] = {
         'EdgeOrNode.__module__ = "torchao.quantization.pt2e.quantizer.quantizer"': "pass",
     },
 }
+
+_QAT_INT4_GROUP_SIZE_ORIGINAL = """weight_config = Int4WeightFakeQuantizeConfig(
+                group_size=128,
+                activation_dtype=torch.bfloat16,
+            )"""
+_QAT_INT4_GROUP_SIZE_REPLACEMENT = """weight_config = Int4WeightFakeQuantizeConfig(
+                group_size=base_config.group_size,
+                activation_dtype=torch.bfloat16,
+            )"""
 
 
 def patch_pt2e_python314() -> None:
@@ -76,4 +85,51 @@ def patch_pt2e_python314() -> None:
         importlib.invalidate_caches()
 
 
+def patch_qat_int4_group_size() -> None:
+    """Patch torchao QAT int4 fake-quant group size propagation.
+
+    torchao 0.17 hardcodes ``Int4WeightFakeQuantizeConfig(group_size=128)``
+    when preparing QAT from ``Int4WeightOnlyConfig(version=2)``. That ignores
+    ``Int4WeightOnlyConfig.group_size`` and crashes training forwards for
+    linear layers whose input dimension is compatible with the user-selected
+    group size but not 128.
+
+    Patches the installed torchao file on disk so the fake-quant config uses
+    ``base_config.group_size``. Idempotent and skips clean torchao wheels that
+    already contain the upstream fix.
+
+    Must be called before importing ``torchao.quantization.qat``.
+
+    See:
+        https://github.com/pytorch/ao/issues/3572
+        https://github.com/pytorch/ao/pull/4518
+    """
+    spec = importlib.util.find_spec("torchao")
+    if spec is None or not spec.submodule_search_locations:
+        return
+
+    package_path = Path(spec.submodule_search_locations[0])
+    file_path = package_path / "quantization" / "qat" / "fake_quantize_config.py"
+    if not file_path.exists():
+        return
+
+    patched_marker = "# versatil-qat-int4-group-size-patched"
+    source = file_path.read_text()
+    if _QAT_INT4_GROUP_SIZE_REPLACEMENT in source:
+        return
+    if patched_marker in source:
+        return
+
+    patched = source.replace(
+        _QAT_INT4_GROUP_SIZE_ORIGINAL,
+        _QAT_INT4_GROUP_SIZE_REPLACEMENT,
+    )
+    if patched == source:
+        return
+
+    file_path.write_text(patched + f"\n{patched_marker}\n")
+    importlib.invalidate_caches()
+
+
 patch_pt2e_python314()
+patch_qat_int4_group_size()

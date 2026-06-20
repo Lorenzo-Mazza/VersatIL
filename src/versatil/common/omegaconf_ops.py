@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
+import torch
 from omegaconf import OmegaConf
 
 
@@ -31,3 +32,19 @@ def resolve_dict_keys(d: Mapping[Any, Any]) -> dict[Any, Any]:
         )
         resolved[resolved_key] = resolved_value
     return resolved
+
+
+def make_config_yaml_safe(value: Any) -> Any:
+    """Convert resolved config values unsupported by OmegaConf into YAML-safe values."""
+    if isinstance(value, torch.dtype):
+        return str(value)
+    if isinstance(value, dict):
+        return {
+            make_config_yaml_safe(key): make_config_yaml_safe(nested_value)
+            for key, nested_value in value.items()
+        }
+    if isinstance(value, list):
+        return [make_config_yaml_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(make_config_yaml_safe(item) for item in value)
+    return value

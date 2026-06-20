@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - action_transformer_language
+  - /quantization: qat_int2_weight_only
+  - _self_
+
+policy:
+  encoding_pipeline:
+    encoders:
+      instruction:
+        use_embeddings_only: false

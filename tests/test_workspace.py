@@ -18,10 +18,12 @@ from pytorch_lightning.callbacks import (
 )
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
+from torchao.quantization import Int4WeightOnlyConfig
 
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.quantization.strategies import QATStrategy
 from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
 from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
 from versatil.training.callbacks.ema import EMACallback
@@ -180,6 +182,7 @@ def main_config_factory(
         experiment_kwargs: dict | None = None,
         training_kwargs: dict | None = None,
         policy: MagicMock | None = None,
+        quantization: MagicMock | None = None,
     ) -> MagicMock:
         experiment_kwargs = experiment_kwargs or {}
         training_kwargs = training_kwargs or {}
@@ -188,6 +191,7 @@ def main_config_factory(
         config.experiment = experiment_config_factory(**experiment_kwargs)
         config.training = mock_training_config_factory(**training_kwargs)
         config.policy = policy or MagicMock()
+        config.quantization = quantization
         return config
 
     return factory
@@ -221,6 +225,8 @@ def workspace_factory(
         experiment_kwargs: dict | None = None,
         training_kwargs: dict | None = None,
         policy: MagicMock | None = None,
+        quantization: MagicMock | None = None,
+        original_yaml_config: OmegaConf | None = None,
         config_name: str = "test_config",
     ) -> Workspace:
         experiment_kwargs = experiment_kwargs or {}
@@ -230,8 +236,9 @@ def workspace_factory(
             experiment_kwargs=experiment_kwargs,
             training_kwargs=training_kwargs,
             policy=policy,
+            quantization=quantization,
         )
-        yaml_config = original_yaml_config_factory(
+        yaml_config = original_yaml_config or original_yaml_config_factory(
             name=experiment_kwargs.get("name", "test_experiment"),
         )
 
@@ -353,6 +360,30 @@ def test_save_config_writes_resolved_yaml_to_output_directory(
 
     loaded = OmegaConf.load(config_path)
     assert "experiment" in loaded
+
+
+@pytest.mark.unit
+def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
+    yaml_config = OmegaConf.create(
+        {
+            "experiment": {"name": "save_dtype"},
+            "training": {"optimizer": {"lr": 1e-4}},
+            "quantization": {
+                "base_config": {
+                    "weight_dtype": "${torch_dtype:int4}",
+                }
+            },
+        }
+    )
+    workspace = workspace_factory(
+        experiment_kwargs={"name": "save_dtype"},
+        original_yaml_config=yaml_config,
+        config_name="base",
+    )
+
+    loaded = OmegaConf.load(workspace.output_dir / "config.yaml")
+
+    assert loaded.quantization.base_config.weight_dtype == "torch.int4"
 
 
 @pytest.mark.unit
@@ -1445,6 +1476,31 @@ class TestSetupPolicy:
                 training_config=workspace.config.training,
                 total_training_steps=500,
             )
+
+    def test_prepares_qat_after_lazy_initialization(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        quantization = QATStrategy(base_config=Int4WeightOnlyConfig(group_size=32))
+        workspace = workspace_factory(policy=policy, quantization=quantization)
+        workspace.policy = None
+        workspace.normalizer = MagicMock(spec=LinearNormalizer)
+        workspace.tokenizer = None
+        workspace.denoising_thresholds = {}
+        workspace.gripper_class_weights = None
+        mock_train_loader = MagicMock()
+        mock_train_loader.__len__ = MagicMock(return_value=10)
+        workspace.train_loader = mock_train_loader
+        workspace.config.policy = policy
+
+        with (
+            patch.object(workspace, "_initialize_lazy_modules") as initialize_mock,
+            patch.object(quantization, "prepare_model") as prepare_mock,
+        ):
+            workspace._setup_policy()
+
+        initialize_mock.assert_called_once_with()
+        prepare_mock.assert_called_once_with(model=policy)
 
 
 @pytest.mark.unit

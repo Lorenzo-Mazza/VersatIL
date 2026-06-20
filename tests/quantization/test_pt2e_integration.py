@@ -1,4 +1,4 @@
-"""Integration tests for the versatil.quantization pipeline."""
+"""Integration tests for PT2E quantization and pruning."""
 
 import os
 import time

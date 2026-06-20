@@ -1,0 +1,9 @@
+defaults:
+  - /quantization/strategy@_here_: qat
+  - _self_
+
+base_config:
+  _target_: torchao.quantization.Int4WeightOnlyConfig
+  group_size: 32
+module_paths: []
+auto_filter_incompatible_linears: true

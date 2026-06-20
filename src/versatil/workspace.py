@@ -23,12 +23,14 @@ from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
 import wandb
+from versatil.common.omegaconf_ops import make_config_yaml_safe
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.models.policy import Policy
+from versatil.quantization.strategies import QATStrategy
 from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
 from versatil.training.callbacks.ema import EMACallback
 from versatil.training.callbacks.gradient_norm import GradientNormCallback
@@ -117,7 +119,7 @@ class Workspace:
         resolved_config = OmegaConf.to_container(
             self.original_yaml_config, resolve=True
         )
-        resolved_config_dict = OmegaConf.create(resolved_config)
+        resolved_config_dict = OmegaConf.create(make_config_yaml_safe(resolved_config))
         OmegaConf.save(resolved_config_dict, config_path)
         logging.info(f"Config saved to {config_path}")
 
@@ -230,6 +232,7 @@ class Workspace:
             total_training_steps=total_training_steps,
         )
         self._initialize_lazy_modules()
+        self._prepare_qat()
         if self.config.training.compile:
             logging.info(
                 "Compiling policy with torch.compile (mode=%s)...",
@@ -241,6 +244,16 @@ class Workspace:
             self.lightning_policy.policy = self.policy
         logging.info(f"Policy created: {self.policy.__class__.__name__}")
         logging.info(f"Total training steps: {total_training_steps}")
+
+    def _prepare_qat(self) -> None:
+        """Apply QAT fake quantization before optimizer construction."""
+        quantization = self.config.quantization
+        if quantization is None:
+            return
+        if not isinstance(quantization, QATStrategy):
+            return
+        logging.info("Preparing policy for quantization-aware training...")
+        quantization.prepare_model(model=self.policy)
 
     def _setup_trainer(self):
         """Setup PyTorch Lightning trainer with callbacks and logger."""

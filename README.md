@@ -205,6 +205,7 @@ The compression pipeline is configurable via Hydra and supports three complement
 3. **Quantization**: Two paths via [torchao](https://github.com/pytorch/ao), PyTorch's quantization library:
    - **PT2E** (PyTorch 2 Export): The graph-based quantization flow. The trained policy is exported to an FX graph via `torch.export`, then quantized using hardware-specific quantizers (e.g., X86InductorQuantizer for x86 CPUs). Static quantization requires a calibration pass over training data to determine activation ranges. This path supports per-module targeting, conv+linear fusion, and operator-level quantization control.
    - **quantize_() API**: The eager-mode dynamic quantization flow. Applies weight-only or dynamic activation quantization (e.g., INT8 dynamic, INT4 weight-only) directly on the eager model before export. Simpler to use but less granular than PT2E.
+   - **QAT** (Quantization-Aware Training): Inserts torchao fake-quantization modules before optimization via `QATConfig(..., step="prepare")`, so training adapts to low-precision numerics. Conversion to a hardware-specific quantized deployment artifact is intentionally separate.
 
 **Compressed inference:**
 
@@ -214,7 +215,7 @@ Compressed models are saved as `.pt2` archives and loaded by [`CompressedPolicyL
 
 Compression targets can be specified globally (applied to the entire policy) or per-module (targeting specific submodules like individual encoder backbones or the decoder). This allows, for example, aggressively quantizing the vision backbones while leaving the language encoder or decoder at higher precision.
 
-**Roadmap:** We plan to extend support to Quantization-Aware Training (QAT), where simulated quantization is inserted into the forward pass during training so the optimizer learns weights that are natively quantization-friendly, yielding higher accuracy than PTQ alone.
+**QAT presets:** Hydra configs under `quantization/` provide verified torchao QAT base configs, including dynamic INT8 activation + INT4 weight QAT and INT4 weight-only QAT. See `docs/known-issues.md` for the torchao 0.17 INT4 group-size compatibility patch.
 
 ---
 

@@ -43,6 +43,7 @@ PostTrainingCompressor.compress()
 | [`CompressionTarget`][versatil.post_training_compression.compression_target.CompressionTarget] | `src/versatil/post_training_compression/compression_target.py` | Per-module config: module_path + preparation + pruning list + quantization strategy. |
 | [`PT2EStrategy`][versatil.quantization.strategies.PT2EStrategy] | `src/versatil/quantization/strategies.py` | Wraps a [`BasePT2EBackend`][versatil.quantization.backends.base.BasePT2EBackend] for graph-based quantization. |
 | [`QuantizeApiStrategy`][versatil.quantization.strategies.QuantizeApiStrategy] | `src/versatil/quantization/strategies.py` | Wraps a torchao quantization config for eager-mode quantization. |
+| [`QATStrategy`][versatil.quantization.strategies.QATStrategy] | `src/versatil/quantization/strategies.py` | Prepares eligible `nn.Linear` modules with torchao fake quantization before training. |
 | [`X86InductorBackend`][versatil.quantization.backends.x86_inductor.X86InductorBackend] | `src/versatil/quantization/backends/x86_inductor.py` | Creates X86InductorQuantizer, manages inductor env vars, provides lowering. |
 | [`CalibrationDataProvider`][versatil.quantization.calibration.CalibrationDataProvider] | `src/versatil/quantization/calibration.py` | Yields observation tuples from the training dataloader for static calibration. |
 | [`ExportablePolicy`][versatil.models.exportable_policy.ExportablePolicy] | `src/versatil/models/exportable_policy.py` | Wraps Policy with positional tensor I/O for torch.export compatibility. |
@@ -70,6 +71,16 @@ torchao.quantization.quantize_(model, Int8DynamicActivationInt8WeightConfig())
 ```
 
 Simpler but less granular than PT2E. Only supports `nn.Linear` layers. The two paths cannot be combined in a single compression run.
+
+**QAT (Quantization-Aware Training)**
+
+The training-time path. `QATStrategy` applies `torchao.quantization.qat.QATConfig`
+with `step="prepare"` after VersatIL initializes lazy modules and before
+Lightning creates the optimizer. The prepared policy trains with fake
+quantization in the forward pass, but remains a trainable eager model.
+
+Conversion with `QATConfig(..., step="convert")` is a deployment concern and is
+not required for QAT training checkpoints.
 
 ### Pruning
 

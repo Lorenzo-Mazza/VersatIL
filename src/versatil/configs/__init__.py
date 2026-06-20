@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 from versatil_constants.tso import TSOObsKey
@@ -156,6 +157,7 @@ from versatil.configs.quantization import (
     Int4WeightOnlyQuantizeConfig,
     Int8DynamicQuantizeConfig,
     PT2EStrategyConfig,
+    QATStrategyConfig,
     QuantizeApiStrategyConfig,
     X86InductorBackendConfig,
 )
@@ -305,6 +307,7 @@ __all__ = [
     "Int8DynamicQuantizeConfig",
     "CompressionTargetConfig",
     "PT2EStrategyConfig",
+    "QATStrategyConfig",
     "PostTrainingCompressorConfig",
     "PreparationConfig",
     "QuantizeApiStrategyConfig",
@@ -602,6 +605,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("quantization_backend"):
         OmegaConf.register_new_resolver(
             "quantization_backend", lambda name: QuantizationBackend[name].value
+        )
+    if not OmegaConf.has_resolver("torch_dtype"):
+        OmegaConf.register_new_resolver(
+            "torch_dtype", lambda name: getattr(torch, name)
         )
     if not OmegaConf.has_resolver("env"):
         OmegaConf.register_new_resolver(
@@ -1149,6 +1156,11 @@ def register_configs() -> None:
         group="quantization/strategy",
         name="quantize_api",
         node=QuantizeApiStrategyConfig,
+    )
+    cs.store(
+        group="quantization/strategy",
+        name="qat",
+        node=QATStrategyConfig,
     )
     cs.store(
         group="quantization/backend",

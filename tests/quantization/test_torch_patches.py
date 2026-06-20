@@ -11,7 +11,10 @@ import pytest
 
 from versatil.quantization.torch_patches import (
     _PT2E_MODULE_PATCHES,
+    _QAT_INT4_GROUP_SIZE_ORIGINAL,
+    _QAT_INT4_GROUP_SIZE_REPLACEMENT,
     patch_pt2e_python314,
+    patch_qat_int4_group_size,
 )
 
 
@@ -42,6 +45,20 @@ def torchao_package_factory(tmp_path: Path) -> Callable[[], Path]:
                 _PT2E_MODULE_PATCHES["torchao.quantization.pt2e.quantizer.quantizer"]
             )
         )
+        return package_path
+
+    return factory
+
+
+@pytest.fixture
+def torchao_qat_package_factory(tmp_path: Path) -> Callable[[str], Path]:
+    """Factory for fake torchao package trees with QAT fake-quant source."""
+
+    def factory(source: str = _QAT_INT4_GROUP_SIZE_ORIGINAL) -> Path:
+        package_path = tmp_path / "torchao"
+        qat_path = package_path / "quantization" / "qat"
+        qat_path.mkdir(parents=True)
+        (qat_path / "fake_quantize_config.py").write_text(source)
         return package_path
 
     return factory
@@ -228,3 +245,83 @@ class TestPatchPT2EPython314Integration:
         assert quantize_module.convert_pt2e.__name__ == "convert_pt2e"
         assert quantizer_module.Quantizer.__name__ == "Quantizer"
         assert x86_module.X86InductorQuantizer.__name__ == "X86InductorQuantizer"
+
+
+@pytest.mark.unit
+class TestPatchQATInt4GroupSize:
+    def test_replaces_hardcoded_group_size(
+        self,
+        torchao_qat_package_factory: Callable[[str], Path],
+    ) -> None:
+        package_path = torchao_qat_package_factory()
+        spec = MagicMock(spec=ModuleSpec)
+        spec.submodule_search_locations = [str(package_path)]
+        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
+
+        with (
+            patch(
+                "versatil.quantization.torch_patches.importlib.util.find_spec",
+                return_value=spec,
+            ),
+            patch(
+                "versatil.quantization.torch_patches.importlib.invalidate_caches",
+                new=invalidate_caches_mock,
+            ),
+        ):
+            patch_qat_int4_group_size()
+
+        source = (
+            package_path / "quantization" / "qat" / "fake_quantize_config.py"
+        ).read_text()
+        assert _QAT_INT4_GROUP_SIZE_ORIGINAL not in source
+        assert _QAT_INT4_GROUP_SIZE_REPLACEMENT in source
+        assert "# versatil-qat-int4-group-size-patched" in source
+        invalidate_caches_mock.assert_called_once_with()
+
+    def test_skips_when_upstream_fix_exists(
+        self,
+        torchao_qat_package_factory: Callable[[str], Path],
+    ) -> None:
+        package_path = torchao_qat_package_factory(
+            source=_QAT_INT4_GROUP_SIZE_REPLACEMENT
+        )
+        spec = MagicMock(spec=ModuleSpec)
+        spec.submodule_search_locations = [str(package_path)]
+        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
+
+        with (
+            patch(
+                "versatil.quantization.torch_patches.importlib.util.find_spec",
+                return_value=spec,
+            ),
+            patch(
+                "versatil.quantization.torch_patches.importlib.invalidate_caches",
+                new=invalidate_caches_mock,
+            ),
+        ):
+            patch_qat_int4_group_size()
+
+        source = (
+            package_path / "quantization" / "qat" / "fake_quantize_config.py"
+        ).read_text()
+        assert source == _QAT_INT4_GROUP_SIZE_REPLACEMENT
+        invalidate_caches_mock.assert_not_called()
+
+    def test_skips_when_torchao_is_missing(self) -> None:
+        find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=None)
+        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
+
+        with (
+            patch(
+                "versatil.quantization.torch_patches.importlib.util.find_spec",
+                new=find_spec_mock,
+            ),
+            patch(
+                "versatil.quantization.torch_patches.importlib.invalidate_caches",
+                new=invalidate_caches_mock,
+            ),
+        ):
+            patch_qat_int4_group_size()
+
+        find_spec_mock.assert_called_once_with("torchao")
+        invalidate_caches_mock.assert_not_called()
