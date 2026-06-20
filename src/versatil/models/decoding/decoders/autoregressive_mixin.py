@@ -25,6 +25,8 @@ class CachedAutoregressiveGenerationState:
             decide whether it contains token IDs, embeddings, or continuous values.
         attention_mask: Optional cache-aware attention mask.
         cache_position: Optional cache position tensor for HuggingFace models.
+        position_ids: Optional position IDs for ``next_inputs`` with matching
+            shape up to the last dimension, e.g. ``(B, 1)`` for one token.
         completed_sequence_mask: Optional boolean mask with shape ``(B,)`` where
             ``True`` marks samples that already met their stop condition.
     """
@@ -35,6 +37,7 @@ class CachedAutoregressiveGenerationState:
     next_inputs: torch.Tensor
     attention_mask: torch.Tensor | None = None
     cache_position: torch.Tensor | None = None
+    position_ids: torch.Tensor | None = None
     completed_sequence_mask: torch.Tensor | None = None
 
 
@@ -95,6 +98,16 @@ class AutoregressiveDecoderMixin:
             return None
         return state.cache_position + next_inputs.shape[1]
 
+    def _advance_autoregressive_position_ids(
+        self,
+        state: CachedAutoregressiveGenerationState,
+        next_inputs: torch.Tensor,
+    ) -> torch.Tensor | None:
+        """Advance cached position IDs to match ``next_inputs`` shape ``(B, S)``."""
+        if state.position_ids is None:
+            return None
+        return state.position_ids + next_inputs.shape[1]
+
     def _run_cached_autoregressive_generation(
         self,
         initial_state: CachedAutoregressiveGenerationState,
@@ -147,6 +160,10 @@ class AutoregressiveDecoderMixin:
                     generated_output=generated_output,
                 ),
                 cache_position=self._advance_autoregressive_cache_position(
+                    state=state,
+                    next_inputs=next_inputs,
+                ),
+                position_ids=self._advance_autoregressive_position_ids(
                     state=state,
                     next_inputs=next_inputs,
                 ),

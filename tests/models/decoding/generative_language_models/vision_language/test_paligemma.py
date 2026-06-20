@@ -282,6 +282,32 @@ class TestPaliGemmaVLMForward:
         assert backbone.padding_mask_name in output
         assert len(output) == 2
 
+    def test_forward_language_model_converts_position_ids_to_paligemma_positions(
+        self,
+        paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+    ) -> None:
+        backbone = paligemma_backbone_factory()
+        language_model = backbone._get_language_model()
+        hidden_states = torch.zeros(2, 3, HIDDEN_DIM)
+        language_output = MagicMock(spec=BaseModelOutput)
+        language_output.last_hidden_state = hidden_states
+        language_output.hidden_states = (hidden_states,)
+        language_output.past_key_values = MagicMock()
+        language_model.return_value = language_output
+        output_head = MagicMock(return_value=torch.zeros(2, 3, VOCAB_SIZE))
+        backbone.vlm.get_output_embeddings.return_value = output_head
+        inputs_embeds = torch.zeros(2, 3, HIDDEN_DIM)
+        position_ids = torch.tensor([[0, 1, 2], [0, 0, 1]], dtype=torch.long)
+
+        backbone.forward_language_model(
+            inputs_embeds=inputs_embeds,
+            position_ids=position_ids,
+            output_hidden_states=True,
+        )
+
+        call_position_ids = language_model.call_args.kwargs["position_ids"]
+        torch.testing.assert_close(call_position_ids, position_ids + 1)
+
     def test_vision_tower_called_once_per_camera(
         self,
         paligemma_backbone_factory: Callable[..., PaliGemmaVLM],

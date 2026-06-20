@@ -10,7 +10,10 @@ import torch
 from transformers.cache_utils import Cache
 
 from versatil.data.constants import ActionTokenIdMappingType, SampleKey
-from versatil.data.tokenization.action_discretizer import ActionDiscretizer
+from versatil.data.tokenization.action_discretizer import (
+    ActionDiscretizer,
+    BinnedActionDiscretizer,
+)
 from versatil.data.tokenization.action_token_id_mapping import ActionTokenIdMapping
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.tokenizer import Tokenizer
@@ -124,10 +127,18 @@ def language_vocab_tokenizer_factory() -> Callable[..., MagicMock]:
         token_count: int = 3,
         encoded_token_ids: list[int] | None = None,
         max_token_len: int = 256,
+        fixed_length: bool = False,
+        time_horizon: int = 4,
+        action_dim: int = 3,
     ) -> MagicMock:
         if encoded_token_ids is None:
             encoded_token_ids = [10 + token_id for token_id in range(token_count)]
-        action_discretizer = MagicMock(spec=ActionDiscretizer)
+        if fixed_length:
+            action_discretizer = MagicMock(spec=BinnedActionDiscretizer)
+            action_discretizer.time_horizon = time_horizon
+            action_discretizer.action_dim = action_dim
+        else:
+            action_discretizer = MagicMock(spec=ActionDiscretizer)
         action_discretizer.token_count = token_count
         token_id_mapping = MagicMock(spec=ActionTokenIdMapping)
         token_id_mapping.state_dict.return_value = {"type": mapping_type}
@@ -227,6 +238,28 @@ class TestAutoregressiveVLADecoderTokenizer:
         decoder.vlm_backbone.resize_token_embeddings.assert_not_called()
         tokenizer.action_tokenizer.token_id_mapping.encode.assert_called_once_with(
             [0, 1, 2]
+        )
+
+    def test_set_tokenizer_includes_eos_when_action_tokenizer_is_fixed_length(
+        self,
+        autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
+        language_vocab_tokenizer_factory: Callable[..., MagicMock],
+    ) -> None:
+        decoder = autoregressive_vla_decoder_factory(input_keys=[])
+        tokenizer = language_vocab_tokenizer_factory(
+            token_count=3,
+            encoded_token_ids=[10, 11, 12],
+            eos_token_id=VOCABULARY_SIZE - 1,
+            fixed_length=True,
+            time_horizon=1,
+            action_dim=3,
+        )
+
+        decoder.set_tokenizer(tokenizer=tokenizer)
+
+        torch.testing.assert_close(
+            decoder.valid_generation_token_ids,
+            torch.tensor([10, 11, 12, VOCABULARY_SIZE - 1]),
         )
 
     def test_set_tokenizer_accepts_padded_vlm_vocabulary(
@@ -649,6 +682,99 @@ class TestAutoregressiveVLADecoderGeneration:
             expected_logits,
         )
 
+    def test_training_forward_removes_prefix_padding_before_action_tokens(
+        self,
+        autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
+    ) -> None:
+        decoder = autoregressive_vla_decoder_factory(input_keys=[])
+        decoder.causal_prefix = True
+        prefix_tokens = torch.arange(
+            BATCH_SIZE * PREFIX_TOKEN_LENGTH * LANGUAGE_HIDDEN_DIMENSION,
+            dtype=torch.float32,
+        ).reshape(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION)
+        prefix_token_mask = torch.tensor(
+            [
+                [False, False, True, True, True],
+                [False, False, False, False, True],
+            ],
+            dtype=torch.bool,
+        )
+        target_token_ids = torch.arange(
+            BATCH_SIZE * ACTION_TOKEN_LENGTH,
+        ).reshape(BATCH_SIZE, ACTION_TOKEN_LENGTH)
+        action_token_embeddings = torch.full(
+            (
+                BATCH_SIZE,
+                ACTION_TOKEN_LENGTH,
+                LANGUAGE_HIDDEN_DIMENSION,
+            ),
+            1000.0,
+        )
+        language_logits = torch.arange(
+            BATCH_SIZE * (4 + ACTION_TOKEN_LENGTH) * VOCABULARY_SIZE,
+            dtype=torch.float32,
+        ).reshape(BATCH_SIZE, 4 + ACTION_TOKEN_LENGTH, VOCABULARY_SIZE)
+        decoder.vlm_backbone.embed_input_ids.return_value = action_token_embeddings
+
+        with patch.object(
+            decoder,
+            "_run_language_model_logits",
+            return_value=language_logits,
+        ) as language_spy:
+            output = decoder._forward_action_token_training(
+                actions={SampleKey.TOKENIZED_ACTIONS.value: target_token_ids},
+                prefix_tokens=prefix_tokens,
+                prefix_token_mask=prefix_token_mask,
+            )
+
+        language_call = language_spy.call_args
+        full_token_sequence = language_call.kwargs["tokens"]
+        attention_mask = language_call.kwargs["attention_mask"]
+        assert full_token_sequence.shape == (
+            BATCH_SIZE,
+            4 + ACTION_TOKEN_LENGTH,
+            LANGUAGE_HIDDEN_DIMENSION,
+        )
+        torch.testing.assert_close(
+            full_token_sequence[0, :2],
+            prefix_tokens[0, :2],
+        )
+        torch.testing.assert_close(
+            full_token_sequence[0, 2 : 2 + ACTION_TOKEN_LENGTH],
+            action_token_embeddings[0],
+        )
+        torch.testing.assert_close(
+            full_token_sequence[0, 2 + ACTION_TOKEN_LENGTH :],
+            torch.zeros(2, LANGUAGE_HIDDEN_DIMENSION),
+        )
+        torch.testing.assert_close(
+            full_token_sequence[1, :4],
+            prefix_tokens[1, :4],
+        )
+        torch.testing.assert_close(
+            full_token_sequence[1, 4 : 4 + ACTION_TOKEN_LENGTH],
+            action_token_embeddings[1],
+        )
+        expected_attention_mask = torch.tensor(
+            [
+                [1, 1, 1, 1, 1, 1, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1],
+            ],
+            dtype=torch.long,
+        )
+        torch.testing.assert_close(attention_mask, expected_attention_mask)
+        expected_logits = torch.stack(
+            [
+                language_logits[0, 1 : 1 + ACTION_TOKEN_LENGTH],
+                language_logits[1, 3 : 3 + ACTION_TOKEN_LENGTH],
+            ],
+            dim=0,
+        )
+        torch.testing.assert_close(
+            output[DecoderOutputKey.ACTION_LOGITS.value],
+            expected_logits,
+        )
+
     def test_training_forward_rejects_empty_prefix(
         self,
         autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
@@ -752,15 +878,73 @@ class TestAutoregressiveVLADecoderGeneration:
             prefix_token_mask=None,
         )
 
-        decoder.vlm_backbone.forward_language_model.assert_called_once_with(
-            inputs_embeds=prefix_tokens,
-            attention_mask=None,
-            use_cache=True,
+        decoder.vlm_backbone.forward_language_model.assert_called_once()
+        prefill_call = decoder.vlm_backbone.forward_language_model.call_args
+        torch.testing.assert_close(prefill_call.kwargs["inputs_embeds"], prefix_tokens)
+        assert prefill_call.kwargs["attention_mask"] is None
+        torch.testing.assert_close(
+            prefill_call.kwargs["position_ids"],
+            torch.arange(PREFIX_TOKEN_LENGTH).unsqueeze(0).expand(BATCH_SIZE, -1),
         )
+        assert prefill_call.kwargs["use_cache"]
         decoder.vlm_backbone.embed_input_ids.assert_not_called()
         torch.testing.assert_close(
             output[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
             torch.full((BATCH_SIZE, 1), VOCABULARY_SIZE - 1),
+        )
+
+    def test_inference_fixed_length_mode_runs_to_payload_cap_when_eos_is_missing(
+        self,
+        autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
+        language_vocab_tokenizer_factory: Callable[..., MagicMock],
+    ) -> None:
+        decoder = autoregressive_vla_decoder_factory(input_keys=[])
+        decoder.max_seq_len = PREFIX_TOKEN_LENGTH + 2
+        decoder.set_tokenizer(
+            tokenizer=language_vocab_tokenizer_factory(
+                token_count=1,
+                encoded_token_ids=[4],
+                max_token_len=2,
+                fixed_length=True,
+                time_horizon=2,
+                action_dim=1,
+            )
+        )
+        prefix_tokens = torch.zeros(
+            BATCH_SIZE,
+            PREFIX_TOKEN_LENGTH,
+            LANGUAGE_HIDDEN_DIMENSION,
+        )
+        prefill_logits = torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, VOCABULARY_SIZE)
+        prefill_logits[:, -1, 4] = 10.0
+        decode_logits = torch.zeros(BATCH_SIZE, 1, VOCABULARY_SIZE)
+        decode_logits[:, -1, 4] = 10.0
+        prefill_output = MagicMock(spec=CausalLanguageModelOutput)
+        prefill_output.logits = prefill_logits
+        prefill_output.hidden_states = (
+            torch.zeros(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION),
+        )
+        prefill_output.past_key_values = MagicMock(spec=Cache)
+        decode_output = MagicMock(spec=CausalLanguageModelOutput)
+        decode_output.logits = decode_logits
+        decode_output.hidden_states = (
+            torch.zeros(BATCH_SIZE, 1, LANGUAGE_HIDDEN_DIMENSION),
+        )
+        decode_output.past_key_values = MagicMock(spec=Cache)
+        decoder.vlm_backbone.forward_language_model.side_effect = [
+            prefill_output,
+            decode_output,
+        ]
+
+        output = decoder._forward_action_token_inference(
+            prefix_tokens=prefix_tokens,
+            prefix_token_mask=None,
+        )
+
+        assert decoder.vlm_backbone.forward_language_model.call_count == 2
+        torch.testing.assert_close(
+            output[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+            torch.full((BATCH_SIZE, 2), 4),
         )
 
     def test_inference_forward_uses_sampled_token_ids_for_cached_next_step(
@@ -815,6 +999,10 @@ class TestAutoregressiveVLADecoderGeneration:
         prefill_call = decoder.vlm_backbone.forward_language_model.call_args_list[0]
         torch.testing.assert_close(prefill_call.kwargs["inputs_embeds"], prefix_tokens)
         assert prefill_call.kwargs["attention_mask"] is None
+        torch.testing.assert_close(
+            prefill_call.kwargs["position_ids"],
+            torch.arange(PREFIX_TOKEN_LENGTH).unsqueeze(0).expand(BATCH_SIZE, -1),
+        )
         assert prefill_call.kwargs["use_cache"]
         decode_call = decoder.vlm_backbone.forward_language_model.call_args_list[1]
         torch.testing.assert_close(
@@ -822,6 +1010,10 @@ class TestAutoregressiveVLADecoderGeneration:
             torch.full((BATCH_SIZE, 1), 4),
         )
         assert decode_call.kwargs["past_key_values"] is prefill_cache
+        torch.testing.assert_close(
+            decode_call.kwargs["position_ids"],
+            torch.full((BATCH_SIZE, 1), PREFIX_TOKEN_LENGTH),
+        )
         assert decode_call.kwargs["use_cache"]
         decoder.vlm_backbone.embed_input_ids.assert_not_called()
         torch.testing.assert_close(
@@ -895,6 +1087,107 @@ class TestAutoregressiveVLADecoderGeneration:
         generation_mock.assert_called_once()
         assert (
             generation_mock.call_args.kwargs["max_generation_steps"] == expected_steps
+        )
+        torch.testing.assert_close(
+            output[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+            predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+        )
+
+    def test_inference_forward_right_aligns_valid_prefix_tokens(
+        self,
+        autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
+        language_vocab_tokenizer_factory: Callable[..., MagicMock],
+    ) -> None:
+        decoder = autoregressive_vla_decoder_factory(input_keys=[])
+        decoder.causal_prefix = True
+        decoder.set_tokenizer(
+            tokenizer=language_vocab_tokenizer_factory(
+                token_count=1,
+                encoded_token_ids=[4],
+                max_token_len=4,
+            )
+        )
+        prefix_tokens = torch.arange(
+            BATCH_SIZE * PREFIX_TOKEN_LENGTH * LANGUAGE_HIDDEN_DIMENSION,
+            dtype=torch.float32,
+        ).reshape(BATCH_SIZE, PREFIX_TOKEN_LENGTH, LANGUAGE_HIDDEN_DIMENSION)
+        prefix_token_mask = torch.tensor(
+            [
+                [False, False, True, True, True],
+                [False, False, False, False, True],
+            ],
+            dtype=torch.bool,
+        )
+        prefill_output = MagicMock(spec=CausalLanguageModelOutput)
+        prefill_output.logits = torch.zeros(
+            BATCH_SIZE,
+            4,
+            VOCABULARY_SIZE,
+        )
+        prefill_output.hidden_states = (
+            torch.zeros(BATCH_SIZE, 4, LANGUAGE_HIDDEN_DIMENSION),
+        )
+        prefill_output.past_key_values = MagicMock(spec=Cache)
+        decoder.vlm_backbone.forward_language_model.return_value = prefill_output
+        predictions = {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(
+                BATCH_SIZE,
+                1,
+                dtype=torch.long,
+            )
+        }
+        generation_mock = MagicMock(
+            spec=decoder._run_cached_autoregressive_generation,
+            return_value=predictions,
+        )
+
+        with patch.object(
+            decoder,
+            "_run_cached_autoregressive_generation",
+            generation_mock,
+        ):
+            output = decoder._forward_action_token_inference(
+                prefix_tokens=prefix_tokens,
+                prefix_token_mask=prefix_token_mask,
+            )
+
+        prefill_call = decoder.vlm_backbone.forward_language_model.call_args
+        right_aligned_prefix = prefill_call.kwargs["inputs_embeds"]
+        right_aligned_padding_mask = torch.tensor(
+            [
+                [True, True, False, False],
+                [False, False, False, False],
+            ],
+            dtype=torch.bool,
+        )
+        torch.testing.assert_close(
+            right_aligned_prefix[0, :2],
+            torch.zeros(2, LANGUAGE_HIDDEN_DIMENSION),
+        )
+        torch.testing.assert_close(right_aligned_prefix[0, 2:], prefix_tokens[0, :2])
+        torch.testing.assert_close(right_aligned_prefix[1], prefix_tokens[1, :4])
+        torch.testing.assert_close(
+            prefill_call.kwargs["attention_mask"],
+            (~right_aligned_padding_mask).long(),
+        )
+        torch.testing.assert_close(
+            prefill_call.kwargs["position_ids"],
+            torch.tensor(
+                [
+                    [0, 0, 0, 1],
+                    [0, 1, 2, 3],
+                ]
+            ),
+        )
+        initial_state = generation_mock.call_args.kwargs["initial_state"]
+        assert initial_state.sequence_length == 4
+        torch.testing.assert_close(
+            initial_state.attention_mask,
+            (~right_aligned_padding_mask).long(),
+        )
+        torch.testing.assert_close(
+            initial_state.position_ids,
+            torch.tensor([[1], [3]]),
         )
         torch.testing.assert_close(
             output[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],

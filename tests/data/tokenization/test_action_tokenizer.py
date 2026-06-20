@@ -27,6 +27,9 @@ def mock_auto_processor():
     ) as mock:
         mock.return_value.time_horizon = None
         mock.return_value.action_dim = None
+        mock.return_value.min_token = 0
+        mock.return_value.scale = 10
+        mock.return_value.bpe_tokenizer.decode.return_value = "x" * 35
         yield mock
 
 
@@ -148,13 +151,15 @@ class TestActionTokenizerBuildTokenizers:
     ):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         tokenizer = action_tokenizer_factory(
             language_tokenizer_model="some-model",
         )
         mock_auto_tokenizer.from_pretrained.assert_called_once_with("some-model")
-        assert tokenizer.vocab_size == 32001
+        assert tokenizer.vocab_size == 32000
+        assert tokenizer.eos_token_id == 2
 
     @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
     def test_small_language_vocab_raises(
@@ -162,6 +167,7 @@ class TestActionTokenizerBuildTokenizers:
     ):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 100
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         expected_message = (
@@ -182,6 +188,7 @@ class TestActionTokenizerBuildTokenizers:
     ):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = None
         mock_lang_tok.eos_token = "<eos>"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
@@ -265,6 +272,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
     def test_mapping_formula(self, mock_auto_tokenizer, action_tokenizer_factory):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
@@ -288,6 +296,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
     ):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
@@ -301,6 +310,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
     def test_roundtrip_map_unmap(self, mock_auto_tokenizer, action_tokenizer_factory):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
@@ -318,6 +328,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
     ):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
@@ -332,6 +343,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
     def test_load_state_dict_restores_skip_count(self, mock_auto_tokenizer):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
@@ -346,6 +358,64 @@ class TestLanguageVocabularyActionTokenIdMapping:
             }
         )
         assert token_id_mapping.num_special_tokens_to_skip == 256
+
+    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    def test_language_mapping_uses_native_eos_without_expanding_vocab(
+        self, mock_auto_tokenizer
+    ):
+        mock_lang_tok = MagicMock()
+        mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
+        mock_lang_tok.pad_token = "[PAD]"
+        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        token_id_mapping = LanguageVocabularyActionTokenIdMapping(
+            language_tokenizer_model="model",
+            num_special_tokens_to_skip=128,
+        )
+
+        assert token_id_mapping.eos_token_id(action_token_count=2048) == 2
+        assert token_id_mapping.tokenizer_vocab_size(action_token_count=2048) == 32000
+
+    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    def test_language_mapping_rejects_missing_native_eos(self, mock_auto_tokenizer):
+        mock_lang_tok = MagicMock()
+        mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = None
+        mock_lang_tok.pad_token = "[PAD]"
+        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        token_id_mapping = LanguageVocabularyActionTokenIdMapping(
+            language_tokenizer_model="model",
+            num_special_tokens_to_skip=128,
+        )
+        expected_message = (
+            "Language tokenizer must define eos_token_id when used for "
+            "action-token EOS."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            token_id_mapping.eos_token_id(action_token_count=2048)
+
+    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    def test_language_mapping_rejects_eos_action_token_overlap(
+        self, mock_auto_tokenizer
+    ):
+        mock_lang_tok = MagicMock()
+        mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 31871
+        mock_lang_tok.pad_token = "[PAD]"
+        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        token_id_mapping = LanguageVocabularyActionTokenIdMapping(
+            language_tokenizer_model="model",
+            num_special_tokens_to_skip=128,
+        )
+        expected_message = (
+            "Language tokenizer EOS token overlaps with mapped action-token IDs. "
+            "Increase num_special_tokens_to_skip or use another tokenizer. "
+            "eos_token_id=31871, action_token_id_range=[29824, 31871]."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            token_id_mapping.tokenizer_vocab_size(action_token_count=2048)
 
 
 class TestActionTokenizerEncodeChunk:
@@ -426,35 +496,37 @@ class TestActionTokenizerEncodeChunk:
         assert torch.equal(result[SampleKey.TOKENIZED_ACTIONS.value], expected_tokens)
         assert torch.equal(result[SampleKey.IS_PAD_ACTION.value], expected_mask)
 
-    def test_encode_chunk_truncates_when_exceeding_max_len(
+    def test_encode_chunk_raises_when_tokens_do_not_fit_with_eos(
         self, action_tokenizer_factory, action_chunk_factory
     ):
         long_tokens = list(range(20))
         tokenizer = action_tokenizer_factory(max_token_len=8)
         tokenizer.action_discretizer.processor.side_effect = lambda x: [long_tokens]
         chunk = action_chunk_factory()
-        result = tokenizer.encode_chunk(chunk)
-        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
-        assert tokens.shape == (8,)
-        is_pad = result[SampleKey.IS_PAD_ACTION.value]
-        assert not is_pad.any()
-        # Truncated to max_token_len - 1 action tokens, then EOS appended
-        assert tokens[-1].item() == tokenizer.eos_token_id
-        assert tokens[0].item() == 0  # first token from range(20)
 
-    def test_encode_chunk_truncation_logs_warning(
+        expected_message = (
+            "Encoded action token sequence does not fit in max_token_len after EOS: "
+            "action_token_count=20, max_token_len=8. Increase max_token_len or "
+            "use a tokenizer that emits fewer action tokens."
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            tokenizer.encode_chunk(chunk)
+
+    def test_encode_chunk_raises_when_no_room_for_eos(
         self, action_tokenizer_factory, action_chunk_factory
     ):
-        long_tokens = list(range(20))
+        tokens_without_eos = list(range(8))
         tokenizer = action_tokenizer_factory(max_token_len=8)
-        tokenizer.action_discretizer.processor.side_effect = lambda x: [long_tokens]
+        tokenizer.action_discretizer.processor.side_effect = lambda x: [
+            tokens_without_eos
+        ]
         chunk = action_chunk_factory()
-        with patch(
-            "versatil.data.tokenization.action_tokenizer.logging"
-        ) as mock_logging:
+
+        with pytest.raises(
+            ValueError,
+            match="action_token_count=8, max_token_len=8",
+        ):
             tokenizer.encode_chunk(chunk)
-            mock_logging.warning.assert_called_once()
-            assert "truncating" in str(mock_logging.warning.call_args).lower()
 
     def test_encode_chunk_fits_exactly_with_eos_no_warning(
         self, action_tokenizer_factory, action_chunk_factory
@@ -801,7 +873,9 @@ class TestActionTokenizerBinnedDiscretizer:
         assert decoded.shape == training_data[0].shape
         assert np.isfinite(decoded).all()
 
-    def test_binned_decode_pads_short_generated_sequences(self, action_chunk_factory):
+    def test_binned_decode_rejects_short_generated_sequences(
+        self, action_chunk_factory
+    ):
         tokenizer = ActionTokenizer(
             action_discretizer=BinnedActionDiscretizer(num_bins=8),
             max_token_len=64,
@@ -810,11 +884,13 @@ class TestActionTokenizerBinnedDiscretizer:
             batch_size=20, time_horizon=4, action_dimension=3, scale=0.5
         )
         tokenizer.fit(training_data)
+        expected_message = (
+            "Binned action token sequence has invalid length: expected 12 tokens "
+            "for shape (4, 3), got 2."
+        )
 
-        decoded = tokenizer.decode_chunk(torch.tensor([1, 2, tokenizer.eos_token_id]))
-
-        assert decoded.shape == (4, 3)
-        assert np.isfinite(decoded).all()
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            tokenizer.decode_chunk(torch.tensor([1, 2, tokenizer.eos_token_id]))
 
     @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
     def test_binned_actions_can_use_language_vocabulary_mapping(
@@ -822,6 +898,7 @@ class TestActionTokenizerBinnedDiscretizer:
     ):
         mock_language_tokenizer = MagicMock()
         mock_language_tokenizer.vocab_size = 32000
+        mock_language_tokenizer.eos_token_id = 2
         mock_language_tokenizer.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_language_tokenizer
         tokenizer = ActionTokenizer(
@@ -846,8 +923,8 @@ class TestActionTokenizerBinnedDiscretizer:
         non_eos = non_pad[non_pad != tokenizer.eos_token_id]
         decoded = tokenizer.decode_chunk(tokens)
 
-        assert tokenizer.vocab_size == 32001
-        assert tokenizer.eos_token_id == 32000
+        assert tokenizer.vocab_size == 32000
+        assert tokenizer.eos_token_id == 2
         assert non_eos.min() >= 31864
         assert non_eos.max() <= 31871
         assert decoded.shape == training_data[0].shape
@@ -1083,6 +1160,7 @@ class TestActionTokenizerSavePretrained:
     ):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         tokenizer = action_tokenizer_factory(
@@ -1204,6 +1282,7 @@ class TestActionTokenizerFromPretrained:
         (save_path / "language_tokenizer").mkdir()
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
+        mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
         mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
         mock_torch_load.return_value = {
@@ -1470,7 +1549,6 @@ class TestActionTokenizerIntegrationLanguageMapping:
                 - tokenizer.token_id_mapping.num_special_tokens_to_skip
             )
             expected_min = expected_max - tokenizer.action_discretizer.token_count + 1
-            # EOS token is at vocab_size - 1 (after the +1 for EOS reservation)
             eos_id = tokenizer.eos_token_id
             non_eos = non_pad[non_pad != eos_id]
             if len(non_eos) > 0:
@@ -1480,17 +1558,23 @@ class TestActionTokenizerIntegrationLanguageMapping:
 
 @pytest.fixture
 def fast_discretizer_factory(mock_auto_processor):
-    """Factory for a FastActionDiscretizer whose mocked decode echoes its shape."""
+    """Factory for a FastActionDiscretizer with mocked BPE decoding."""
 
     def factory(use_pretrained: bool = True) -> FastActionDiscretizer:
         discretizer = FastActionDiscretizer(use_pretrained=use_pretrained)
         processor = discretizer.processor
 
-        def fake_decode(sequences, time_horizon, action_dim):
+        def fake_bpe_decode(sequence):
+            del sequence
+            return "x" * (discretizer.time_horizon * discretizer.action_dim)
+
+        def fake_decode(token_sequences, time_horizon: int, action_dim: int):
             return np.zeros(
-                (len(sequences), time_horizon, action_dim), dtype=np.float32
+                (len(token_sequences), time_horizon, action_dim),
+                dtype=np.float32,
             )
 
+        processor.bpe_tokenizer.decode.side_effect = fake_bpe_decode
         processor.decode.side_effect = fake_decode
         return discretizer
 
@@ -1541,13 +1625,16 @@ class TestFastActionDiscretizerRoundTrip:
         decoded = loaded.decode([[10, 20, 30]])
         assert decoded.shape == (1, 8, 4)
 
-    def test_decode_forwards_shape_to_processor(self, fast_discretizer_factory):
+    def test_decode_uses_recorded_shape(self, fast_discretizer_factory):
         discretizer = fast_discretizer_factory()
         discretizer.encode(np.zeros((7, 2), dtype=np.float32))
-        discretizer.decode([[1, 2, 3]])
-        _, kwargs = discretizer.processor.decode.call_args
-        assert kwargs["time_horizon"] == 7
-        assert kwargs["action_dim"] == 2
+        decoded = discretizer.decode([[1, 2, 3]])
+        assert decoded.shape == (1, 7, 2)
+        discretizer.processor.decode.assert_called_once_with(
+            [[1, 2, 3]],
+            time_horizon=7,
+            action_dim=2,
+        )
 
     def test_decode_raises_when_shape_unknown(self, fast_discretizer_factory):
         discretizer = fast_discretizer_factory()
@@ -1557,9 +1644,53 @@ class TestFastActionDiscretizerRoundTrip:
         ):
             discretizer.decode([[1, 2, 3]])
 
-    def test_decode_clips_out_of_range_token_ids(self, fast_discretizer_factory):
+    def test_decode_rejects_out_of_range_token_ids(self, fast_discretizer_factory):
         discretizer = fast_discretizer_factory(use_pretrained=True)
         discretizer.encode(np.zeros((3, 2), dtype=np.float32))
-        discretizer.decode([[-5, 0, 99999]])
-        clipped = discretizer.processor.decode.call_args[0][0]
-        assert clipped == [[0, 0, discretizer.token_count - 1]]
+        expected_message = (
+            "FAST token sequence 0 contains IDs outside the valid range [0, 2047]."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            discretizer.decode([[-5, 0, 99999]])
+
+        discretizer.processor.bpe_tokenizer.decode.assert_not_called()
+
+    def test_decode_raises_when_fast_bpe_stream_is_too_short(
+        self, fast_discretizer_factory
+    ):
+        discretizer = fast_discretizer_factory(use_pretrained=True)
+        discretizer.encode(np.zeros((10, 7), dtype=np.float32))
+        decoded_coefficient_count = 35
+        expected_coefficient_count = 70
+        discretizer.processor.bpe_tokenizer.decode.return_value = (
+            "x" * decoded_coefficient_count
+        )
+        discretizer.processor.bpe_tokenizer.decode.side_effect = None
+        expected_message = (
+            "FAST token sequence 0 decodes to "
+            f"{decoded_coefficient_count} coefficients, expected at least "
+            f"{expected_coefficient_count} for shape "
+            "(time_horizon=10, action_dim=7). The sequence is malformed; "
+            "refusing to use FAST processor fallback actions."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            discretizer.decode([[1, 2, 3]])
+
+        discretizer.processor.decode.assert_not_called()
+
+    def test_decode_accepts_extra_fast_coefficients(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory(use_pretrained=True)
+        discretizer.encode(np.zeros((3, 2), dtype=np.float32))
+        discretizer.processor.bpe_tokenizer.decode.side_effect = None
+        discretizer.processor.bpe_tokenizer.decode.return_value = "x" * 12
+
+        decoded = discretizer.decode([[1, 2, 3]])
+
+        assert decoded.shape == (1, 3, 2)
+        discretizer.processor.decode.assert_called_once_with(
+            [[1, 2, 3]],
+            time_horizon=3,
+            action_dim=2,
+        )

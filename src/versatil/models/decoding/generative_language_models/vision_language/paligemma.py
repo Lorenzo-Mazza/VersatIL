@@ -5,8 +5,12 @@ import math
 import torch
 import torch.nn as nn
 from transformers import AutoConfig
+from transformers.cache_utils import Cache
 
 from versatil.models.adaptation.lora import LoRAAdaptation
+from versatil.models.decoding.generative_language_models.base import (
+    CausalLanguageModelOutput,
+)
 from versatil.models.decoding.generative_language_models.constants import (
     PaliGemmaModelType,
 )
@@ -69,6 +73,32 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
         if self.lora_config is not None and self.lora_config.enabled:
             return self.vlm.model.model.language_model
         return self.vlm.model.language_model
+
+    def forward_language_model(
+        self,
+        input_ids: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: Cache | tuple[tuple[torch.Tensor, ...], ...] | None = None,
+        use_cache: bool = False,
+        cache_position: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+        output_hidden_states: bool = True,
+    ) -> CausalLanguageModelOutput:
+        """Run the Gemma language tower with PaliGemma 1-indexed positions."""
+        paligemma_position_ids = None
+        if position_ids is not None:
+            paligemma_position_ids = position_ids + 1
+        return super().forward_language_model(
+            input_ids=input_ids,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_ids=paligemma_position_ids,
+            output_hidden_states=output_hidden_states,
+        )
 
     def _embed_images(
         self, inputs: dict[str, torch.Tensor], batch_size: int

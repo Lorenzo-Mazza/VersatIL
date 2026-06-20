@@ -1109,7 +1109,7 @@ class TestRawTextMode:
 
 
 OPENVLA_PROMPT_TEMPLATE = (
-    "In: What action should the robot take to {instruction}?\nOut:"
+    "In: What action should the robot take to {instruction}?\nOut: "
 )
 
 
@@ -1119,11 +1119,11 @@ class TestPromptTemplate:
         [
             (
                 "Pick Up The Red Block",
-                "In: What action should the robot take to pick up the red block?\nOut:",
+                "In: What action should the robot take to pick up the red block?\nOut: ",
             ),
             (
                 "  grasp needle \n",
-                "In: What action should the robot take to grasp needle?\nOut:",
+                "In: What action should the robot take to grasp needle?\nOut: ",
             ),
         ],
     )

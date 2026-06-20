@@ -580,29 +580,45 @@ class PrismaticVLM(GenerativeVLM):
         past_key_values: Cache | tuple[tuple[torch.Tensor, ...], ...] | None = None,
         use_cache: bool = False,
         cache_position: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
         output_hidden_states: bool = True,
     ) -> CausalLanguageModelOutput:
-        """Run the full Prismatic causal language model over caller-provided embeddings."""
+        """Run the Prismatic language model over token IDs or embeddings.
+
+        Args:
+            input_ids: Optional token IDs with shape ``(B, S)``.
+            inputs_embeds: Optional token embeddings with shape ``(B, S, D)``.
+            attention_mask: Optional language-model attention mask.
+            past_key_values: Optional cached key/value tensors.
+            use_cache: Whether to return/update cached key/value tensors.
+            cache_position: Optional HuggingFace KV-cache slots for the tokens
+                in this call. During cached decoding, if the prefix has length
+                ``P``, the next token uses cache slot ``P`` so its key/value is
+                appended after the prefix.
+            position_ids: Optional positions for the language model positional
+                encoding, with shape ``(B, S)``. These should count real tokens,
+                not padding: ``[PAD, PAD, t0, t1]`` should pass
+                ``[0, 0, 0, 1]`` so ``t0`` and ``t1`` get positions ``0`` and
+                ``1``.
+            output_hidden_states: Whether to return hidden states.
+
+        Returns:
+            Causal language-model output with logits shape ``(B, S, V)``.
+        """
+        language_model_inputs = {
+            "input_ids": input_ids,
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "past_key_values": past_key_values,
+            "use_cache": use_cache,
+            "output_hidden_states": output_hidden_states,
+            "return_dict": True,
+        }
         if cache_position is not None:
-            return self.language_model(
-                input_ids=input_ids,
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                output_hidden_states=output_hidden_states,
-                return_dict=True,
-            )
-        return self.language_model(
-            input_ids=input_ids,
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-            use_cache=use_cache,
-            output_hidden_states=output_hidden_states,
-            return_dict=True,
-        )
+            language_model_inputs["cache_position"] = cache_position
+        if position_ids is not None:
+            language_model_inputs["position_ids"] = position_ids
+        return self.language_model(**language_model_inputs)
 
     def get_text_config(self) -> PretrainedConfig:
         """Return the Prismatic text model configuration."""

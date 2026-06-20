@@ -11,6 +11,7 @@ import torch
 from versatil.data.constants import ActionTokenIdMappingType, SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import ActionTokenizer, Tokenizer
+from versatil.data.tokenization.action_discretizer import BinnedActionDiscretizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
 from versatil.models.decoding.decoders.autoregressive_mixin import (
@@ -209,6 +210,43 @@ class AutoregressiveVLADecoder(
             )
         return valid_token_ids
 
+    @staticmethod
+    def _uses_fixed_length_action_generation(
+        action_tokenizer: ActionTokenizer,
+    ) -> bool:
+        """Return whether inference should generate a known action-token count."""
+        return isinstance(action_tokenizer.action_discretizer, BinnedActionDiscretizer)
+
+    def _get_action_payload_token_count(self) -> int | None:
+        """Return the required action-token count before any optional EOS."""
+        if self.tokenizer is None or not self._uses_fixed_length_action_generation(
+            action_tokenizer=self.tokenizer
+        ):
+            return None
+        time_horizon = self.tokenizer.action_discretizer.time_horizon
+        action_dim = self.tokenizer.action_discretizer.action_dim
+        if time_horizon is None or action_dim is None:
+            raise ValueError(
+                "AutoregressiveVLADecoder fixed-length generation requires the "
+                "binned action discretizer to know time_horizon and action_dim."
+            )
+        return int(time_horizon * action_dim)
+
+    def _get_max_generation_steps(self, available_context_steps: int) -> int:
+        """Return the action-token generation cap within context capacity."""
+        action_payload_token_count = self._get_action_payload_token_count()
+        if action_payload_token_count is None:
+            return super()._get_max_generation_steps(
+                available_context_steps=available_context_steps
+            )
+        if available_context_steps < action_payload_token_count:
+            raise ValueError(
+                f"{type(self).__name__} needs {action_payload_token_count} context "
+                "slots for fixed-length action-token generation, but only "
+                f"{available_context_steps} are available."
+            )
+        return action_payload_token_count
+
     def _validate_action_tokenizer_is_set(self) -> None:
         """Ensure action-token metadata was initialized."""
         if (
@@ -252,7 +290,10 @@ class AutoregressiveVLADecoder(
             )
         return target_token_ids.to(device=self.device, dtype=torch.long)
 
-    def _sample_next_action_token(self, logits: torch.Tensor) -> torch.Tensor:
+    def _sample_next_action_token(
+        self,
+        logits: torch.Tensor,
+    ) -> torch.Tensor:
         """Sample from the valid action-token subset of the VLM vocabulary."""
         if self.valid_generation_token_ids is None:
             raise ValueError(
@@ -318,6 +359,282 @@ class AutoregressiveVLADecoder(
             return None
         return (~prefix_token_mask).to(device=prefix_tokens.device, dtype=torch.long)
 
+    @staticmethod
+    def _get_prefix_valid_mask(
+        prefix_tokens: torch.Tensor,
+        prefix_token_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Return the valid-token mask for a VLA prefix.
+
+        Args:
+            prefix_tokens: Prefix embeddings with shape ``(B, P, D)``.
+            prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
+                where ``True`` marks padding.
+
+        Returns:
+            Boolean mask with shape ``(B, P)``, where ``True`` marks real
+            prefix tokens.
+        """
+        if prefix_token_mask is None:
+            return torch.ones(
+                prefix_tokens.shape[:2],
+                dtype=torch.bool,
+                device=prefix_tokens.device,
+            )
+        expected_shape = prefix_tokens.shape[:2]
+        if prefix_token_mask.shape != expected_shape:
+            raise ValueError(
+                f"prefix_token_mask must have shape {expected_shape}, "
+                f"got {prefix_token_mask.shape}."
+            )
+        return ~prefix_token_mask.to(device=prefix_tokens.device, dtype=torch.bool)
+
+    def _remove_prefix_padding(
+        self,
+        prefix_tokens: torch.Tensor,
+        prefix_token_mask: torch.Tensor | None,
+        right_align: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Remove padding slots from each VLA prefix row.
+
+        Args:
+            prefix_tokens: Prefix embeddings with shape ``(B, P, D)``.
+            prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
+                where ``True`` marks padding.
+            right_align: If ``True``, place each valid prefix at the right edge.
+                If ``False``, place each valid prefix at the left edge.
+
+        Returns:
+            Prefix embeddings with shape ``(B, P_valid_max, D)``, output
+            padding mask with shape ``(B, P_valid_max)``, and per-sample prefix
+            lengths with shape ``(B,)``. ``P_valid_max`` is the longest
+            non-padding prefix length in the batch. With ``right_align=False``,
+            each row is ``[valid prefix tokens, PAD, ..., PAD]``. With
+            ``right_align=True``, each row is
+            ``[PAD, ..., PAD, valid prefix tokens]``.
+        """
+        valid_token_mask = self._get_prefix_valid_mask(
+            prefix_tokens=prefix_tokens,
+            prefix_token_mask=prefix_token_mask,
+        )
+        prefix_lengths = valid_token_mask.sum(dim=1)
+        if (prefix_lengths == 0).any():
+            raise ValueError("AutoregressiveVLADecoder received an empty VLA prefix.")
+        max_valid_prefix_length = int(prefix_lengths.max().item())
+        prefix_tokens_without_padding = prefix_tokens.new_zeros(
+            prefix_tokens.shape[0],
+            max_valid_prefix_length,
+            prefix_tokens.shape[2],
+        )
+        output_padding_mask = torch.ones(
+            prefix_tokens.shape[0],
+            max_valid_prefix_length,
+            dtype=torch.bool,
+            device=prefix_tokens.device,
+        )
+        for batch_index in range(prefix_tokens.shape[0]):
+            sample_length = int(prefix_lengths[batch_index].item())
+            sample_tokens = prefix_tokens[batch_index, valid_token_mask[batch_index]]
+            start_index = max_valid_prefix_length - sample_length if right_align else 0
+            end_index = start_index + sample_length
+            # (sample_length, D) -> row slice inside (P_valid_max, D).
+            prefix_tokens_without_padding[batch_index, start_index:end_index] = (
+                sample_tokens
+            )
+            output_padding_mask[batch_index, start_index:end_index] = False
+        return prefix_tokens_without_padding, output_padding_mask, prefix_lengths
+
+    @staticmethod
+    def _build_position_ids_from_padding_mask(
+        padding_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Build zero-based position IDs over a padded token sequence.
+
+        Args:
+            padding_mask: Padding mask with shape ``(B, S)``, where ``True``
+                marks padding.
+
+        Returns:
+            Position IDs with shape ``(B, S)``. Padded positions are set to 0;
+            valid positions count up from 0 within each row.
+        """
+        valid_token_mask = ~padding_mask
+        return (valid_token_mask.long().cumsum(dim=1) - 1).clamp(min=0)
+
+    def _build_training_inputs_without_prefix_padding(
+        self,
+        prefix_tokens: torch.Tensor,
+        prefix_token_mask: torch.Tensor | None,
+        action_token_embeddings: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+        """Build teacher-forcing inputs after removing prefix padding slots.
+
+        Args:
+            prefix_tokens: Prefix embeddings with shape ``(B, P, D)``.
+            prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
+                where ``True`` marks padding.
+            action_token_embeddings: Target action-token embeddings with shape
+                ``(B, A, D)``.
+
+        Returns:
+            Full embeddings with shape ``(B, P_valid_max + A, D)``, attention
+            mask for the language model, and valid prefix lengths with shape
+            ``(B,)``. For each row, action tokens start at ``prefix_lengths[b]``.
+            Each row is laid out as
+            ``[valid prefix tokens, action tokens, PAD, ..., PAD]``.
+        """
+        prefix_tokens_without_padding, _, prefix_lengths = self._remove_prefix_padding(
+            prefix_tokens=prefix_tokens,
+            prefix_token_mask=prefix_token_mask,
+            right_align=False,
+        )
+        action_token_length = action_token_embeddings.shape[1]
+        sequence_length = int(prefix_lengths.max().item()) + action_token_length
+        full_token_sequence = prefix_tokens.new_zeros(
+            prefix_tokens.shape[0],
+            sequence_length,
+            prefix_tokens.shape[2],
+        )
+        full_padding_mask = torch.ones(
+            prefix_tokens.shape[0],
+            sequence_length,
+            dtype=torch.bool,
+            device=prefix_tokens.device,
+        )
+        for batch_index in range(prefix_tokens.shape[0]):
+            prefix_length = int(prefix_lengths[batch_index].item())
+            sample_length = prefix_length + action_token_length
+            # Row layout: [valid prefix tokens, action tokens, optional padding].
+            full_token_sequence[batch_index, :prefix_length] = (
+                prefix_tokens_without_padding[batch_index, :prefix_length]
+            )
+            full_token_sequence[batch_index, prefix_length:sample_length] = (
+                action_token_embeddings[batch_index]
+            )
+            full_padding_mask[batch_index, :sample_length] = False
+
+        attention_mask = self._build_training_attention_mask_without_prefix_padding(
+            full_padding_mask=full_padding_mask,
+            prefix_lengths=prefix_lengths,
+            action_token_length=action_token_length,
+            sequence_length=sequence_length,
+        )
+        return full_token_sequence, attention_mask, prefix_lengths
+
+    def _build_training_attention_mask_without_prefix_padding(
+        self,
+        full_padding_mask: torch.Tensor,
+        prefix_lengths: torch.Tensor,
+        action_token_length: int,
+        sequence_length: int,
+    ) -> torch.Tensor | None:
+        """Build the LM attention mask for variable-length prefix/action rows.
+
+        Args:
+            full_padding_mask: Full sequence padding mask with shape ``(B, S)``,
+                where ``S = P_valid_max + A`` and ``True`` marks padding.
+            prefix_lengths: Valid prefix lengths with shape ``(B,)``.
+            action_token_length: Number of action tokens ``A``.
+            sequence_length: Full sequence length ``S = P_valid_max + A``.
+
+        Returns:
+            ``None`` when no mask is needed, a 2D causal-model mask with shape
+            ``(B, S)`` for OpenVLA, or a 4D attention mask with shape
+            ``(B, 1, S, S)`` for bidirectional-prefix models.
+        """
+        if self.causal_prefix:
+            if not full_padding_mask.any():
+                return None
+            return (~full_padding_mask).to(dtype=torch.long)
+        attention_mask = self._build_variable_prefix_attention_mask(
+            prefix_lengths=prefix_lengths,
+            action_token_length=action_token_length,
+            sequence_length=sequence_length,
+            device=full_padding_mask.device,
+        )
+        if attention_mask.all():
+            return None
+        return attention_mask
+
+    @staticmethod
+    def _build_variable_prefix_attention_mask(
+        prefix_lengths: torch.Tensor,
+        action_token_length: int,
+        sequence_length: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Build a bidirectional-prefix/causal-action mask.
+
+        Args:
+            prefix_lengths: Valid prefix lengths with shape ``(B,)``.
+            action_token_length: Number of action tokens ``A``.
+            sequence_length: Full sequence length ``S = P_valid_max + A``.
+            device: Device for the created mask.
+
+        Returns:
+            Boolean attention mask with shape ``(B, 1, S, S)``, where ``True``
+            means attention is allowed.
+        """
+        positions = torch.arange(sequence_length, device=device)
+        query_positions = positions.view(1, sequence_length, 1)  # (1, S, 1)
+        key_positions = positions.view(1, 1, sequence_length)  # (1, 1, S)
+        prefix_lengths = prefix_lengths.to(device=device).view(-1, 1, 1)  # (B, 1, 1)
+        sequence_lengths = prefix_lengths + action_token_length
+
+        valid_queries = query_positions < sequence_lengths  # (B, S, 1)
+        valid_keys = key_positions < sequence_lengths  # (B, 1, S)
+        query_is_prefix = query_positions < prefix_lengths  # (B, S, 1)
+        key_is_prefix = key_positions < prefix_lengths
+        key_is_action = valid_keys & ~key_is_prefix
+
+        prefix_query_attention = key_is_prefix
+        action_query_attention = key_is_prefix | (
+            key_is_action & (key_positions <= query_positions)
+        )
+        valid_query_attention = torch.where(
+            query_is_prefix,
+            prefix_query_attention,
+            action_query_attention,
+        )
+        valid_query_attention = valid_query_attention & valid_keys
+        padding_query_attention = valid_keys.expand_as(valid_query_attention)
+        attention_mask = torch.where(
+            valid_queries,
+            valid_query_attention,
+            padding_query_attention,
+        )
+        return attention_mask.unsqueeze(1)
+
+    @staticmethod
+    def _gather_next_token_logits(
+        language_logits: torch.Tensor,
+        prefix_lengths: torch.Tensor,
+        action_token_length: int,
+    ) -> torch.Tensor:
+        """Gather next-token logits for each action token.
+
+        Args:
+            language_logits: LM logits with shape ``(B, S, V)``.
+            prefix_lengths: Valid prefix lengths with shape ``(B,)``.
+            action_token_length: Number of action tokens ``A``.
+
+        Returns:
+            Action-token logits with shape ``(B, A, V)``. Row ``b`` gathers
+            positions ``prefix_lengths[b] - 1`` through
+            ``prefix_lengths[b] + A - 2``.
+        """
+        action_positions = (
+            prefix_lengths.to(device=language_logits.device).unsqueeze(1)
+            - 1
+            + torch.arange(action_token_length, device=language_logits.device)
+        )  # (B, A)
+        gather_indices = action_positions.unsqueeze(-1).expand(
+            -1,
+            -1,
+            language_logits.shape[-1],
+        )  # (B, A, V)
+        return language_logits.gather(dim=1, index=gather_indices)
+
     def _decode_next_autoregressive_step(
         self,
         state: CachedAutoregressiveGenerationState,
@@ -329,6 +646,7 @@ class AutoregressiveVLADecoder(
             past_key_values=state.past_key_values,
             use_cache=True,
             cache_position=state.cache_position,
+            position_ids=state.position_ids,
         )
         if output.past_key_values is None:
             raise ValueError(
@@ -356,7 +674,7 @@ class AutoregressiveVLADecoder(
         self,
         generated_output: torch.Tensor,
         state: CachedAutoregressiveGenerationState,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | None:
         """Update the per-sample EOS mask for action-token generation."""
         completed = generated_output.squeeze(1) == self.eos_token_id
         if state.completed_sequence_mask is None:
@@ -397,7 +715,17 @@ class AutoregressiveVLADecoder(
         prefix_tokens: torch.Tensor,
         prefix_token_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Predict all target action tokens with teacher forcing."""
+        """Predict target action tokens after removing prefix padding slots.
+
+        Args:
+            actions: Action dict containing token IDs with shape ``(B, A)``.
+            prefix_tokens: VLA prefix embeddings with shape ``(B, P, D)``.
+            prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
+                where ``True`` marks padding.
+
+        Returns:
+            Dict containing action logits with shape ``(B, A, V)``.
+        """
         prefix_len = prefix_tokens.shape[1]
         if prefix_len == 0:
             raise ValueError(
@@ -410,11 +738,12 @@ class AutoregressiveVLADecoder(
         action_token_embeddings = self.vlm_backbone.embed_input_ids(
             target_token_ids
         )  # (B, A, D)
-        full_token_sequence, attention_mask = self._build_prefix_suffix_inputs(
-            prefix_tokens=prefix_tokens,
-            suffix_tokens=action_token_embeddings,
-            prefix_mask=prefix_token_mask,
-            causal_suffix=True,
+        full_token_sequence, attention_mask, prefix_lengths = (
+            self._build_training_inputs_without_prefix_padding(
+                prefix_tokens=prefix_tokens,
+                prefix_token_mask=prefix_token_mask,
+                action_token_embeddings=action_token_embeddings,
+            )
         )
         if full_token_sequence.shape[1] > self.max_seq_len:
             raise ValueError(
@@ -425,39 +754,89 @@ class AutoregressiveVLADecoder(
         language_logits = self._run_language_model_logits(
             tokens=full_token_sequence,
             attention_mask=attention_mask,
-        )  # (B, P+A, language_vocabulary_size)
-        action_logits = language_logits[
-            :, prefix_len - 1 : prefix_len + target_token_ids.shape[1] - 1, :
-        ]  # (B, A, language_vocabulary_size)
+        )  # (B, P_valid_max+A, V)
+        action_logits = self._gather_next_token_logits(
+            language_logits=language_logits,
+            prefix_lengths=prefix_lengths,
+            action_token_length=target_token_ids.shape[1],
+        )
         return {DecoderOutputKey.ACTION_LOGITS.value: action_logits}
+
+    def _build_prefill_inputs(
+        self,
+        prefix_tokens: torch.Tensor,
+        prefix_token_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Build right-aligned valid prefix tokens for cached generation.
+
+        Args:
+            prefix_tokens: VLA prefix embeddings with shape ``(B, P, D)``.
+            prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
+                where ``True`` marks padding.
+
+        Returns:
+            Right-aligned prefix embeddings with shape ``(B, P_valid_max, D)``,
+            padding mask with shape ``(B, P_valid_max)``, and valid prefix
+            lengths with shape ``(B,)``. ``P_valid_max`` is the longest
+            non-padding prefix length in this batch. Each row is laid out as
+            ``[PAD, ..., PAD, valid prefix tokens]`` so the final column is the
+            last real prefix token for every sample.
+        """
+        return self._remove_prefix_padding(
+            prefix_tokens=prefix_tokens,
+            prefix_token_mask=prefix_token_mask,
+            right_align=True,
+        )
 
     def _forward_action_token_inference(
         self,
         prefix_tokens: torch.Tensor,
         prefix_token_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Generate action tokens autoregressively from the VLM prefix."""
+        """Generate action tokens from a right-aligned VLA prefix.
+
+        Args:
+            prefix_tokens: VLA prefix embeddings with shape ``(B, P, D)``.
+            prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
+                where ``True`` marks padding.
+
+        Returns:
+            Dict containing generated token IDs with shape ``(B, T_generated)``.
+        """
         prefix_len = prefix_tokens.shape[1]
         if prefix_len == 0:
             raise ValueError(
                 "AutoregressiveVLADecoder requires a non-empty conditioning prefix."
             )
-        if prefix_len >= self.max_seq_len:
+        (
+            right_aligned_prefix_tokens,
+            right_aligned_prefix_padding_mask,
+            prefix_lengths,
+        ) = self._build_prefill_inputs(
+            prefix_tokens=prefix_tokens,
+            prefix_token_mask=prefix_token_mask,
+        )
+        max_valid_prefix_length = right_aligned_prefix_tokens.shape[1]
+        if max_valid_prefix_length >= self.max_seq_len:
             raise ValueError(
-                f"Input prefix token length {prefix_len} >= max_seq_len "
+                f"Input prefix token length {max_valid_prefix_length} >= max_seq_len "
                 f"{self.max_seq_len}. No room for generated action tokens. "
                 "Consider increasing max_seq_len or reducing feature count."
             )
         prefill_attention_mask = self._build_attention_mask(
-            padding_mask=prefix_token_mask,
-            tokens=prefix_tokens,
-            prefix_length=prefix_len,
+            padding_mask=right_aligned_prefix_padding_mask,
+            tokens=right_aligned_prefix_tokens,
+            prefix_length=max_valid_prefix_length,
             causal_suffix=True,
         )
+        prefill_position_ids = self._build_position_ids_from_padding_mask(
+            padding_mask=right_aligned_prefix_padding_mask,
+        )
         prefill_output = self.vlm_backbone.forward_language_model(
-            inputs_embeds=prefix_tokens,
+            inputs_embeds=right_aligned_prefix_tokens,
             attention_mask=prefill_attention_mask,
             use_cache=True,
+            position_ids=prefill_position_ids,
         )
         if prefill_output.past_key_values is None:
             raise ValueError(
@@ -466,23 +845,24 @@ class AutoregressiveVLADecoder(
             )
         initial_state = CachedAutoregressiveGenerationState(
             step_index=0,
-            sequence_length=prefix_len,
+            sequence_length=max_valid_prefix_length,
             past_key_values=prefill_output.past_key_values,
             next_inputs=torch.empty(
-                prefix_tokens.shape[0],
+                right_aligned_prefix_tokens.shape[0],
                 0,
                 dtype=torch.long,
-                device=prefix_tokens.device,
+                device=right_aligned_prefix_tokens.device,
             ),
             attention_mask=self._build_cached_generation_attention_mask(
-                prefix_token_mask=prefix_token_mask,
-                prefix_tokens=prefix_tokens,
+                prefix_token_mask=right_aligned_prefix_padding_mask,
+                prefix_tokens=right_aligned_prefix_tokens,
             ),
+            position_ids=prefix_lengths.unsqueeze(1) - 1,  # (B, 1)
         )
         return self._run_cached_autoregressive_generation(
             initial_state=initial_state,
             max_generation_steps=self._get_max_generation_steps(
-                available_context_steps=self.max_seq_len - prefix_len,
+                available_context_steps=self.max_seq_len - max_valid_prefix_length,
             ),
             initial_step_output=prefill_output,
         )

@@ -125,12 +125,15 @@ class FastActionDiscretizer(ActionDiscretizer):
                 "FAST action discretizer shape is unknown; encode or load a fitted "
                 "discretizer before decoding"
             )
-        clipped_sequences = [
-            np.clip(sequence, 0, self.token_count - 1).tolist()
-            for sequence in token_sequences
+        validated_sequences = [
+            self._validate_fast_token_sequence(
+                token_sequence=sequence,
+                sequence_index=sequence_index,
+            )
+            for sequence_index, sequence in enumerate(token_sequences)
         ]
         decoded_actions = self.processor.decode(
-            clipped_sequences,
+            validated_sequences,
             time_horizon=self.time_horizon,
             action_dim=self.action_dim,
         )
@@ -139,6 +142,43 @@ class FastActionDiscretizer(ActionDiscretizer):
                 f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
             )
         return decoded_actions
+
+    def _validate_fast_token_sequence(
+        self, token_sequence: list[int], sequence_index: int
+    ) -> list[int]:
+        """Validate one FAST BPE stream before processor decode."""
+        if self.processor is None:
+            raise RuntimeError("FAST processor not initialized")
+        if self.time_horizon is None or self.action_dim is None:
+            raise RuntimeError("FAST action discretizer shape is unknown")
+        token_array = np.asarray(token_sequence)
+        if np.any(token_array < 0) or np.any(token_array >= self.token_count):
+            raise ValueError(
+                f"FAST token sequence {sequence_index} contains IDs outside "
+                f"the valid range [0, {self.token_count - 1}]."
+            )
+
+        bpe_tokenizer = getattr(self.processor, "bpe_tokenizer", None)
+        if bpe_tokenizer is None:
+            raise RuntimeError("FAST processor does not expose a BPE tokenizer")
+
+        expected_coefficient_count = self.time_horizon * self.action_dim
+        decoded_tokens = bpe_tokenizer.decode(token_sequence)
+        if not isinstance(decoded_tokens, str):
+            raise TypeError(
+                f"Expected str from FAST BPE tokenizer decode, got {type(decoded_tokens)}"
+            )
+        decoded_coefficient_count = len(decoded_tokens)
+        if decoded_coefficient_count < expected_coefficient_count:
+            raise ValueError(
+                f"FAST token sequence {sequence_index} decodes to "
+                f"{decoded_coefficient_count} coefficients, expected at least "
+                f"{expected_coefficient_count} for shape "
+                f"(time_horizon={self.time_horizon}, "
+                f"action_dim={self.action_dim}). The sequence is malformed; "
+                "refusing to use FAST processor fallback actions."
+            )
+        return token_array.astype(np.int64).tolist()
 
     def to(self, device: torch.device) -> None:
         """No-op device transfer for the processor-backed discretizer."""
@@ -218,13 +258,21 @@ class BinnedActionDiscretizer(ActionDiscretizer):
             raise RuntimeError("Binned action discretizer shape is unknown")
 
         expected_len = self.time_horizon * self.action_dim
-        neutral_token_id = self.token_count // 2
         normalized_sequences = []
         for sequence in token_sequences:
-            clipped = np.clip(sequence[:expected_len], 0, self.token_count - 1).tolist()
-            if len(clipped) < expected_len:
-                clipped.extend([neutral_token_id] * (expected_len - len(clipped)))
-            normalized_sequences.append(clipped)
+            if len(sequence) != expected_len:
+                raise ValueError(
+                    "Binned action token sequence has invalid length: "
+                    f"expected {expected_len} tokens for shape "
+                    f"({self.time_horizon}, {self.action_dim}), got {len(sequence)}."
+                )
+            token_array = np.asarray(sequence)
+            if np.any(token_array < 0) or np.any(token_array >= self.token_count):
+                raise ValueError(
+                    "Binned action token sequence contains IDs outside the valid "
+                    f"range [0, {self.token_count - 1}]."
+                )
+            normalized_sequences.append(token_array.astype(np.int64).tolist())
 
         tokens = torch.tensor(normalized_sequences, dtype=torch.long)
         tokens = tokens.reshape(

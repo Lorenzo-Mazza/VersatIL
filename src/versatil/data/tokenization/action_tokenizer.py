@@ -109,11 +109,17 @@ class ActionTokenizer:
             )
         ):
             return
-        model_token_count = self.token_id_mapping.model_token_count(
+        self.eos_token_id = self.token_id_mapping.eos_token_id(
             self.action_discretizer.token_count
         )
-        self.eos_token_id = model_token_count
-        self.vocab_size = model_token_count + 1
+        self.vocab_size = self.token_id_mapping.tokenizer_vocab_size(
+            self.action_discretizer.token_count
+        )
+        if self.eos_token_id < 0 or self.eos_token_id >= self.vocab_size:
+            raise ValueError(
+                "Action tokenizer EOS token ID must be inside vocabulary: "
+                f"eos_token_id={self.eos_token_id}, vocab_size={self.vocab_size}."
+            )
 
     def encode_chunk(
         self,
@@ -325,12 +331,12 @@ class ActionTokenizer:
         """Append EOS and pad one token sequence to ``max_token_len``."""
         tokens_len = len(tokens)
         if tokens_len >= self.max_token_len:
-            logging.warning(
-                f"Token length ({tokens_len}) exceeds max_token_len ({self.max_token_len}), "
-                f"truncating to {self.max_token_len - 1}."
+            raise ValueError(
+                "Encoded action token sequence does not fit in max_token_len "
+                f"after EOS: action_token_count={tokens_len}, "
+                f"max_token_len={self.max_token_len}. Increase max_token_len "
+                "or use a tokenizer that emits fewer action tokens."
             )
-            tokens = tokens[: self.max_token_len - 1]
-            tokens_len = self.max_token_len - 1
 
         tokens.append(self.eos_token_id)
         sequence_len = tokens_len + 1

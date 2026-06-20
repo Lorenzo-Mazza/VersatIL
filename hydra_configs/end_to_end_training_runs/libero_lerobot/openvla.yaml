@@ -32,7 +32,7 @@ task:
           - ${obs_key:LANGUAGE}
         max_token_len: 96
         raw_text: true
-        prompt_template: "In: What action should the robot take to {instruction}?\nOut:"
+        prompt_template: "In: What action should the robot take to {instruction}?\nOut: "
         padding_strategy: ${token_padding:MAX_LENGTH}
       action_tokenizer:
         action_discretizer:
@@ -42,7 +42,7 @@ task:
           type: ${action_token_id_mapping:LANGUAGE_VOCABULARY}
           language_tokenizer_model: ${prismatic_llm_model:LLAMA2_7B_PURE}
           num_special_tokens_to_skip: 0
-        max_token_len: 64
+        max_token_len: 57 # This is calculated as 8 (prediction horizon) * 7 (number of action dimensions) + 1 (eos token)
 
 experiment:
   precision: ${precision:BF16_MIXED}

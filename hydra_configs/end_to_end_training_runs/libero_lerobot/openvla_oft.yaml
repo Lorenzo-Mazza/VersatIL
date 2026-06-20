@@ -31,7 +31,7 @@ task:
           - ${obs_key:LANGUAGE}
         max_token_len: 96
         raw_text: true
-        prompt_template: "In: What action should the robot take to {instruction}?\nOut:"
+        prompt_template: "In: What action should the robot take to {instruction}?\nOut: "
         padding_strategy: ${token_padding:MAX_LENGTH}
 
 experiment:

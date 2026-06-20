@@ -168,6 +168,7 @@ class TestGenerativeVLMStaticMethods:
         attention_mask = torch.ones(BATCH_SIZE, SEQUENCE_LENGTH, dtype=torch.long)
         past_key_values = MagicMock(spec=Cache)
         cache_position = torch.arange(SEQUENCE_LENGTH, SEQUENCE_LENGTH + 1)
+        position_ids = torch.full((BATCH_SIZE, 1), SEQUENCE_LENGTH)
 
         result = concrete_vlm.forward_language_model(
             input_ids=input_ids,
@@ -175,6 +176,7 @@ class TestGenerativeVLMStaticMethods:
             past_key_values=past_key_values,
             use_cache=True,
             cache_position=cache_position,
+            position_ids=position_ids,
             output_hidden_states=False,
         )
 
@@ -185,6 +187,7 @@ class TestGenerativeVLMStaticMethods:
             past_key_values=past_key_values,
             use_cache=True,
             cache_position=cache_position,
+            position_ids=position_ids,
             output_hidden_states=False,
             return_dict=True,
         )

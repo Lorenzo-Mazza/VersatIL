@@ -18,6 +18,14 @@ class ActionTokenIdMapping(ABC):
     def model_token_count(self, action_token_count: int) -> int:
         """Return the model token count before the action tokenizer adds EOS."""
 
+    def tokenizer_vocab_size(self, action_token_count: int) -> int:
+        """Return the action tokenizer vocabulary size including EOS."""
+        return self.model_token_count(action_token_count) + 1
+
+    def eos_token_id(self, action_token_count: int) -> int:
+        """Return the EOS token ID used after encoded action tokens."""
+        return self.model_token_count(action_token_count)
+
     @abstractmethod
     def encode(self, local_token_ids: list[int] | np.ndarray) -> np.ndarray:
         """Map local action IDs to model token IDs."""
@@ -96,7 +104,48 @@ class LanguageVocabularyActionTokenIdMapping(ActionTokenIdMapping):
                 f"action tokens ({action_token_count}) plus skipped special tokens "
                 f"({self.num_special_tokens_to_skip}). Required: {required_token_count}"
             )
+        self._validate_eos_does_not_overlap_action_tokens(
+            action_token_count=action_token_count
+        )
         return self.language_tokenizer.vocab_size
+
+    def tokenizer_vocab_size(self, action_token_count: int) -> int:
+        """Return the language tokenizer vocabulary size without adding EOS."""
+        return self.model_token_count(action_token_count=action_token_count)
+
+    def eos_token_id(self, action_token_count: int) -> int:
+        """Return the native language-tokenizer EOS ID."""
+        self.model_token_count(action_token_count=action_token_count)
+        eos_token_id = self.language_tokenizer.eos_token_id
+        if eos_token_id is None:
+            raise ValueError(
+                "Language tokenizer must define eos_token_id when used for "
+                "action-token EOS."
+            )
+        return int(eos_token_id)
+
+    def _validate_eos_does_not_overlap_action_tokens(
+        self,
+        action_token_count: int,
+    ) -> None:
+        """Ensure language EOS is not reused as an action token ID."""
+        eos_token_id = self.language_tokenizer.eos_token_id
+        if eos_token_id is None:
+            raise ValueError(
+                "Language tokenizer must define eos_token_id when used for "
+                "action-token EOS."
+            )
+        max_action_token_id = (
+            self.language_tokenizer.vocab_size - 1 - self.num_special_tokens_to_skip
+        )
+        min_action_token_id = max_action_token_id - action_token_count + 1
+        if min_action_token_id <= int(eos_token_id) <= max_action_token_id:
+            raise ValueError(
+                "Language tokenizer EOS token overlaps with mapped action-token "
+                "IDs. Increase num_special_tokens_to_skip or use another "
+                f"tokenizer. eos_token_id={eos_token_id}, action_token_id_range="
+                f"[{min_action_token_id}, {max_action_token_id}]."
+            )
 
     def encode(self, local_token_ids: list[int] | np.ndarray) -> np.ndarray:
         """Map local action IDs to language-token tail IDs."""
