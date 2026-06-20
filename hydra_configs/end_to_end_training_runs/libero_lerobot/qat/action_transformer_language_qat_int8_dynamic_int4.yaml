@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - action_transformer_language
+  - /end_to_end_training_runs/libero_lerobot/action_transformer_language
   - /quantization: qat_int8_dynamic_intx_int4
   - _self_
 
