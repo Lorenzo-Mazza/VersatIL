@@ -10,6 +10,7 @@ from omegaconf import OmegaConf
 import versatil.configs  # noqa: F401
 from versatil.configs.post_training_compression import (
     CompressionTargetConfig,
+    ExecutorchXNNPACKBackendConfig,
     PostTrainingCompressorConfig,
     PreparationConfig,
 )
@@ -53,6 +54,20 @@ class TestCompressionTargetConfig:
         assert config.preparation == "${preparation}"
         assert config.pruning == "${pruning}"
         assert "quantization" not in omega
+
+
+@pytest.mark.unit
+class TestExecutorchXNNPACKBackendConfig:
+    def test_default_max_batch_size(self) -> None:
+        config = ExecutorchXNNPACKBackendConfig()
+
+        assert config.max_batch_size == 32
+
+    @pytest.mark.parametrize("max_batch_size", [1, 8, 16])
+    def test_stores_configuration(self, max_batch_size: int) -> None:
+        config = ExecutorchXNNPACKBackendConfig(max_batch_size=max_batch_size)
+
+        assert config.max_batch_size == max_batch_size
 
 
 @pytest.mark.unit

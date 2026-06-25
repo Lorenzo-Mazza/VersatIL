@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - /post_training_compression
+  - _self_
+
+checkpoint_path: ???
+checkpoint_name: last.ckpt
+output_directory: null
+device: cpu
+calibration_steps: 0
+preparation:
+  replace_frozen_batchnorm: true
+  fuse_conv_batchnorm: true
+pruning: null
+quantization:
+  _target_: versatil.quantization.workflows.eager.EagerQuantizationWorkflow
+  targets:
+    - _target_: versatil.quantization.module_target.EagerQuantizationModuleTarget
+      module_path: ""
+      quantize_config:
+        _target_: torchao.quantization.Int8DynamicActivationIntxWeightConfig
+        weight_dtype: ${torch_dtype:int4}
+        weight_granularity:
+          _target_: torchao.quantization.PerGroup
+          group_size: 16
+  is_qat: false
+  auto_filter_incompatible_linears: true
+deployment_backend:
+  _target_: versatil.post_training_compression.deployment_backends.executorch_xnnpack.ExecutorchXNNPACKBackend
+  max_batch_size: 32

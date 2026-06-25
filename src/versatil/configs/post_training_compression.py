@@ -83,6 +83,7 @@ class ExecutorchXNNPACKBackendConfig:
         "versatil.post_training_compression.deployment_backends.executorch_xnnpack."
         "ExecutorchXNNPACKBackend"
     )
+    max_batch_size: int = 32
 
 
 @dataclass

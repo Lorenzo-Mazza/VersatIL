@@ -3,6 +3,7 @@
 import gc
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -88,6 +89,8 @@ PTQ_CONFIG_NAMES = [
     for p in sorted(PTQ_CONFIG_DIR.glob("*.yaml"))
     if "example" not in p.stem
 ]
+PTQ_X86_CONFIG_NAME = "end_to_end_ptq/unstructured_prune_x86"
+PTQ_EAGER_XNNPACK_CONFIG_NAME = "end_to_end_ptq/eager_xnnpack"
 
 PTQ_TEST_CONFIGS = [
     "end_to_end_training_runs/libero_lerobot/action_transformer_language",
@@ -619,7 +622,7 @@ class TestCompressorEndToEnd:
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             hydra_config = compose(
-                config_name=PTQ_CONFIG_NAMES[0],
+                config_name=PTQ_X86_CONFIG_NAME,
                 overrides=[f"checkpoint_path={str(output_dir)}"],
             )
         compressor = PostTrainingCompressor(
@@ -661,7 +664,7 @@ class TestCompressorEndToEnd:
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             hydra_config = compose(
-                config_name=PTQ_CONFIG_NAMES[0],
+                config_name=PTQ_X86_CONFIG_NAME,
                 overrides=[f"checkpoint_path={str(output_dir)}"],
             )
         compressor = PostTrainingCompressor(
@@ -691,7 +694,7 @@ class TestCompressorEndToEnd:
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             hydra_config = compose(
-                config_name=PTQ_CONFIG_NAMES[0],
+                config_name=PTQ_X86_CONFIG_NAME,
                 overrides=[f"checkpoint_path={str(output_dir)}"],
             )
         compressor = PostTrainingCompressor(
@@ -706,3 +709,35 @@ class TestCompressorEndToEnd:
 
         assert str(output_dir / "compressed") in result
         assert (Path(result) / CompressionFilename.COMPRESSED_MODEL.value).exists()
+
+    def test_compress_full_pipeline_with_eager_xnnpack(
+        self,
+        tmp_path: Path,
+        trained_checkpoint: Callable[..., Path],
+    ) -> None:
+        output_dir = trained_checkpoint(
+            extra_overrides=["policy.decoder.embedding_dimension=32"],
+        )
+        compressed_dir = str(tmp_path / "compressed_eager_xnnpack")
+
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            hydra_config = compose(
+                config_name=PTQ_EAGER_XNNPACK_CONFIG_NAME,
+                overrides=[
+                    f"checkpoint_path={str(output_dir)}",
+                    f"output_directory={compressed_dir}",
+                ],
+            )
+            compressor = hydra.utils.instantiate(hydra_config)
+
+        with LEROBOT_METADATA_PATCH:
+            result = compressor.compress(hydra_config=hydra_config)
+
+        assert result == compressed_dir
+        assert (
+            Path(compressed_dir) / CompressionFilename.EXECUTORCH_MODEL.value
+        ).exists()
+        assert (Path(compressed_dir) / CompressionFilename.NORMALIZER.value).exists()
+        assert (
+            Path(compressed_dir) / CompressionFilename.COMPRESSION_METADATA.value
+        ).exists()

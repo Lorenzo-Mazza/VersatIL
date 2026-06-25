@@ -25,6 +25,17 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
     artifact_format = ArtifactFormat.EXECUTORCH_PTE
     model_filename = CompressionFilename.EXECUTORCH_MODEL.value
 
+    def __init__(self, max_batch_size: int) -> None:
+        """Initialize XNNPACK deployment settings.
+
+        Args:
+            max_batch_size: Upper bound for dynamic batch execution in the
+                serialized ExecuTorch program.
+        """
+        if max_batch_size < 1:
+            raise ValueError("max_batch_size must be >= 1.")
+        self.max_batch_size = max_batch_size
+
     def export(
         self,
         model: nn.Module,
@@ -34,6 +45,7 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
         exported_program = _export_with_dynamic_batch(
             model=model,
             example_inputs=example_inputs,
+            max_batch_size=self.max_batch_size,
         )
         model_bytes = self._lower_to_pte_buffer(exported_program=exported_program)
         return DeploymentArtifact(
