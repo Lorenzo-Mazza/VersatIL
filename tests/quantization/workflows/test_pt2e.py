@@ -8,7 +8,7 @@ import pytest
 import torch.nn as nn
 
 from versatil.post_training_compression.constants import QuantizationWorkflow
-from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.constants import PT2EBackendName, QuantizationMode
 from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
@@ -80,6 +80,27 @@ class TestPT2EQuantizationWorkflow:
         assert isinstance(workflow, BaseQuantizationWorkflow)
         assert workflow.pt2e_backend.is_dynamic is True
         assert workflow.quantization_mode == QuantizationMode.PT2E.value
+
+    def test_backend_names_reflect_targets(self, mock_pt2e_backend_factory) -> None:
+        x86_backend = mock_pt2e_backend_factory(is_dynamic=True)
+        xnnpack_backend = mock_pt2e_backend_factory(is_dynamic=True)
+        xnnpack_backend.name = PT2EBackendName.XNNPACK.value
+        targets = [
+            PT2EQuantizationModuleTarget(
+                module_path="encoder",
+                pt2e_backend=x86_backend,
+            ),
+            PT2EQuantizationModuleTarget(
+                module_path="decoder",
+                pt2e_backend=xnnpack_backend,
+            ),
+        ]
+        workflow = PT2EQuantizationWorkflow(targets=targets)
+
+        assert workflow.pt2e_backend_names == (
+            PT2EBackendName.X86_INDUCTOR.value,
+            PT2EBackendName.XNNPACK.value,
+        )
 
     def test_load_policy_context_delegates_to_float_context_loader(
         self,

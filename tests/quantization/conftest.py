@@ -17,6 +17,7 @@ from versatil.data.constants import ProprioKey, SampleKey
 from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.policy import Policy
 from versatil.quantization.calibration import CalibrationDataProvider
+from versatil.quantization.constants import PT2EBackendName
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
@@ -146,6 +147,7 @@ def mock_pt2e_backend_factory() -> Callable[..., MagicMock]:
 
     def factory(is_dynamic: bool = False, is_qat: bool = False) -> MagicMock:
         backend = MagicMock(spec=BasePT2EBackend)
+        backend.name = PT2EBackendName.X86_INDUCTOR.value
         backend.is_dynamic = is_dynamic
         backend.is_qat = is_qat
         backend.create_quantizer.return_value = MagicMock()

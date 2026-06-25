@@ -14,6 +14,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     get_default_x86_inductor_quantization_config,
 )
 
+from versatil.quantization.constants import PT2EBackendName
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 
 _CUDA_VISIBLE_DEVICES_KEY = "CUDA_VISIBLE_DEVICES"
@@ -22,6 +23,11 @@ _TORCHINDUCTOR_FREEZING_KEY = "TORCHINDUCTOR_FREEZING"
 
 class X86InductorBackend(BasePT2EBackend):
     """X86 Inductor backend for PT2E quantization and lowering."""
+
+    @property
+    def name(self) -> str:
+        """Serialized PT2E backend name."""
+        return PT2EBackendName.X86_INDUCTOR.value
 
     def __init__(
         self,

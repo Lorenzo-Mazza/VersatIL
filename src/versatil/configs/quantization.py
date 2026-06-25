@@ -12,7 +12,6 @@ class BasePT2EBackendConfig:
 
     is_dynamic: bool = False
     is_qat: bool = False
-    reduce_range: bool = False
 
 
 @dataclass
@@ -22,6 +21,15 @@ class X86InductorBackendConfig(BasePT2EBackendConfig):
     _target_: str = (
         "versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend"
     )
+    reduce_range: bool = False
+
+
+@dataclass
+class XNNPACKPT2EBackendConfig(BasePT2EBackendConfig):
+    """XNNPACK backend for PT2E quantization and ExecuTorch deployment."""
+
+    _target_: str = "versatil.quantization.pt2e.backends.xnnpack.XNNPACKPT2EBackend"
+    is_per_channel: bool = True
 
 
 @dataclass

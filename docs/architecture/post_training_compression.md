@@ -123,6 +123,8 @@ Deployment backends run after the workflow returns a `QuantizedContext`.
 | [`ExecutorchXNNPACKBackend`][versatil.post_training_compression.deployment_backends.executorch_xnnpack.ExecutorchXNNPACKBackend] | `executorch_pte` | `compressed_policy.pte` | Lowers the selected exported program with ExecuTorch XNNPACK. |
 
 The deployment backend is stored in metadata so inference can load the artifact according to its file format.
+For PT2E quantization, `TorchInductorBackend` pairs with `X86InductorBackend`,
+and `ExecutorchXNNPACKBackend` pairs with `XNNPACKPT2EBackend`.
 
 ## Compressed Checkpoints
 

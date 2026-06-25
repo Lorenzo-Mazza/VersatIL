@@ -217,8 +217,7 @@ Compression targets configure preparation and pruning globally or per module. Qu
 
 **Deployment backends:**
 
-The `deployment_backend` config field selects the artifact format and lowering step for edge deployment: `TorchInductorBackend` saves Torch Export `.pt2` artifacts, while `ExecutorchXNNPACKBackend` lowers to ExecuTorch XNNPACK `.pte` artifacts.
-
+The `deployment_backend` config field selects the artifact format and lowering step for edge deployment: `TorchInductorBackend` saves Torch Export `.pt2` artifacts, while `ExecutorchXNNPACKBackend` lowers to ExecuTorch XNNPACK `.pte` artifacts. 
 **QAT presets:** Hydra configs under `quantization/` provide verified torchao QAT base configs, including dynamic INT8 activation + INT4 weight QAT and INT4 weight-only QAT. See `docs/known-issues.md` for the torchao 0.17 INT4 group-size compatibility patch.
 
 ---
@@ -250,6 +249,34 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 # 4. Install pre-commit hooks (formatting + linting on every commit)
 pre-commit install
 ```
+# 5. Optional ExecuTorch dependency for edge deployment
+
+**ExecuTorch for XNNPACK `.pte` export:** ExecuTorch currently declares
+`requires-python = ">=3.10,<3.14"`, while VersatIL uses Python 3.14. The
+`ExecutorchXNNPACKBackend` needs an ExecuTorch package built from source in the
+active `versatil` environment:
+
+```bash
+cd ..
+git clone https://github.com/pytorch/executorch.git
+cd executorch
+git submodule update --init --recursive
+
+SITE_PACKAGES=$(python - <<'PY'
+import site
+print(site.getsitepackages()[0])
+PY
+)
+CMAKE_PREFIX_PATH="$SITE_PACKAGES" \
+CMAKE_BUILD_PARALLEL_LEVEL=8 \
+CMAKE_ARGS="-DEXECUTORCH_BUILD_CUDA=OFF -DEXECUTORCH_BUILD_QNN=OFF -DEXECUTORCH_BUILD_OPENVINO=OFF -DEXECUTORCH_BUILD_COREML=OFF -DEXECUTORCH_BUILD_MLX=OFF -DEXECUTORCH_BUILD_VGF=OFF -DEXECUTORCH_BUILD_EXTENSION_LLM=OFF -DEXECUTORCH_BUILD_EXTENSION_LLM_RUNNER=OFF -DEXECUTORCH_BUILD_EXTENSION_TRAINING=OFF -DEXECUTORCH_BUILD_KERNELS_LLM=OFF -DEXECUTORCH_BUILD_KERNELS_LLM_AOT=OFF -DEXECUTORCH_BUILD_TESTS=OFF -DEXECUTORCH_BUILD_XNNPACK=ON -DEXECUTORCH_BUILD_PYBIND=ON -DEXECUTORCH_BUILD_KERNELS_QUANTIZED=ON -DEXECUTORCH_BUILD_KERNELS_QUANTIZED_AOT=ON" \
+python -m pip install . --no-build-isolation --ignore-requires-python --no-deps -v
+
+cd ../versatil
+```
+
+`python -m pip check` can still report a `scikit-learn` metadata conflict on
+Python 3.14. The XNNPACK export path works with the built package.
 
 ### Environment Configuration
 

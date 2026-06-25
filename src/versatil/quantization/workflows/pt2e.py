@@ -56,6 +56,11 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         return self.targets[0].pt2e_backend
 
     @property
+    def pt2e_backend_names(self) -> tuple[str, ...]:
+        """Return serialized PT2E backend names used by all targets."""
+        return tuple(target.pt2e_backend.name for target in self.targets)
+
+    @property
     def quantization_mode(self) -> str:
         """Return ``pt2e`` because this workflow quantizes an exported graph."""
         return QuantizationMode.PT2E.value

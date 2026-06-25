@@ -163,6 +163,7 @@ from versatil.configs.quantization import (
     PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
     X86InductorBackendConfig,
+    XNNPACKPT2EBackendConfig,
 )
 from versatil.configs.training import (
     AdamConfig,
@@ -318,6 +319,7 @@ __all__ = [
     "StructuredPrunerConfig",
     "UnstructuredPrunerConfig",
     "X86InductorBackendConfig",
+    "XNNPACKPT2EBackendConfig",
     "SyntheticDatasetSchemaConfig",
 ]
 
@@ -1185,6 +1187,11 @@ def register_configs() -> None:
         group="quantization/backend",
         name="x86_inductor",
         node=X86InductorBackendConfig,
+    )
+    cs.store(
+        group="quantization/backend",
+        name="xnnpack",
+        node=XNNPACKPT2EBackendConfig,
     )
     cs.store(
         group="quantization/quantize_config",

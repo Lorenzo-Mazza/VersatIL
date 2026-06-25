@@ -11,6 +11,7 @@ class PT2EBackendName(StrEnum):
     """
 
     X86_INDUCTOR = "x86_inductor"
+    XNNPACK = "xnnpack"
 
 
 class QuantizationMode(StrEnum):

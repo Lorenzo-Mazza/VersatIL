@@ -144,7 +144,11 @@ during PT2E conversion.
 |-------|--------|------|
 | [`BasePT2EBackend`][versatil.quantization.pt2e.backends.base.BasePT2EBackend] | `src/versatil/quantization/pt2e/backends/base.py` | Interface for PT2E quantizer creation and environment setup. |
 | [`X86InductorBackend`][versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend] | `src/versatil/quantization/pt2e/backends/x86_inductor.py` | Creates `X86InductorQuantizer` configs for x86 CPU PT2E quantization. |
+| [`XNNPACKPT2EBackend`][versatil.quantization.pt2e.backends.xnnpack.XNNPACKPT2EBackend] | `src/versatil/quantization/pt2e/backends/xnnpack.py` | Creates `XNNPACKQuantizer` configs for ExecuTorch XNNPACK PT2E quantization. |
 
+PT2E backend choice and deployment backend choice are coupled. Use
+`X86InductorBackend` with `TorchInductorBackend` for `.pt2` artifacts, and
+`XNNPACKPT2EBackend` with `ExecutorchXNNPACKBackend` for `.pte` artifacts.
 
 ## Hydra Examples
 
@@ -201,12 +205,33 @@ quantization:
         reduce_range: false
 ```
 
+PT2E static XNNPACK:
+
+```yaml
+quantization:
+  _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
+  targets:
+    - _target_: versatil.quantization.module_target.PT2EQuantizationModuleTarget
+      module_path: ""  # it means root, i.e. all modules are selected
+      pt2e_backend:
+        _target_: versatil.quantization.pt2e.backends.xnnpack.XNNPACKPT2EBackend
+        is_dynamic: false
+        is_qat: false
+        is_per_channel: true
+
+deployment_backend:
+  _target_: versatil.post_training_compression.deployment_backends.executorch_xnnpack.ExecutorchXNNPACKBackend
+  max_batch_size: 32
+```
+
 
 ## Compatibility Rules
 
 - A compression run uses one unique workflow mode: `none`, `eager`, or `pt2e`.
 - `none` is float export. `eager` and `pt2e` quantize the model (or parts of it).
 - Quantization target module paths must exist in the policy and must not overlap.
+- PT2E backend and deployment backend must be compatible: X86 Inductor writes
+  `.pt2`, while XNNPACK writes ExecuTorch `.pte`.
 - PT2E QAT is not supported in VersatIL yet.
 
 ## Relation To PTC

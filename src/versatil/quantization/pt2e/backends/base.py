@@ -18,6 +18,11 @@ class BasePT2EBackend(ABC):
 
     @property
     @abstractmethod
+    def name(self) -> str:
+        """Serialized PT2E backend name."""
+
+    @property
+    @abstractmethod
     def is_dynamic(self) -> bool:
         """Whether this backend uses dynamic activation quantization."""
 

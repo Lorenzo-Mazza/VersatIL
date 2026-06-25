@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from datetime import datetime
 from unittest.mock import MagicMock, patch
@@ -23,7 +24,7 @@ from versatil.post_training_compression.deployment_backends.base import (
 from versatil.post_training_compression.pruning.base import BasePruner
 from versatil.post_training_compression.pruning.structured import StructuredPruner
 from versatil.post_training_compression.pruning.unstructured import UnstructuredPruner
-from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.constants import PT2EBackendName, QuantizationMode
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
 
@@ -334,6 +335,65 @@ class TestQuantizationSelection:
             compressor._validate_deployment_backend_compatibility(
                 deployment_backend_name="unknown_backend",
                 mode=QuantizationMode.EAGER.value,
+            )
+
+    @pytest.mark.parametrize(
+        "deployment_backend_name, pt2e_backend_names, expectation",
+        [
+            (
+                DeploymentBackendName.TORCH_INDUCTOR.value,
+                (PT2EBackendName.X86_INDUCTOR.value,),
+                does_not_raise(),
+            ),
+            (
+                DeploymentBackendName.EXECUTORCH_XNNPACK.value,
+                (PT2EBackendName.XNNPACK.value,),
+                does_not_raise(),
+            ),
+            (
+                DeploymentBackendName.TORCH_INDUCTOR.value,
+                (PT2EBackendName.XNNPACK.value,),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Deployment backend torch_inductor supports PT2E "
+                        "backends ['x86_inductor'], got ['xnnpack']."
+                    ),
+                ),
+            ),
+            (
+                DeploymentBackendName.EXECUTORCH_XNNPACK.value,
+                (PT2EBackendName.X86_INDUCTOR.value,),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Deployment backend executorch_xnnpack supports PT2E "
+                        "backends ['xnnpack'], got ['x86_inductor']."
+                    ),
+                ),
+            ),
+        ],
+        ids=[
+            "torch_inductor_x86",
+            "executorch_xnnpack_xnnpack",
+            "torch_inductor_rejects_xnnpack",
+            "executorch_xnnpack_rejects_x86",
+        ],
+    )
+    def test_pt2e_backend_compatibility(
+        self,
+        compressor_factory,
+        deployment_backend_name: str,
+        pt2e_backend_names: tuple[str, ...],
+        expectation: AbstractContextManager[None],
+    ) -> None:
+        compressor = compressor_factory()
+
+        with expectation:
+            compressor._validate_deployment_backend_compatibility(
+                deployment_backend_name=deployment_backend_name,
+                mode=QuantizationMode.PT2E.value,
+                pt2e_backend_names=pt2e_backend_names,
             )
 
 

@@ -12,7 +12,9 @@ from versatil.configs.quantization import (
     PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
     X86InductorBackendConfig,
+    XNNPACKPT2EBackendConfig,
 )
+from versatil.quantization.constants import PT2EBackendName
 from versatil.quantization.module_target import (
     EagerQuantizationModuleTarget,
     PT2EQuantizationModuleTarget,
@@ -39,6 +41,33 @@ class TestX86InductorBackendConfig:
         assert isinstance(backend, X86InductorBackend)
         assert backend.is_dynamic == is_dynamic
         assert backend.is_qat == is_qat
+
+
+@pytest.mark.unit
+class TestXNNPACKPT2EBackendConfig:
+    @pytest.mark.parametrize("is_dynamic", [True, False])
+    @pytest.mark.parametrize("is_qat", [True, False])
+    @pytest.mark.parametrize("is_per_channel", [True, False])
+    def test_hydra_instantiates_backend(
+        self,
+        is_dynamic: bool,
+        is_qat: bool,
+        is_per_channel: bool,
+    ) -> None:
+        config = OmegaConf.structured(
+            XNNPACKPT2EBackendConfig(
+                is_dynamic=is_dynamic,
+                is_qat=is_qat,
+                is_per_channel=is_per_channel,
+            )
+        )
+
+        backend = hydra.utils.instantiate(config)
+
+        assert backend.name == PT2EBackendName.XNNPACK.value
+        assert backend.is_dynamic == is_dynamic
+        assert backend.is_qat == is_qat
+        assert backend.is_per_channel == is_per_channel
 
 
 @pytest.mark.unit
@@ -71,6 +100,26 @@ class TestPT2EQuantizationWorkflowConfig:
 
         assert result.pt2e_backend.is_dynamic == is_dynamic
         assert result.pt2e_backend.is_qat is False
+
+    def test_hydra_instantiates_with_xnnpack_backend(self) -> None:
+        config = OmegaConf.structured(
+            PT2EQuantizationWorkflowConfig(
+                targets=[
+                    PT2EQuantizationModuleTargetConfig(
+                        pt2e_backend=XNNPACKPT2EBackendConfig(
+                            is_dynamic=False,
+                            is_qat=False,
+                            is_per_channel=True,
+                        ),
+                    ),
+                ],
+            )
+        )
+
+        result = hydra.utils.instantiate(config)
+
+        assert result.pt2e_backend.name == PT2EBackendName.XNNPACK.value
+        assert result.pt2e_backend.is_per_channel is True
 
     def test_rejects_qat_backend_config(self):
         config = OmegaConf.structured(

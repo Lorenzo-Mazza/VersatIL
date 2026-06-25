@@ -24,7 +24,7 @@ from versatil.post_training_compression.preparation import (
 from versatil.post_training_compression.pruning.base import BasePruner
 from versatil.post_training_compression.report import QuantizationReport
 from versatil.post_training_compression.serialization import save_compressed_model
-from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.constants import PT2EBackendName, QuantizationMode
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
 from versatil.training.constants import CheckpointFilename
@@ -102,6 +102,7 @@ class PostTrainingCompressor:
         self._validate_deployment_backend_compatibility(
             deployment_backend_name=self.deployment_backend.name,
             mode=quantization_workflow.quantization_mode,
+            pt2e_backend_names=quantization_workflow.pt2e_backend_names,
         )
         context = quantization_workflow.load_policy_context(
             checkpoint_path=self.checkpoint_path,
@@ -244,12 +245,14 @@ class PostTrainingCompressor:
     def _validate_deployment_backend_compatibility(
         deployment_backend_name: str,
         mode: str,
+        pt2e_backend_names: tuple[str, ...] = (),
     ) -> None:
         """Validate quantization workflow and deployment backend compatibility.
 
         Args:
             deployment_backend_name: Deployment backend identifier.
             mode: Quantization mode selected by the workflow.
+            pt2e_backend_names: PT2E backend identifiers used by the workflow.
 
         Raises:
             ValueError: If the backend is unknown or does not support ``mode``.
@@ -270,10 +273,49 @@ class PostTrainingCompressor:
         if supported_modes is None:
             raise ValueError(f"Unknown deployment backend '{deployment_backend_name}'.")
         if mode in supported_modes:
+            if mode != QuantizationMode.PT2E.value:
+                return
+            PostTrainingCompressor._validate_pt2e_backend_compatibility(
+                deployment_backend_name=deployment_backend_name,
+                pt2e_backend_names=pt2e_backend_names,
+            )
             return
         raise ValueError(
             f"Deployment backend {deployment_backend_name} supports quantization modes "
             f"{list(supported_modes)}, got '{mode}'."
+        )
+
+    @staticmethod
+    def _validate_pt2e_backend_compatibility(
+        deployment_backend_name: str,
+        pt2e_backend_names: tuple[str, ...],
+    ) -> None:
+        """Validate concrete PT2E backend support for a deployment backend.
+
+        Args:
+            deployment_backend_name: Deployment backend identifier.
+            pt2e_backend_names: PT2E backend identifiers used by the workflow.
+
+        Raises:
+            ValueError: If any PT2E backend is incompatible with deployment.
+        """
+        compatibility = {
+            DeploymentBackendName.TORCH_INDUCTOR.value: (
+                PT2EBackendName.X86_INDUCTOR.value,
+            ),
+            DeploymentBackendName.EXECUTORCH_XNNPACK.value: (
+                PT2EBackendName.XNNPACK.value,
+            ),
+        }
+        supported_backends = compatibility[deployment_backend_name]
+        unsupported_backends = [
+            name for name in pt2e_backend_names if name not in supported_backends
+        ]
+        if not unsupported_backends:
+            return
+        raise ValueError(
+            f"Deployment backend {deployment_backend_name} supports PT2E backends "
+            f"{list(supported_backends)}, got {list(pt2e_backend_names)}."
         )
 
     def _resolve_output_directory(self) -> str:

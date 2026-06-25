@@ -81,6 +81,11 @@ class BaseQuantizationWorkflow(ABC):
         """Return module-level quantization targets."""
         return []
 
+    @property
+    def pt2e_backend_names(self) -> tuple[str, ...]:
+        """Return serialized PT2E backend names used by this workflow."""
+        return ()
+
     def validate_targets(self, model: nn.Module) -> None:
         """Validate this workflow's target module paths and overlaps.
 

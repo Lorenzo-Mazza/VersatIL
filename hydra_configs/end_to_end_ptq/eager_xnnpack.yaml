@@ -22,7 +22,7 @@ quantization:
         weight_dtype: ${torch_dtype:int4}
         weight_granularity:
           _target_: torchao.quantization.PerGroup
-          group_size: 16
+          group_size: 32
   is_qat: false
   auto_filter_incompatible_linears: true
 deployment_backend:
