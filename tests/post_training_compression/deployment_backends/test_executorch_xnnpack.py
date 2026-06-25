@@ -57,7 +57,7 @@ def eager_xnnpack_model_factory(
 @pytest.fixture
 def xnnpack_example_inputs_factory(
     rng: np.random.Generator,
-) -> Callable[[int], tuple[torch.Tensor, ...]]:
+) -> Callable[..., tuple[torch.Tensor, ...]]:
     def factory(batch_size: int = 2) -> tuple[torch.Tensor, ...]:
         features = torch.from_numpy(
             rng.standard_normal((batch_size, 64)).astype(np.float32)
@@ -121,10 +121,10 @@ class TestExecutorchXNNPACKBackendIntegration:
     def test_unbounded_dynamic_batch_reproduces_executorch_lowering_error(
         self,
         eager_xnnpack_model_factory: Callable[[], nn.Module],
-        xnnpack_example_inputs_factory: Callable[[int], tuple[torch.Tensor, ...]],
+        xnnpack_example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
     ) -> None:
         model = eager_xnnpack_model_factory()
-        example_inputs = xnnpack_example_inputs_factory(2)
+        example_inputs = xnnpack_example_inputs_factory(batch_size=2)
         exported_program = _export_with_dynamic_batch(
             model=model,
             example_inputs=example_inputs,
@@ -144,11 +144,11 @@ class TestExecutorchXNNPACKBackendIntegration:
     def test_export_lowers_eager_quantized_model_with_bounded_dynamic_batch(
         self,
         eager_xnnpack_model_factory: Callable[[], nn.Module],
-        xnnpack_example_inputs_factory: Callable[[int], tuple[torch.Tensor, ...]],
+        xnnpack_example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
     ) -> None:
         backend = ExecutorchXNNPACKBackend(max_batch_size=8)
         model = eager_xnnpack_model_factory()
-        example_inputs = xnnpack_example_inputs_factory(2)
+        example_inputs = xnnpack_example_inputs_factory(batch_size=2)
 
         artifact = backend.export(model=model, example_inputs=example_inputs)
 
