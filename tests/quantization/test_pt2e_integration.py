@@ -4,7 +4,6 @@ import os
 import time
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 import torch._inductor.config as inductor_config
@@ -18,9 +17,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     get_default_x86_inductor_quantization_config,
 )
 
-from versatil.models.layers.frozen_batchnorm import (
-    FrozenBatchNorm2d,
-)
+from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.constants import PrunableLayerType
 from versatil.post_training_compression.preparation.batchnorm import (
     prepare_batchnorms_for_quantization,
@@ -33,6 +30,7 @@ from versatil.post_training_compression.pruning import (
     StructuredPruner,
     UnstructuredPruner,
 )
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -54,135 +52,6 @@ def _configure_quantization_env():
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda
     inductor_config.cpp_wrapper = original_cpp
-
-
-class _SyntheticModel(nn.Module):
-    def __init__(
-        self,
-        input_channels: int,
-        hidden_channels: int,
-        output_dimension: int,
-        use_frozen_bn: bool = False,
-    ) -> None:
-        super().__init__()
-        self.conv = nn.Conv2d(input_channels, hidden_channels, 3, padding=1)
-        self.batchnorm = (
-            FrozenBatchNorm2d(dimension=hidden_channels)
-            if use_frozen_bn
-            else nn.BatchNorm2d(num_features=hidden_channels)
-        )
-        self.relu = nn.ReLU()
-        self.pool = nn.AdaptiveAvgPool2d(output_size=1)
-        self.flatten = nn.Flatten()
-        self.linear = nn.Linear(hidden_channels, output_dimension)
-
-    def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        features = self.relu(self.batchnorm(self.conv(image)))
-        return (self.linear(self.flatten(self.pool(features))),)
-
-
-class _TwoPartModel(nn.Module):
-    def __init__(
-        self,
-        input_channels: int,
-        hidden_channels: int,
-        output_dimension: int,
-    ) -> None:
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Conv2d(input_channels, hidden_channels, 3, padding=1),
-            nn.BatchNorm2d(hidden_channels),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(hidden_channels, hidden_channels),
-            nn.ReLU(),
-            nn.Linear(hidden_channels, output_dimension),
-        )
-
-    def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        return (self.decoder(self.encoder(image)),)
-
-
-@pytest.fixture
-def synthetic_model_factory(
-    rng: np.random.Generator,
-) -> Callable[..., nn.Module]:
-    """Factory for _SyntheticModel with deterministic weights."""
-
-    def factory(
-        input_channels: int = 3,
-        hidden_channels: int = 16,
-        output_dimension: int = 4,
-        use_frozen_bn: bool = False,
-    ) -> nn.Module:
-        model = _SyntheticModel(
-            input_channels=input_channels,
-            hidden_channels=hidden_channels,
-            output_dimension=output_dimension,
-            use_frozen_bn=use_frozen_bn,
-        )
-        generator = torch.Generator()
-        generator.manual_seed(int(rng.integers(0, 2**31)))
-        for parameter in model.parameters():
-            nn.init.normal_(parameter, generator=generator)
-        if use_frozen_bn:
-            for buffer in model.buffers():
-                buffer.data.normal_(generator=generator)
-            model.batchnorm.running_var.data.abs_()
-        model.eval()
-        return model
-
-    return factory
-
-
-@pytest.fixture
-def example_inputs_factory(
-    rng: np.random.Generator,
-) -> Callable[..., tuple[torch.Tensor, ...]]:
-    """Factory for spatial input tensors as tuple."""
-
-    def factory(
-        batch_size: int = 2,
-        channels: int = 3,
-        image_size: int = 16,
-    ) -> tuple[torch.Tensor, ...]:
-        image = torch.from_numpy(
-            rng.standard_normal((batch_size, channels, image_size, image_size)).astype(
-                np.float32
-            )
-        )
-        return (image,)
-
-    return factory
-
-
-@pytest.fixture
-def two_part_model_factory(
-    rng: np.random.Generator,
-) -> Callable[..., nn.Module]:
-    """Factory for _TwoPartModel with deterministic weights."""
-
-    def factory(
-        input_channels: int = 3,
-        hidden_channels: int = 16,
-        output_dimension: int = 4,
-    ) -> nn.Module:
-        model = _TwoPartModel(
-            input_channels=input_channels,
-            hidden_channels=hidden_channels,
-            output_dimension=output_dimension,
-        )
-        generator = torch.Generator()
-        generator.manual_seed(int(rng.integers(0, 2**31)))
-        for parameter in model.parameters():
-            nn.init.normal_(parameter, generator=generator)
-        model.eval()
-        return model
-
-    return factory
 
 
 def _prepare_and_export(
@@ -359,6 +228,65 @@ class TestPT2EQuantizationPipeline:
         # Quantization-only divergence is bounded by int8 precision
         max_diff = (float_output[0] - quantized_output[0]).abs().max().item()
         assert max_diff < 0.5
+
+
+@pytest.mark.integration
+class TestPT2EQuantizationWorkflowIntegration:
+    def test_composable_quantizer_calibrates_multiple_targets(
+        self,
+        two_part_model_factory,
+        example_inputs_factory,
+        counting_calibration_factory,
+        x86_inductor_backend_factory,
+    ):
+        model = two_part_model_factory(
+            hidden_channels=16,
+            output_dimension=4,
+        )
+        example_inputs = example_inputs_factory(
+            batch_size=2,
+            channels=3,
+            image_size=16,
+        )
+        exported = _prepare_and_export(model=model, example_inputs=example_inputs)
+        calibration = counting_calibration_factory(
+            batches=[
+                example_inputs,
+                example_inputs_factory(
+                    batch_size=2,
+                    channels=3,
+                    image_size=16,
+                ),
+            ]
+        )
+        modules = [
+            CompressionTarget(
+                module_path="encoder.0",
+                quantization=PT2EQuantizationWorkflow(
+                    pt2e_backend=x86_inductor_backend_factory(is_dynamic=False),
+                ),
+            ),
+            CompressionTarget(
+                module_path="decoder.0",
+                quantization=PT2EQuantizationWorkflow(
+                    pt2e_backend=x86_inductor_backend_factory(is_dynamic=False),
+                ),
+            ),
+        ]
+
+        converted = PT2EQuantizationWorkflow._convert_exported_model(
+            exported=exported,
+            pt2e_modules=modules,
+            calibration=calibration,
+        )
+
+        with torch.no_grad():
+            output = converted(*example_inputs)
+
+        assert calibration.consumed_batches == 2
+        _assert_has_quantize_ops(converted)
+        assert output[0].shape == (2, 4)
+        assert torch.isfinite(output[0]).all()
 
 
 @pytest.mark.integration

@@ -1,9 +1,10 @@
 defaults:
-  - /quantization/strategy@_here_: qat
+  - /quantization/workflow@_here_: eager
   - _self_
 
-base_config:
+quantize_config:
   _target_: torchao.quantization.Int4WeightOnlyConfig
   group_size: 32
+is_qat: true
 module_paths: []
 auto_filter_incompatible_linears: true

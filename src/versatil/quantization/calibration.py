@@ -1,4 +1,4 @@
-"""Calibration data provider for post-training static quantization."""
+"""Calibration data provider for static quantization."""
 
 from collections.abc import Iterator
 

@@ -1,4 +1,4 @@
-"""Hydra configuration dataclasses for quantization strategies and backends."""
+"""Hydra configuration dataclasses for quantization workflows and backends."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -19,18 +19,20 @@ class BasePT2EBackendConfig:
 class X86InductorBackendConfig(BasePT2EBackendConfig):
     """X86 Inductor backend for PT2E quantized operator lowering."""
 
-    _target_: str = "versatil.quantization.backends.x86_inductor.X86InductorBackend"
+    _target_: str = (
+        "versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend"
+    )
 
 
 @dataclass
-class PT2EStrategyConfig:
+class PT2EQuantizationWorkflowConfig:
     """Graph-level quantization with operator fusion via torch.export.
 
     Uses a PT2E backend (e.g. X86 Inductor) to quantize and lower
     operators after export. Static backends require calibration data.
     """
 
-    _target_: str = "versatil.quantization.strategies.PT2EStrategy"
+    _target_: str = "versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow"
     pt2e_backend: BasePT2EBackendConfig = field(
         default_factory=X86InductorBackendConfig
     )
@@ -52,26 +54,15 @@ class Int4WeightOnlyQuantizeConfig:
 
 
 @dataclass
-class QuantizeApiStrategyConfig:
-    """Eager mode quantization via torchao quantize_() API.
+class EagerQuantizationWorkflowConfig:
+    """Eager torchao quantization via quantize_().
 
-    Applies quantization in-place without operator fusion.
-    Supports dynamic activation and weight-only configs.
-
-    Note:
-        Currently, we only support quantization of linear layers.
-        For other use-cases, use the PT2E API.
+    ``is_qat=False`` applies post-training eager quantization. ``is_qat=True``
+    wraps the same config in torchao ``QATConfig`` for prepare and convert.
     """
 
-    _target_: str = "versatil.quantization.strategies.QuantizeApiStrategy"
+    _target_: str = "versatil.quantization.workflows.eager.EagerQuantizationWorkflow"
     quantize_config: Any = MISSING  # AOBaseConfig subclass via _target_
-
-
-@dataclass
-class QATStrategyConfig:
-    """Training-time fake quantization via torchao QATConfig."""
-
-    _target_: str = "versatil.quantization.strategies.QATStrategy"
-    base_config: Any = MISSING  # AOBaseConfig subclass via _target_
+    is_qat: bool = False
     module_paths: list[str] = field(default_factory=list)
     auto_filter_incompatible_linears: bool = True

@@ -14,7 +14,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     get_default_x86_inductor_quantization_config,
 )
 
-from versatil.quantization.backends.base import BasePT2EBackend
+from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 
 _CUDA_VISIBLE_DEVICES_KEY = "CUDA_VISIBLE_DEVICES"
 _TORCHINDUCTOR_FREEZING_KEY = "TORCHINDUCTOR_FREEZING"
@@ -45,6 +45,11 @@ class X86InductorBackend(BasePT2EBackend):
     def is_dynamic(self) -> bool:
         """Whether this backend uses dynamic activation quantization."""
         return self._is_dynamic
+
+    @property
+    def is_qat(self) -> bool:
+        """Whether this backend uses QAT observer configuration."""
+        return self._is_qat
 
     @property
     def supported_device_types(self) -> tuple[str, ...]:

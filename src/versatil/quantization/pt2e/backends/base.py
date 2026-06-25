@@ -23,6 +23,11 @@ class BasePT2EBackend(ABC):
 
     @property
     @abstractmethod
+    def is_qat(self) -> bool:
+        """Whether this backend is configured for PT2E QAT."""
+
+    @property
+    @abstractmethod
     def supported_device_types(self) -> tuple[str, ...]:
         """Device types this backend supports (e.g., ('cpu',) for x86)."""
 

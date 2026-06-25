@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
+import wandb
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
@@ -22,7 +23,6 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
-import wandb
 from versatil.common.omegaconf_ops import make_config_yaml_safe
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
@@ -30,7 +30,7 @@ from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.models.policy import Policy
-from versatil.quantization.strategies import QATStrategy
+from versatil.quantization.workflows.none import NoQuantizationWorkflow
 from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
 from versatil.training.callbacks.ema import EMACallback
 from versatil.training.callbacks.gradient_norm import GradientNormCallback
@@ -47,10 +47,10 @@ class Workspace:
     This workspace handles:
     - Data loading and normalization
     - Policy instantiation and wrapping with Lightning
-    - Trainer setup with callbacks (EMA, checkpointing, confusion matrix)
-    - Distributed training via DDP
+    - Trainer setup with callbacks
+    - Policy training
     - WandB logging
-    - Checkpointing with save_top_k and save_last
+    - Checkpointing
     """
 
     def __init__(self, config: DictConfig, original_yaml_config: DictConfig):
@@ -62,6 +62,7 @@ class Workspace:
         """
         self.config: MainConfig = config
         self.original_yaml_config = original_yaml_config
+        self._normalize_quantization_workflow()
         hydra_cfg = HydraConfig.get()
         main_config_name = (
             hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
@@ -248,12 +249,15 @@ class Workspace:
     def _prepare_qat(self) -> None:
         """Apply QAT fake quantization before optimizer construction."""
         quantization = self.config.quantization
-        if quantization is None:
-            return
-        if not isinstance(quantization, QATStrategy):
+        if not quantization.is_qat:
             return
         logging.info("Preparing policy for quantization-aware training...")
         quantization.prepare_model(model=self.policy)
+
+    def _normalize_quantization_workflow(self) -> None:
+        """Use an explicit no-quantization workflow when config omits quantization."""
+        if self.config.quantization is None:
+            self.config.quantization = NoQuantizationWorkflow()
 
     def _setup_trainer(self):
         """Setup PyTorch Lightning trainer with callbacks and logger."""

@@ -25,11 +25,7 @@ from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
 from versatil.models.input_specification import InputSpecification
-from versatil.quantization.strategies import (
-    PT2EStrategy,
-    QATStrategy,
-    QuantizeApiStrategy,
-)
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
@@ -58,10 +54,7 @@ class ExperimentValidator:
         is_tokenized: bool = False,
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
-        quantization_config: PT2EStrategy
-        | QuantizeApiStrategy
-        | QATStrategy
-        | None = None,
+        quantization_config: BaseQuantizationWorkflow | None = None,
         training_config: TrainingConfig | None = None,
     ):
         """Initialize validator with policy components.
@@ -495,10 +488,12 @@ class ExperimentValidator:
     def validate_quantization(self) -> None:
         """Validate that quantization config is present and is a valid strategy."""
         config = self.quantization_config
-        if not isinstance(config, (PT2EStrategy, QuantizeApiStrategy, QATStrategy)):
-            self.warnings.append(
+        if config is None:
+            return
+        if not isinstance(config, BaseQuantizationWorkflow):
+            self.errors.append(
                 f"Quantization config is type {type(config).__name__}, "
-                f"expected PT2EStrategy, QuantizeApiStrategy, or QATStrategy. "
+                "expected a quantization workflow with quantization_mode. "
                 f"This may indicate incorrect Hydra instantiation."
             )
 

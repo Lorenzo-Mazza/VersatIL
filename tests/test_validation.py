@@ -32,6 +32,7 @@ from versatil.models.decoding.decoders.interleaved_vlm import (
 from versatil.models.encoding.encoders.base import EncoderInput, EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.training.stage import TrainingStage
 from versatil.validation import (
     ExperimentValidationError,
@@ -284,6 +285,7 @@ def validator_factory(
         is_tokenized: bool = False,
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
+        quantization_config: BaseQuantizationWorkflow | str | None = None,
         training_config: TrainingConfig | None = None,
     ) -> ExperimentValidator:
         return ExperimentValidator(
@@ -296,6 +298,7 @@ def validator_factory(
             is_tokenized=is_tokenized,
             tokenized_obs_keys=tokenized_obs_keys,
             image_norm_type=image_norm_type,
+            quantization_config=quantization_config,
             training_config=training_config,
         )
 
@@ -481,6 +484,29 @@ class TestValidateAll:
             match=re.escape("Policy validation failed with 2 error(s):"),
         ):
             validator.validate_all()
+
+
+@pytest.mark.unit
+class TestValidateQuantization:
+    def test_none_quantization_config_is_accepted(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+    ):
+        validator = validator_factory(quantization_config=None)
+        validator.validate_quantization()
+        assert validator.errors == []
+
+    def test_invalid_quantization_config_adds_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+    ):
+        validator = validator_factory(quantization_config="not_a_workflow")
+        validator.validate_quantization()
+        assert validator.errors == [
+            "Quantization config is type str, expected a quantization workflow "
+            "with quantization_mode. This may indicate incorrect Hydra "
+            "instantiation."
+        ]
 
 
 @pytest.mark.unit

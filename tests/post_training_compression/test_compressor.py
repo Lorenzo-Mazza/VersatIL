@@ -16,8 +16,11 @@ from versatil.post_training_compression.compression_target import CompressionTar
 from versatil.post_training_compression.pruning.base import BasePruner
 from versatil.post_training_compression.pruning.structured import StructuredPruner
 from versatil.post_training_compression.pruning.unstructured import UnstructuredPruner
-from versatil.quantization.backends.x86_inductor import X86InductorBackend
-from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
+from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
+from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
+from versatil.quantization.workflows.none import NoQuantizationWorkflow
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 COMPRESSOR_MODULE = "versatil.post_training_compression.compressor"
 
@@ -77,7 +80,7 @@ class TestPostTrainingCompressorValidate:
                 modules=compressor.resolve_modules(),
             )
 
-    def test_raises_when_mixing_pt2e_and_quantize_api(
+    def test_raises_when_mixing_pt2e_and_eager(
         self,
         policy_with_submodules,
         compressor_factory,
@@ -86,11 +89,13 @@ class TestPostTrainingCompressorValidate:
             modules=[
                 CompressionTarget(
                     module_path="backbone",
-                    quantization=PT2EStrategy(pt2e_backend=X86InductorBackend()),
+                    quantization=PT2EQuantizationWorkflow(
+                        pt2e_backend=X86InductorBackend()
+                    ),
                 ),
                 CompressionTarget(
                     module_path="decoder",
-                    quantization=QuantizeApiStrategy(
+                    quantization=EagerQuantizationWorkflow(
                         quantize_config=MagicMock(spec=[])
                     ),
                 ),
@@ -100,10 +105,10 @@ class TestPostTrainingCompressorValidate:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "PT2E and quantize_() strategies cannot be combined. "
+                "PT2E and eager quantization workflows cannot be combined. "
                 "PT2E operates on the exported FX graph while "
-                "quantize_() requires eager nn.Module submodules. "
-                "Use one strategy per compression run."
+                "eager quantization requires nn.Module submodules. "
+                "Use one workflow per compression run."
             ),
         ):
             compressor.validate(
@@ -117,7 +122,7 @@ class TestPostTrainingCompressorValidate:
         compressor_factory,
     ):
         compressor = compressor_factory(
-            quantization=PT2EStrategy(pt2e_backend=X86InductorBackend()),
+            quantization=PT2EQuantizationWorkflow(pt2e_backend=X86InductorBackend()),
         )
         # Global mode: self.modules is empty, resolve_modules() creates root target
         resolved = compressor.resolve_modules()
@@ -165,7 +170,7 @@ class TestResolveModules:
     ):
         preparation = PreparationConfig()
         pruning = [MagicMock(), MagicMock()]
-        quantization = PT2EStrategy(pt2e_backend=X86InductorBackend())
+        quantization = PT2EQuantizationWorkflow(pt2e_backend=X86InductorBackend())
         compressor = compressor_factory(
             preparation=preparation,
             pruning=pruning,
@@ -335,206 +340,69 @@ class TestPrepareAndPrune:
         pruner.prune.assert_called_once_with(module=submodule)
 
 
-@pytest.fixture
-def export_quantize_mocks(
-    mock_policy_factory,
-) -> Callable[..., dict[str, MagicMock]]:
-    """Factory for the common mock objects needed by _export_and_quantize tests."""
-
-    def factory() -> dict[str, MagicMock]:
-        return {
-            "policy": mock_policy_factory(),
-            "policy_loader": MagicMock(),
-            "exportable": MagicMock(),
-            "exported": MagicMock(spec=nn.Module),
-            "converted": MagicMock(spec=nn.Module),
-            "example_inputs": (torch.zeros(2, 4),),
-        }
-
-    return factory
-
-
 @pytest.mark.unit
-class TestExportAndQuantize:
-    def test_pt2e_strategy_calls_pt2e_quantization(
+class TestQuantizationSelection:
+    def test_returns_first_configured_quantization(self, compressor_factory):
+        quantization = EagerQuantizationWorkflow(quantize_config=MagicMock(spec=[]))
+        compressor = compressor_factory()
+        modules = [
+            CompressionTarget(module_path="encoder", quantization=None),
+            CompressionTarget(module_path="decoder", quantization=quantization),
+        ]
+
+        result = compressor._resolve_quantization_workflow(modules=modules)
+
+        assert result is quantization
+
+    def test_returns_no_quantization_workflow_when_no_target_has_quantization(
         self,
-        export_quantize_mocks,
         compressor_factory,
     ):
-        mocks = export_quantize_mocks()
-        target = CompressionTarget(
-            module_path="",
-            quantization=PT2EStrategy(
-                pt2e_backend=X86InductorBackend(is_dynamic=True),
+        compressor = compressor_factory()
+        modules = [
+            CompressionTarget(module_path="encoder", quantization=None),
+            CompressionTarget(module_path="decoder", quantization=None),
+        ]
+
+        result = compressor._resolve_quantization_workflow(modules=modules)
+
+        assert isinstance(result, NoQuantizationWorkflow)
+        assert result.quantization_mode == QuantizationMode.NONE.value
+
+    def test_rejects_mixed_quantization_modes(self, compressor_factory):
+        compressor = compressor_factory()
+        modules = [
+            CompressionTarget(
+                module_path="encoder",
+                quantization=PT2EQuantizationWorkflow(
+                    pt2e_backend=X86InductorBackend()
+                ),
             ),
-        )
+            CompressionTarget(
+                module_path="decoder",
+                quantization=EagerQuantizationWorkflow(
+                    quantize_config=MagicMock(spec=[]),
+                ),
+            ),
+        ]
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Compression targets cannot mix quantization modes."),
+        ):
+            compressor._resolve_quantization_workflow(modules=modules)
+
+    def test_unknown_backend_is_rejected(self, compressor_factory):
         compressor = compressor_factory()
 
-        with (
-            patch(f"{COMPRESSOR_MODULE}.export_policy", return_value=mocks["exported"]),
-            patch(
-                f"{COMPRESSOR_MODULE}.apply_pt2e_quantization",
-                return_value=mocks["converted"],
-            ) as mock_pt2e,
-            patch(
-                f"{COMPRESSOR_MODULE}.build_example_inputs",
-                return_value=mocks["example_inputs"],
-            ),
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Unknown deployment backend 'unknown_backend'."),
         ):
-            _, converted, _, strategy = compressor._export_and_quantize(
-                policy=mocks["policy"],
-                policy_loader=mocks["policy_loader"],
-                exportable=mocks["exportable"],
-                modules=[target],
+            compressor._validate_backend_compatibility(
+                backend_name="unknown_backend",
+                mode=QuantizationMode.EAGER.value,
             )
-
-        mock_pt2e.assert_called_once()
-        assert converted is mocks["converted"]
-        assert strategy == "pt2e"
-
-    def test_quantize_api_strategy_calls_quantize_api(
-        self,
-        export_quantize_mocks,
-        compressor_factory,
-    ):
-        mocks = export_quantize_mocks()
-        target = CompressionTarget(
-            module_path="",
-            quantization=QuantizeApiStrategy(quantize_config=MagicMock(spec=[])),
-        )
-        compressor = compressor_factory()
-
-        with (
-            patch(f"{COMPRESSOR_MODULE}.export_policy", return_value=mocks["exported"]),
-            patch(f"{COMPRESSOR_MODULE}.apply_quantize_api") as mock_qapi,
-            patch(
-                f"{COMPRESSOR_MODULE}.build_example_inputs",
-                return_value=mocks["example_inputs"],
-            ),
-        ):
-            _, converted, _, strategy = compressor._export_and_quantize(
-                policy=mocks["policy"],
-                policy_loader=mocks["policy_loader"],
-                exportable=mocks["exportable"],
-                modules=[target],
-            )
-
-        mock_qapi.assert_called_once()
-        assert converted is mocks["exported"]
-        assert strategy == "quantize_api"
-
-    def test_no_quantization_returns_exported_as_converted(
-        self,
-        export_quantize_mocks,
-        compressor_factory,
-    ):
-        mocks = export_quantize_mocks()
-        target = CompressionTarget(module_path="", quantization=None)
-        compressor = compressor_factory()
-
-        with (
-            patch(f"{COMPRESSOR_MODULE}.export_policy", return_value=mocks["exported"]),
-            patch(
-                f"{COMPRESSOR_MODULE}.build_example_inputs",
-                return_value=mocks["example_inputs"],
-            ),
-        ):
-            _, converted, _, strategy = compressor._export_and_quantize(
-                policy=mocks["policy"],
-                policy_loader=mocks["policy_loader"],
-                exportable=mocks["exportable"],
-                modules=[target],
-            )
-
-        assert converted is mocks["exported"]
-        assert strategy == "pt2e"
-
-    def test_static_pt2e_creates_calibration_provider(
-        self,
-        export_quantize_mocks,
-        compressor_factory,
-    ):
-        mocks = export_quantize_mocks()
-        target = CompressionTarget(
-            module_path="",
-            quantization=PT2EStrategy(
-                pt2e_backend=X86InductorBackend(is_dynamic=False),
-            ),
-        )
-        compressor = compressor_factory(calibration_steps=16)
-
-        mock_calibration = MagicMock()
-        mock_calibration.get_single_batch.return_value = mocks["example_inputs"]
-
-        with (
-            patch(f"{COMPRESSOR_MODULE}.export_policy", return_value=mocks["exported"]),
-            patch(
-                f"{COMPRESSOR_MODULE}.apply_pt2e_quantization",
-                return_value=mocks["converted"],
-            ),
-            patch(
-                f"{COMPRESSOR_MODULE}.get_dataloaders",
-                return_value=(MagicMock(), None, None, None, None),
-            ),
-            patch(
-                f"{COMPRESSOR_MODULE}.CalibrationDataProvider",
-                return_value=mock_calibration,
-            ) as mock_calib_cls,
-        ):
-            compressor._export_and_quantize(
-                policy=mocks["policy"],
-                policy_loader=mocks["policy_loader"],
-                exportable=mocks["exportable"],
-                modules=[target],
-            )
-
-        mock_calib_cls.assert_called_once()
-        assert mock_calib_cls.call_args[1]["num_calibration_steps"] == 16
-
-    def test_uses_calibration_batch_when_available(
-        self,
-        export_quantize_mocks,
-        compressor_factory,
-    ):
-        mocks = export_quantize_mocks()
-        calibration_batch = (torch.ones(2, 4),)
-        target = CompressionTarget(
-            module_path="",
-            quantization=PT2EStrategy(
-                pt2e_backend=X86InductorBackend(is_dynamic=False),
-            ),
-        )
-        compressor = compressor_factory()
-
-        mock_calibration = MagicMock()
-        mock_calibration.get_single_batch.return_value = calibration_batch
-
-        with (
-            patch(f"{COMPRESSOR_MODULE}.export_policy", return_value=mocks["exported"]),
-            patch(
-                f"{COMPRESSOR_MODULE}.apply_pt2e_quantization",
-                return_value=mocks["converted"],
-            ),
-            patch(
-                f"{COMPRESSOR_MODULE}.get_dataloaders",
-                return_value=(MagicMock(), None, None, None, None),
-            ),
-            patch(
-                f"{COMPRESSOR_MODULE}.CalibrationDataProvider",
-                return_value=mock_calibration,
-            ),
-            patch(f"{COMPRESSOR_MODULE}.build_example_inputs") as mock_build,
-        ):
-            _, _, inputs, _ = compressor._export_and_quantize(
-                policy=mocks["policy"],
-                policy_loader=mocks["policy_loader"],
-                exportable=mocks["exportable"],
-                modules=[target],
-            )
-
-        # Should use calibration batch, not build_example_inputs
-        mock_build.assert_not_called()
-        assert inputs is calibration_batch
 
 
 @pytest.mark.integration
@@ -565,6 +433,7 @@ class TestPrepareAndPruneIntegration:
         compressor_factory,
     ):
         model = pruning_model_factory()
+        before_total, before_zeroed = BasePruner.compute_sparsity(model)
         target = CompressionTarget(
             module_path="",
             pruning=[
@@ -577,7 +446,8 @@ class TestPrepareAndPruneIntegration:
         compressor._prepare_and_prune(policy=model, modules=[target])
 
         total, zeroed = BasePruner.compute_sparsity(model)
-        assert zeroed > 0
+        assert total == before_total
+        assert zeroed > before_zeroed
 
     def test_model_produces_finite_output_after_prepare_and_prune(
         self,

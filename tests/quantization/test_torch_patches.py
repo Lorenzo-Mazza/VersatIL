@@ -51,7 +51,7 @@ def torchao_package_factory(tmp_path: Path) -> Callable[[], Path]:
 
 
 @pytest.fixture
-def torchao_qat_package_factory(tmp_path: Path) -> Callable[[str], Path]:
+def eager_package_factory(tmp_path: Path) -> Callable[[str], Path]:
     """Factory for fake torchao package trees with QAT fake-quant source."""
 
     def factory(source: str = _QAT_INT4_GROUP_SIZE_ORIGINAL) -> Path:
@@ -251,9 +251,9 @@ class TestPatchPT2EPython314Integration:
 class TestPatchQATInt4GroupSize:
     def test_replaces_hardcoded_group_size(
         self,
-        torchao_qat_package_factory: Callable[[str], Path],
+        eager_package_factory: Callable[[str], Path],
     ) -> None:
-        package_path = torchao_qat_package_factory()
+        package_path = eager_package_factory()
         spec = MagicMock(spec=ModuleSpec)
         spec.submodule_search_locations = [str(package_path)]
         invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
@@ -280,11 +280,9 @@ class TestPatchQATInt4GroupSize:
 
     def test_skips_when_upstream_fix_exists(
         self,
-        torchao_qat_package_factory: Callable[[str], Path],
+        eager_package_factory: Callable[[str], Path],
     ) -> None:
-        package_path = torchao_qat_package_factory(
-            source=_QAT_INT4_GROUP_SIZE_REPLACEMENT
-        )
+        package_path = eager_package_factory(source=_QAT_INT4_GROUP_SIZE_REPLACEMENT)
         spec = MagicMock(spec=ModuleSpec)
         spec.submodule_search_locations = [str(package_path)]
         invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)

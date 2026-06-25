@@ -44,7 +44,7 @@ from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 from versatil.post_training_compression.constants import (
     CompressionFilename,
-    QuantizationStrategy,
+    QuantizationWorkflow,
 )
 from versatil.post_training_compression.export import (
     build_example_inputs,
@@ -59,9 +59,9 @@ from versatil.post_training_compression.pruning import (
     UnstructuredPruner,
 )
 from versatil.post_training_compression.serialization import save_compressed_model
-from versatil.quantization.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.calibration import CalibrationDataProvider
-from versatil.quantization.strategies import PT2EStrategy
+from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 from versatil.workspace import Workspace
 
 IMAGE_HEIGHT = 32
@@ -252,7 +252,7 @@ def _save_and_verify_inference(
     output_dir: Path,
     tmp_path: Path,
     float_outputs: tuple[torch.Tensor, ...],
-    quantization_strategy: str,
+    quantization_workflow: str,
     expect_divergence: bool = True,
 ) -> None:
     """Save compressed model, verify files exist, verify inference, check divergence."""
@@ -273,7 +273,7 @@ def _save_and_verify_inference(
         normalizer=policy.normalizer,
         training_checkpoint_path=str(output_dir),
         quantization_config=ptq_config,
-        quantization_strategy=quantization_strategy,
+        quantization_workflow=quantization_workflow,
     )
 
     assert (Path(compressed_dir) / "compressed_policy.pt2").exists()
@@ -409,7 +409,7 @@ class TestGlobalPT2EQuantization:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
-            quantization_strategy=QuantizationStrategy.PT2E.value,
+            quantization_workflow=QuantizationWorkflow.PT2E.value,
         )
 
 
@@ -461,13 +461,13 @@ class TestPerModulePT2EWithPruning:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
-            quantization_strategy=QuantizationStrategy.PT2E.value,
+            quantization_workflow=QuantizationWorkflow.PT2E.value,
         )
 
 
 @pytest.mark.slow
 @pytest.mark.integration
-class TestGlobalQuantizeApiDynamic:
+class TestGlobalEagerPTQDynamic:
     @pytest.mark.parametrize(
         "embedding_dimension, expect_divergence",
         [
@@ -476,7 +476,7 @@ class TestGlobalQuantizeApiDynamic:
         ],
         ids=["skip_small_layers", "quantize_large_layers"],
     )
-    def test_quantize_api_before_export(
+    def test_eager_before_export(
         self,
         embedding_dimension,
         expect_divergence,
@@ -528,7 +528,7 @@ class TestGlobalQuantizeApiDynamic:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
             expect_divergence=expect_divergence,
         )
 
@@ -630,7 +630,7 @@ class TestCompressorEndToEnd:
                 fuse_conv_batchnorm=True,
             ),
             pruning=[UnstructuredPruner(amount=0.3)],
-            quantization=PT2EStrategy(
+            quantization=PT2EQuantizationWorkflow(
                 pt2e_backend=X86InductorBackend(is_dynamic=False),
             ),
             calibration_steps=3,

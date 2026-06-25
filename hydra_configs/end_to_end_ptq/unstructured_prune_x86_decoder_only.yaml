@@ -22,7 +22,7 @@ modules:
 
   - module_path: decoder
     quantization:
-      _target_: versatil.quantization.strategies.PT2EStrategy
+      _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
       pt2e_backend:
-        _target_: versatil.quantization.backends.x86_inductor.X86InductorBackend
+        _target_: versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend
         is_dynamic: false

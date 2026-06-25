@@ -16,7 +16,7 @@ from versatil.configs.post_training_compression import (
 from versatil.post_training_compression.compressor import (
     PostTrainingCompressor,
 )
-from versatil.quantization.strategies import PT2EStrategy
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 HYDRA_CONFIG_DIR = str(Path(__file__).parents[2] / "hydra_configs")
 
@@ -96,4 +96,4 @@ class TestPerModuleYamlInheritance:
         assert isinstance(compressor, PostTrainingCompressor)
         for module in compressor.modules:
             if module.quantization is not None:
-                assert isinstance(module.quantization, PT2EStrategy)
+                assert isinstance(module.quantization, PT2EQuantizationWorkflow)

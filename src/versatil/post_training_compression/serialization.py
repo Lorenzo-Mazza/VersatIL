@@ -12,6 +12,8 @@ from omegaconf import OmegaConf
 
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.post_training_compression.constants import (
+    ArtifactFormat,
+    CompressionBackendName,
     CompressionFilename,
     CompressionMetadataKey,
 )
@@ -20,7 +22,7 @@ from versatil.training.constants import CheckpointFilename
 
 
 def save_compressed_model(
-    converted_model: nn.Module,
+    converted_model: nn.Module | None,
     example_inputs: tuple[torch.Tensor, ...],
     save_directory: str,
     input_keys: list[str],
@@ -28,21 +30,24 @@ def save_compressed_model(
     normalizer: LinearNormalizer,
     training_checkpoint_path: str,
     quantization_config: Any,
-    quantization_strategy: str,
+    quantization_workflow: str,
     model_filename: str = CompressionFilename.COMPRESSED_MODEL.value,
     normalizer_filename: str = CompressionFilename.NORMALIZER.value,
+    artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
+    backend_name: str = CompressionBackendName.TORCH_INDUCTOR.value,
+    model_bytes: bytes | None = None,
 ) -> Path:
-    """Save compressed model as .pt2 archive with normalizer and metadata.
+    """Save compressed model artifact with normalizer and metadata.
 
     Saves:
     - .pt2 archive: torch.export.export() -> torch.export.save()
     - normalizer.pt: Normalizer state_dict for standalone loading.
     - quantization_config.yaml: The QuantizationConfig via OmegaConf.
     - compression_metadata.json: Runtime artifacts (keys, versions,
-      filenames, training checkpoint path, quantization strategy).
+      filenames, training checkpoint path, quantization workflow).
 
     Args:
-        converted_model: The converted (pre-lowered) quantized model.
+        converted_model: The converted model, used for .pt2 export.
         example_inputs: Example input tensors for torch.export.
         save_directory: Directory to save into (created if needed).
         input_keys: Sorted input (observation) key ordering.
@@ -51,20 +56,31 @@ def save_compressed_model(
         training_checkpoint_path: Path to the original training checkpoint
             directory used as the source for compression.
         quantization_config: The QuantizationConfig used for quantization.
-        quantization_strategy: The strategy used (QuantizationStrategy value).
+        quantization_workflow: The workflow used (QuantizationWorkflow value).
         model_filename: Filename for the saved .pt2 archive.
         normalizer_filename: Filename for the saved normalizer state.
+        artifact_format: Serialized artifact format identifier.
+        backend_name: Serialized compression backend identifier.
+        model_bytes: Optional pre-lowered artifact bytes, used for .pte.
 
     Returns:
         Path to the save directory.
     """
     save_path = Path(save_directory)
     save_path.mkdir(parents=True, exist_ok=True)
-    exported_program = _export_with_dynamic_batch(
-        model=converted_model,
-        example_inputs=example_inputs,
-    )
-    torch.export.save(exported_program, str(save_path / model_filename))
+    model_path = save_path / model_filename
+    if model_bytes is not None:
+        model_path.write_bytes(model_bytes)
+    else:
+        if converted_model is None:
+            raise ValueError(
+                "converted_model is required when model_bytes is not provided."
+            )
+        exported_program = _export_with_dynamic_batch(
+            model=converted_model,
+            example_inputs=example_inputs,
+        )
+        torch.export.save(exported_program, str(model_path))
     torch.save(normalizer.state_dict(), save_path / normalizer_filename)
     config_omega = OmegaConf.structured(quantization_config)
     OmegaConf.save(
@@ -85,12 +101,14 @@ def save_compressed_model(
     metadata = {
         CompressionMetadataKey.MODEL_FILE.value: model_filename,
         CompressionMetadataKey.NORMALIZER_FILE.value: normalizer_filename,
+        CompressionMetadataKey.ARTIFACT_FORMAT.value: artifact_format,
+        CompressionMetadataKey.BACKEND.value: backend_name,
         CompressionMetadataKey.INPUT_KEYS.value: input_keys,
         CompressionMetadataKey.OUTPUT_KEYS.value: output_keys,
         CompressionMetadataKey.TORCHAO_VERSION.value: _get_torchao_version(),
         CompressionMetadataKey.TORCH_VERSION.value: torch.__version__,
         CompressionMetadataKey.TRAINING_CHECKPOINT_PATH.value: training_checkpoint_path,
-        CompressionMetadataKey.QUANTIZATION_STRATEGY.value: quantization_strategy,
+        CompressionMetadataKey.QUANTIZATION_WORKFLOW.value: quantization_workflow,
     }
     with open(save_path / CompressionFilename.COMPRESSION_METADATA.value, "w") as file:
         json.dump(metadata, file, indent=2)
@@ -117,34 +135,45 @@ def load_compression_metadata(metadata_path: str) -> dict[str, Any]:
     if config_path.exists():
         config = OmegaConf.load(config_path)
         config_dict = OmegaConf.to_container(config, resolve=True)
-        backend_fields = _extract_backend_fields(config_dict=config_dict)
-        metadata.update(backend_fields)
+        quantization_fields = _extract_quantization_fields(config_dict=config_dict)
+        metadata.update(quantization_fields)
+    metadata.setdefault(
+        CompressionMetadataKey.ARTIFACT_FORMAT.value,
+        ArtifactFormat.TORCH_EXPORT_PT2.value,
+    )
+    metadata.setdefault(
+        CompressionMetadataKey.BACKEND.value,
+        CompressionBackendName.TORCH_INDUCTOR.value,
+    )
 
     return metadata
 
 
-def _extract_backend_fields(config_dict: dict[str, Any]) -> dict[str, Any]:
-    """Extract backend quantization fields from a config dict.
+def _extract_quantization_fields(config_dict: dict[str, Any]) -> dict[str, Any]:
+    """Extract quantization flags from a saved config dict.
 
-    Handles PT2E configs where fields are nested under ``pt2e_backend``
-    and flat configs where fields are at the top level.
+    Handles full compressor configs with a nested ``quantization`` block,
+    PT2E configs with ``pt2e_backend``, and flat eager configs.
 
     Args:
         config_dict: Resolved quantization config as a plain dict.
 
     Returns:
-        Dict with is_dynamic, is_qat, and reduce_range fields.
+        Dict with is_dynamic, is_qat, and reduce_range values.
     """
     backend_keys = [
         CompressionMetadataKey.IS_DYNAMIC.value,
         CompressionMetadataKey.IS_QAT.value,
         CompressionMetadataKey.REDUCE_RANGE.value,
     ]
-    nested = config_dict.get("pt2e_backend")
-    if isinstance(nested, dict):
-        return {key: nested.get(key, False) for key in backend_keys}
+    quantization_config = config_dict.get("quantization", config_dict)
+    if not isinstance(quantization_config, dict):
+        return dict.fromkeys(backend_keys, False)
+    backend_config = quantization_config.get("pt2e_backend")
+    if isinstance(backend_config, dict):
+        return {key: backend_config.get(key, False) for key in backend_keys}
     else:
-        return {key: config_dict.get(key, False) for key in backend_keys}
+        return {key: quantization_config.get(key, False) for key in backend_keys}
 
 
 def _get_torchao_version() -> str:

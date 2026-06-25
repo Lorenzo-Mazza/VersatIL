@@ -67,7 +67,24 @@ class CompressionTargetConfig:
     preparation: PreparationConfig | None = "${preparation}"  #
     pruning: list[Any] | None = "${pruning}"  # list[BasePrunerConfig] | None
     quantization: Any | None = (
-        "${quantization}"  # PT2EStrategyConfig | QuantizeApiStrategyConfig | None
+        "${quantization}"  # PT2EQuantizationWorkflowConfig | EagerQuantizationWorkflowConfig | None
+    )
+
+
+@dataclass
+class TorchInductorBackendConfig:
+    """Torch inductor deployment backend that writes .pt2 artifacts."""
+
+    _target_: str = "versatil.post_training_compression.deployment_backends.torch_inductor.TorchInductorBackend"
+
+
+@dataclass
+class ExecutorchXNNPACKBackendConfig:
+    """ExecuTorch backend that lowers artifacts to XNNPACK .pte files."""
+
+    _target_: str = (
+        "versatil.post_training_compression.deployment_backends.executorch_xnnpack."
+        "ExecutorchXNNPACKBackend"
     )
 
 
@@ -93,5 +110,6 @@ class PostTrainingCompressorConfig:
     preparation: PreparationConfig = field(default_factory=PreparationConfig)
     pruning: list[Any] | None = None  #  list[BasePrunerConfig] | None
     quantization: Any | None = (
-        None  # PT2EStrategyConfig | QuantizeApiStrategyConfig | None
+        None  # PT2EQuantizationWorkflowConfig | EagerQuantizationWorkflowConfig | None
     )
+    backend: Any | None = None  # Compression backend config; None keeps legacy .pt2.

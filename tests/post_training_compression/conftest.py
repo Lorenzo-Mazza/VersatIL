@@ -11,8 +11,12 @@ import torch.nn as nn
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.compressor import PostTrainingCompressor
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentBackend,
+)
 from versatil.post_training_compression.pruning.base import BasePruner
-from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
+from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 
 @pytest.fixture
@@ -119,7 +123,10 @@ def compressor_factory() -> Callable[..., PostTrainingCompressor]:
         generate_report: bool = False,
         calibration_steps: int = 32,
         pruning: list[BasePruner] | None = None,
-        quantization: PT2EStrategy | QuantizeApiStrategy | None = None,
+        quantization: PT2EQuantizationWorkflow
+        | EagerQuantizationWorkflow
+        | None = None,
+        backend: DeploymentBackend | None = None,
     ) -> PostTrainingCompressor:
         return PostTrainingCompressor(
             checkpoint_path=checkpoint_path,
@@ -130,6 +137,7 @@ def compressor_factory() -> Callable[..., PostTrainingCompressor]:
             calibration_steps=calibration_steps,
             pruning=pruning,
             quantization=quantization,
+            backend=backend,
         )
 
     return factory

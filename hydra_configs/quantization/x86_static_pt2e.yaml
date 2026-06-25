@@ -1,5 +1,5 @@
 defaults:
-  - /quantization/strategy/pt2e
+  - /quantization/workflow/pt2e
   - _self_
 
 pt2e_backend:

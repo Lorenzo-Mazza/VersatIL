@@ -2,12 +2,12 @@
 
 from versatil.quantization.constants import (
     FXNodePattern,
+    PT2EBackendName,
     QuantizableOperatorType,
-    QuantizationBackend,
 )
 
 __all__ = [
     "FXNodePattern",
+    "PT2EBackendName",
     "QuantizableOperatorType",
-    "QuantizationBackend",
 ]

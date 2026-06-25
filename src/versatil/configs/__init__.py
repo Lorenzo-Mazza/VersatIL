@@ -147,18 +147,19 @@ from versatil.configs.policy import PolicyConfig
 from versatil.configs.post_training_compression import (
     BasePrunerConfig,
     CompressionTargetConfig,
+    ExecutorchXNNPACKBackendConfig,
     PostTrainingCompressorConfig,
     PreparationConfig,
     StructuredPrunerConfig,
+    TorchInductorBackendConfig,
     UnstructuredPrunerConfig,
 )
 from versatil.configs.quantization import (
     BasePT2EBackendConfig,
+    EagerQuantizationWorkflowConfig,
     Int4WeightOnlyQuantizeConfig,
     Int8DynamicQuantizeConfig,
-    PT2EStrategyConfig,
-    QATStrategyConfig,
-    QuantizeApiStrategyConfig,
+    PT2EQuantizationWorkflowConfig,
     X86InductorBackendConfig,
 )
 from versatil.configs.training import (
@@ -228,7 +229,7 @@ from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.post_training_compression.constants import PrunableLayerType
-from versatil.quantization.constants import QuantizationBackend
+from versatil.quantization.constants import PT2EBackendName
 from versatil.training.constants import (
     CompileMode,
     Float32MatmulPrecision,
@@ -306,11 +307,10 @@ __all__ = [
     "Int4WeightOnlyQuantizeConfig",
     "Int8DynamicQuantizeConfig",
     "CompressionTargetConfig",
-    "PT2EStrategyConfig",
-    "QATStrategyConfig",
+    "EagerQuantizationWorkflowConfig",
+    "PT2EQuantizationWorkflowConfig",
     "PostTrainingCompressorConfig",
     "PreparationConfig",
-    "QuantizeApiStrategyConfig",
     "StructuredPrunerConfig",
     "UnstructuredPrunerConfig",
     "X86InductorBackendConfig",
@@ -604,7 +604,7 @@ def register_resolvers():
         )
     if not OmegaConf.has_resolver("quantization_backend"):
         OmegaConf.register_new_resolver(
-            "quantization_backend", lambda name: QuantizationBackend[name].value
+            "quantization_backend", lambda name: PT2EBackendName[name].value
         )
     if not OmegaConf.has_resolver("torch_dtype"):
         OmegaConf.register_new_resolver(
@@ -1148,19 +1148,24 @@ def register_configs() -> None:
         node=StructuredPrunerConfig,
     )
     cs.store(
-        group="quantization/strategy",
+        group="compression/backend",
+        name="torch_inductor",
+        node=TorchInductorBackendConfig,
+    )
+    cs.store(
+        group="compression/backend",
+        name="executorch_xnnpack",
+        node=ExecutorchXNNPACKBackendConfig,
+    )
+    cs.store(
+        group="quantization/workflow",
         name="pt2e",
-        node=PT2EStrategyConfig,
+        node=PT2EQuantizationWorkflowConfig,
     )
     cs.store(
-        group="quantization/strategy",
-        name="quantize_api",
-        node=QuantizeApiStrategyConfig,
-    )
-    cs.store(
-        group="quantization/strategy",
-        name="qat",
-        node=QATStrategyConfig,
+        group="quantization/workflow",
+        name="eager",
+        node=EagerQuantizationWorkflowConfig,
     )
     cs.store(
         group="quantization/backend",

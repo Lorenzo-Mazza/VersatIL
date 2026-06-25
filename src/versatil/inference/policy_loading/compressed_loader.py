@@ -17,17 +17,19 @@ from versatil.data.processing.transform import (
     unnormalize_actions,
 )
 from versatil.inference.policy_loading.base import BasePolicyLoader
+from versatil.inference.policy_loading.executorch_adapter import ExecuTorchModuleAdapter
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 from versatil.post_training_compression.constants import (
+    ArtifactFormat,
     CompressionFilename,
     CompressionMetadataKey,
-    QuantizationStrategy,
+    QuantizationWorkflow,
 )
 from versatil.post_training_compression.serialization import (
     load_compression_metadata,
 )
-from versatil.quantization.backends.base import BasePT2EBackend
-from versatil.quantization.strategies import PT2EStrategy
+from versatil.quantization.pt2e.backends.base import BasePT2EBackend
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 from versatil.training.constants import CheckpointFilename, CheckpointKey
 
 
@@ -55,13 +57,14 @@ class CompressedPolicyLoader(BasePolicyLoader):
             compile_model: Whether to compile the model with
                 torch.compile before inference. For PT2E models on
                 CPU this enables inductor int8 kernel fusion and is
-                essential for performance. For other strategies it
+                essential for performance. For other workflows it
                 applies standard inductor compilation.
         """
         super().__init__(device=device, checkpoint_path=checkpoint_path)
         self._input_keys: list[str] = []
         self._output_keys: list[str] = []
         self._metadata: dict[str, Any] = {}
+        self._artifact_format = ArtifactFormat.TORCH_EXPORT_PT2.value
         self._normalizer: LinearNormalizer = LinearNormalizer()
         self._compressed_model: nn.Module | None = None
         self._compile_model = compile_model
@@ -81,6 +84,10 @@ class CompressedPolicyLoader(BasePolicyLoader):
         self._metadata = load_compression_metadata(metadata_path=metadata_path)
         self._input_keys = self._metadata[CompressionMetadataKey.INPUT_KEYS.value]
         self._output_keys = self._metadata[CompressionMetadataKey.OUTPUT_KEYS.value]
+        self._artifact_format = self._metadata.get(
+            CompressionMetadataKey.ARTIFACT_FORMAT.value,
+            ArtifactFormat.TORCH_EXPORT_PT2.value,
+        )
 
         model_filename = self._metadata[CompressionMetadataKey.MODEL_FILE.value]
         model_path = os.path.join(self._checkpoint_path, model_filename)
@@ -105,23 +112,13 @@ class CompressedPolicyLoader(BasePolicyLoader):
         self._load_training_config(
             training_checkpoint_path=training_checkpoint_path,
         )
-        exported_program = torch.export.load(model_path)
-        model = exported_program.module()
-        strategy = self._metadata.get(
-            CompressionMetadataKey.QUANTIZATION_STRATEGY.value
+        workflow = self._metadata.get(
+            CompressionMetadataKey.QUANTIZATION_WORKFLOW.value
         )
-        backend = self._load_backend(strategy=strategy)
-        if backend is not None:
-            self._validate_device(backend=backend)
-        if self._compile_model and self._should_compile(
-            strategy=strategy,
-            device=self._device,
-        ):
-            model = self._compile_model_for_inference(
-                model=model,
-                backend=backend,
-            )
-        self._compressed_model = model
+        self._compressed_model = self._load_artifact_model(
+            model_path=model_path,
+            workflow=workflow,
+        )
         normalizer_state = torch.load(
             normalizer_path,
             map_location=self._device,
@@ -145,10 +142,43 @@ class CompressedPolicyLoader(BasePolicyLoader):
             self._tokenizer.to(self._device)
 
         logging.info(
-            "Loaded compressed model from %s (%d input keys, %d output keys)",
+            "Loaded compressed model from %s (%s, %d input keys, %d output keys)",
             self._checkpoint_path,
+            self._artifact_format,
             len(self._input_keys),
             len(self._output_keys),
+        )
+
+    def _load_artifact_model(
+        self,
+        model_path: str,
+        workflow: str | None,
+    ) -> nn.Module:
+        """Load the runtime model for the saved artifact format."""
+        if self._artifact_format == ArtifactFormat.TORCH_EXPORT_PT2.value:
+            exported_program = torch.export.load(model_path)
+            model = exported_program.module()
+            backend = self._load_backend(workflow=workflow)
+            if backend is not None:
+                self._validate_device(backend=backend)
+            if self._compile_model and self._should_compile(
+                workflow=workflow,
+                device=self._device,
+            ):
+                model = self._compile_model_for_inference(
+                    model=model,
+                    backend=backend,
+                )
+            return model
+        if self._artifact_format == ArtifactFormat.EXECUTORCH_PTE.value:
+            if self._device.type != "cpu":
+                raise ValueError(
+                    "ExecuTorch XNNPACK artifacts support CPU inference only, "
+                    f"got '{self._device}'."
+                )
+            return ExecuTorchModuleAdapter(model_path=model_path)
+        raise ValueError(
+            f"Unsupported compression artifact format '{self._artifact_format}'."
         )
 
     def _load_training_config(
@@ -181,17 +211,17 @@ class CompressedPolicyLoader(BasePolicyLoader):
 
     def _load_backend(
         self,
-        strategy: str | None,
+        workflow: str | None,
     ) -> BasePT2EBackend | None:
         """Reconstruct the PT2E backend from the saved quantization config.
 
         Args:
-            strategy: The quantization strategy from metadata.
+            workflow: The quantization workflow from metadata.
 
         Returns:
             Instantiated backend, or None if not a PT2E model.
         """
-        if strategy != QuantizationStrategy.PT2E.value:
+        if workflow != QuantizationWorkflow.PT2E.value:
             return None
         config_path = os.path.join(
             self._checkpoint_path,
@@ -202,7 +232,7 @@ class CompressedPolicyLoader(BasePolicyLoader):
         config = OmegaConf.load(config_path)
         instance = hydra.utils.instantiate(config)
         if isinstance(instance, PostTrainingCompressor) and isinstance(
-            instance.quantization, PT2EStrategy
+            instance.quantization, PT2EQuantizationWorkflow
         ):
             return instance.quantization.pt2e_backend
         else:
@@ -210,10 +240,10 @@ class CompressedPolicyLoader(BasePolicyLoader):
 
     @staticmethod
     def _should_compile(
-        strategy: str | None,
+        workflow: str | None,
         device: torch.device,
     ) -> bool:
-        """Decide whether to compile based on strategy and device.
+        """Decide whether to compile based on workflow and device.
 
         CUDA + `quantize_()` models must not be compiled because
         `torch.compile` lowers int8 matmuls to torch._int_mm, which
@@ -224,18 +254,15 @@ class CompressedPolicyLoader(BasePolicyLoader):
         See: https://github.com/pytorch/ao/issues/2376
 
         Args:
-            strategy: The quantization strategy from metadata.
+            workflow: The quantization workflow from metadata.
             device: Target inference device.
 
         Returns:
             True if the model should be compiled.
         """
-        if (
-            strategy == QuantizationStrategy.QUANTIZE_API.value
-            and device.type == "cuda"
-        ):
+        if workflow == QuantizationWorkflow.EAGER.value and device.type == "cuda":
             logging.warning(
-                "Skipping torch.compile for quantize_() model on CUDA. "
+                "Skipping torch.compile for eager quantized model on CUDA. "
                 "torch._int_mm requires batch > 16 on CUDA which "
                 "cannot be guaranteed at inference time. "
                 "See https://github.com/pytorch/ao/issues/2376"
@@ -318,11 +345,14 @@ class CompressedPolicyLoader(BasePolicyLoader):
                 obs_tokenizer=self._tokenizer.observation_tokenizer,
             )
         observation_tensors = tuple(normalized_obs[key] for key in self._input_keys)
-        with torch.no_grad():
-            output_tensors = self._compressed_model(*observation_tensors)
-
-        if not isinstance(output_tensors, tuple):
-            output_tensors = (output_tensors,)
+        output_tensors = self._run_compressed_model(
+            observation_tensors=observation_tensors,
+        )
+        if len(output_tensors) != len(self._output_keys):
+            raise ValueError(
+                f"Compressed model returned {len(output_tensors)} tensors, "
+                f"but metadata declares {len(self._output_keys)} output keys."
+            )
         normalized_actions = {
             key: output_tensors[index] for index, key in enumerate(self._output_keys)
         }
@@ -331,6 +361,23 @@ class CompressedPolicyLoader(BasePolicyLoader):
             normalizer=self._normalizer,
             action_space=self.action_space,
         )
+
+    def _run_compressed_model(
+        self,
+        observation_tensors: tuple[torch.Tensor, ...],
+    ) -> tuple[torch.Tensor, ...]:
+        """Run the loaded compressed model for the current artifact format."""
+        if self._compressed_model is None:
+            raise RuntimeError("Compressed model has not been loaded.")
+        with torch.no_grad():
+            if self._artifact_format == ArtifactFormat.EXECUTORCH_PTE.value:
+                output_tensors = self._compressed_model(observation_tensors)
+            else:
+                output_tensors = self._compressed_model(*observation_tensors)
+
+        if isinstance(output_tensors, torch.Tensor):
+            return (output_tensors,)
+        return tuple(output_tensors)
 
     @property
     def input_keys(self) -> list[str]:

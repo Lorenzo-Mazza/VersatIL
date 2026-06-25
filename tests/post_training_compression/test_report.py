@@ -9,7 +9,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from versatil.post_training_compression.constants import QuantizationStrategy
+from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.report import QuantizationReport
 from versatil.quantization.constants import ReportMetricKey
 
@@ -78,7 +78,7 @@ def report_factory(
         batch_size: int = 2,
         action_keys: list[str] | None = None,
         quantized_model: nn.Module | None = None,
-        quantization_strategy: str = QuantizationStrategy.QUANTIZE_API.value,
+        quantization_workflow: str = QuantizationWorkflow.EAGER.value,
     ) -> QuantizationReport:
         if action_keys is None:
             action_keys = [f"action_{index}" for index in range(num_outputs)]
@@ -102,7 +102,7 @@ def report_factory(
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=action_keys,
-            quantization_strategy=quantization_strategy,
+            quantization_workflow=quantization_workflow,
         )
 
     return factory
@@ -176,7 +176,7 @@ class TestOperatorCoverage:
             quantized_model=quantized_model,
             example_inputs=example_inputs_factory(),
             action_keys=["action_0"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         coverage = report.compute_operator_coverage()
@@ -233,7 +233,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -267,7 +267,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -292,7 +292,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -327,7 +327,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position", "gripper"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -350,7 +350,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         size = report.compute_size_reduction()
@@ -377,7 +377,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         size = report.compute_size_reduction()
@@ -405,7 +405,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         size = report.compute_size_reduction()
@@ -525,7 +525,7 @@ class TestInferenceTiming:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         timing = report.compute_inference_timing(
@@ -542,19 +542,19 @@ class TestInferenceTiming:
         )
 
     @pytest.mark.parametrize(
-        "strategy, should_compile",
+        "workflow, should_compile",
         [
-            (QuantizationStrategy.PT2E.value, True),
-            (QuantizationStrategy.QUANTIZE_API.value, False),
+            (QuantizationWorkflow.PT2E.value, True),
+            (QuantizationWorkflow.EAGER.value, False),
         ],
-        ids=["pt2e_compiles", "quantize_api_skips_compile"],
+        ids=["pt2e_compiles", "eager_skips_compile"],
     )
     @patch("versatil.post_training_compression.report.torch.compile")
-    def test_pt2e_strategy_compiles_quantize_api_does_not(
+    def test_pt2e_workflow_compiles_eager_does_not(
         self,
         mock_compile,
         report_factory,
-        strategy,
+        workflow,
         should_compile,
     ):
         mock_compile.return_value = MagicMock(
@@ -563,7 +563,7 @@ class TestInferenceTiming:
         report = report_factory(
             num_outputs=1,
             action_keys=["position"],
-            quantization_strategy=strategy,
+            quantization_workflow=workflow,
         )
 
         report.compute_inference_timing(
@@ -573,7 +573,7 @@ class TestInferenceTiming:
 
         assert mock_compile.called == should_compile
 
-    def test_pt2e_strategy_uses_compiled_model_for_benchmark(
+    def test_pt2e_workflow_uses_compiled_model_for_benchmark(
         self,
         report_factory: Callable[..., QuantizationReport],
     ):
@@ -581,7 +581,7 @@ class TestInferenceTiming:
         report = report_factory(
             num_outputs=1,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.PT2E.value,
+            quantization_workflow=QuantizationWorkflow.PT2E.value,
         )
 
         with (

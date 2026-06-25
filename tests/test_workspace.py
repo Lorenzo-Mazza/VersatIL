@@ -1,6 +1,7 @@
 """Tests for versatil.workspace module."""
 
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,9 @@ from torchao.quantization import Int4WeightOnlyConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.quantization.strategies import QATStrategy
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
+from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
+from versatil.quantization.workflows.none import NoQuantizationWorkflow
 from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
 from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
 from versatil.training.callbacks.ema import EMACallback
@@ -182,7 +185,7 @@ def main_config_factory(
         experiment_kwargs: dict | None = None,
         training_kwargs: dict | None = None,
         policy: MagicMock | None = None,
-        quantization: MagicMock | None = None,
+        quantization: BaseQuantizationWorkflow | MagicMock | None = None,
     ) -> MagicMock:
         experiment_kwargs = experiment_kwargs or {}
         training_kwargs = training_kwargs or {}
@@ -225,7 +228,7 @@ def workspace_factory(
         experiment_kwargs: dict | None = None,
         training_kwargs: dict | None = None,
         policy: MagicMock | None = None,
-        quantization: MagicMock | None = None,
+        quantization: BaseQuantizationWorkflow | MagicMock | None = None,
         original_yaml_config: OmegaConf | None = None,
         config_name: str = "test_config",
     ) -> Workspace:
@@ -316,6 +319,13 @@ class TestWorkspaceInitialization:
         assert workspace.logger is None
         assert workspace.gripper_class_weights is None
 
+    def test_missing_quantization_uses_no_quantization_workflow(
+        self, workspace_factory
+    ):
+        workspace = workspace_factory()
+
+        assert isinstance(workspace.config.quantization, NoQuantizationWorkflow)
+
     def test_seed_is_set_during_init(self, workspace_factory):
         seed = 123
         with (
@@ -369,7 +379,7 @@ def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
             "experiment": {"name": "save_dtype"},
             "training": {"optimizer": {"lr": 1e-4}},
             "quantization": {
-                "base_config": {
+                "quantize_config": {
                     "weight_dtype": "${torch_dtype:int4}",
                 }
             },
@@ -383,7 +393,7 @@ def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
 
     loaded = OmegaConf.load(workspace.output_dir / "config.yaml")
 
-    assert loaded.quantization.base_config.weight_dtype == "torch.int4"
+    assert loaded.quantization.quantize_config.weight_dtype == "torch.int4"
 
 
 @pytest.mark.unit
@@ -1481,7 +1491,10 @@ class TestSetupPolicy:
         self, workspace_factory, mock_workspace_policy_factory
     ):
         policy = mock_workspace_policy_factory()
-        quantization = QATStrategy(base_config=Int4WeightOnlyConfig(group_size=32))
+        quantization = EagerQuantizationWorkflow(
+            quantize_config=Int4WeightOnlyConfig(group_size=32),
+            is_qat=True,
+        )
         workspace = workspace_factory(policy=policy, quantization=quantization)
         workspace.policy = None
         workspace.normalizer = MagicMock(spec=LinearNormalizer)
@@ -1501,6 +1514,38 @@ class TestSetupPolicy:
 
         initialize_mock.assert_called_once_with()
         prepare_mock.assert_called_once_with(model=policy)
+
+    def test_prepare_qat_skips_non_qat_workflow(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        quantization.is_qat = False
+        workspace = workspace_factory(policy=policy, quantization=quantization)
+        workspace.policy = policy
+
+        workspace._prepare_qat()
+
+        quantization.prepare_model.assert_not_called()
+
+    def test_prepare_qat_propagates_workflow_prepare_error(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        quantization.is_qat = True
+        error_message = "PT2EQuantizationWorkflow does not support QAT preparation."
+        quantization.prepare_model.side_effect = NotImplementedError(error_message)
+        workspace = workspace_factory(policy=policy, quantization=quantization)
+        workspace.policy = policy
+
+        with pytest.raises(
+            NotImplementedError,
+            match=re.escape(error_message),
+        ):
+            workspace._prepare_qat()
+
+        quantization.prepare_model.assert_called_once_with(model=policy)
 
 
 @pytest.mark.unit

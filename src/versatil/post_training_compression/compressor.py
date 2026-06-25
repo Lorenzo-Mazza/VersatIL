@@ -1,22 +1,21 @@
-"""Post-training compressor for a trained policy."""
+"""This module compresses a trained policy through a sequence of workflows (fusion, pruning, quantization) and produces a compatible deployment artifact."""
 
 import logging
 from datetime import datetime
 from pathlib import Path
 
-import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
 from versatil.configs.post_training_compression import PreparationConfig
-from versatil.data.dataloader import get_dataloaders
-from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.compression_target import CompressionTarget
-from versatil.post_training_compression.constants import QuantizationStrategy
-from versatil.post_training_compression.export import (
-    build_example_inputs,
-    export_policy,
+from versatil.post_training_compression.constants import CompressionBackendName
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentBackend,
+)
+from versatil.post_training_compression.deployment_backends.torch_inductor import (
+    TorchInductorBackend,
 )
 from versatil.post_training_compression.preparation import (
     fuse_all_conv_batchnorm_pairs,
@@ -25,15 +24,11 @@ from versatil.post_training_compression.preparation import (
 from versatil.post_training_compression.pruning.base import BasePruner
 from versatil.post_training_compression.report import QuantizationReport
 from versatil.post_training_compression.serialization import save_compressed_model
-from versatil.quantization.calibration import CalibrationDataProvider
-from versatil.quantization.quantize import (
-    apply_pt2e_quantization,
-    apply_quantize_api,
-)
-from versatil.quantization.strategies import (
-    PT2EStrategy,
-    QuantizeApiStrategy,
-)
+from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
+from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
+from versatil.quantization.workflows.none import NoQuantizationWorkflow
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 from versatil.training.constants import CheckpointFilename
 
 
@@ -55,7 +50,8 @@ class PostTrainingCompressor:
         output_directory: str | None = None,
         generate_report: bool = False,
         pruning: list[BasePruner] | None = None,
-        quantization: PT2EStrategy | QuantizeApiStrategy | None = None,
+        quantization: BaseQuantizationWorkflow | None = None,
+        backend: DeploymentBackend | None = None,
     ) -> None:
         """Initialize the compression pipeline.
 
@@ -76,8 +72,11 @@ class PostTrainingCompressor:
                 report after saving. Disabled by default since
                 it runs additional forward passes for benchmarking.
             pruning: Global pruning strategies (inherited by modules).
-            quantization: Global quantization strategy (inherited by
-                modules).
+            quantization: Global quantization workflow (inherited by
+                modules). ``None`` exports the float model without
+                quantization.
+            backend: Deployment backend that owns artifact format and
+                lowering. Defaults to torch inductor.
         """
         self.checkpoint_path = checkpoint_path
         self.checkpoint_name = checkpoint_name
@@ -89,6 +88,7 @@ class PostTrainingCompressor:
         self.preparation = preparation
         self.pruning: list[BasePruner] = pruning or []
         self.quantization = quantization
+        self.backend = backend or TorchInductorBackend()
 
     def compress(self, hydra_config: DictConfig) -> str:
         """Run the full compression pipeline.
@@ -100,40 +100,56 @@ class PostTrainingCompressor:
         Returns:
             Path to the saved compressed model directory.
         """
-        policy_loader = self._load_policy()
-        policy = policy_loader.policy
         modules = self.resolve_modules()
+        quantization_workflow = self._resolve_quantization_workflow(modules=modules)
+        self._validate_backend_compatibility(
+            backend_name=self.backend.name,
+            mode=quantization_workflow.quantization_mode,
+        )
+        context = quantization_workflow.load_policy_context(
+            checkpoint_path=self.checkpoint_path,
+            checkpoint_name=self.checkpoint_name,
+        )
+        policy = context.policy
         self.validate(policy=policy, modules=modules)
         self._prepare_and_prune(policy=policy, modules=modules)
         exportable = ExportablePolicy.from_policy(policy)
         logging.info("Input keys: %s", exportable.observation_keys)
         logging.info("Output keys: %s", exportable.action_keys)
-        exported, converted, example_inputs, strategy = self._export_and_quantize(
-            policy=policy,
-            policy_loader=policy_loader,
+        quantized = quantization_workflow.quantize(
+            context=context,
             exportable=exportable,
             modules=modules,
+            calibration_steps=self.calibration_steps,
+        )
+        deployment_artifact = self.backend.export(
+            model=quantized.quantized_model,
+            example_inputs=quantized.example_inputs,
         )
         output_directory = self._resolve_output_directory()
         save_compressed_model(
-            converted_model=converted,
-            example_inputs=example_inputs,
+            converted_model=deployment_artifact.converted_model,
+            example_inputs=deployment_artifact.example_inputs,
             save_directory=output_directory,
             input_keys=policy.input_keys,
             output_keys=policy.output_keys,
             normalizer=policy.normalizer,
             training_checkpoint_path=self.checkpoint_path,
             quantization_config=hydra_config,
-            quantization_strategy=strategy,
+            quantization_workflow=quantized.quantization_workflow,
+            model_filename=deployment_artifact.model_filename,
+            artifact_format=deployment_artifact.artifact_format.value,
+            backend_name=deployment_artifact.backend_name,
+            model_bytes=deployment_artifact.model_bytes,
         )
         logging.info("Compressed model saved to %s", output_directory)
         if self.generate_report:
             report = QuantizationReport(
-                float_model=exported,
-                quantized_model=converted,
-                example_inputs=example_inputs,
+                float_model=quantized.float_model,
+                quantized_model=quantized.quantized_model,
+                example_inputs=quantized.example_inputs,
                 action_keys=policy.output_keys,
-                quantization_strategy=strategy,
+                quantization_workflow=quantized.quantization_workflow,
             )
             logging.info("\n%s", report.generate_report())
         return output_directory
@@ -161,7 +177,7 @@ class PostTrainingCompressor:
         ]
 
     def validate(self, policy: nn.Module, modules: list[CompressionTarget]) -> None:
-        """Validate module paths and strategy compatibility.
+        """Validate module paths and quantization workflow compatibility.
 
         Args:
             policy: The loaded policy model.
@@ -169,18 +185,20 @@ class PostTrainingCompressor:
 
         Raises:
             ValueError: If a module_path doesn't match a submodule,
-                or if PT2E and quantize_() strategies are both present.
+                or if PT2E and eager quantization workflows are both present.
         """
-        has_pt2e = any(isinstance(m.quantization, PT2EStrategy) for m in modules)
-        has_quantize_api = any(
-            isinstance(m.quantization, QuantizeApiStrategy) for m in modules
+        has_pt2e = any(
+            isinstance(m.quantization, PT2EQuantizationWorkflow) for m in modules
         )
-        if has_pt2e and has_quantize_api:
+        has_eager = any(
+            isinstance(m.quantization, EagerQuantizationWorkflow) for m in modules
+        )
+        if has_pt2e and has_eager:
             raise ValueError(
-                "PT2E and quantize_() strategies cannot be combined. "
+                "PT2E and eager quantization workflows cannot be combined. "
                 "PT2E operates on the exported FX graph while "
-                "quantize_() requires eager nn.Module submodules. "
-                "Use one strategy per compression run."
+                "eager quantization requires nn.Module submodules. "
+                "Use one workflow per compression run."
             )
         for module in modules:
             if module.module_path == "":
@@ -193,15 +211,6 @@ class PostTrainingCompressor:
                     f"Module path '{module.module_path}' not found in "
                     f"policy. Available top-level modules: {available}"
                 ) from error
-
-    def _load_policy(self) -> PolicyLoader:
-        """Load policy from checkpoint."""
-        logging.info("Loading policy from %s", self.checkpoint_path)
-        return PolicyLoader(
-            device=torch.device("cpu"),
-            checkpoint_path=self.checkpoint_path,
-            checkpoint_name=self.checkpoint_name,
-        )
 
     def _prepare_and_prune(
         self,
@@ -235,70 +244,51 @@ class PostTrainingCompressor:
                     100.0 * zeroed / total if total > 0 else 0.0,
                 )
 
-    def _export_and_quantize(
-        self,
-        policy: nn.Module,
-        policy_loader: PolicyLoader,
-        exportable: ExportablePolicy,
+    @staticmethod
+    def _resolve_quantization_workflow(
         modules: list[CompressionTarget],
-    ) -> tuple[nn.Module, nn.Module, tuple[torch.Tensor, ...], str]:
-        """Export, calibrate, and quantize the policy.
-
-        Args:
-            policy: The prepared policy.
-            policy_loader: Loader with config access for dataloader.
-            exportable: Positional-tensor wrapper for export.
-            modules: Resolved compression modules.
-
-        Returns:
-            Tuple of (float_exported, quantized_converted,
-            example_inputs, strategy_name).
-        """
-        pt2e_modules = [m for m in modules if isinstance(m.quantization, PT2EStrategy)]
-        quantize_api_modules = [
-            m for m in modules if isinstance(m.quantization, QuantizeApiStrategy)
-        ]
-        if quantize_api_modules:
-            apply_quantize_api(
-                model=policy,
-                quantize_api_modules=quantize_api_modules,
+    ) -> BaseQuantizationWorkflow:
+        """Return the configured workflow, defaulting to no quantization."""
+        quantization_modes = {
+            module.quantization.quantization_mode
+            for module in modules
+            if module.quantization is not None
+        }
+        if len(quantization_modes) > 1:
+            ordered_modes = sorted(quantization_modes)
+            raise ValueError(
+                "Compression targets cannot mix quantization modes. "
+                f"Configured modes: {ordered_modes}."
             )
+        for module in modules:
+            if module.quantization is not None:
+                return module.quantization
+        return NoQuantizationWorkflow()
 
-        needs_calibration = any(m.quantization.needs_calibration for m in pt2e_modules)
-        calibration = None
-        if needs_calibration:
-            train_loader, _, _, _, _ = get_dataloaders(config=policy_loader.config)
-            calibration = CalibrationDataProvider(
-                dataloader=train_loader,
-                observation_keys=exportable.observation_keys,
-                num_calibration_steps=self.calibration_steps,
-            )
-        example_inputs = (
-            calibration.get_single_batch()
-            if calibration is not None
-            else build_example_inputs(
-                exportable=exportable,
-                observation_space=policy_loader.observation_space,
-                observation_horizon=policy_loader.observation_horizon,
-                tokenizer=policy_loader.tokenizer,
-            )
+    @staticmethod
+    def _validate_backend_compatibility(backend_name: str, mode: str) -> None:
+        """Validate quantization workflow and deployment backend compatibility."""
+        compatibility = {
+            CompressionBackendName.TORCH_INDUCTOR.value: (
+                QuantizationMode.NONE.value,
+                QuantizationMode.PT2E.value,
+                QuantizationMode.EAGER.value,
+            ),
+            CompressionBackendName.EXECUTORCH_XNNPACK.value: (
+                QuantizationMode.NONE.value,
+                QuantizationMode.PT2E.value,
+                QuantizationMode.EAGER.value,
+            ),
+        }
+        supported_modes = compatibility.get(backend_name)
+        if supported_modes is None:
+            raise ValueError(f"Unknown deployment backend '{backend_name}'.")
+        if mode in supported_modes:
+            return
+        raise ValueError(
+            f"Deployment backend {backend_name} supports quantization modes "
+            f"{list(supported_modes)}, got '{mode}'."
         )
-        logging.info("Exporting model...")
-        exported = export_policy(exportable=exportable, example_inputs=example_inputs)
-        if pt2e_modules:
-            converted = apply_pt2e_quantization(
-                exported=exported,
-                pt2e_modules=pt2e_modules,
-                calibration=calibration,
-            )
-        else:
-            converted = exported
-        strategy = (
-            QuantizationStrategy.QUANTIZE_API.value
-            if quantize_api_modules
-            else QuantizationStrategy.PT2E.value
-        )
-        return exported, converted, example_inputs, strategy
 
     def _resolve_output_directory(self) -> str:
         """Resolve the output directory for the compressed model.

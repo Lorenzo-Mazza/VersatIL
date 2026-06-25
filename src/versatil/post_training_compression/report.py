@@ -7,7 +7,7 @@ import torch
 import torch._inductor.config as inductor_config
 import torch.nn as nn
 
-from versatil.post_training_compression.constants import QuantizationStrategy
+from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.quantization.constants import (
     FXNodePattern,
     QuantizableOperatorType,
@@ -16,7 +16,7 @@ from versatil.quantization.constants import (
 
 
 class QuantizationReport:
-    """Analyzes a PTQ model and generates a comparison report."""
+    """Analyzes a quantized model and generates a report with a comparison against its floating point equivalent."""
 
     def __init__(
         self,
@@ -24,7 +24,7 @@ class QuantizationReport:
         quantized_model: nn.Module,
         example_inputs: tuple[torch.Tensor, ...],
         action_keys: list[str],
-        quantization_strategy: str = QuantizationStrategy.PT2E.value,
+        quantization_workflow: str = QuantizationWorkflow.PT2E.value,
     ) -> None:
         """Initialize with float and quantized models for comparison.
 
@@ -33,15 +33,15 @@ class QuantizationReport:
             quantized_model: Quantized model to compare against.
             example_inputs: Example inputs for running inference.
             action_keys: Ordered list of action output keys.
-            quantization_strategy: QuantizationStrategy value. PT2E
-                benchmarks with inductor compilation, QUANTIZE_API
+            quantization_workflow: QuantizationWorkflow value. PT2E
+                benchmarks with inductor compilation, eager PTQ
                 benchmarks eager execution.
         """
         self._float_model = float_model
         self._quantized_model = quantized_model
         self._example_inputs = example_inputs
         self._action_keys = action_keys
-        self._quantization_strategy = quantization_strategy
+        self._quantization_workflow = quantization_workflow
 
     def compute_operator_coverage(self) -> dict[str, dict[str, int]]:
         """Count quantized vs total operators in the quantized model's FX graph.
@@ -157,7 +157,7 @@ class QuantizationReport:
 
         For PT2E models, compiles the quantized model with
         torch.compile(backend="inductor") to match the real inference
-        path. For quantize_api models, benchmarks eager execution.
+        path. For eager PTQ models, benchmarks eager execution.
 
         Args:
             warmup_runs: Number of warmup iterations before timing.
@@ -167,7 +167,7 @@ class QuantizationReport:
             Dict with "float_milliseconds", "quantized_milliseconds",
             "speedup".
         """
-        if self._quantization_strategy == QuantizationStrategy.PT2E.value:
+        if self._quantization_workflow == QuantizationWorkflow.PT2E.value:
             quantized_model = self._compile_for_benchmark()
         else:
             quantized_model = self._quantized_model

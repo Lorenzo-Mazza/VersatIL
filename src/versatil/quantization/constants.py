@@ -3,7 +3,7 @@
 from enum import StrEnum
 
 
-class QuantizationBackend(StrEnum):
+class PT2EBackendName(StrEnum):
     """Target backend for PT2E quantized operator lowering.
 
     These backends are specific to the PT2E quantization path.
@@ -11,6 +11,14 @@ class QuantizationBackend(StrEnum):
     """
 
     X86_INDUCTOR = "x86_inductor"
+
+
+class QuantizationMode(StrEnum):
+    """Quantization path used to produce the deployable model."""
+
+    NONE = "none"
+    PT2E = "pt2e"
+    EAGER = "eager"
 
 
 class QuantizableOperatorType(StrEnum):
