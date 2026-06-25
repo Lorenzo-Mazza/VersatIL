@@ -48,10 +48,11 @@ class TestCompressionTargetConfig:
         config = CompressionTargetConfig(
             module_path="decoder",
         )
+        omega = OmegaConf.structured(config)
 
         assert config.preparation == "${preparation}"
         assert config.pruning == "${pruning}"
-        assert config.quantization == "${quantization}"
+        assert "quantization" not in omega
 
 
 @pytest.mark.unit
@@ -83,8 +84,8 @@ class TestPostTrainingCompressorConfig:
 
 
 @pytest.mark.unit
-class TestPerModuleYamlInheritance:
-    def test_modules_inherit_global_quantization(self):
+class TestPerModuleYamlQuantizationTarget:
+    def test_top_level_workflow_owns_quantization_targets(self):
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             yaml_config = compose(
                 config_name="end_to_end_ptq/unstructured_prune_x86_decoder_only",
@@ -94,6 +95,8 @@ class TestPerModuleYamlInheritance:
         compressor = hydra.utils.instantiate(yaml_config)
 
         assert isinstance(compressor, PostTrainingCompressor)
-        for module in compressor.modules:
-            if module.quantization is not None:
-                assert isinstance(module.quantization, PT2EQuantizationWorkflow)
+        assert [module.module_path for module in compressor.modules] == ["decoder"]
+        assert isinstance(compressor.quantization, PT2EQuantizationWorkflow)
+        assert [target.module_path for target in compressor.quantization.targets] == [
+            "decoder"
+        ]

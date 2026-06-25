@@ -5,9 +5,17 @@ from versatil.quantization.constants import (
     PT2EBackendName,
     QuantizableOperatorType,
 )
+from versatil.quantization.module_target import (
+    EagerQuantizationModuleTarget,
+    PT2EQuantizationModuleTarget,
+    QuantizationModuleTarget,
+)
 
 __all__ = [
+    "EagerQuantizationModuleTarget",
     "FXNodePattern",
+    "PT2EQuantizationModuleTarget",
     "PT2EBackendName",
     "QuantizableOperatorType",
+    "QuantizationModuleTarget",
 ]

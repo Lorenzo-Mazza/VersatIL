@@ -2,12 +2,14 @@ defaults:
   - /quantization/workflow@_here_: eager
   - _self_
 
-quantize_config:
-  _target_: torchao.quantization.Int8DynamicActivationIntxWeightConfig
-  weight_dtype: ${torch_dtype:int4}
-  weight_granularity:
-    _target_: torchao.quantization.PerGroup
-    group_size: 32
+targets:
+  - _target_: versatil.quantization.module_target.EagerQuantizationModuleTarget
+    module_path: ""
+    quantize_config:
+      _target_: torchao.quantization.Int8DynamicActivationIntxWeightConfig
+      weight_dtype: ${torch_dtype:int4}
+      weight_granularity:
+        _target_: torchao.quantization.PerGroup
+        group_size: 32
 is_qat: true
-module_paths: []
 auto_filter_incompatible_linears: true

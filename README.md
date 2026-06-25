@@ -39,7 +39,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * **[HuggingFace Transformers](https://github.com/huggingface/transformers)** for Language encoders, VLMs, and tokenizers.
     * **[HuggingFace Diffusers](https://github.com/huggingface/diffusers)** for diffusion schedulers.
     * **[Albumentations](https://albumentations.ai/)** for image augmentations.
-    * **[torchao](https://github.com/pytorch/ao)** for post-training quantization (PT2E and quantize_() APIs).
+    * **[torchao](https://github.com/pytorch/ao)** for eager and PT2E quantization workflows, for both quantization-aware training and post-training quantization.
 - 💡 **Invent What Matters** For performance-critical components, we wrote a custom `src/versatil/models/layers` package in pure PyTorch. This includes optimized implementations of:
     * [Attention](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) (PyTorch built-in SDPA Flash kernel dispatch).
     * Conditional Flow Matching utilities and ODE integration.
@@ -189,7 +189,7 @@ We currently support Grad-CAM, Grad-CAM++, Ablation-CAM and Integrated Gradients
 
 #### 📦 Post-Training Compression
 
-VersatIL includes a post-training compression (PTC) pipeline that reduces model size and improves CPU inference efficiency for deployment on edge or resource-constrained hardware where GPU acceleration is unavailable, without retraining.
+VersatIL includes a post-training compression (PTC) pipeline that turns a trained policy checkpoint into a deployment artifact for edge or resource-constrained hardware. A PTC run can export a floating-point model, apply pruning, quantize the policy, and save either a Torch Export `.pt2` artifact or an ExecuTorch `.pte` artifact.
 
 **What is post-training quantization?**
 Post-training quantization (PTQ) converts trained floating-point model weights and activations to lower-precision integer representations (e.g., INT8). This reduces memory footprint, improves cache utilization, and enables hardware-accelerated integer arithmetic — typically achieving inference speedup on x86 CPUs with minimal accuracy loss. Unlike quantization-aware training (QAT), PTQ is done after training. Static quantization uses a small calibration dataset to determine optimal activation ranges per layer; dynamic quantization computes ranges on-the-fly at inference time and needs no calibration.
@@ -202,18 +202,22 @@ The compression pipeline is configurable via Hydra and supports three complement
 
 2. **Pruning**: Weight pruning to introduce sparsity before quantization. Supports both unstructured (global L1 magnitude) and structured (per-channel Lp-norm) pruning, composable as a list — e.g., structured pruning followed by unstructured pruning on the same module.
 
-3. **Quantization**: Two paths via [torchao](https://github.com/pytorch/ao), PyTorch's quantization library:
-   - **PT2E** (PyTorch 2 Export): The graph-based quantization flow. The trained policy is exported to an FX graph via `torch.export`, then quantized using hardware-specific quantizers (e.g., X86InductorQuantizer for x86 CPUs). Static quantization requires a calibration pass over training data to determine activation ranges. This path supports per-module targeting, conv+linear fusion, and operator-level quantization control.
-   - **quantize_() API**: The eager-mode dynamic quantization flow. Applies weight-only or dynamic activation quantization (e.g., INT8 dynamic, INT4 weight-only) directly on the eager model before export. Simpler to use but less granular than PT2E.
-   - **QAT** (Quantization-Aware Training): Inserts torchao fake-quantization modules before optimization via `QATConfig(..., step="prepare")`, so training adapts to low-precision numerics. Conversion to a hardware-specific quantized deployment artifact is intentionally separate.
+3. **Quantization workflow**: One workflow is selected per policy:
+   - **No quantization**: `quantization: null` exports the floating-point policy.
+   - **Eager quantization**: Uses the [`torchao.quantization.quantize_()` API](https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_) before export. The same workflow supports eager PTQ and eager QAT through `is_qat`.
+   - **PT2E** (PyTorch 2 Export): Exports the policy with `torch.export`, then applies PT2E prepare, optional calibration, and convert.
 
 **Compressed inference:**
 
-Compressed models are saved as `.pt2` archives and loaded by [`CompressedPolicyLoader`](src/versatil/inference/policy_loading/compressed_loader.py), which applies `torch.compile` with the Inductor backend for optimized execution. The first inference call triggers kernel compilation, after which subsequent calls run at full speed. Compressed checkpoints include the normalizer, tokenizer, training config, and compression metadata for self-contained deployment.
+Compressed models are loaded by [`CompressedPolicyRuntime`](src/versatil/inference/policy_runtime/compressed_runtime.py). Torch Export `.pt2` artifacts run through PyTorch and can be compiled with `torch.compile` when appropriate. ExecuTorch `.pte` artifacts run through the ExecuTorch adapter on CPU. Compressed checkpoints include the deployment artifact, normalizer, tokenizer, training config, and compression metadata for self-contained deployment.
 
 **Per-module targeting:**
 
-Compression targets can be specified globally (applied to the entire policy) or per-module (targeting specific submodules like individual encoder backbones or the decoder). This allows, for example, aggressively quantizing the vision backbones while leaving the language encoder or decoder at higher precision.
+Compression targets configure preparation and pruning globally or per module. Quantization targets live inside the selected workflow under `quantization.targets`, where each [`QuantizationModuleTarget`](src/versatil/quantization/module_target.py) can carry a module-specific quantization config. Target paths must exist in the policy and must not overlap.
+
+**Deployment backends:**
+
+The `deployment_backend` config field selects the artifact format and lowering step for edge deployment: `TorchInductorBackend` saves Torch Export `.pt2` artifacts, while `ExecutorchXNNPACKBackend` lowers to ExecuTorch XNNPACK `.pte` artifacts.
 
 **QAT presets:** Hydra configs under `quantization/` provide verified torchao QAT base configs, including dynamic INT8 activation + INT4 weight QAT and INT4 weight-only QAT. See `docs/known-issues.md` for the torchao 0.17 INT4 group-size compatibility patch.
 

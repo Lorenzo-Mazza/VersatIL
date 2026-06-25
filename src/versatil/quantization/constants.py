@@ -6,15 +6,15 @@ from enum import StrEnum
 class PT2EBackendName(StrEnum):
     """Target backend for PT2E quantized operator lowering.
 
-    These backends are specific to the PT2E quantization path.
-    The quantize_() API path does not use backend selection.
+    These backends are specific to the PT2E quantization workflow.
+    The eager workflow does not use PT2E backend selection.
     """
 
     X86_INDUCTOR = "x86_inductor"
 
 
 class QuantizationMode(StrEnum):
-    """Quantization path used to produce the deployable model."""
+    """Quantization workflow used to produce the deployable model."""
 
     NONE = "none"
     PT2E = "pt2e"

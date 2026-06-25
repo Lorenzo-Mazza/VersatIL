@@ -28,7 +28,7 @@ from tests.endpoints.conftest import (
     start_mock_observation_server,
 )
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
@@ -176,7 +176,7 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
             "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
             lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
         ):
-            policy_loader = PolicyLoader(
+            policy_loader = FloatPolicyRuntime(
                 device=E2E_DEVICE,
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
@@ -197,7 +197,7 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
                 server_port=port,
             )
             client = InferenceClient(
-                policy_loader=policy_loader,
+                policy_runtime=policy_loader,
                 observation_transport=observation_transport,
                 action_transport=action_transport,
                 compression_type=CompressionType.RAW.value,

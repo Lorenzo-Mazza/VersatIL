@@ -14,15 +14,14 @@ preparation:
 pruning:
   - _target_: versatil.post_training_compression.pruning.UnstructuredPruner
     amount: 0.2
-quantization: null
-
 modules:
-  - module_path: encoding_pipeline
-    quantization: null
-
   - module_path: decoder
-    quantization:
-      _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
+
+quantization:
+  _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
+  targets:
+    - _target_: versatil.quantization.module_target.PT2EQuantizationModuleTarget
+      module_path: decoder
       pt2e_backend:
         _target_: versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend
         is_dynamic: false

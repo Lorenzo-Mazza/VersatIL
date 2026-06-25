@@ -27,7 +27,7 @@ from versatil.inference.inference_client import (
     InferenceClient,
 )
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.protocol import ActionTransport, ObservationTransport
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
@@ -123,7 +123,7 @@ def mock_policy_loader_factory(
         rotate_images: bool = False,
         depth_clamp_range: tuple[float, float] | None = None,
     ) -> MagicMock:
-        mock = MagicMock(spec=PolicyLoader)
+        mock = MagicMock(spec=FloatPolicyRuntime)
         mock.observation_space = mock_observation_space_factory(
             camera_keys=camera_keys,
             state_keys=state_keys,
@@ -187,7 +187,7 @@ def inference_client_factory(
             observation_horizon=observation_horizon,
         )
         return InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=temporal_aggregation,
@@ -841,7 +841,7 @@ class TestGetActionsForReadyEnvironments:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -883,7 +883,7 @@ class TestGetActionsForReadyEnvironments:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -931,7 +931,7 @@ class TestGetActionsForReadyEnvironments:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -1337,7 +1337,7 @@ class TestStepOrchestration:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -1408,7 +1408,7 @@ class TestStepOrchestration:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -1467,7 +1467,7 @@ class TestStepOrchestration:
         )
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=True,
@@ -1547,7 +1547,7 @@ class TestStepOrchestration:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=False,
@@ -1613,7 +1613,7 @@ class TestRunEpisode:
         client.run_episode(max_steps=10)
 
         mock_observation_transport.register.assert_called_once_with(
-            client_name=client.policy_loader.client_identifier,
+            client_name=client.policy_runtime.client_identifier,
         )
 
     def test_stops_on_finished_status(
@@ -1677,7 +1677,7 @@ class TestShutdown:
         policy_loader = mock_policy_loader_factory()
         action_transport = MagicMock(spec=[])
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=action_transport,
         )
@@ -1711,7 +1711,7 @@ class TestStepTimingLog:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             timing_log=True,
@@ -1843,7 +1843,7 @@ class TestStepUpdateRateHz:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             update_rate_hz=10.0,

@@ -24,6 +24,7 @@ from torchao.quantization import Int4WeightOnlyConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.quantization.module_target import EagerQuantizationModuleTarget
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
@@ -379,9 +380,13 @@ def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
             "experiment": {"name": "save_dtype"},
             "training": {"optimizer": {"lr": 1e-4}},
             "quantization": {
-                "quantize_config": {
-                    "weight_dtype": "${torch_dtype:int4}",
-                }
+                "targets": [
+                    {
+                        "quantize_config": {
+                            "weight_dtype": "${torch_dtype:int4}",
+                        },
+                    }
+                ],
             },
         }
     )
@@ -393,7 +398,7 @@ def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
 
     loaded = OmegaConf.load(workspace.output_dir / "config.yaml")
 
-    assert loaded.quantization.quantize_config.weight_dtype == "torch.int4"
+    assert loaded.quantization.targets[0].quantize_config.weight_dtype == "torch.int4"
 
 
 @pytest.mark.unit
@@ -1492,7 +1497,12 @@ class TestSetupPolicy:
     ):
         policy = mock_workspace_policy_factory()
         quantization = EagerQuantizationWorkflow(
-            quantize_config=Int4WeightOnlyConfig(group_size=32),
+            targets=[
+                EagerQuantizationModuleTarget(
+                    module_path="",
+                    quantize_config=Int4WeightOnlyConfig(group_size=32),
+                )
+            ],
             is_qat=True,
         )
         workspace = workspace_factory(policy=policy, quantization=quantization)

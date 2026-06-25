@@ -53,7 +53,7 @@ class StructuredPrunerConfig(BasePrunerConfig):
 
 @dataclass
 class CompressionTargetConfig:
-    """Per-module compression scheme with optimizer-pattern inheritance.
+    """Per-module preparation and pruning scheme with inheritance.
 
     Note:
         Absent fields in YAML inherit from the global config via Hydra
@@ -66,9 +66,6 @@ class CompressionTargetConfig:
     module_path: str = MISSING
     preparation: PreparationConfig | None = "${preparation}"  #
     pruning: list[Any] | None = "${pruning}"  # list[BasePrunerConfig] | None
-    quantization: Any | None = (
-        "${quantization}"  # PT2EQuantizationWorkflowConfig | EagerQuantizationWorkflowConfig | None
-    )
 
 
 @dataclass
@@ -112,4 +109,4 @@ class PostTrainingCompressorConfig:
     quantization: Any | None = (
         None  # PT2EQuantizationWorkflowConfig | EagerQuantizationWorkflowConfig | None
     )
-    backend: Any | None = None  # Compression backend config; None keeps legacy .pt2.
+    deployment_backend: Any | None = None

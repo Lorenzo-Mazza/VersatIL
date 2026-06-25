@@ -11,7 +11,6 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (
 
 from versatil.data.dataloader import get_dataloaders
 from versatil.models.exportable_policy import ExportablePolicy
-from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.export import (
     build_example_inputs,
@@ -20,6 +19,7 @@ from versatil.post_training_compression.export import (
 from versatil.post_training_compression.policy_loading import load_float_policy_context
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.constants import FXNodePattern, QuantizationMode
+from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 from versatil.quantization.workflows.base import (
     BaseQuantizationWorkflow,
@@ -33,16 +33,27 @@ logger = logging.getLogger(__name__)
 class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
     """PT2E graph quantization workflow."""
 
-    def __init__(self, pt2e_backend: BasePT2EBackend) -> None:
-        """Initialize with a PT2E backend.
+    def __init__(self, targets: list[PT2EQuantizationModuleTarget]) -> None:
+        """Initialize with PT2E module targets.
 
         Args:
-            pt2e_backend: Backend providing quantization config and
-                environment context.
+            targets: module-level PT2E quantization targets.
         """
-        self.pt2e_backend = pt2e_backend
+        if not targets:
+            raise ValueError("PT2EQuantizationWorkflow requires at least one target.")
+        self._targets = targets
         if self.is_qat:
             raise NotImplementedError("PT2E QAT configuration is not supported yet.")
+
+    @property
+    def targets(self) -> list[PT2EQuantizationModuleTarget]:
+        """Return PT2E quantization targets."""
+        return self._targets
+
+    @property
+    def pt2e_backend(self) -> BasePT2EBackend:
+        """Return the first target backend for runtime environment setup."""
+        return self.targets[0].pt2e_backend
 
     @property
     def quantization_mode(self) -> str:
@@ -52,19 +63,28 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
     @property
     def needs_calibration(self) -> bool:
         """Static PT2E requires calibration, dynamic does not."""
-        return not self.pt2e_backend.is_dynamic
+        return any(target.needs_calibration for target in self.targets)
 
     @property
     def is_qat(self) -> bool:
         """Return whether the PT2E backend is configured for QAT."""
-        return self.pt2e_backend.is_qat
+        return any(target.pt2e_backend.is_qat for target in self.targets)
 
     def load_policy_context(
         self,
         checkpoint_path: str,
         checkpoint_name: str,
     ) -> PolicyContext:
-        """Load the policy checkpoint required by PT2E quantization."""
+        """Load the policy checkpoint required by PT2E quantization.
+
+        Args:
+            checkpoint_path: Directory containing the training checkpoint.
+            checkpoint_name: Checkpoint filename to load from the directory.
+
+        Returns:
+            Float policy context used for PT2E export, preparation,
+            calibration, and conversion.
+        """
         return load_float_policy_context(
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
@@ -74,19 +94,28 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         self,
         context: PolicyContext,
         exportable: ExportablePolicy,
-        modules: list[CompressionTarget],
         calibration_steps: int,
     ) -> QuantizedContext:
-        """Export, prepare, optionally calibrate, and convert with PT2E."""
-        pt2e_modules = [
-            module
-            for module in modules
-            if isinstance(module.quantization, PT2EQuantizationWorkflow)
-        ]
+        """Export, prepare, optionally calibrate, and convert with PT2E.
+
+        Args:
+            context: Loaded float policy context.
+            exportable: Policy wrapper exposing positional tensor inputs for
+                ``torch.export``.
+            calibration_steps: Maximum number of training batches used for
+                static PT2E calibration.
+
+        Returns:
+            Float exported model, PT2E-converted model, and example inputs.
+
+        Raises:
+            ValueError: If a target path is invalid or targets overlap.
+        """
+        self.validate_targets(model=context.policy)
         calibration = self._build_calibration(
             context=context,
             exportable=exportable,
-            pt2e_modules=pt2e_modules,
+            targets=self.targets,
             calibration_steps=calibration_steps,
         )
         example_inputs = (
@@ -102,7 +131,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
         converted = self._convert_exported_model(
             exported=exported,
-            pt2e_modules=pt2e_modules,
+            targets=self.targets,
             calibration=calibration,
         )
         return QuantizedContext(
@@ -116,13 +145,24 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
     def _build_calibration(
         context: PolicyContext,
         exportable: ExportablePolicy,
-        pt2e_modules: list[CompressionTarget],
+        targets: list[PT2EQuantizationModuleTarget],
         calibration_steps: int,
     ) -> CalibrationDataProvider | None:
-        """Build calibration data for static PT2E quantization."""
-        needs_calibration = any(
-            module.quantization.needs_calibration for module in pt2e_modules
-        )
+        """Build calibration data for static PT2E quantization.
+
+        Args:
+            context: Loaded policy context containing the training dataloader
+                config.
+            exportable: Policy wrapper whose observation key order determines
+                calibration batch layout.
+            targets: PT2E targets that determine whether calibration is needed.
+            calibration_steps: Maximum number of calibration batches.
+
+        Returns:
+            Calibration provider for static targets, or ``None`` when all
+            targets are dynamic.
+        """
+        needs_calibration = any(target.needs_calibration for target in targets)
         if not needs_calibration:
             return None
         train_loader, _, _, _, _ = get_dataloaders(config=context.config)
@@ -135,28 +175,39 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
     @staticmethod
     def _convert_exported_model(
         exported: nn.Module,
-        pt2e_modules: list[CompressionTarget],
+        targets: list[PT2EQuantizationModuleTarget],
         calibration: CalibrationDataProvider | None,
     ) -> nn.Module:
-        """Apply PT2E prepare/calibrate/convert to an exported model."""
-        if not pt2e_modules:
+        """Apply PT2E prepare/calibrate/convert to an exported model.
+
+        Args:
+            exported: Exported float graph module.
+            targets: PT2E targets used to create backend quantizers.
+            calibration: Calibration batches for static PT2E targets.
+
+        Returns:
+            Converted PT2E graph module.
+
+        Raises:
+            ValueError: If any target needs calibration but no calibration
+                provider was supplied.
+        """
+        if not targets:
             return exported
-        needs_calibration = any(
-            module.quantization.needs_calibration for module in pt2e_modules
-        )
+        needs_calibration = any(target.needs_calibration for target in targets)
         if needs_calibration and calibration is None:
             raise ValueError(
                 "PT2E static quantization requires calibration data "
                 "but no CalibrationDataProvider was supplied."
             )
         quantizers = []
-        for module in pt2e_modules:
-            backend = module.quantization.pt2e_backend
-            quantizers.append(backend.create_quantizer(module_path=module.module_path))
-            logger.info("PT2E target: %s", module.module_path or "(root)")
+        for target in targets:
+            backend = target.pt2e_backend
+            quantizers.append(backend.create_quantizer(module_path=target.module_path))
+            logger.info("PT2E target: %s", target.label)
 
         composed = ComposableQuantizer(quantizers)
-        first_backend = pt2e_modules[0].quantization.pt2e_backend
+        first_backend = targets[0].pt2e_backend
         with first_backend.environment_context():
             prepared = prepare_pt2e(exported, composed)
             if calibration is not None:

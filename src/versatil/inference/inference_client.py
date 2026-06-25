@@ -19,10 +19,10 @@ from versatil_constants.shared import ObsKey
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
+from versatil.inference.policy_runtime.base import PolicyRuntime
 from versatil.inference.protocol import (
     ActionTransport,
     ObservationTransport,
-    PolicyInference,
 )
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
@@ -48,7 +48,7 @@ class InferenceClient:
 
     def __init__(
         self,
-        policy_loader: PolicyInference,
+        policy_runtime: PolicyRuntime,
         observation_transport: ObservationTransport,
         action_transport: ActionTransport,
         temporal_aggregation: bool = False,
@@ -59,11 +59,11 @@ class InferenceClient:
         max_timesteps: int = 800,
         timing_log: bool = False,
         update_rate_hz: float | None = None,
-    ):
+    ) -> None:
         """Initialize the inference client.
 
         Args:
-            policy_loader: Loaded policy providing inference and metadata.
+            policy_runtime: Runtime providing policy inference and metadata.
             observation_transport: Protocol for receiving observations from the environment.
             action_transport: Protocol for sending actions to the environment.
             temporal_aggregation: Whether to use temporal ensemble. When enabled,
@@ -82,26 +82,26 @@ class InferenceClient:
             timing_log: Whether to log per-step timing breakdown.
             update_rate_hz: Target action-send frequency in Hz.
         """
-        self.policy_loader = policy_loader
+        self.policy_runtime = policy_runtime
         self.observation_transport = observation_transport
         self.action_transport = action_transport
         self.temporal_aggregation = temporal_aggregation
         self.action_execution_horizon = (
             action_execution_horizon
             if action_execution_horizon is not None
-            else policy_loader.prediction_horizon
+            else policy_runtime.prediction_horizon
         )
-        if self.action_execution_horizon > policy_loader.prediction_horizon:
+        if self.action_execution_horizon > policy_runtime.prediction_horizon:
             raise ValueError(
                 f"action_execution_horizon ({self.action_execution_horizon}) cannot exceed "
-                f"prediction_horizon ({policy_loader.prediction_horizon})."
+                f"prediction_horizon ({policy_runtime.prediction_horizon})."
             )
         self.compression_type = compression_type
         self.timing_log = timing_log
         self.update_rate_hz = update_rate_hz
         self.timestep = 0
-        observation_space = policy_loader.observation_space
-        action_space = policy_loader.action_space
+        observation_space = policy_runtime.observation_space
+        action_space = policy_runtime.action_space
         self.camera_keys, self.state_keys, self.has_language = (
             self._bucket_observation_keys(observation_space=observation_space)
         )
@@ -115,14 +115,14 @@ class InferenceClient:
             camera_keys=self.camera_keys,
             state_keys=self.state_keys,
             has_language=self.has_language,
-            camera_metadata=policy_loader.observation_space.cameras,
+            camera_metadata=policy_runtime.observation_space.cameras,
             compression_type=compression_type,
-            rotate_images=policy_loader.config.inference.rotate_images,
-            depth_clamp_range=policy_loader.depth_clamp_range,
+            rotate_images=policy_runtime.config.inference.rotate_images,
+            depth_clamp_range=policy_runtime.depth_clamp_range,
         )
         self.action_postprocessor = ActionPostprocessor(
             action_space=action_space,
-            denoising_thresholds=policy_loader.denoising_thresholds,
+            denoising_thresholds=policy_runtime.denoising_thresholds,
         )
         self._temporal_config = {
             "favor_more_recent": favor_more_recent,
@@ -165,7 +165,7 @@ class InferenceClient:
             max_steps: Maximum number of steps in the episode.
         """
         self.observation_transport.register(
-            client_name=self.policy_loader.client_identifier
+            client_name=self.policy_runtime.client_identifier
         )
         for _step_idx in range(max_steps):
             try:
@@ -344,15 +344,15 @@ class InferenceClient:
             buffer_keys = buffer_keys + [ObsKey.LANGUAGE.value]
 
         observation_buffer = ObservationBuffer(
-            buffer_size=self.policy_loader.observation_horizon,
+            buffer_size=self.policy_runtime.observation_horizon,
             required_keys=buffer_keys,
         )
         temporal_aggregator = None
         if self.temporal_aggregation:
             temporal_aggregator = TemporalAggregator(
-                device=self.policy_loader.device,
+                device=self.policy_runtime.device,
                 action_keys_to_dimensions=self.action_keys_to_dimensions,
-                prediction_horizon=self.policy_loader.prediction_horizon,
+                prediction_horizon=self.policy_runtime.prediction_horizon,
                 exponential_decay=self._temporal_config["exponential_decay"],
                 favor_more_recent=self._temporal_config["favor_more_recent"],
                 max_timesteps=self._temporal_config["max_timesteps"],
@@ -411,7 +411,7 @@ class InferenceClient:
         if self.has_language:
             observation_dict[ObsKey.LANGUAGE.value] = language_batch
 
-        action_dict = self.policy_loader.run_inference(obs_dict=observation_dict)
+        action_dict = self.policy_runtime.run_inference(obs_dict=observation_dict)
 
         return self._distribute_actions(
             action_dict=action_dict, ready_indices=ready_indices

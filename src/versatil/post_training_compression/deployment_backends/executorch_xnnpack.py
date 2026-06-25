@@ -8,8 +8,8 @@ import torch.nn as nn
 
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionBackendName,
     CompressionFilename,
+    DeploymentBackendName,
 )
 from versatil.post_training_compression.deployment_backends.base import (
     DeploymentArtifact,
@@ -21,7 +21,7 @@ from versatil.post_training_compression.export import _export_with_dynamic_batch
 class ExecutorchXNNPACKBackend(DeploymentBackend):
     """Backend that lowers exported programs to ExecuTorch XNNPACK."""
 
-    name = CompressionBackendName.EXECUTORCH_XNNPACK.value
+    name = DeploymentBackendName.EXECUTORCH_XNNPACK.value
     artifact_format = ArtifactFormat.EXECUTORCH_PTE
     model_filename = CompressionFilename.EXECUTORCH_MODEL.value
 

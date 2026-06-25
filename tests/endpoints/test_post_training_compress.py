@@ -34,8 +34,8 @@ from tests.endpoints.conftest import (
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.compressed_runtime import CompressedPolicyRuntime
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
@@ -60,6 +60,7 @@ from versatil.post_training_compression.pruning import (
 )
 from versatil.post_training_compression.serialization import save_compressed_model
 from versatil.quantization.calibration import CalibrationDataProvider
+from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 from versatil.workspace import Workspace
@@ -206,10 +207,10 @@ def compression_pipeline(trained_checkpoint):
 
     def factory(
         config_name: str = PTQ_TEST_CONFIGS[0],
-    ) -> tuple[PolicyLoader, CalibrationDataProvider, ExportablePolicy]:
+    ) -> tuple[FloatPolicyRuntime, CalibrationDataProvider, ExportablePolicy]:
         output_dir = trained_checkpoint(config_name=config_name)
         with LEROBOT_METADATA_PATCH:
-            policy_loader = PolicyLoader(
+            policy_loader = FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
@@ -295,22 +296,22 @@ def _save_and_verify_inference(
 
     # Verify compressed inference via mock server
     with LEROBOT_METADATA_PATCH:
-        compressed_loader = CompressedPolicyLoader(
+        compressed_runtime = CompressedPolicyRuntime(
             device=torch.device("cpu"),
             checkpoint_path=compressed_dir,
         )
 
-    assert compressed_loader.input_keys == exportable.observation_keys
-    assert compressed_loader.output_keys == exportable.action_keys
+    assert compressed_runtime.input_keys == exportable.observation_keys
+    assert compressed_runtime.output_keys == exportable.action_keys
 
     port = get_free_port()
     server = start_mock_observation_server(
-        observation_space=compressed_loader.observation_space,
+        observation_space=compressed_runtime.observation_space,
         port=port,
     )
     try:
         client = InferenceClient(
-            policy_loader=compressed_loader,
+            policy_runtime=compressed_runtime,
             observation_transport=SocketObservationTransport(
                 server_address="127.0.0.1",
                 server_port=port,
@@ -490,7 +491,7 @@ class TestGlobalEagerPTQDynamic:
             ],
         )
         with LEROBOT_METADATA_PATCH:
-            policy_loader = PolicyLoader(
+            policy_loader = FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
@@ -631,7 +632,12 @@ class TestCompressorEndToEnd:
             ),
             pruning=[UnstructuredPruner(amount=0.3)],
             quantization=PT2EQuantizationWorkflow(
-                pt2e_backend=X86InductorBackend(is_dynamic=False),
+                targets=[
+                    PT2EQuantizationModuleTarget(
+                        module_path="",
+                        pt2e_backend=X86InductorBackend(is_dynamic=False),
+                    )
+                ],
             ),
             calibration_steps=3,
             output_directory=compressed_dir,

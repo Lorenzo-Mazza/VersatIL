@@ -1,4 +1,4 @@
-"""Tests for versatil.inference.compressed_policy_loader module."""
+"""Tests for versatil.inference.policy_runtime.compressed_runtime module."""
 
 import json
 import re
@@ -13,21 +13,21 @@ import torch
 from omegaconf import OmegaConf
 
 from tests.conftest import get_test_device
-from versatil.data.constants import Cameras
+from versatil.checkpoint_loading.compressed_policy import CompressedCheckpointLoader
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.inference.policy_loading.base import BasePolicyLoader
-from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
+from versatil.inference.policy_runtime.compressed_runtime import CompressedPolicyRuntime
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionBackendName,
     CompressionFilename,
     CompressionMetadataKey,
+    DeploymentBackendName,
     QuantizationWorkflow,
 )
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 
-COMPRESSED_LOADER_MODULE = "versatil.inference.policy_loading.compressed_loader"
+COMPRESSED_RUNTIME_MODULE = "versatil.inference.policy_runtime.compressed_runtime"
+COMPRESSED_CHECKPOINT_MODULE = "versatil.checkpoint_loading.compressed_policy"
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def metadata_factory() -> Callable[..., dict]:
         training_checkpoint_path: str = "/tmp/training_checkpoint",
         include_training_path: bool = True,
         artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
-        backend_name: str = CompressionBackendName.TORCH_INDUCTOR.value,
+        backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
         quantization_workflow: str | None = None,
         exclude_keys: list[str] | None = None,
     ) -> dict:
@@ -55,7 +55,7 @@ def metadata_factory() -> Callable[..., dict]:
             CompressionMetadataKey.MODEL_FILE.value: model_filename,
             CompressionMetadataKey.NORMALIZER_FILE.value: normalizer_filename,
             CompressionMetadataKey.ARTIFACT_FORMAT.value: artifact_format,
-            CompressionMetadataKey.BACKEND.value: backend_name,
+            CompressionMetadataKey.DEPLOYMENT_BACKEND.value: backend_name,
             CompressionMetadataKey.INPUT_KEYS.value: input_keys,
             CompressionMetadataKey.OUTPUT_KEYS.value: output_keys,
             CompressionMetadataKey.TORCHAO_VERSION.value: "0.16.0",
@@ -94,7 +94,7 @@ def checkpoint_directory_factory(
         include_training_path: bool = True,
         model_filename: str = "compressed_policy.pt2",
         artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
-        backend_name: str = CompressionBackendName.TORCH_INDUCTOR.value,
+        backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
         quantization_workflow: str | None = None,
         exclude_metadata_keys: list[str] | None = None,
         quantization_config: dict | None = None,
@@ -156,15 +156,15 @@ def mock_policy_factory() -> Callable[..., MagicMock]:
 @pytest.fixture
 def loaded_loader_factory(
     checkpoint_directory_factory: Callable[..., str],
-) -> Callable[..., CompressedPolicyLoader]:
-    """Factory that creates a CompressedPolicyLoader via patched __init__."""
+) -> Callable[..., CompressedPolicyRuntime]:
+    """Factory that creates a CompressedPolicyRuntime via patched __init__."""
 
     def factory(
         input_keys: list[str] | None = None,
         output_keys: list[str] | None = None,
         device: str = "cpu",
         checkpoint_kwargs: dict | None = None,
-    ) -> CompressedPolicyLoader:
+    ) -> CompressedPolicyRuntime:
         if checkpoint_kwargs is None:
             checkpoint_kwargs = {}
         checkpoint_path = checkpoint_directory_factory(
@@ -180,21 +180,21 @@ def loaded_loader_factory(
         # mock attribute access endlessly), consuming all system memory.
         with (
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.torch.export.load",
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.export.load",
                 return_value=mock_exported_program,
             ),
-            patch(f"{COMPRESSED_LOADER_MODULE}.torch.load", return_value={}),
-            patch.object(CompressedPolicyLoader, "_load_training_config"),
+            patch(f"{COMPRESSED_CHECKPOINT_MODULE}.torch.load", return_value={}),
+            patch.object(CompressedCheckpointLoader, "_load_training_config"),
             patch.object(
-                CompressedPolicyLoader,
+                CompressedCheckpointLoader,
                 "_load_tokenizer",
                 return_value=None,
             ),
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.torch.compile", return_value=MagicMock()
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.compile", return_value=MagicMock()
             ),
         ):
-            return CompressedPolicyLoader(
+            return CompressedPolicyRuntime(
                 device=torch.device(device),
                 checkpoint_path=checkpoint_path,
             )
@@ -206,8 +206,8 @@ def loaded_loader_factory(
 def inference_loader_factory(
     rng: np.random.Generator,
     mock_policy_factory: Callable[..., MagicMock],
-) -> Callable[..., CompressedPolicyLoader]:
-    """Factory for a CompressedPolicyLoader bypassing __init__ for inference tests."""
+) -> Callable[..., CompressedPolicyRuntime]:
+    """Factory for a CompressedPolicyRuntime bypassing __init__ for inference tests."""
 
     def factory(
         input_keys: list[str] | None = None,
@@ -215,7 +215,7 @@ def inference_loader_factory(
         model_outputs: tuple[torch.Tensor, ...] | torch.Tensor | None = None,
         tokenizer: MagicMock | None = None,
         artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
-    ) -> CompressedPolicyLoader:
+    ) -> CompressedPolicyRuntime:
         if input_keys is None:
             input_keys = ["left"]
         if output_keys is None:
@@ -233,15 +233,27 @@ def inference_loader_factory(
             )
         mock_compressed_model.return_value = model_outputs
 
-        loader = CompressedPolicyLoader.__new__(CompressedPolicyLoader)
-        loader._device = torch.device("cpu")
+        loader = CompressedPolicyRuntime.__new__(CompressedPolicyRuntime)
+        checkpoint_loader = MagicMock(spec=CompressedCheckpointLoader)
+        checkpoint_loader.device = torch.device("cpu")
+        checkpoint_loader.checkpoint_path = "/tmp/compressed"
+        checkpoint_loader.config = MagicMock()
+        checkpoint_loader.tokenizer = tokenizer
+        checkpoint_loader.policy = mock_policy
+        checkpoint_loader.observation_space = mock_policy.observation_space
+        checkpoint_loader.action_space = mock_policy.action_space
+        checkpoint_loader.prediction_horizon = mock_policy.prediction_horizon
+        checkpoint_loader.observation_horizon = mock_policy.decoder.observation_horizon
+        checkpoint_loader.denoising_thresholds = {}
+        checkpoint_loader.depth_clamp_range = None
+        checkpoint_loader.input_keys = input_keys
+        checkpoint_loader.output_keys = output_keys
+        checkpoint_loader.artifact_format = artifact_format
+        checkpoint_loader.normalizer = LinearNormalizer()
+        loader.checkpoint_loader = checkpoint_loader
+        loader._client_identifier = checkpoint_loader.checkpoint_path
         loader._policy = mock_policy
-        loader._input_keys = input_keys
-        loader._output_keys = output_keys
-        loader._artifact_format = artifact_format
         loader._compressed_model = mock_compressed_model
-        loader._normalizer = LinearNormalizer()
-        loader._tokenizer = tokenizer
         return loader
 
     return factory
@@ -269,7 +281,7 @@ def observation_dict_factory(
 
 
 @pytest.mark.unit
-class TestCompressedPolicyLoaderErrors:
+class TestCompressedPolicyRuntimeErrors:
     @pytest.mark.parametrize(
         "factory_kwargs, error_type, match_fragment",
         [
@@ -306,7 +318,7 @@ class TestCompressedPolicyLoaderErrors:
         checkpoint_path = checkpoint_directory_factory(**factory_kwargs)
 
         with pytest.raises(error_type, match=match_fragment):
-            CompressedPolicyLoader(
+            CompressedPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=checkpoint_path,
             )
@@ -328,14 +340,14 @@ class TestCompressedPolicyLoaderErrors:
         )
 
         with pytest.raises(KeyError, match=excluded_key):
-            CompressedPolicyLoader(
+            CompressedPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=checkpoint_path,
             )
 
 
 @pytest.mark.unit
-class TestCompressedPolicyLoaderMetadata:
+class TestCompressedPolicyRuntimeMetadata:
     def test_populates_input_and_output_keys(self, loaded_loader_factory):
         input_keys = ["depth", "left", "right"]
         output_keys = ["gripper", "orientation", "position"]
@@ -367,7 +379,7 @@ class TestCompressedPolicyLoaderMetadata:
 
 
 @pytest.mark.unit
-class TestCompressedPolicyLoaderArtifacts:
+class TestCompressedPolicyRuntimeArtifacts:
     def test_pte_artifact_uses_executorch_adapter_without_torch_export(
         self,
         checkpoint_directory_factory: Callable[..., str],
@@ -375,29 +387,29 @@ class TestCompressedPolicyLoaderArtifacts:
         checkpoint_path = checkpoint_directory_factory(
             model_filename=CompressionFilename.EXECUTORCH_MODEL.value,
             artifact_format=ArtifactFormat.EXECUTORCH_PTE.value,
-            backend_name=CompressionBackendName.EXECUTORCH_XNNPACK.value,
+            backend_name=DeploymentBackendName.EXECUTORCH_XNNPACK.value,
             quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
         adapter = MagicMock()
 
         with (
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.torch.export.load",
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.export.load",
             ) as mock_export_load,
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.ExecuTorchModuleAdapter",
+                f"{COMPRESSED_RUNTIME_MODULE}.ExecuTorchModuleAdapter",
                 return_value=adapter,
             ) as mock_adapter_class,
-            patch(f"{COMPRESSED_LOADER_MODULE}.torch.load", return_value={}),
-            patch.object(CompressedPolicyLoader, "_load_training_config"),
+            patch(f"{COMPRESSED_CHECKPOINT_MODULE}.torch.load", return_value={}),
+            patch.object(CompressedCheckpointLoader, "_load_training_config"),
             patch.object(
-                CompressedPolicyLoader,
+                CompressedCheckpointLoader,
                 "_load_tokenizer",
                 return_value=None,
             ),
-            patch(f"{COMPRESSED_LOADER_MODULE}.torch.compile") as mock_compile,
+            patch(f"{COMPRESSED_RUNTIME_MODULE}.torch.compile") as mock_compile,
         ):
-            loader = CompressedPolicyLoader(
+            loader = CompressedPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=checkpoint_path,
             )
@@ -418,11 +430,17 @@ class TestCompressedPolicyLoaderArtifacts:
         checkpoint_path = checkpoint_directory_factory(
             model_filename=CompressionFilename.EXECUTORCH_MODEL.value,
             artifact_format=ArtifactFormat.EXECUTORCH_PTE.value,
-            backend_name=CompressionBackendName.EXECUTORCH_XNNPACK.value,
+            backend_name=DeploymentBackendName.EXECUTORCH_XNNPACK.value,
         )
 
         with (
-            patch.object(CompressedPolicyLoader, "_load_training_config"),
+            patch.object(CompressedCheckpointLoader, "_load_training_config"),
+            patch(f"{COMPRESSED_CHECKPOINT_MODULE}.torch.load", return_value={}),
+            patch.object(
+                CompressedCheckpointLoader,
+                "_load_tokenizer",
+                return_value=None,
+            ),
             pytest.raises(
                 ValueError,
                 match=re.escape(
@@ -431,7 +449,7 @@ class TestCompressedPolicyLoaderArtifacts:
                 ),
             ),
         ):
-            CompressedPolicyLoader(
+            CompressedPolicyRuntime(
                 device=torch.device("cuda"),
                 checkpoint_path=checkpoint_path,
             )
@@ -440,20 +458,26 @@ class TestCompressedPolicyLoaderArtifacts:
         checkpoint_path = checkpoint_directory_factory(artifact_format="unknown")
 
         with (
-            patch.object(CompressedPolicyLoader, "_load_training_config"),
+            patch.object(CompressedCheckpointLoader, "_load_training_config"),
+            patch(f"{COMPRESSED_CHECKPOINT_MODULE}.torch.load", return_value={}),
+            patch.object(
+                CompressedCheckpointLoader,
+                "_load_tokenizer",
+                return_value=None,
+            ),
             pytest.raises(
                 ValueError,
                 match=re.escape("Unsupported compression artifact format 'unknown'."),
             ),
         ):
-            CompressedPolicyLoader(
+            CompressedPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=checkpoint_path,
             )
 
 
 @pytest.mark.unit
-class TestCompressedPolicyLoaderProperties:
+class TestCompressedPolicyRuntimeProperties:
     def test_delegates_properties_to_policy(
         self,
         inference_loader_factory,
@@ -468,47 +492,18 @@ class TestCompressedPolicyLoaderProperties:
         assert loader.denoising_thresholds == {}
         assert loader.depth_clamp_range is None
 
-
-@pytest.mark.unit
-class TestDepthClampRange:
-    def test_returns_none_when_depth_not_in_normalizer(
+    def test_client_identifier_returns_compressed_checkpoint_path(
         self,
-        mock_policy_factory: Callable[..., MagicMock],
+        inference_loader_factory,
     ):
-        loader = CompressedPolicyLoader.__new__(CompressedPolicyLoader)
-        loader._normalizer = LinearNormalizer()
-        loader._policy = mock_policy_factory()
+        loader = inference_loader_factory()
+        loader._client_identifier = "/tmp/compressed"
 
-        assert loader.depth_clamp_range is None
-
-    def test_returns_min_max_when_depth_stats_present(
-        self,
-        mock_policy_factory: Callable[..., MagicMock],
-    ):
-        normalizer = LinearNormalizer()
-        normalizer.fit(
-            {
-                Cameras.DEPTH.value: torch.tensor([[0.1], [0.5], [0.9], [0.2]]),
-            }
-        )
-
-        loader = CompressedPolicyLoader.__new__(CompressedPolicyLoader)
-        loader._normalizer = normalizer
-        loader._policy = mock_policy_factory()
-        loader._policy.observation_space.depth_cameras = {
-            Cameras.DEPTH.value: MagicMock()
-        }
-
-        result = loader.depth_clamp_range
-
-        assert result is not None
-        minimum, maximum = result
-        assert minimum == pytest.approx(0.1, abs=1e-5)
-        assert maximum == pytest.approx(0.9, abs=1e-5)
+        assert loader.client_identifier == "/tmp/compressed"
 
 
 @pytest.mark.unit
-class TestCompressedPolicyLoaderRunInference:
+class TestCompressedPolicyRuntimeRunInference:
     def test_returns_dict_with_output_keys(
         self,
         inference_loader_factory,
@@ -619,19 +614,7 @@ class TestCompressedPolicyLoaderRunInference:
 
 
 @pytest.mark.unit
-class TestBasePolicyLoaderRunInference:
-    def test_raises_not_implemented_error(self, tmp_path: Path):
-        loader = BasePolicyLoader(
-            device=torch.device("cpu"),
-            checkpoint_path=str(tmp_path),
-        )
-
-        with pytest.raises(NotImplementedError):
-            loader.run_inference(obs_dict={})
-
-
-@pytest.mark.unit
-class TestCompressedPolicyLoaderNormalizationPipeline:
+class TestCompressedPolicyRuntimeNormalizationPipeline:
     def test_calls_normalize_observation(
         self,
         inference_loader_factory,
@@ -639,11 +622,11 @@ class TestCompressedPolicyLoaderNormalizationPipeline:
     ):
         normalizer = LinearNormalizer()
         loader = inference_loader_factory()
-        loader._normalizer = normalizer
+        loader.checkpoint_loader.normalizer = normalizer
         obs_dict = observation_dict_factory()
 
         with patch(
-            f"{COMPRESSED_LOADER_MODULE}.normalize_observation",
+            f"{COMPRESSED_RUNTIME_MODULE}.normalize_observation",
             return_value=obs_dict,
         ) as mock_normalize:
             loader.run_inference(obs_dict=obs_dict)
@@ -664,11 +647,11 @@ class TestCompressedPolicyLoaderNormalizationPipeline:
 
         with (
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.normalize_observation",
+                f"{COMPRESSED_RUNTIME_MODULE}.normalize_observation",
                 return_value=obs_dict,
             ),
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.tokenize_observation",
+                f"{COMPRESSED_RUNTIME_MODULE}.tokenize_observation",
                 return_value=obs_dict,
             ) as mock_tokenize,
         ):
@@ -688,11 +671,11 @@ class TestCompressedPolicyLoaderNormalizationPipeline:
 
         with (
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.normalize_observation",
+                f"{COMPRESSED_RUNTIME_MODULE}.normalize_observation",
                 return_value=observation_dict_factory(),
             ),
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.tokenize_observation",
+                f"{COMPRESSED_RUNTIME_MODULE}.tokenize_observation",
             ) as mock_tokenize,
         ):
             loader.run_inference(obs_dict=observation_dict_factory())
@@ -706,11 +689,11 @@ class TestCompressedPolicyLoaderNormalizationPipeline:
     ):
         normalizer = LinearNormalizer()
         loader = inference_loader_factory()
-        loader._normalizer = normalizer
+        loader.checkpoint_loader.normalizer = normalizer
         expected_result = {"position": torch.zeros(1, 16, 3)}
 
         with patch(
-            f"{COMPRESSED_LOADER_MODULE}.unnormalize_actions",
+            f"{COMPRESSED_RUNTIME_MODULE}.unnormalize_actions",
             return_value=expected_result,
         ) as mock_unnormalize:
             result = loader.run_inference(obs_dict=observation_dict_factory())
@@ -721,66 +704,15 @@ class TestCompressedPolicyLoaderNormalizationPipeline:
 
 
 @pytest.mark.unit
-class TestCompressedPolicyLoaderTrainingConfig:
-    def test_falls_back_to_remote_config_when_local_absent(self):
-        loader = CompressedPolicyLoader.__new__(CompressedPolicyLoader)
-        loader._device = torch.device("cpu")
-        loader._checkpoint_path = "/tmp/compressed"
-
-        mock_config = MagicMock()
-        mock_config.policy = MagicMock()
-
-        with patch.object(
-            BasePolicyLoader,
-            "_load_config",
-            return_value=mock_config,
-        ) as mock_load_config:
-            loader._load_training_config(
-                training_checkpoint_path="/tmp/train",
-            )
-
-        mock_load_config.assert_called_once_with(
-            config_path="/tmp/train/config.yaml",
-        )
-        assert loader._policy is mock_config.policy
-        mock_config.policy.to.assert_called_once_with(torch.device("cpu"))
-
-    def test_prefers_local_config_when_present(self, tmp_path: Path):
-        compressed_dir = tmp_path / "compressed"
-        compressed_dir.mkdir()
-        (compressed_dir / "config.yaml").write_text("local: true")
-
-        loader = CompressedPolicyLoader.__new__(CompressedPolicyLoader)
-        loader._device = torch.device("cpu")
-        loader._checkpoint_path = str(compressed_dir)
-
-        mock_config = MagicMock()
-        mock_config.policy = MagicMock()
-
-        with patch.object(
-            BasePolicyLoader,
-            "_load_config",
-            return_value=mock_config,
-        ) as mock_load_config:
-            loader._load_training_config(
-                training_checkpoint_path="/tmp/train",
-            )
-
-        mock_load_config.assert_called_once_with(
-            config_path=str(compressed_dir / "config.yaml"),
-        )
-
-
-@pytest.mark.unit
 class TestCompileModelForInference:
-    @patch(f"{COMPRESSED_LOADER_MODULE}.torch.compile")
+    @patch(f"{COMPRESSED_RUNTIME_MODULE}.torch.compile")
     def test_pt2e_backend_activates_environment_before_compile(self, mock_compile):
         model = MagicMock(spec=torch.nn.Module)
         compiled_model = MagicMock(spec=torch.nn.Module)
         mock_compile.return_value = compiled_model
         mock_backend = MagicMock(spec=BasePT2EBackend)
 
-        result = CompressedPolicyLoader._compile_model_for_inference(
+        result = CompressedPolicyRuntime._compile_model_for_inference(
             model=model,
             backend=mock_backend,
         )
@@ -789,13 +721,13 @@ class TestCompileModelForInference:
         mock_compile.assert_called_once_with(model)
         assert result is compiled_model
 
-    @patch(f"{COMPRESSED_LOADER_MODULE}.torch.compile")
+    @patch(f"{COMPRESSED_RUNTIME_MODULE}.torch.compile")
     def test_without_backend_compiles_model(self, mock_compile):
         model = MagicMock(spec=torch.nn.Module)
         compiled_model = MagicMock(spec=torch.nn.Module)
         mock_compile.return_value = compiled_model
 
-        result = CompressedPolicyLoader._compile_model_for_inference(
+        result = CompressedPolicyRuntime._compile_model_for_inference(
             model=model,
             backend=None,
         )
@@ -863,10 +795,16 @@ class TestLoadBackend:
                     },
                     "quantization": {
                         "_target_": "versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow",
-                        "pt2e_backend": {
-                            "_target_": "versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend",
-                            "is_dynamic": False,
-                        },
+                        "targets": [
+                            {
+                                "_target_": "versatil.quantization.module_target.PT2EQuantizationModuleTarget",
+                                "module_path": "",
+                                "pt2e_backend": {
+                                    "_target_": "versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend",
+                                    "is_dynamic": False,
+                                },
+                            }
+                        ],
                     },
                 },
             },
@@ -933,22 +871,22 @@ class TestCompileModelFlag:
 
         with (
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.torch.export.load",
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.export.load",
                 return_value=mock_exported_program,
             ),
-            patch(f"{COMPRESSED_LOADER_MODULE}.torch.load", return_value={}),
-            patch.object(CompressedPolicyLoader, "_load_training_config"),
+            patch(f"{COMPRESSED_CHECKPOINT_MODULE}.torch.load", return_value={}),
+            patch.object(CompressedCheckpointLoader, "_load_training_config"),
             patch.object(
-                CompressedPolicyLoader,
+                CompressedCheckpointLoader,
                 "_load_tokenizer",
                 return_value=None,
             ),
             patch(
-                f"{COMPRESSED_LOADER_MODULE}.torch.compile",
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.compile",
                 return_value=compiled_module,
             ),
         ):
-            loader = CompressedPolicyLoader(
+            loader = CompressedPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=checkpoint_path,
                 compile_model=compile_model,
@@ -980,7 +918,7 @@ class TestShouldCompile:
         ],
     )
     def test_should_compile_decision(self, workflow, device_type, expected):
-        result = CompressedPolicyLoader._should_compile(
+        result = CompressedPolicyRuntime._should_compile(
             workflow=workflow,
             device=torch.device(device_type),
         )
@@ -988,7 +926,7 @@ class TestShouldCompile:
         assert result == expected
 
     def test_eager_cuda_logs_warning(self, caplog):
-        CompressedPolicyLoader._should_compile(
+        CompressedPolicyRuntime._should_compile(
             workflow=QuantizationWorkflow.EAGER.value,
             device=torch.device("cuda"),
         )

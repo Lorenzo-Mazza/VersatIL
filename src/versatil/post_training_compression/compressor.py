@@ -1,4 +1,4 @@
-"""This module compresses a trained policy through a sequence of workflows (fusion, pruning, quantization) and produces a compatible deployment artifact."""
+"""Post-training compression orchestration."""
 
 import logging
 from datetime import datetime
@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.compression_target import CompressionTarget
-from versatil.post_training_compression.constants import CompressionBackendName
+from versatil.post_training_compression.constants import DeploymentBackendName
 from versatil.post_training_compression.deployment_backends.base import (
     DeploymentBackend,
 )
@@ -26,17 +26,15 @@ from versatil.post_training_compression.report import QuantizationReport
 from versatil.post_training_compression.serialization import save_compressed_model
 from versatil.quantization.constants import QuantizationMode
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
-from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
-from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 from versatil.training.constants import CheckpointFilename
 
 
 class PostTrainingCompressor:
     """Post-training compression pipeline for a trained policy.
 
-    Orchestrates the full compression flow: load → validate →
-    prepare → prune → export → quantize → save.
+    Orchestrates loading, validation, preparation, pruning, quantization,
+    deployment export, and serialization.
     """
 
     def __init__(
@@ -51,7 +49,7 @@ class PostTrainingCompressor:
         generate_report: bool = False,
         pruning: list[BasePruner] | None = None,
         quantization: BaseQuantizationWorkflow | None = None,
-        backend: DeploymentBackend | None = None,
+        deployment_backend: DeploymentBackend | None = None,
     ) -> None:
         """Initialize the compression pipeline.
 
@@ -72,10 +70,9 @@ class PostTrainingCompressor:
                 report after saving. Disabled by default since
                 it runs additional forward passes for benchmarking.
             pruning: Global pruning strategies (inherited by modules).
-            quantization: Global quantization workflow (inherited by
-                modules). ``None`` exports the float model without
-                quantization.
-            backend: Deployment backend that owns artifact format and
+            quantization: Quantization workflow. ``None`` exports the
+                float model without quantization.
+            deployment_backend: Deployment backend that owns artifact format and
                 lowering. Defaults to torch inductor.
         """
         self.checkpoint_path = checkpoint_path
@@ -88,7 +85,7 @@ class PostTrainingCompressor:
         self.preparation = preparation
         self.pruning: list[BasePruner] = pruning or []
         self.quantization = quantization
-        self.backend = backend or TorchInductorBackend()
+        self.deployment_backend = deployment_backend or TorchInductorBackend()
 
     def compress(self, hydra_config: DictConfig) -> str:
         """Run the full compression pipeline.
@@ -101,9 +98,9 @@ class PostTrainingCompressor:
             Path to the saved compressed model directory.
         """
         modules = self.resolve_modules()
-        quantization_workflow = self._resolve_quantization_workflow(modules=modules)
-        self._validate_backend_compatibility(
-            backend_name=self.backend.name,
+        quantization_workflow = self._resolve_quantization_workflow()
+        self._validate_deployment_backend_compatibility(
+            deployment_backend_name=self.deployment_backend.name,
             mode=quantization_workflow.quantization_mode,
         )
         context = quantization_workflow.load_policy_context(
@@ -112,6 +109,7 @@ class PostTrainingCompressor:
         )
         policy = context.policy
         self.validate(policy=policy, modules=modules)
+        quantization_workflow.validate_targets(model=policy)
         self._prepare_and_prune(policy=policy, modules=modules)
         exportable = ExportablePolicy.from_policy(policy)
         logging.info("Input keys: %s", exportable.observation_keys)
@@ -119,10 +117,9 @@ class PostTrainingCompressor:
         quantized = quantization_workflow.quantize(
             context=context,
             exportable=exportable,
-            modules=modules,
             calibration_steps=self.calibration_steps,
         )
-        deployment_artifact = self.backend.export(
+        deployment_artifact = self.deployment_backend.export(
             model=quantized.quantized_model,
             example_inputs=quantized.example_inputs,
         )
@@ -159,8 +156,8 @@ class PostTrainingCompressor:
 
         Supports two configuration modes: per-module (explicit
         ``modules`` list targeting specific submodules) and global
-        (``modules`` is empty, applying the top-level preparation,
-        pruning, and quantization to the entire policy).
+        (``modules`` is empty, applying the top-level preparation and
+        pruning to the entire policy).
 
         Returns:
             Non-empty list of CompressionTarget instances.
@@ -172,34 +169,19 @@ class PostTrainingCompressor:
                 module_path="",
                 preparation=self.preparation,
                 pruning=self.pruning,
-                quantization=self.quantization,
             )
         ]
 
     def validate(self, policy: nn.Module, modules: list[CompressionTarget]) -> None:
-        """Validate module paths and quantization workflow compatibility.
+        """Validate compression target module paths.
 
         Args:
             policy: The loaded policy model.
             modules: Resolved compression targets from resolve_modules().
 
         Raises:
-            ValueError: If a module_path doesn't match a submodule,
-                or if PT2E and eager quantization workflows are both present.
+            ValueError: If a module_path doesn't match a submodule.
         """
-        has_pt2e = any(
-            isinstance(m.quantization, PT2EQuantizationWorkflow) for m in modules
-        )
-        has_eager = any(
-            isinstance(m.quantization, EagerQuantizationWorkflow) for m in modules
-        )
-        if has_pt2e and has_eager:
-            raise ValueError(
-                "PT2E and eager quantization workflows cannot be combined. "
-                "PT2E operates on the exported FX graph while "
-                "eager quantization requires nn.Module submodules. "
-                "Use one workflow per compression run."
-            )
         for module in modules:
             if module.module_path == "":
                 continue
@@ -217,7 +199,12 @@ class PostTrainingCompressor:
         policy: nn.Module,
         modules: list[CompressionTarget],
     ) -> None:
-        """Apply BN preparation, fusion, and pruning per module."""
+        """Apply BN preparation, fusion, and pruning per module.
+
+        Args:
+            policy: Loaded policy model to mutate in-place.
+            modules: Resolved preparation and pruning targets.
+        """
         for module in modules:
             submodule = (
                 policy
@@ -244,49 +231,48 @@ class PostTrainingCompressor:
                     100.0 * zeroed / total if total > 0 else 0.0,
                 )
 
-    @staticmethod
-    def _resolve_quantization_workflow(
-        modules: list[CompressionTarget],
-    ) -> BaseQuantizationWorkflow:
-        """Return the configured workflow, defaulting to no quantization."""
-        quantization_modes = {
-            module.quantization.quantization_mode
-            for module in modules
-            if module.quantization is not None
-        }
-        if len(quantization_modes) > 1:
-            ordered_modes = sorted(quantization_modes)
-            raise ValueError(
-                "Compression targets cannot mix quantization modes. "
-                f"Configured modes: {ordered_modes}."
-            )
-        for module in modules:
-            if module.quantization is not None:
-                return module.quantization
-        return NoQuantizationWorkflow()
+    def _resolve_quantization_workflow(self) -> BaseQuantizationWorkflow:
+        """Return the configured workflow, defaulting to no quantization.
+
+        Returns:
+            Configured quantization workflow, or ``NoQuantizationWorkflow`` when
+            compression was configured without quantization.
+        """
+        return self.quantization or NoQuantizationWorkflow()
 
     @staticmethod
-    def _validate_backend_compatibility(backend_name: str, mode: str) -> None:
-        """Validate quantization workflow and deployment backend compatibility."""
+    def _validate_deployment_backend_compatibility(
+        deployment_backend_name: str,
+        mode: str,
+    ) -> None:
+        """Validate quantization workflow and deployment backend compatibility.
+
+        Args:
+            deployment_backend_name: Deployment backend identifier.
+            mode: Quantization mode selected by the workflow.
+
+        Raises:
+            ValueError: If the backend is unknown or does not support ``mode``.
+        """
         compatibility = {
-            CompressionBackendName.TORCH_INDUCTOR.value: (
+            DeploymentBackendName.TORCH_INDUCTOR.value: (
                 QuantizationMode.NONE.value,
                 QuantizationMode.PT2E.value,
                 QuantizationMode.EAGER.value,
             ),
-            CompressionBackendName.EXECUTORCH_XNNPACK.value: (
+            DeploymentBackendName.EXECUTORCH_XNNPACK.value: (
                 QuantizationMode.NONE.value,
                 QuantizationMode.PT2E.value,
                 QuantizationMode.EAGER.value,
             ),
         }
-        supported_modes = compatibility.get(backend_name)
+        supported_modes = compatibility.get(deployment_backend_name)
         if supported_modes is None:
-            raise ValueError(f"Unknown deployment backend '{backend_name}'.")
+            raise ValueError(f"Unknown deployment backend '{deployment_backend_name}'.")
         if mode in supported_modes:
             return
         raise ValueError(
-            f"Deployment backend {backend_name} supports quantization modes "
+            f"Deployment backend {deployment_backend_name} supports quantization modes "
             f"{list(supported_modes)}, got '{mode}'."
         )
 

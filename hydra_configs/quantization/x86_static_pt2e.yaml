@@ -2,7 +2,11 @@ defaults:
   - /quantization/workflow/pt2e
   - _self_
 
-pt2e_backend:
-  is_dynamic: false
-  is_qat: false
-  reduce_range: false
+targets:
+  - _target_: versatil.quantization.module_target.PT2EQuantizationModuleTarget
+    module_path: ""
+    pt2e_backend:
+      _target_: versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend
+      is_dynamic: false
+      is_qat: false
+      reduce_range: false

@@ -18,6 +18,8 @@ from versatil.data.tokenization.action_token_id_mapping import (
 )
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
+LANGUAGE_ACTION_TOKENIZER_MODEL = "sshleifer/tiny-gpt2"
+
 
 @pytest.fixture
 def mock_auto_processor():
@@ -1486,7 +1488,7 @@ class TestActionTokenizerIntegrationSaveLoad:
         tokenizer = ActionTokenizer(
             action_discretizer=FastActionDiscretizer(use_pretrained=False),
             token_id_mapping=LanguageVocabularyActionTokenIdMapping(
-                language_tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
+                language_tokenizer_model=LANGUAGE_ACTION_TOKENIZER_MODEL,
                 num_special_tokens_to_skip=128,
             ),
         )
@@ -1512,7 +1514,7 @@ class TestActionTokenizerIntegrationLanguageMapping:
         tokenizer = ActionTokenizer(
             action_discretizer=FastActionDiscretizer(use_pretrained=True),
             token_id_mapping=LanguageVocabularyActionTokenIdMapping(
-                language_tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
+                language_tokenizer_model=LANGUAGE_ACTION_TOKENIZER_MODEL,
                 num_special_tokens_to_skip=128,
             ),
             device=device,
@@ -1530,7 +1532,7 @@ class TestActionTokenizerIntegrationLanguageMapping:
         tokenizer = ActionTokenizer(
             action_discretizer=FastActionDiscretizer(use_pretrained=True),
             token_id_mapping=LanguageVocabularyActionTokenIdMapping(
-                language_tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
+                language_tokenizer_model=LANGUAGE_ACTION_TOKENIZER_MODEL,
                 num_special_tokens_to_skip=128,
             ),
             device=device,

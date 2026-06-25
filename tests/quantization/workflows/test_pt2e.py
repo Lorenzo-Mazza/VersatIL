@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch.nn as nn
 
-from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
@@ -17,18 +17,17 @@ PT2E_WORKFLOW_MODULE = "versatil.quantization.workflows.pt2e"
 
 
 @pytest.fixture
-def compression_target_factory(mock_pt2e_backend_factory):
-    """Factory for CompressionTarget with PT2E quantization."""
+def pt2e_target_factory(mock_pt2e_backend_factory):
+    """Factory for PT2E quantization module targets."""
 
     def factory(
         module_path: str = "",
         needs_calibration: bool = False,
-    ) -> CompressionTarget:
+    ) -> PT2EQuantizationModuleTarget:
         backend = mock_pt2e_backend_factory(is_dynamic=not needs_calibration)
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=backend)
-        return CompressionTarget(
+        return PT2EQuantizationModuleTarget(
             module_path=module_path,
-            quantization=workflow,
+            pt2e_backend=backend,
         )
 
     return factory
@@ -54,6 +53,13 @@ def pt2e_mocks():
 
 @pytest.mark.unit
 class TestPT2EQuantizationWorkflow:
+    def test_requires_at_least_one_target(self):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("PT2EQuantizationWorkflow requires at least one target."),
+        ):
+            PT2EQuantizationWorkflow(targets=[])
+
     @pytest.mark.parametrize("is_dynamic", [True, False])
     def test_needs_calibration_reflects_dynamic_flag(
         self,
@@ -61,23 +67,29 @@ class TestPT2EQuantizationWorkflow:
         is_dynamic,
     ):
         backend = mock_pt2e_backend_factory(is_dynamic=is_dynamic)
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=backend)
+        target = PT2EQuantizationModuleTarget(module_path="", pt2e_backend=backend)
+        workflow = PT2EQuantizationWorkflow(targets=[target])
 
         assert workflow.needs_calibration == (not is_dynamic)
 
     def test_backend_accessible_via_property(self, mock_pt2e_backend_factory):
         backend = mock_pt2e_backend_factory(is_dynamic=True)
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=backend)
+        target = PT2EQuantizationModuleTarget(module_path="", pt2e_backend=backend)
+        workflow = PT2EQuantizationWorkflow(targets=[target])
 
         assert isinstance(workflow, BaseQuantizationWorkflow)
         assert workflow.pt2e_backend.is_dynamic is True
         assert workflow.quantization_mode == QuantizationMode.PT2E.value
 
-    def test_load_policy_context_delegates_to_float_loader(
+    def test_load_policy_context_delegates_to_float_context_loader(
         self,
         mock_pt2e_backend_factory,
     ):
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=mock_pt2e_backend_factory())
+        target = PT2EQuantizationModuleTarget(
+            module_path="",
+            pt2e_backend=mock_pt2e_backend_factory(),
+        )
+        workflow = PT2EQuantizationWorkflow(targets=[target])
         expected_context = MagicMock()
 
         with patch(
@@ -97,16 +109,16 @@ class TestPT2EQuantizationWorkflow:
 
     def test_quantize_exports_and_converts_context(
         self,
-        mock_pt2e_backend_factory,
-        compression_target_factory,
+        pt2e_target_factory,
     ):
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=mock_pt2e_backend_factory())
         context = MagicMock()
+        context.policy = MagicMock(spec=nn.Module)
         context.observation_space = MagicMock()
         context.observation_horizon = 2
         context.tokenizer = MagicMock()
         exportable = MagicMock()
-        modules = [compression_target_factory(needs_calibration=False)]
+        targets = [pt2e_target_factory(needs_calibration=False)]
+        workflow = PT2EQuantizationWorkflow(targets=targets)
         example_inputs = (MagicMock(),)
         exported = MagicMock(spec=nn.Module)
         converted = MagicMock(spec=nn.Module)
@@ -134,14 +146,13 @@ class TestPT2EQuantizationWorkflow:
             result = workflow.quantize(
                 context=context,
                 exportable=exportable,
-                modules=modules,
                 calibration_steps=8,
             )
 
         mock_build_calibration.assert_called_once_with(
             context=context,
             exportable=exportable,
-            pt2e_modules=modules,
+            targets=targets,
             calibration_steps=8,
         )
         mock_build_inputs.assert_called_once_with(
@@ -156,7 +167,7 @@ class TestPT2EQuantizationWorkflow:
         )
         mock_convert.assert_called_once_with(
             exported=exported,
-            pt2e_modules=modules,
+            targets=targets,
             calibration=None,
         )
         assert result.float_model is exported
@@ -166,16 +177,16 @@ class TestPT2EQuantizationWorkflow:
 
     def test_quantize_uses_calibration_batch_when_available(
         self,
-        mock_pt2e_backend_factory,
-        compression_target_factory,
+        pt2e_target_factory,
     ):
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=mock_pt2e_backend_factory())
         context = MagicMock()
+        context.policy = MagicMock(spec=nn.Module)
         context.observation_space = MagicMock()
         context.observation_horizon = 2
         context.tokenizer = MagicMock()
         exportable = MagicMock()
-        modules = [compression_target_factory(needs_calibration=True)]
+        targets = [pt2e_target_factory(needs_calibration=True)]
+        workflow = PT2EQuantizationWorkflow(targets=targets)
         calibration = MagicMock()
         example_inputs = (MagicMock(),)
         calibration.get_single_batch.return_value = example_inputs
@@ -202,14 +213,13 @@ class TestPT2EQuantizationWorkflow:
             result = workflow.quantize(
                 context=context,
                 exportable=exportable,
-                modules=modules,
                 calibration_steps=8,
             )
 
         mock_build_calibration.assert_called_once_with(
             context=context,
             exportable=exportable,
-            pt2e_modules=modules,
+            targets=targets,
             calibration_steps=8,
         )
         calibration.get_single_batch.assert_called_once_with()
@@ -220,7 +230,7 @@ class TestPT2EQuantizationWorkflow:
         )
         mock_convert.assert_called_once_with(
             exported=exported,
-            pt2e_modules=modules,
+            targets=targets,
             calibration=calibration,
         )
         assert result.quantized_model is converted
@@ -231,12 +241,20 @@ class TestPT2EQuantizationWorkflow:
             NotImplementedError,
             match=re.escape("PT2E QAT configuration is not supported yet."),
         ):
-            PT2EQuantizationWorkflow(
+            target = PT2EQuantizationModuleTarget(
+                module_path="",
                 pt2e_backend=mock_pt2e_backend_factory(is_qat=True),
+            )
+            PT2EQuantizationWorkflow(
+                targets=[target],
             )
 
     def test_prepare_model_raises_as_unsupported(self, mock_pt2e_backend_factory):
-        workflow = PT2EQuantizationWorkflow(pt2e_backend=mock_pt2e_backend_factory())
+        target = PT2EQuantizationModuleTarget(
+            module_path="",
+            pt2e_backend=mock_pt2e_backend_factory(),
+        )
+        workflow = PT2EQuantizationWorkflow(targets=[target])
 
         with pytest.raises(
             NotImplementedError,
@@ -246,12 +264,12 @@ class TestPT2EQuantizationWorkflow:
         ):
             workflow.prepare_model(model=MagicMock(spec=nn.Module))
 
-    def test_empty_pt2e_modules_returns_exported_unchanged(self):
+    def test_empty_targets_returns_exported_unchanged(self):
         exported = MagicMock(spec=nn.Module)
 
         result = PT2EQuantizationWorkflow._convert_exported_model(
             exported=exported,
-            pt2e_modules=[],
+            targets=[],
             calibration=None,
         )
 
@@ -259,15 +277,15 @@ class TestPT2EQuantizationWorkflow:
 
     def test_build_calibration_returns_none_for_dynamic_targets(
         self,
-        compression_target_factory,
+        pt2e_target_factory,
     ):
-        target = compression_target_factory(needs_calibration=False)
+        target = pt2e_target_factory(needs_calibration=False)
 
         with patch(f"{PT2E_WORKFLOW_MODULE}.get_dataloaders") as mock_dataloaders:
             result = PT2EQuantizationWorkflow._build_calibration(
                 context=MagicMock(),
                 exportable=MagicMock(),
-                pt2e_modules=[target],
+                targets=[target],
                 calibration_steps=8,
             )
 
@@ -276,9 +294,9 @@ class TestPT2EQuantizationWorkflow:
 
     def test_build_calibration_uses_training_dataloader_for_static_targets(
         self,
-        compression_target_factory,
+        pt2e_target_factory,
     ):
-        target = compression_target_factory(needs_calibration=True)
+        target = pt2e_target_factory(needs_calibration=True)
         context = MagicMock()
         context.config = MagicMock()
         exportable = MagicMock()
@@ -299,7 +317,7 @@ class TestPT2EQuantizationWorkflow:
             result = PT2EQuantizationWorkflow._build_calibration(
                 context=context,
                 exportable=exportable,
-                pt2e_modules=[target],
+                targets=[target],
                 calibration_steps=8,
             )
 
@@ -331,38 +349,67 @@ class TestPT2EQuantizationWorkflow:
     )
     def test_pt2e_calibration_validation(
         self,
-        compression_target_factory,
+        pt2e_target_factory,
         pt2e_mocks,
         needs_calibration,
         has_calibration,
         expectation,
     ):
-        target = compression_target_factory(needs_calibration=needs_calibration)
+        target = pt2e_target_factory(needs_calibration=needs_calibration)
         calibration = MagicMock() if has_calibration else None
 
         with expectation:
             PT2EQuantizationWorkflow._convert_exported_model(
                 exported=MagicMock(spec=nn.Module),
-                pt2e_modules=[target],
+                targets=[target],
                 calibration=calibration,
             )
 
     def test_pt2e_uses_composable_quantizer(
         self,
-        compression_target_factory,
+        pt2e_target_factory,
         pt2e_mocks,
     ):
-        target = compression_target_factory(module_path="encoder")
+        target = pt2e_target_factory(module_path="encoder")
 
         PT2EQuantizationWorkflow._convert_exported_model(
             exported=MagicMock(spec=nn.Module),
-            pt2e_modules=[target],
+            targets=[target],
             calibration=None,
         )
 
-        target.quantization.pt2e_backend.create_quantizer.assert_called_once_with(
+        target.pt2e_backend.create_quantizer.assert_called_once_with(
             module_path="encoder",
         )
         pt2e_mocks["composer"].assert_called_once()
         pt2e_mocks["prepare"].assert_called_once()
         pt2e_mocks["convert"].assert_called_once()
+
+    def test_pt2e_builds_one_quantizer_per_target(
+        self,
+        pt2e_target_factory,
+        pt2e_mocks,
+    ):
+        targets = [
+            pt2e_target_factory(module_path="encoder"),
+            pt2e_target_factory(module_path="decoder"),
+        ]
+
+        PT2EQuantizationWorkflow._convert_exported_model(
+            exported=MagicMock(spec=nn.Module),
+            targets=targets,
+            calibration=None,
+        )
+
+        targets[0].pt2e_backend.create_quantizer.assert_called_once_with(
+            module_path="encoder",
+        )
+        targets[1].pt2e_backend.create_quantizer.assert_called_once_with(
+            module_path="decoder",
+        )
+        pt2e_mocks["composer"].assert_called_once_with(
+            [
+                targets[0].pt2e_backend.create_quantizer.return_value,
+                targets[1].pt2e_backend.create_quantizer.return_value,
+            ],
+        )

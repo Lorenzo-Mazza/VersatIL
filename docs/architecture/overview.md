@@ -199,15 +199,15 @@ Both spaces expose `get_required_zarr_keys()` to declare which keys must exist i
 
 ## From Training to Deployment
 
-After training, a policy checkpoint can be deployed directly via [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] (float inference with `torch.compile`) or compressed first for edge deployment:
+After training, a policy checkpoint can be deployed directly via [`PolicyRuntime`][versatil.inference.policy_runtime.base.PolicyRuntime], either using floating-point inference (optionally with `torch.compile`) or a compressed backend-specific artifact for edge deployment:
 
 ```
 Training checkpoint (.ckpt)
   → PostTrainingCompressor.compress()
     → Preparation → Pruning → Quantization
-  → Compressed checkpoint (.pt2)
-    → CompressedPolicyLoader
+  → Compressed checkpoint (metadata + .pt2/.pte artifact)
+    → CompressedPolicyRuntime
       → InferenceClient (ZMQ transport to robot/simulation)
 ```
 
-Both [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] and [`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.
+Both [`FloatPolicyRuntime`][versatil.inference.policy_runtime.float_runtime.FloatPolicyRuntime] and [`CompressedPolicyRuntime`][versatil.inference.policy_runtime.compressed_runtime.CompressedPolicyRuntime] implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.

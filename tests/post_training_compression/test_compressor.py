@@ -13,14 +13,19 @@ import torch.nn as nn
 
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.post_training_compression.compression_target import CompressionTarget
+from versatil.post_training_compression.constants import (
+    ArtifactFormat,
+    DeploymentBackendName,
+)
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentArtifact,
+)
 from versatil.post_training_compression.pruning.base import BasePruner
 from versatil.post_training_compression.pruning.structured import StructuredPruner
 from versatil.post_training_compression.pruning.unstructured import UnstructuredPruner
 from versatil.quantization.constants import QuantizationMode
-from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
-from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
-from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 COMPRESSOR_MODULE = "versatil.post_training_compression.compressor"
 
@@ -80,55 +85,16 @@ class TestPostTrainingCompressorValidate:
                 modules=compressor.resolve_modules(),
             )
 
-    def test_raises_when_mixing_pt2e_and_eager(
-        self,
-        policy_with_submodules,
-        compressor_factory,
-    ):
-        compressor = compressor_factory(
-            modules=[
-                CompressionTarget(
-                    module_path="backbone",
-                    quantization=PT2EQuantizationWorkflow(
-                        pt2e_backend=X86InductorBackend()
-                    ),
-                ),
-                CompressionTarget(
-                    module_path="decoder",
-                    quantization=EagerQuantizationWorkflow(
-                        quantize_config=MagicMock(spec=[])
-                    ),
-                ),
-            ],
-        )
-
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                "PT2E and eager quantization workflows cannot be combined. "
-                "PT2E operates on the exported FX graph while "
-                "eager quantization requires nn.Module submodules. "
-                "Use one workflow per compression run."
-            ),
-        ):
-            compressor.validate(
-                policy=policy_with_submodules,
-                modules=compressor.resolve_modules(),
-            )
-
     def test_global_mode_validation_uses_resolved_modules(
         self,
         policy_with_submodules,
         compressor_factory,
     ):
-        compressor = compressor_factory(
-            quantization=PT2EQuantizationWorkflow(pt2e_backend=X86InductorBackend()),
-        )
-        # Global mode: self.modules is empty, resolve_modules() creates root target
+        compressor = compressor_factory()
         resolved = compressor.resolve_modules()
+
         assert len(resolved) == 1
         assert resolved[0].module_path == ""
-        # Validation should run on resolved modules, not the empty self.modules
         compressor.validate(policy=policy_with_submodules, modules=resolved)
 
     def test_multiple_modules_with_one_invalid_path(
@@ -170,11 +136,9 @@ class TestResolveModules:
     ):
         preparation = PreparationConfig()
         pruning = [MagicMock(), MagicMock()]
-        quantization = PT2EQuantizationWorkflow(pt2e_backend=X86InductorBackend())
         compressor = compressor_factory(
             preparation=preparation,
             pruning=pruning,
-            quantization=quantization,
             generate_report=generate_report,
         )
 
@@ -186,7 +150,6 @@ class TestResolveModules:
         assert resolved[0].module_path == ""
         assert resolved[0].preparation is preparation
         assert resolved[0].pruning is pruning
-        assert resolved[0].quantization is quantization
 
 
 @pytest.mark.unit
@@ -342,55 +305,24 @@ class TestPrepareAndPrune:
 
 @pytest.mark.unit
 class TestQuantizationSelection:
-    def test_returns_first_configured_quantization(self, compressor_factory):
-        quantization = EagerQuantizationWorkflow(quantize_config=MagicMock(spec=[]))
-        compressor = compressor_factory()
-        modules = [
-            CompressionTarget(module_path="encoder", quantization=None),
-            CompressionTarget(module_path="decoder", quantization=quantization),
-        ]
+    def test_returns_configured_quantization(self, compressor_factory):
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        compressor = compressor_factory(quantization=quantization)
 
-        result = compressor._resolve_quantization_workflow(modules=modules)
+        result = compressor._resolve_quantization_workflow()
 
         assert result is quantization
 
-    def test_returns_no_quantization_workflow_when_no_target_has_quantization(
+    def test_returns_no_quantization_workflow_when_no_workflow_is_configured(
         self,
         compressor_factory,
     ):
         compressor = compressor_factory()
-        modules = [
-            CompressionTarget(module_path="encoder", quantization=None),
-            CompressionTarget(module_path="decoder", quantization=None),
-        ]
 
-        result = compressor._resolve_quantization_workflow(modules=modules)
+        result = compressor._resolve_quantization_workflow()
 
         assert isinstance(result, NoQuantizationWorkflow)
         assert result.quantization_mode == QuantizationMode.NONE.value
-
-    def test_rejects_mixed_quantization_modes(self, compressor_factory):
-        compressor = compressor_factory()
-        modules = [
-            CompressionTarget(
-                module_path="encoder",
-                quantization=PT2EQuantizationWorkflow(
-                    pt2e_backend=X86InductorBackend()
-                ),
-            ),
-            CompressionTarget(
-                module_path="decoder",
-                quantization=EagerQuantizationWorkflow(
-                    quantize_config=MagicMock(spec=[]),
-                ),
-            ),
-        ]
-
-        with pytest.raises(
-            ValueError,
-            match=re.escape("Compression targets cannot mix quantization modes."),
-        ):
-            compressor._resolve_quantization_workflow(modules=modules)
 
     def test_unknown_backend_is_rejected(self, compressor_factory):
         compressor = compressor_factory()
@@ -399,10 +331,92 @@ class TestQuantizationSelection:
             ValueError,
             match=re.escape("Unknown deployment backend 'unknown_backend'."),
         ):
-            compressor._validate_backend_compatibility(
-                backend_name="unknown_backend",
+            compressor._validate_deployment_backend_compatibility(
+                deployment_backend_name="unknown_backend",
                 mode=QuantizationMode.EAGER.value,
             )
+
+
+@pytest.mark.unit
+class TestCompressOrchestration:
+    def test_validates_quantization_targets_before_workflow_export(
+        self,
+        compressor_factory,
+    ):
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        quantization.quantization_mode = QuantizationMode.EAGER.value
+        context = MagicMock()
+        policy = nn.Module()
+        policy.input_keys = ["observation"]
+        policy.output_keys = ["action"]
+        policy.normalizer = MagicMock()
+        context.policy = policy
+        quantization.load_policy_context.return_value = context
+        quantized = MagicMock()
+        quantized.float_model = MagicMock(spec=nn.Module)
+        quantized.quantized_model = MagicMock(spec=nn.Module)
+        quantized.example_inputs = (MagicMock(),)
+        quantized.quantization_workflow = QuantizationMode.EAGER.value
+        quantization.quantize.return_value = quantized
+        backend = MagicMock()
+        backend.name = DeploymentBackendName.TORCH_INDUCTOR.value
+        backend.export.return_value = DeploymentArtifact(
+            converted_model=quantized.quantized_model,
+            example_inputs=quantized.example_inputs,
+            model_filename="compressed_policy.pt2",
+            artifact_format=ArtifactFormat.TORCH_EXPORT_PT2,
+            backend_name=DeploymentBackendName.TORCH_INDUCTOR.value,
+        )
+        exportable = MagicMock()
+        exportable.observation_keys = ["observation"]
+        exportable.action_keys = ["action"]
+        hydra_config = MagicMock()
+        compressor = compressor_factory(
+            quantization=quantization,
+            deployment_backend=backend,
+            output_directory="/tmp/compressed",
+        )
+
+        with (
+            patch(
+                f"{COMPRESSOR_MODULE}.ExportablePolicy.from_policy",
+                return_value=exportable,
+            ) as mock_exportable_factory,
+            patch(f"{COMPRESSOR_MODULE}.save_compressed_model") as mock_save,
+        ):
+            result = compressor.compress(hydra_config=hydra_config)
+
+        quantization.load_policy_context.assert_called_once_with(
+            checkpoint_path=compressor.checkpoint_path,
+            checkpoint_name=compressor.checkpoint_name,
+        )
+        quantization.validate_targets.assert_called_once_with(model=policy)
+        mock_exportable_factory.assert_called_once_with(policy)
+        quantization.quantize.assert_called_once_with(
+            context=context,
+            exportable=exportable,
+            calibration_steps=compressor.calibration_steps,
+        )
+        backend.export.assert_called_once_with(
+            model=quantized.quantized_model,
+            example_inputs=quantized.example_inputs,
+        )
+        mock_save.assert_called_once_with(
+            converted_model=quantized.quantized_model,
+            example_inputs=quantized.example_inputs,
+            save_directory="/tmp/compressed",
+            input_keys=policy.input_keys,
+            output_keys=policy.output_keys,
+            normalizer=policy.normalizer,
+            training_checkpoint_path=compressor.checkpoint_path,
+            quantization_config=hydra_config,
+            quantization_workflow=quantized.quantization_workflow,
+            model_filename="compressed_policy.pt2",
+            artifact_format=ArtifactFormat.TORCH_EXPORT_PT2.value,
+            backend_name=DeploymentBackendName.TORCH_INDUCTOR.value,
+            model_bytes=None,
+        )
+        assert result == "/tmp/compressed"
 
 
 @pytest.mark.integration

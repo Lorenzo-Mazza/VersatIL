@@ -30,7 +30,7 @@ class TestNoQuantizationWorkflow:
 
         model.assert_not_called()
 
-    def test_load_policy_context_delegates_to_float_loader(self):
+    def test_load_policy_context_delegates_to_float_context_loader(self):
         workflow = NoQuantizationWorkflow()
         expected_context = MagicMock()
 
@@ -72,7 +72,6 @@ class TestNoQuantizationWorkflow:
             result = workflow.quantize(
                 context=context,
                 exportable=exportable,
-                modules=[],
                 calibration_steps=8,
             )
 

@@ -8,8 +8,8 @@ import torch.nn as nn
 
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionBackendName,
     CompressionFilename,
+    DeploymentBackendName,
 )
 from versatil.post_training_compression.deployment_backends.torch_inductor import (
     TorchInductorBackend,
@@ -31,4 +31,4 @@ def test_torch_inductor_backend_returns_pt2_artifact_descriptor():
     assert artifact.model_bytes is None
     assert artifact.model_filename == CompressionFilename.COMPRESSED_MODEL.value
     assert artifact.artifact_format == ArtifactFormat.TORCH_EXPORT_PT2
-    assert artifact.backend_name == CompressionBackendName.TORCH_INDUCTOR.value
+    assert artifact.backend_name == DeploymentBackendName.TORCH_INDUCTOR.value

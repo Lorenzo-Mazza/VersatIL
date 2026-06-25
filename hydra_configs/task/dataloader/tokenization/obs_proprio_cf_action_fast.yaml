@@ -14,4 +14,4 @@ action_tokenizer:
     use_pretrained: false
   token_id_mapping:
     type: ${action_token_id_mapping:IDENTITY}
-  max_token_len: 64
+  max_token_len: 128

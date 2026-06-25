@@ -156,9 +156,11 @@ from versatil.configs.post_training_compression import (
 )
 from versatil.configs.quantization import (
     BasePT2EBackendConfig,
+    EagerQuantizationModuleTargetConfig,
     EagerQuantizationWorkflowConfig,
     Int4WeightOnlyQuantizeConfig,
     Int8DynamicQuantizeConfig,
+    PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
     X86InductorBackendConfig,
 )
@@ -304,8 +306,10 @@ __all__ = [
     "PhaseClassificationLossConfig",
     "BasePT2EBackendConfig",
     "BasePrunerConfig",
+    "EagerQuantizationModuleTargetConfig",
     "Int4WeightOnlyQuantizeConfig",
     "Int8DynamicQuantizeConfig",
+    "PT2EQuantizationModuleTargetConfig",
     "CompressionTargetConfig",
     "EagerQuantizationWorkflowConfig",
     "PT2EQuantizationWorkflowConfig",
@@ -1148,12 +1152,12 @@ def register_configs() -> None:
         node=StructuredPrunerConfig,
     )
     cs.store(
-        group="compression/backend",
+        group="compression/deployment_backend",
         name="torch_inductor",
         node=TorchInductorBackendConfig,
     )
     cs.store(
-        group="compression/backend",
+        group="compression/deployment_backend",
         name="executorch_xnnpack",
         node=ExecutorchXNNPACKBackendConfig,
     )
@@ -1166,6 +1170,16 @@ def register_configs() -> None:
         group="quantization/workflow",
         name="eager",
         node=EagerQuantizationWorkflowConfig,
+    )
+    cs.store(
+        group="quantization/target",
+        name="eager",
+        node=EagerQuantizationModuleTargetConfig,
+    )
+    cs.store(
+        group="quantization/target",
+        name="pt2e",
+        node=PT2EQuantizationModuleTargetConfig,
     )
     cs.store(
         group="quantization/backend",

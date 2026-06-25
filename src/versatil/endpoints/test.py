@@ -7,9 +7,11 @@ import os
 import torch
 
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
-from versatil.inference.policy_loading.float_loader import PolicyLoader
-from versatil.inference.protocol import PolicyInference
+from versatil.inference.policy_runtime.base import PolicyRuntime
+from versatil.inference.policy_runtime.compressed_runtime import (
+    CompressedPolicyRuntime,
+)
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
@@ -102,12 +104,12 @@ def load_policy(
     device: torch.device,
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
     compile_model: bool = True,
-) -> PolicyInference:
+) -> PolicyRuntime:
     """Load a policy for inference, auto-detecting compressed checkpoints.
 
     Inspects the checkpoint directory for compression/quantization metadata.
-    If found, returns a CompressedPolicyLoader. Otherwise returns a
-    standard PolicyLoader.
+    If found, returns a compressed policy runtime. Otherwise returns a
+    floating-point policy runtime.
 
     Args:
         checkpoint_path: Path to the checkpoint directory.
@@ -116,19 +118,19 @@ def load_policy(
         compile_model: Whether to compile the model with torch.compile.
 
     Returns:
-        A PolicyInference-compatible loader.
+        Runtime capable of policy inference.
     """
     compression_metadata = os.path.join(
         checkpoint_path, CompressionFilename.COMPRESSION_METADATA.value
     )
     if os.path.exists(compression_metadata):
-        return CompressedPolicyLoader(
+        return CompressedPolicyRuntime(
             device=device,
             checkpoint_path=checkpoint_path,
             compile_model=compile_model,
         )
     else:
-        return PolicyLoader(
+        return FloatPolicyRuntime(
             device=device,
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
@@ -154,7 +156,7 @@ def main() -> None:
     if device == torch.device("cpu"):
         logging.warning("Running on CPU. Consider using a GPU for better performance.")
 
-    policy_loader = load_policy(
+    policy_runtime = load_policy(
         checkpoint_path=args.checkpoint_path,
         device=device,
         checkpoint_name=args.checkpoint_name,
@@ -171,7 +173,7 @@ def main() -> None:
     )
 
     client = InferenceClient(
-        policy_loader=policy_loader,
+        policy_runtime=policy_runtime,
         observation_transport=observation_transport,
         action_transport=action_transport,
         temporal_aggregation=args.temporal_aggregation,

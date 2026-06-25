@@ -13,6 +13,7 @@ from torchao.quantization import (
 )
 
 from versatil.models.policy import Policy
+from versatil.quantization.module_target import EagerQuantizationModuleTarget
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 
 FAKE_QUANTIZED_LINEAR_CLASS_NAME = "FakeQuantizedLinear"
@@ -68,12 +69,15 @@ def test_language_action_transformer_qat_forward_backward(
     fake_quantized_linear_count = sum(
         1 for module in policy.modules() if _is_fake_quantized_linear(module=module)
     )
+    prepared_module_count = sum(
+        len(prepared.module_names) for prepared in qat_workflow._prepared_targets
+    )
     nonzero_gradient_count = _nonzero_gradient_count(module=policy)
 
     assert torch.isfinite(warmup_loss)
     assert torch.isfinite(loss_output.total_loss)
-    assert len(qat_workflow._prepared_module_names) > 0
-    assert fake_quantized_linear_count == len(qat_workflow._prepared_module_names)
+    assert prepared_module_count > 0
+    assert fake_quantized_linear_count == prepared_module_count
     assert nonzero_gradient_count > 0
 
 
@@ -87,9 +91,13 @@ def test_qat_prepare_filters_scoped_group_incompatible_linears(
     model = scoped_linear_model_factory().to(device=device)
     inputs = linear_input_factory(device)
     strategy = EagerQuantizationWorkflow(
-        quantize_config=Int4WeightOnlyConfig(group_size=32),
+        targets=[
+            EagerQuantizationModuleTarget(
+                module_path="encoder",
+                quantize_config=Int4WeightOnlyConfig(group_size=32),
+            )
+        ],
         is_qat=True,
-        module_paths=["encoder"],
     )
 
     strategy.prepare_model(model=model)
@@ -127,7 +135,15 @@ def test_qat_convert_runs_supported_torchao_configs(
     device = torch.device("cuda")
     model = scoped_linear_model_factory().to(device=device)
     inputs = linear_input_factory(device)
-    strategy = EagerQuantizationWorkflow(quantize_config=quantize_config, is_qat=True)
+    strategy = EagerQuantizationWorkflow(
+        targets=[
+            EagerQuantizationModuleTarget(
+                module_path="",
+                quantize_config=quantize_config,
+            )
+        ],
+        is_qat=True,
+    )
 
     strategy.prepare_model(model=model)
     prepared_output = model(inputs)

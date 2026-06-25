@@ -6,10 +6,16 @@ from hydra.errors import InstantiationException
 from omegaconf import OmegaConf
 
 from versatil.configs.quantization import (
+    EagerQuantizationModuleTargetConfig,
     EagerQuantizationWorkflowConfig,
     Int4WeightOnlyQuantizeConfig,
+    PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
     X86InductorBackendConfig,
+)
+from versatil.quantization.module_target import (
+    EagerQuantizationModuleTarget,
+    PT2EQuantizationModuleTarget,
 )
 from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
@@ -43,16 +49,21 @@ class TestPT2EQuantizationWorkflowConfig:
         result = hydra.utils.instantiate(config)
 
         assert isinstance(result, PT2EQuantizationWorkflow)
+        assert isinstance(result.targets[0], PT2EQuantizationModuleTarget)
         assert isinstance(result.pt2e_backend, X86InductorBackend)
 
     @pytest.mark.parametrize("is_dynamic", [True, False])
     def test_propagates_backend_config(self, is_dynamic):
         config = OmegaConf.structured(
             PT2EQuantizationWorkflowConfig(
-                pt2e_backend=X86InductorBackendConfig(
-                    is_dynamic=is_dynamic,
-                    is_qat=False,
-                ),
+                targets=[
+                    PT2EQuantizationModuleTargetConfig(
+                        pt2e_backend=X86InductorBackendConfig(
+                            is_dynamic=is_dynamic,
+                            is_qat=False,
+                        ),
+                    ),
+                ],
             )
         )
 
@@ -64,9 +75,13 @@ class TestPT2EQuantizationWorkflowConfig:
     def test_rejects_qat_backend_config(self):
         config = OmegaConf.structured(
             PT2EQuantizationWorkflowConfig(
-                pt2e_backend=X86InductorBackendConfig(
-                    is_qat=True,
-                ),
+                targets=[
+                    PT2EQuantizationModuleTargetConfig(
+                        pt2e_backend=X86InductorBackendConfig(
+                            is_qat=True,
+                        ),
+                    ),
+                ],
             )
         )
 
@@ -82,21 +97,30 @@ class TestEagerQuantizationWorkflowConfig:
     def test_hydra_instantiates_with_int4_config(self):
         config = OmegaConf.structured(
             EagerQuantizationWorkflowConfig(
-                quantize_config=Int4WeightOnlyQuantizeConfig(
-                    group_size=64,
-                ),
+                targets=[
+                    EagerQuantizationModuleTargetConfig(
+                        quantize_config=Int4WeightOnlyQuantizeConfig(
+                            group_size=64,
+                        ),
+                    ),
+                ],
             )
         )
 
         result = hydra.utils.instantiate(config)
 
         assert isinstance(result, EagerQuantizationWorkflow)
-        assert result.quantize_config.group_size == 64
+        assert isinstance(result.targets[0], EagerQuantizationModuleTarget)
+        assert result.targets[0].quantize_config.group_size == 64
 
     def test_hydra_instantiates_qat_variant(self):
         config = OmegaConf.structured(
             EagerQuantizationWorkflowConfig(
-                quantize_config=Int4WeightOnlyQuantizeConfig(),
+                targets=[
+                    EagerQuantizationModuleTargetConfig(
+                        quantize_config=Int4WeightOnlyQuantizeConfig(),
+                    ),
+                ],
                 is_qat=True,
             )
         )

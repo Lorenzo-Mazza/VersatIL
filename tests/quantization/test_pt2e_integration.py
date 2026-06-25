@@ -17,7 +17,6 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     get_default_x86_inductor_quantization_config,
 )
 
-from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.constants import PrunableLayerType
 from versatil.post_training_compression.preparation.batchnorm import (
     prepare_batchnorms_for_quantization,
@@ -30,6 +29,7 @@ from versatil.post_training_compression.pruning import (
     StructuredPruner,
     UnstructuredPruner,
 )
+from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 
@@ -259,24 +259,20 @@ class TestPT2EQuantizationWorkflowIntegration:
                 ),
             ]
         )
-        modules = [
-            CompressionTarget(
+        targets = [
+            PT2EQuantizationModuleTarget(
                 module_path="encoder.0",
-                quantization=PT2EQuantizationWorkflow(
-                    pt2e_backend=x86_inductor_backend_factory(is_dynamic=False),
-                ),
+                pt2e_backend=x86_inductor_backend_factory(is_dynamic=False),
             ),
-            CompressionTarget(
+            PT2EQuantizationModuleTarget(
                 module_path="decoder.0",
-                quantization=PT2EQuantizationWorkflow(
-                    pt2e_backend=x86_inductor_backend_factory(is_dynamic=False),
-                ),
+                pt2e_backend=x86_inductor_backend_factory(is_dynamic=False),
             ),
         ]
 
         converted = PT2EQuantizationWorkflow._convert_exported_model(
             exported=exported,
-            pt2e_modules=modules,
+            targets=targets,
             calibration=calibration,
         )
 

@@ -16,6 +16,9 @@ pruning:
     amount: 0.5
 quantization:
   _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
-  pt2e_backend:
-    _target_: versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend
-    is_dynamic: false
+  targets:
+    - _target_: versatil.quantization.module_target.PT2EQuantizationModuleTarget
+      module_path: ""
+      pt2e_backend:
+        _target_: versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend
+        is_dynamic: false

@@ -1221,6 +1221,7 @@ def test_inference_forward_runs_real_vlm_cached_decode(
     decoder.valid_generation_token_ids = torch.arange(vlm_backbone.get_vocab_size())
     decoder.eos_token_id = -1
     decoder.tokenizer = MagicMock(spec=ActionTokenizer)
+    decoder.tokenizer.action_discretizer = MagicMock(spec=ActionDiscretizer)
     decoder.tokenizer.max_token_len = 2
     prefix_token_ids = torch.arange(
         BATCH_SIZE * prefix_length,

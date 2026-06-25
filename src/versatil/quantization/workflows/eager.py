@@ -1,15 +1,14 @@
 """Eager torchao quantization workflow."""
 
 import logging
+from dataclasses import dataclass
 
 import torch.nn as nn
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import QATConfig
-from torchao.quantization.quant_api import AOBaseConfig
 
 from versatil.models.exportable_policy import ExportablePolicy
-from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.export import (
     build_example_inputs,
@@ -20,6 +19,7 @@ from versatil.post_training_compression.policy_loading import (
     load_qat_policy_context,
 )
 from versatil.quantization.constants import QuantizationMode
+from versatil.quantization.module_target import EagerQuantizationModuleTarget
 from versatil.quantization.workflows.base import (
     BaseQuantizationWorkflow,
     PolicyContext,
@@ -29,60 +29,75 @@ from versatil.quantization.workflows.base import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class _PreparedEagerTarget:
+    """QAT target torch module state, captured after fake-quant preparation.
+
+    Attributes:
+        target: Eager quantization target whose config prepared the modules.
+        module_names: Fully qualified module names selected during preparation.
+            Conversion reuses this set so only prepared modules are converted.
+    """
+
+    target: EagerQuantizationModuleTarget
+    module_names: set[str]
+
+
 class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
     """Eager torchao quantization workflow for PTQ and QAT."""
 
     def __init__(
         self,
-        quantize_config: AOBaseConfig,
+        targets: list[EagerQuantizationModuleTarget],
         is_qat: bool = False,
-        module_paths: list[str] | None = None,
         auto_filter_incompatible_linears: bool = True,
     ) -> None:
         """Initialize eager torchao quantization.
 
         Args:
-            quantize_config: torchao quantization config. For QAT this is
-                wrapped in ``QATConfig`` during prepare and convert.
+            targets: Module-level eager quantization targets.
             is_qat: Whether this workflow is used for QAT checkpoint training
                 and conversion.
-            module_paths: Dotted module paths to scope QAT. Empty means all
-                eligible linear modules in the model.
             auto_filter_incompatible_linears: Whether to skip linears whose
                 ``in_features`` are incompatible with the config group size.
         """
-        self.quantize_config = quantize_config
+        if not targets:
+            raise ValueError("EagerQuantizationWorkflow requires at least one target.")
+        self._targets = targets
         self._is_qat = is_qat
-        self.module_paths = module_paths or []
         self.auto_filter_incompatible_linears = auto_filter_incompatible_linears
-        self._prepared_module_names: set[str] = set()
+        self._prepared_targets: list[_PreparedEagerTarget] = []
+
+    @property
+    def targets(self) -> list[EagerQuantizationModuleTarget]:
+        """Return eager quantization targets."""
+        return self._targets
 
     @property
     def quantization_mode(self) -> str:
-        """Return ``eager`` because this workflow mutates modules before export."""
+        """Return quantization mode name."""
         return QuantizationMode.EAGER.value
-
-    @property
-    def quantization_workflow(self) -> str:
-        """Return the serialized quantization workflow value."""
-        return QuantizationWorkflow.EAGER.value
 
     @property
     def is_qat(self) -> bool:
         """Return whether this eager workflow handles QAT checkpoints."""
         return self._is_qat
 
-    @property
-    def base_config(self) -> AOBaseConfig:
-        """Compatibility alias for QAT configs."""
-        return self.quantize_config
-
     def load_policy_context(
         self,
         checkpoint_path: str,
         checkpoint_name: str,
     ) -> PolicyContext:
-        """Load a float or QAT-prepared checkpoint."""
+        """Load a float or QAT-prepared checkpoint.
+
+        Args:
+            checkpoint_path: Directory containing the training checkpoint.
+            checkpoint_name: Checkpoint filename to load from the directory.
+
+        Returns:
+            Float policy context for PTQ, or QAT-prepared policy context for
+            QAT conversion.
+        """
         if self.is_qat:
             return load_qat_policy_context(
                 checkpoint_path=checkpoint_path,
@@ -98,14 +113,23 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         self,
         context: PolicyContext,
         exportable: ExportablePolicy,
-        modules: list[CompressionTarget],
         calibration_steps: int,
     ) -> QuantizedContext:
-        """Apply eager quantization and export the policy."""
+        """Apply eager quantization and export the policy.
+
+        Args:
+            context: Loaded policy context containing the eager policy to
+                mutate.
+            exportable: Export wrapper around the same policy.
+            calibration_steps: Unused for eager quantization.
+
+        Returns:
+            Exported eager-quantized model and example inputs for deployment.
+        """
         if self.is_qat:
             self.convert_model(model=context.policy)
         else:
-            self._apply_ptq(model=context.policy, modules=modules)
+            self._apply_ptq(model=context.policy)
 
         example_inputs = build_example_inputs(
             exportable=exportable,
@@ -118,87 +142,127 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             float_model=exported,
             quantized_model=exported,
             example_inputs=example_inputs,
-            quantization_workflow=self.quantization_workflow,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
     def prepare_model(self, model: nn.Module) -> None:
-        """Apply fake quantization modules in-place before QAT training."""
+        """Apply fake quantization modules in-place before QAT training.
+
+        Args:
+            model: Policy model to prepare for QAT.
+
+        Raises:
+            ValueError: If the workflow is not a QAT workflow, if a target path
+                is invalid, or if a target selects no eligible ``nn.Linear``
+                modules.
+        """
         if not self.is_qat:
             raise ValueError("prepare_model() requires is_qat=True.")
-        selected, skipped = self._select_linear_modules(model=model)
-        if not selected:
-            skipped_text = "; ".join(f"{name}: {reason}" for name, reason in skipped)
-            raise ValueError(
-                "QAT selected zero eligible nn.Linear modules. "
-                f"Skipped modules: {skipped_text or 'none'}."
+        self.validate_targets(model=model)
+        self._prepared_targets = []
+        for target in self.targets:
+            selected, skipped = self._select_linear_modules(
+                model=model,
+                target=target,
             )
-        selected_names = set(selected)
-        self._prepared_module_names = selected_names
-        for name, reason in skipped:
-            logger.info("Skipping QAT module %s: %s", name, reason)
-        logger.info(
-            "Preparing %d nn.Linear modules for QAT with %s.",
-            len(selected_names),
-            type(self.quantize_config).__name__,
-        )
-        quantize_(
-            model=model,
-            config=QATConfig(base_config=self.quantize_config, step="prepare"),
-            filter_fn=lambda module, fqn: fqn in selected_names,
-        )
+            if not selected:
+                skipped_text = "; ".join(
+                    f"{name}: {reason}" for name, reason in skipped
+                )
+                raise ValueError(
+                    f"QAT target '{target.label}' selected zero eligible "
+                    "nn.Linear modules. "
+                    f"Skipped modules: {skipped_text or 'none'}."
+                )
+            selected_names = set(selected)
+            self._prepared_targets.append(
+                _PreparedEagerTarget(
+                    target=target,
+                    module_names=selected_names,
+                )
+            )
+            for name, reason in skipped:
+                logger.info("Skipping QAT module %s: %s", name, reason)
+            logger.info(
+                "Preparing %d nn.Linear modules in %s for QAT with %s.",
+                len(selected_names),
+                target.label,
+                type(target.quantize_config).__name__,
+            )
+            quantize_(
+                model=model,
+                config=QATConfig(base_config=target.quantize_config, step="prepare"),
+                filter_fn=lambda module, fqn, names=selected_names: fqn in names,
+            )
 
     def convert_model(self, model: nn.Module) -> None:
-        """Convert prepared fake-quant modules to quantized modules in-place."""
+        """Convert prepared fake-quant modules to quantized modules in-place.
+
+        Args:
+            model: Policy model previously prepared by ``prepare_model()``.
+
+        Raises:
+            ValueError: If the workflow is not a QAT workflow, or if
+                ``prepare_model()`` has not captured prepared targets.
+        """
         if not self.is_qat:
             raise ValueError("convert_model() requires is_qat=True.")
-        if not self._prepared_module_names:
+        if not self._prepared_targets:
             raise ValueError("QAT convert_model() requires prepare_model() first.")
-        selected_names = set(self._prepared_module_names)
-        quantize_(
-            model=model,
-            config=QATConfig(base_config=self.quantize_config, step="convert"),
-            filter_fn=lambda module, fqn: fqn in selected_names,
-        )
+        for prepared in self._prepared_targets:
+            selected_names = set(prepared.module_names)
+            quantize_(
+                model=model,
+                config=QATConfig(
+                    base_config=prepared.target.quantize_config,
+                    step="convert",
+                ),
+                filter_fn=lambda module, fqn, names=selected_names: fqn in names,
+            )
 
-    @staticmethod
-    def _apply_ptq(model: nn.Module, modules: list[CompressionTarget]) -> None:
-        """Apply eager PTQ to targeted modules."""
-        eager_modules = [
-            module
-            for module in modules
-            if isinstance(module.quantization, EagerQuantizationWorkflow)
-            and not module.quantization.is_qat
-        ]
-        for module in eager_modules:
-            module_path = module.module_path
-            label = module_path or "(root)"
-            logger.info("quantize_() target: %s", label)
+    def _apply_ptq(self, model: nn.Module) -> None:
+        """Apply eager PTQ to targeted modules.
 
-            if module_path == "":
-                quantize_(model, module.quantization.quantize_config)
-            else:
-                quantize_(
-                    model,
-                    module.quantization.quantize_config,
-                    filter_fn=lambda mod, fqn, mp=module_path: (
-                        (fqn == mp or fqn.startswith(mp + "."))
-                        and isinstance(mod, nn.Linear)
-                    ),
-                )
+        Args:
+            model: Policy model to quantize in-place.
+
+        Raises:
+            ValueError: If a target path is invalid or targets overlap.
+        """
+        self.validate_targets(model=model)
+        for target in self.targets:
+            logger.info("quantize_() target: %s", target.label)
+            quantize_(
+                model=model,
+                config=target.quantize_config,
+                filter_fn=lambda module, fqn, current=target: (
+                    current.contains_module(module_name=fqn)
+                    and isinstance(module, nn.Linear)
+                ),
+            )
 
     def _select_linear_modules(
         self,
         model: nn.Module,
+        target: EagerQuantizationModuleTarget,
     ) -> tuple[list[str], list[tuple[str, str]]]:
-        """Return selected and skipped linear module names."""
-        self._validate_module_paths(model=model)
-        group_size = self._weight_group_size()
+        """Return selected and skipped linear module names.
+
+        Args:
+            model: Policy model whose modules should be inspected.
+            target: Eager target that scopes the module selection.
+
+        Returns:
+            Two lists: selected fully qualified ``nn.Linear`` module names, and
+            skipped module names paired with skip reasons.
+        """
+        group_size = self._weight_group_size(target=target)
         selected: list[str] = []
         skipped: list[tuple[str, str]] = []
         for name, module in model.named_modules():
             if not isinstance(module, nn.Linear):
                 continue
-            if not self._is_in_scope(module_name=name):
+            if not target.contains_module(module_name=name):
                 continue
             if (
                 self.auto_filter_incompatible_linears
@@ -216,36 +280,22 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             selected.append(name)
         return selected, skipped
 
-    def _validate_module_paths(self, model: nn.Module) -> None:
-        """Validate configured module paths exist on the model."""
-        for module_path in self.module_paths:
-            if module_path == "":
-                continue
-            try:
-                model.get_submodule(module_path)
-            except AttributeError as error:
-                available = list(dict(model.named_children()).keys())
-                raise ValueError(
-                    f"QAT module path '{module_path}' not found in model. "
-                    f"Available top-level modules: {available}."
-                ) from error
+    @staticmethod
+    def _weight_group_size(target: EagerQuantizationModuleTarget) -> int | None:
+        """Return the target config's weight group size when one is declared.
 
-    def _is_in_scope(self, module_name: str) -> bool:
-        """Return whether a module name is inside configured QAT scopes."""
-        if not self.module_paths:
-            return True
-        return any(
-            module_name == module_path or module_name.startswith(module_path + ".")
-            for module_path in self.module_paths
-        )
+        Args:
+            target: Eager target whose torchao config should be inspected.
 
-    def _weight_group_size(self) -> int | None:
-        """Return the config's weight group size when one is declared."""
-        group_size = getattr(self.quantize_config, "group_size", None)
+        Returns:
+            Integer group size for grouped weight quantization, otherwise
+            ``None``.
+        """
+        group_size = getattr(target.quantize_config, "group_size", None)
         if isinstance(group_size, int):
             return group_size
         for attribute_name in ("weight_granularity", "granularity"):
-            granularity = getattr(self.quantize_config, attribute_name, None)
+            granularity = getattr(target.quantize_config, attribute_name, None)
             if isinstance(granularity, PerGroup):
                 return granularity.group_size
         return None

@@ -390,7 +390,7 @@ The inference package connects trained policies to environments (simulation or r
 ObservationTransport.receive()
   → ObservationPreprocessor.parse_response()        # decompress, rotate, parse single/multi env
   → ObservationPreprocessor.transform_camera_observations()  # albumentations, depth clamping, RGB normalization
-  → PolicyLoader.run_inference()                     # autocast + no_grad
+  → PolicyRuntime.run_inference()                    # autocast + no_grad
   → ActionPostprocessor.format_action()              # structured dict, gripper sigmoid, denoising
   → ActionTransport.send()                           # structured actions + metadata
 ```
@@ -407,7 +407,7 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 
 **Transport Protocols** (`protocol.py`): `ObservationTransport` and `ActionTransport` are `typing.Protocol` classes. `socket_transport.py` provides ZMQ implementations. Any transport (HTTP, shared memory, direct function call) can satisfy the protocol.
 
-**Key properties on PolicyLoader**:
+**Key properties on PolicyRuntime**:
 - `denoising_thresholds`: Per-action-key thresholds from policy checkpoint, zeroes small deltas
 - `depth_clamp_range`: Min/max from normalizer stats for depth images
 
@@ -426,22 +426,24 @@ Load policy (CPU)
   → Validate module paths and strategy compatibility
   → Per-target: BN replacement → Conv+BN fusion → Pruning (sequential list)
   → Export to FX graph via torch.export (CPU, dynamic batch)
-  → Quantize: PT2E (static/dynamic) or quantize_() API
-  → Save .pt2 archive + normalizer + metadata → compressed/<timestamp>/
+  → Quantize or export: none, eager, or PT2E workflow
+  → Deployment backend: .pt2 or .pte artifact
+  → Save artifact + normalizer + metadata → compressed/<timestamp>/
   → (Optional) Generate report: op coverage, size reduction, output divergence
 ```
 
-**Two quantization paths**:
+**Quantization workflows**:
 
-| Path | API | When to use | Calibration |
-|------|-----|-------------|-------------|
-| **PT2E** | `prepare_pt2e` → calibrate → `convert_pt2e` | Static quantization, per-module targeting, conv+linear fusion | Required for static, optional for dynamic |
-| **quantize_()** | `torchao.quantization.quantize_()` | Dynamic weight-only quantization (e.g., int8 dynamic, int4 weight-only) | Not needed |
+| Workflow | API | When to use | Calibration |
+|----------|-----|-------------|-------------|
+| **none** | `torch.export` only | Floating-point export | Not needed |
+| **eager** | `torchao.quantization.quantize_()` / `QATConfig` | Eager PTQ or eager QAT conversion | Not needed |
+| **PT2E** | `prepare_pt2e` → calibrate → `convert_pt2e` | Graph quantization with PT2E backend quantizers | Required for static, skipped for dynamic |
 
-PT2E and quantize_() cannot be combined in a single run — PT2E operates on the exported FX graph while quantize_() modifies the eager model.
+Eager and PT2E workflows cannot be combined in a single run. Eager quantization modifies the `nn.Module` before export, while PT2E operates on the exported graph.
 
 **Compression targets** (`CompressionTarget`):
-Each target specifies a `module_path` (dotted path to a submodule, or `""` for the whole policy) and optional `preparation`, `pruning` (list of pruners, applied sequentially), and `quantization` strategy. When the global `modules` list is empty, `resolve_modules()` creates a single root target from the top-level config fields.
+Each target specifies a `module_path` (dotted path to a submodule, or `""` for the whole policy) and optional `preparation` and `pruning` (list of pruners, applied sequentially). Quantization targets live under the selected workflow in `quantization.targets`. When the global `modules` list is empty, `resolve_modules()` creates a single root target from the top-level config fields.
 
 **Pruning** is composable: structured and unstructured pruners can be applied sequentially to the same module. Each pruner in the list runs in order, and sparsity accumulates:
 ```yaml
@@ -452,10 +454,10 @@ pruning:
     amount: 0.2
 ```
 
-**Compressed inference** (`CompressedPolicyLoader`):
-Loads `.pt2` archives, applies `torch.compile` with backend-specific environment (freezing, cpp_wrapper), and runs compiled inference. The backend environment is activated permanently (not via context manager) because `torch.compile` is lazy — the actual inductor compilation happens on the first forward pass.
+**Compressed inference** (`CompressedPolicyRuntime`):
+Loads compressed artifacts through `CompressedCheckpointLoader`. Torch Export `.pt2` artifacts run through PyTorch and can be compiled with `torch.compile` when appropriate. ExecuTorch `.pte` artifacts run through the ExecuTorch adapter on CPU.
 
-**Supported backends**: Currently X86InductorBackend for x86 CPUs. Additional torchao-supported backends can be added by implementing `BasePT2EBackend`. The quantize_() API path is backend-agnostic and supports CUDA, though some torchao configs have batch size constraints on CUDA (see [pytorch/ao#2376](https://github.com/pytorch/ao/issues/2376)).
+**Deployment backends**: `TorchInductorBackend` saves Torch Export `.pt2` artifacts. `ExecutorchXNNPACKBackend` lowers exported programs to ExecuTorch XNNPACK `.pte` artifacts. PT2E quantizer backends, such as `X86InductorBackend`, live under `src/versatil/quantization/pt2e/`.
 
 **Known limitations**:
 - **PT2E export and calibration must run on CPU**: `torch.export` bakes device metadata (`_to_copy(device='cpu')`, `_assert_tensor_metadata(device='cpu')`) into the FX graph. Moving the prepared model to CUDA causes runtime device mismatches.

@@ -31,7 +31,7 @@ from versatil.data.constants import Cameras, ProprioKey
 from versatil.data.metadata import OnTheFlyActionMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
@@ -153,7 +153,7 @@ def mock_policy_loader_factory(
                 ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: 0.001,
             }
 
-        mock = MagicMock(spec=PolicyLoader)
+        mock = MagicMock(spec=FloatPolicyRuntime)
         mock.observation_space = observation_space
         mock.action_space = action_space
         mock.observation_horizon = observation_horizon
@@ -314,7 +314,7 @@ def socket_integration_client(
     socket_action_transport: SocketActionTransport,
 ) -> InferenceClient:
     return InferenceClient(
-        policy_loader=mock_policy_loader,
+        policy_runtime=mock_policy_loader,
         observation_transport=socket_observation_transport,
         action_transport=socket_action_transport,
         action_execution_horizon=mock_policy_loader.action_execution_horizon,
@@ -504,7 +504,7 @@ class TestSocketProtocolEndToEnd:
             inference_side_effect=small_inference,
         )
         client = InferenceClient(
-            policy_loader=loader,
+            policy_runtime=loader,
             observation_transport=socket_observation_transport,
             action_transport=socket_action_transport,
             compression_type=CompressionType.RAW.value,
@@ -558,7 +558,7 @@ class TestTemporalAggregationIntegration:
             inference_side_effect=incrementing_inference,
         )
         client = InferenceClient(
-            policy_loader=loader,
+            policy_runtime=loader,
             observation_transport=socket_observation_transport,
             action_transport=socket_action_transport,
             compression_type=CompressionType.RAW.value,
@@ -608,7 +608,7 @@ class TestObservationHorizonGreaterThanOne:
             denoising_thresholds={},
         )
         client = InferenceClient(
-            policy_loader=loader,
+            policy_runtime=loader,
             observation_transport=socket_observation_transport,
             action_transport=socket_action_transport,
             compression_type=CompressionType.RAW.value,

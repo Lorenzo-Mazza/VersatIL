@@ -7,7 +7,7 @@ The built-in ZMQ transport relies on our own PyPI packages:
 - [**tso-robotics-sockets**](https://pypi.org/project/tso-robotics-sockets/): Generic ZMQ socket transport with protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`).
 - [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for structured action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`).
 
-Both libraries define the message format, not the server. Any server implementing the protocol can be integrated.
+Both libraries define the message format. Any server implementing the protocol can be integrated.
 
 ```
 ObservationTransport.receive()
@@ -15,7 +15,7 @@ ObservationTransport.receive()
   -> ObservationBuffer.add()                         (accumulate temporal history)
   -> [when buffer is ready]
   -> ObservationPreprocessor.transform_camera_observations()  (resize, normalize, depth clamp)
-  -> PolicyLoader.run_inference()
+  -> PolicyRuntime.run_inference()
   -> TemporalAggregator.store_and_average()          [optional]
   -> ActionPostprocessor.format_action()
   -> ActionPostprocessor.build_action_metadata()
@@ -100,7 +100,7 @@ def transform_camera_observations(
 ```
 
 !!! note "Depth Clamp Range"
-    The depth clamp range is automatically extracted from the trained policy's normalizer statistics via `PolicyLoader.depth_clamp_range`. This ensures inference-time depth values match the training distribution.
+    The depth clamp range is exposed through `PolicyRuntime.depth_clamp_range`. Float runtimes read it from the policy normalizer, while compressed runtimes read it from the serialized compressed normalizer.
 
 ## Observation Buffering
 
@@ -117,12 +117,18 @@ class ObservationBuffer:
 
 The buffer enforces that all `required_keys` are present in every `add()` call. Once `buffer_size` observations have been accumulated, `is_ready()` returns `True` and inference can proceed. Older observations are evicted on each new addition.
 
-## Policy Loading
+## Checkpoint Loading And Runtime
 
-[`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] handles checkpoint loading, configuration resolution, tokenizer setup, and inference execution.
+Checkpoint loading and inference execution are separate responsibilities:
+
+- [`BaseCheckpointLoader`][versatil.checkpoint_loading.base.BaseCheckpointLoader] loads config, tokenizer, policy metadata, normalizer state, and checkpoint weights.
+- [`PolicyRuntime`][versatil.inference.policy_runtime.base.PolicyRuntime] is the inference-facing interface consumed by [`InferenceClient`][versatil.inference.inference_client.InferenceClient].
+- Runtime implementations compose checkpoint loaders and delegate shared metadata such as tokenizer, task spaces, horizons, denoising thresholds, and depth clamp range.
+
+[`FloatPolicyRuntime`][versatil.inference.policy_runtime.float_runtime.FloatPolicyRuntime] uses [`FloatCheckpointLoader`][versatil.checkpoint_loading.float_policy.FloatCheckpointLoader] to restore a regular training checkpoint, then runs the restored PyTorch policy.
 
 ```python
-class PolicyLoader:
+class FloatPolicyRuntime:
     def __init__(
         self,
         device: torch.device,
@@ -133,7 +139,7 @@ class PolicyLoader:
     ): ...
 ```
 
-### Loading Process
+### Float Checkpoint Restoration
 
 1. Loads `config.yaml` from the checkpoint directory
 2. Instantiates the full experiment configuration via `hydra.utils.instantiate()`
@@ -141,7 +147,7 @@ class PolicyLoader:
 4. Loads the tokenizer from the `tokenizer/` subdirectory (if present)
 5. Loads model weights via `LightningPolicy.load_state_dict()`
 6. Validates critical checkpoint components (encoder, decoder, normalizer weights)
-7. Converts model precision if configured
+7. Exposes the restored policy and metadata to the runtime
 
 ### Inference Execution
 
@@ -152,28 +158,33 @@ def run_inference(self, obs_dict: dict[str, torch.Tensor]) -> dict[str, torch.Te
 
 Inference runs under `torch.autocast` with the configured precision and `torch.no_grad()` for memory efficiency.
 
-### Metadata Properties
+### Runtime Metadata
 
-[`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] exposes key metadata from the loaded checkpoint:
+[`PolicyRuntime`][versatil.inference.policy_runtime.base.PolicyRuntime] exposes key metadata through the composed checkpoint loader:
 
-- `denoising_thresholds` -- Per-action-key thresholds from training, used by [`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor]
-- `depth_clamp_range` -- Min/max depth values from the normalizer, used by [`ObservationPreprocessor`][versatil.inference.observation_preprocessor.ObservationPreprocessor]
+- `denoising_thresholds` -- Per-action-key thresholds for denoising action data, if it was used during training, consumed by [`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor]
+- `depth_clamp_range` -- Min/max depth map values from the normalizer, used by [`ObservationPreprocessor`][versatil.inference.observation_preprocessor.ObservationPreprocessor]
 - `observation_space` / `action_space` -- The policy's task spaces
 - `prediction_horizon` / `observation_horizon` -- Temporal window sizes
 
-## Compressed Policy Loading
+## Compressed Policy Runtime
 
-[`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] loads quantized `.pt2` checkpoints produced by the [post-training compression pipeline](post_training_compression.md). It shares the same `run_inference()` interface as [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader], so [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either.
+[`CompressedPolicyRuntime`][versatil.inference.policy_runtime.compressed_runtime.CompressedPolicyRuntime] runs compressed artifacts produced by the [post-training compression pipeline](post_training_compression.md). Supported artifact formats are:
+
+- `torch_export_pt2`: a Torch Export `.pt2` archive loaded with `torch.export.load()`.
+- `executorch_pte`: an ExecuTorch `.pte` artifact executed through the ExecuTorch adapter.
+
+The runtime uses [`CompressedCheckpointLoader`][versatil.checkpoint_loading.compressed_policy.CompressedCheckpointLoader] to read compression metadata, normalizer state, tokenizer assets, artifact format, input/output key ordering, and the original training config. It shares the same `run_inference()` interface as [`FloatPolicyRuntime`][versatil.inference.policy_runtime.float_runtime.FloatPolicyRuntime], so [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either runtime.
 
 ```python
-loader = CompressedPolicyLoader(
+runtime = CompressedPolicyRuntime(
     device=torch.device("cpu"),
     checkpoint_path="/path/to/compressed/<timestamp>",
 )
-actions = loader.run_inference(obs_dict=observations)
+actions = runtime.run_inference(obs_dict=observations)
 ```
 
-The loader reads compression metadata to determine the quantization strategy and backend, applies `torch.compile` with the backend's environment configuration (e.g., inductor freezing, cpp_wrapper for x86), and runs compiled inference. The backend environment is activated permanently because `torch.compile` is lazy — actual kernel compilation happens on the first forward pass.
+For `.pt2` artifacts, the runtime reconstructs the PT2E backend when the metadata says the model came from the PT2E workflow, validates the target device, and applies `torch.compile` when appropriate. For `.pte` artifacts, the runtime requires CPU execution and calls the ExecuTorch adapter directly.
 
 ## Action Postprocessing
 
@@ -278,7 +289,7 @@ def store_and_average(
 class InferenceClient:
     def __init__(
         self,
-        policy_loader: PolicyLoader,
+        policy_runtime: PolicyRuntime,
         observation_transport: ObservationTransport,
         action_transport: ActionTransport,
         temporal_aggregation: bool = False,
@@ -301,8 +312,8 @@ The `run_episode()` method first calls `observation_transport.register(client_na
 4. **Parse** -- Convert raw response into per-environment observation dicts (decompress, rotate)
 5. **Buffer** -- Add parsed observations to per-environment [`ObservationBuffer`][versatil.inference.observation_buffer.ObservationBuffer] instances
 6. **Remove inactive environments** -- Remove environments no longer present in server responses via `_remove_inactive_environments()`
-7. **Transform** -- For ready buffers, apply camera transforms (resize, normalize, depth clamp) via `ObservationPreprocessor.transform_camera_observations()`
-8. **Infer** -- Batch transformed observations from all ready environments and run `PolicyLoader.run_inference()`
+7. **Transform** -- For ready buffers, apply camera transformations (resize, normalize, depth clamp) via `ObservationPreprocessor.transform_camera_observations()`
+8. **Infer** -- Batch transformed observations from all ready environments and run `PolicyRuntime.run_inference()`
 9. **Aggregate** -- Optionally apply [`TemporalAggregator`][versatil.inference.temporal_aggregation.TemporalAggregator] per environment
 10. **Postprocess** -- Format actions via [`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor]
 11. **Send** -- Transmit structured actions and metadata via [`ActionTransport`][versatil.inference.protocol.ActionTransport]
@@ -320,7 +331,8 @@ Inference batches observations from all environments with full buffers (`is_read
 
 ### Rate Limiting
 
-When `update_rate_hz` is set, the client sleeps after each action send to maintain the target environment update frequency. The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
+When `update_rate_hz` is set, the client sleeps after each action send to maintain the target environment update rate. This is useful when the downstream robot controller needs time to execute the predicted movement or the environment transition dynamics need time to settle.
+The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
 
 ## Simulation Servers
 

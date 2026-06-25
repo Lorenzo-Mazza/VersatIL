@@ -5,6 +5,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -17,9 +18,9 @@ from tests.post_training_compression.conftest import verify_reload_fidelity
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionBackendName,
     CompressionFilename,
     CompressionMetadataKey,
+    DeploymentBackendName,
     QuantizationWorkflow,
 )
 from versatil.post_training_compression.serialization import (
@@ -35,7 +36,7 @@ TORCHAO_VERSION_PATCH = patch(
 
 @dataclass
 class MockQuantizationConfig:
-    backend: str = "x86_inductor"
+    deployment_backend: str = "torch_inductor"
     workflow: str = QuantizationWorkflow.PT2E.value
     compile_backend: str = "inductor"
 
@@ -116,7 +117,7 @@ def saved_compressed_dir(
         quantization_workflow: str = QuantizationWorkflow.PT2E.value,
         model_filename: str = CompressionFilename.COMPRESSED_MODEL.value,
         artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
-        backend_name: str = CompressionBackendName.TORCH_INDUCTOR.value,
+        backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
     ) -> tuple[Path, nn.Module]:
         if input_keys is None:
             input_keys = ["left"]
@@ -181,8 +182,8 @@ class TestSaveCompressedModel:
             == ArtifactFormat.TORCH_EXPORT_PT2.value
         )
         assert (
-            metadata[CompressionMetadataKey.BACKEND.value]
-            == CompressionBackendName.TORCH_INDUCTOR.value
+            metadata[CompressionMetadataKey.DEPLOYMENT_BACKEND.value]
+            == DeploymentBackendName.TORCH_INDUCTOR.value
         )
         assert metadata[CompressionMetadataKey.INPUT_KEYS.value] == ["depth", "left"]
         assert metadata[CompressionMetadataKey.OUTPUT_KEYS.value] == [
@@ -298,7 +299,7 @@ class TestSaveCompressedModel:
                 quantization_workflow=QuantizationWorkflow.EAGER.value,
                 model_filename=CompressionFilename.EXECUTORCH_MODEL.value,
                 artifact_format=ArtifactFormat.EXECUTORCH_PTE.value,
-                backend_name=CompressionBackendName.EXECUTORCH_XNNPACK.value,
+                backend_name=DeploymentBackendName.EXECUTORCH_XNNPACK.value,
                 model_bytes=b"pte-bytes",
             )
 
@@ -316,8 +317,8 @@ class TestSaveCompressedModel:
             == ArtifactFormat.EXECUTORCH_PTE.value
         )
         assert (
-            metadata[CompressionMetadataKey.BACKEND.value]
-            == CompressionBackendName.EXECUTORCH_XNNPACK.value
+            metadata[CompressionMetadataKey.DEPLOYMENT_BACKEND.value]
+            == DeploymentBackendName.EXECUTORCH_XNNPACK.value
         )
         assert (
             metadata[CompressionMetadataKey.QUANTIZATION_WORKFLOW.value]
@@ -350,8 +351,8 @@ class TestLoadCompressionMetadata:
             == ArtifactFormat.TORCH_EXPORT_PT2.value
         )
         assert (
-            result[CompressionMetadataKey.BACKEND.value]
-            == CompressionBackendName.TORCH_INDUCTOR.value
+            result[CompressionMetadataKey.DEPLOYMENT_BACKEND.value]
+            == DeploymentBackendName.TORCH_INDUCTOR.value
         )
 
     def test_uses_defaults_when_config_empty(self, tmp_path: Path):
@@ -373,7 +374,17 @@ class TestLoadCompressionMetadata:
         "config_dict, expected_is_dynamic, expected_is_qat, expected_reduce_range",
         [
             (
-                {"quantization": {"is_qat": True}},
+                {
+                    "quantization": {
+                        "is_qat": True,
+                        "targets": [
+                            {
+                                "module_path": "",
+                                "quantize_config": {},
+                            }
+                        ],
+                    },
+                },
                 False,
                 True,
                 False,
@@ -381,11 +392,16 @@ class TestLoadCompressionMetadata:
             (
                 {
                     "quantization": {
-                        "pt2e_backend": {
-                            "is_dynamic": True,
-                            "is_qat": False,
-                            "reduce_range": True,
-                        },
+                        "targets": [
+                            {
+                                "module_path": "decoder",
+                                "pt2e_backend": {
+                                    "is_dynamic": True,
+                                    "is_qat": False,
+                                    "reduce_range": True,
+                                },
+                            }
+                        ],
                     },
                 },
                 True,
@@ -393,18 +409,26 @@ class TestLoadCompressionMetadata:
                 True,
             ),
             (
-                {"is_dynamic": False, "is_qat": True, "reduce_range": True},
+                {
+                    "is_qat": True,
+                    "targets": [
+                        {
+                            "module_path": "",
+                            "quantize_config": {},
+                        }
+                    ],
+                },
                 False,
                 True,
-                True,
+                False,
             ),
         ],
-        ids=["nested_eager", "nested_pt2e_backend", "flat_config"],
+        ids=["nested_eager_workflow", "nested_pt2e_target", "workflow_only_eager"],
     )
     def test_extracts_quantization_flags_from_config_shapes(
         self,
         tmp_path: Path,
-        config_dict: dict[str, bool | dict[str, bool | dict[str, bool]]],
+        config_dict: dict[str, Any],
         expected_is_dynamic: bool,
         expected_is_qat: bool,
         expected_reduce_range: bool,

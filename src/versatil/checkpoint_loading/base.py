@@ -1,4 +1,4 @@
-"""Base class for all policy loaders with shared config, tokenizer, and property accessors."""
+"""Base checkpoint loader with shared config, tokenizer, and metadata access."""
 
 import logging
 import os
@@ -15,14 +15,14 @@ from versatil.training.constants import CheckpointKey
 from versatil.validation import validate_experiment
 
 
-class BasePolicyLoader:
-    """Base class for policy loaders.
+class BaseCheckpointLoader:
+    """Base class for policy checkpoint loaders.
 
     Handles configuration loading, tokenizer setup, and provides
     shared property accessors for observation/action spaces,
     horizons, denoising thresholds, and depth clamp ranges.
 
-    Subclasses implement model loading and inference.
+    Subclasses implement concrete checkpoint restoration.
     """
 
     def __init__(
@@ -30,7 +30,7 @@ class BasePolicyLoader:
         device: torch.device,
         checkpoint_path: str,
     ) -> None:
-        """Initialize the base policy loader.
+        """Initialize the base checkpoint loader.
 
         Args:
             device: Device to load the model onto.
@@ -196,32 +196,14 @@ class BasePolicyLoader:
                 f"First error: {errors[0]}"
             )
 
-    def run_inference(
-        self, obs_dict: dict[str, torch.Tensor]
-    ) -> dict[str, torch.Tensor]:
-        """Run policy inference.
-
-        Args:
-            obs_dict: Observation dictionary for the policy.
-
-        Returns:
-            Action dictionary from the policy.
-        """
-        raise NotImplementedError
-
     @property
     def device(self) -> torch.device:
-        """Get the device used for inference."""
+        """Get the checkpoint loading device."""
         return self._device
 
     @property
     def checkpoint_path(self) -> str:
         """Get the checkpoint directory path."""
-        return self._checkpoint_path
-
-    @property
-    def client_identifier(self) -> str:
-        """Get the environment-facing identifier used for rollout storage."""
         return self._checkpoint_path
 
     @property
@@ -233,6 +215,11 @@ class BasePolicyLoader:
     def tokenizer(self) -> Tokenizer | None:
         """Get the loaded tokenizer, if any."""
         return self._tokenizer
+
+    @property
+    def policy(self) -> Policy:
+        """Get the restored policy."""
+        return self._policy
 
     @property
     def observation_space(self) -> ObservationSpace:

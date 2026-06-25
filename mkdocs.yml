@@ -99,6 +99,7 @@ nav:
       - Action Decoders: architecture/decoders.md
       - Data Pipeline: architecture/data.md
       - Inference: architecture/inference.md
+      - Quantization: architecture/quantization.md
       - Post-Training Compression: architecture/post_training_compression.md
   - Papers Reproducibility Instructions:
       - Overview: papers-reproducibility-instructions/index.md

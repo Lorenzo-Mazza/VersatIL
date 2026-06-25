@@ -1,1 +1,1 @@
-"""Backends where to deploy policies on, after post-training compression."""
+"""Deployment backends for post-training compression artifacts."""

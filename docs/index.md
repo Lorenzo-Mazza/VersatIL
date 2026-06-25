@@ -125,7 +125,7 @@ The key features are:
 
     ---
 
-    Pruning, quantization (PT2E + quantize_() via torchao), compressed inference.
+    Pruning, eager/PT2E quantization via torchao, compressed inference.
 
     [:octicons-arrow-right-24: Compression](architecture/post_training_compression.md)
 

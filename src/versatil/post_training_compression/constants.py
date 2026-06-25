@@ -14,14 +14,14 @@ class QuantizationWorkflow(StrEnum):
 
 
 class ArtifactFormat(StrEnum):
-    """Deployment artifact format emitted by compression backends."""
+    """Deployment artifact format emitted by deployment backends."""
 
     TORCH_EXPORT_PT2 = "torch_export_pt2"
     EXECUTORCH_PTE = "executorch_pte"
 
 
-class CompressionBackendName(StrEnum):
-    """Compression backend identifiers stored in metadata."""
+class DeploymentBackendName(StrEnum):
+    """Deployment backend identifiers stored in metadata."""
 
     TORCH_INDUCTOR = "torch_inductor"
     EXECUTORCH_XNNPACK = "executorch_xnnpack"
@@ -33,7 +33,7 @@ class CompressionMetadataKey(StrEnum):
     MODEL_FILE = "model_file"
     NORMALIZER_FILE = "normalizer_file"
     ARTIFACT_FORMAT = "artifact_format"
-    BACKEND = "backend"
+    DEPLOYMENT_BACKEND = "deployment_backend"
     INPUT_KEYS = "input_keys"
     OUTPUT_KEYS = "output_keys"
     TORCHAO_VERSION = "torchao_version"

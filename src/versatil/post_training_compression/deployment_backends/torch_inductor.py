@@ -5,8 +5,8 @@ import torch.nn as nn
 
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionBackendName,
     CompressionFilename,
+    DeploymentBackendName,
 )
 from versatil.post_training_compression.deployment_backends.base import (
     DeploymentArtifact,
@@ -17,7 +17,7 @@ from versatil.post_training_compression.deployment_backends.base import (
 class TorchInductorBackend(DeploymentBackend):
     """Backend that saves .pt2 artifacts for torch.compile lowering."""
 
-    name = CompressionBackendName.TORCH_INDUCTOR.value
+    name = DeploymentBackendName.TORCH_INDUCTOR.value
     artifact_format = ArtifactFormat.TORCH_EXPORT_PT2
     model_filename = CompressionFilename.COMPRESSED_MODEL.value
 

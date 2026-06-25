@@ -25,20 +25,6 @@ class X86InductorBackendConfig(BasePT2EBackendConfig):
 
 
 @dataclass
-class PT2EQuantizationWorkflowConfig:
-    """Graph-level quantization with operator fusion via torch.export.
-
-    Uses a PT2E backend (e.g. X86 Inductor) to quantize and lower
-    operators after export. Static backends require calibration data.
-    """
-
-    _target_: str = "versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow"
-    pt2e_backend: BasePT2EBackendConfig = field(
-        default_factory=X86InductorBackendConfig
-    )
-
-
-@dataclass
 class Int8DynamicQuantizeConfig:
     """Dynamic int8 activation + int8 weight quantization (`quantize_` API)."""
 
@@ -54,15 +40,40 @@ class Int4WeightOnlyQuantizeConfig:
 
 
 @dataclass
-class EagerQuantizationWorkflowConfig:
-    """Eager torchao quantization via quantize_().
+class EagerQuantizationModuleTargetConfig:
+    """Module target for eager torchao quantization."""
 
-    ``is_qat=False`` applies post-training eager quantization. ``is_qat=True``
-    wraps the same config in torchao ``QATConfig`` for prepare and convert.
-    """
+    _target_: str = "versatil.quantization.module_target.EagerQuantizationModuleTarget"
+    module_path: str = ""
+    quantize_config: Any = MISSING
+
+
+@dataclass
+class PT2EQuantizationModuleTargetConfig:
+    """Module target for PT2E quantization."""
+
+    _target_: str = "versatil.quantization.module_target.PT2EQuantizationModuleTarget"
+    module_path: str = ""
+    pt2e_backend: BasePT2EBackendConfig = field(
+        default_factory=X86InductorBackendConfig
+    )
+
+
+@dataclass
+class PT2EQuantizationWorkflowConfig:
+    """Graph-level quantization with operator fusion via torch.export."""
+
+    _target_: str = "versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow"
+    targets: list[Any] = field(
+        default_factory=lambda: [PT2EQuantizationModuleTargetConfig()]
+    )
+
+
+@dataclass
+class EagerQuantizationWorkflowConfig:
+    """Eager torchao quantization via quantize_()."""
 
     _target_: str = "versatil.quantization.workflows.eager.EagerQuantizationWorkflow"
-    quantize_config: Any = MISSING  # AOBaseConfig subclass via _target_
+    targets: list[Any] = MISSING
     is_qat: bool = False
-    module_paths: list[str] = field(default_factory=list)
     auto_filter_incompatible_linears: bool = True

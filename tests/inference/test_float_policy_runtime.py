@@ -1,4 +1,4 @@
-"""Tests for versatil.inference.policy_loader module."""
+"""Tests for versatil.inference.policy_runtime.float_runtime module."""
 
 import logging
 import re
@@ -11,18 +11,19 @@ import torch
 import torch.nn as nn
 
 from versatil.data.constants import Cameras
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.training.constants import PrecisionType
 
-BASE_LOADER_MODULE = "versatil.inference.policy_loading.base"
-FLOAT_LOADER_MODULE = "versatil.inference.policy_loading.float_loader"
+BASE_LOADER_MODULE = "versatil.checkpoint_loading.base"
+FLOAT_RUNTIME_MODULE = "versatil.inference.policy_runtime.float_runtime"
+FLOAT_CHECKPOINT_MODULE = "versatil.checkpoint_loading.float_policy"
 
 
 @pytest.fixture(autouse=True)
 def _patch_torch_compile():
     # torch.compile on MagicMock causes infinite dynamo graph expansion.
     with patch(
-        f"{FLOAT_LOADER_MODULE}.torch.compile",
+        f"{FLOAT_RUNTIME_MODULE}.torch.compile",
         side_effect=lambda model, **kwargs: model,
     ):
         yield
@@ -58,9 +59,9 @@ def mock_checkpoint() -> dict:
 
 
 @pytest.fixture
-def policy_loader_factory(
+def policy_runtime_factory(
     tmp_path, mock_config, mock_checkpoint
-) -> Callable[..., PolicyLoader]:
+) -> Callable[..., FloatPolicyRuntime]:
     def factory(
         device: torch.device = torch.device("cpu"),
         checkpoint_name: str = "last.ckpt",
@@ -70,7 +71,7 @@ def policy_loader_factory(
         checkpoint: dict | None = None,
         create_tokenizer_dir: bool = False,
         compile_model: bool = False,
-    ) -> PolicyLoader:
+    ) -> FloatPolicyRuntime:
         if config is None:
             config = mock_config
         if checkpoint is None:
@@ -101,11 +102,11 @@ def policy_loader_factory(
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             patch(
@@ -113,7 +114,7 @@ def policy_loader_factory(
                 return_value=MagicMock(),
             ),
         ):
-            loader = PolicyLoader(
+            loader = FloatPolicyRuntime(
                 device=device,
                 checkpoint_path=str(tmp_path),
                 checkpoint_name=checkpoint_name,
@@ -126,7 +127,7 @@ def policy_loader_factory(
 
 
 @pytest.mark.unit
-class TestPolicyLoaderInitialization:
+class TestFloatPolicyRuntimeInitialization:
     @pytest.mark.parametrize(
         "precision",
         [
@@ -135,17 +136,17 @@ class TestPolicyLoaderInitialization:
         ],
     )
     @pytest.mark.parametrize("seed", [42, 123])
-    def test_stores_configuration(self, policy_loader_factory, precision, seed):
-        loader = policy_loader_factory(precision=precision, seed=seed)
+    def test_stores_configuration(self, policy_runtime_factory, precision, seed):
+        loader = policy_runtime_factory(precision=precision, seed=seed)
         assert loader._precision == precision
-        assert loader._device == torch.device("cpu")
+        assert loader.device == torch.device("cpu")
 
     def test_config_file_not_found_raises(self, tmp_path):
         with pytest.raises(
             FileNotFoundError,
             match=re.escape(f"Config file not found at {tmp_path / 'config.yaml'}."),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
@@ -169,23 +170,23 @@ class TestPolicyLoaderInitialization:
                 match=re.escape(f"No checkpoint found at {tmp_path / 'last.ckpt'}."),
             ),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
 
 
 @pytest.mark.unit
-class TestPolicyLoaderSeedBehavior:
-    def test_set_seed_uses_default_rng_not_global_seed(self, policy_loader_factory):
-        loader = policy_loader_factory(seed=99)
+class TestFloatPolicyRuntimeSeedBehavior:
+    def test_set_seed_uses_default_rng_not_global_seed(self, policy_runtime_factory):
+        loader = policy_runtime_factory(seed=99)
         assert loader._rng.random() >= 0
 
     @pytest.mark.parametrize("seed", [0, 42, 999])
     def test_torch_manual_seed_produces_deterministic_values(
-        self, policy_loader_factory, seed
+        self, policy_runtime_factory, seed
     ):
-        _loader = policy_loader_factory(seed=seed)
+        _loader = policy_runtime_factory(seed=seed)
         # Using torch.randn directly (not rng fixture) because this test
         # verifies torch.manual_seed global seed determinism specifically.
         value_a = torch.randn(1).item()
@@ -195,73 +196,75 @@ class TestPolicyLoaderSeedBehavior:
 
 
 @pytest.mark.unit
-class TestPolicyLoaderProperties:
-    def test_device_returns_configured_device(self, policy_loader_factory):
-        loader = policy_loader_factory(device=torch.device("cpu"))
+class TestFloatPolicyRuntimeProperties:
+    def test_device_returns_configured_device(self, policy_runtime_factory):
+        loader = policy_runtime_factory(device=torch.device("cpu"))
         assert loader.device == torch.device("cpu")
 
     def test_checkpoint_path_returns_configured_path(
-        self, policy_loader_factory, tmp_path
+        self, policy_runtime_factory, tmp_path
     ):
-        loader = policy_loader_factory()
+        loader = policy_runtime_factory()
         assert loader.checkpoint_path == str(tmp_path)
 
     def test_client_identifier_includes_checkpoint_stem(
-        self, policy_loader_factory, tmp_path
+        self, policy_runtime_factory, tmp_path
     ):
-        loader = policy_loader_factory(checkpoint_name="latest-99.ckpt")
+        loader = policy_runtime_factory(checkpoint_name="latest-99.ckpt")
         assert loader.client_identifier == str(tmp_path / "latest-99")
 
-    def test_policy_property_exposes_loaded_policy(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_policy_property_exposes_loaded_policy(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         loader._policy.some_attribute = "test_value"
         assert loader.policy.some_attribute == "test_value"
 
-    def test_config_property_exposes_loaded_config(self, policy_loader_factory):
-        loader = policy_loader_factory()
-        loader._config.some_attribute = "test_value"
+    def test_config_property_exposes_loaded_config(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
+        loader.config.some_attribute = "test_value"
         assert loader.config.some_attribute == "test_value"
 
-    def test_observation_space_delegates_to_policy(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_observation_space_delegates_to_policy(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         expected = loader._policy.observation_space
         assert loader.observation_space == expected
 
-    def test_action_space_delegates_to_policy(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_action_space_delegates_to_policy(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         expected = loader._policy.action_space
         assert loader.action_space == expected
 
-    def test_prediction_horizon_delegates_to_policy(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_prediction_horizon_delegates_to_policy(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         assert loader.prediction_horizon == 16
 
-    def test_observation_horizon_delegates_to_decoder(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_observation_horizon_delegates_to_decoder(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         assert loader.observation_horizon == 2
 
 
 @pytest.mark.unit
-class TestPolicyLoaderTokenizer:
-    def test_tokenizer_is_none_when_no_tokenizer_directory(self, policy_loader_factory):
-        loader = policy_loader_factory(create_tokenizer_dir=False)
-        mock_config = loader._config
+class TestFloatPolicyRuntimeTokenizer:
+    def test_tokenizer_is_none_when_no_tokenizer_directory(
+        self, policy_runtime_factory
+    ):
+        loader = policy_runtime_factory(create_tokenizer_dir=False)
+        mock_config = loader.config
         mock_config.policy.set_tokenizer.assert_not_called()
 
     def test_raises_when_tokenization_required_but_no_directory(
-        self, policy_loader_factory, mock_config
+        self, policy_runtime_factory, mock_config
     ):
         mock_config.task.dataloader.tokenization.tokenize_observations = True
         with pytest.raises(
             FileNotFoundError,
             match="Config requires observation tokenization but no tokenizer found",
         ):
-            policy_loader_factory(config=mock_config, create_tokenizer_dir=False)
+            policy_runtime_factory(config=mock_config, create_tokenizer_dir=False)
 
-    def test_tokenizer_loaded_when_directory_exists(self, policy_loader_factory):
-        loader = policy_loader_factory(create_tokenizer_dir=True)
-        loader._config.policy.set_tokenizer.assert_called_once()
-        assert loader.tokenizer is loader._config.policy.set_tokenizer.call_args.args[0]
+    def test_tokenizer_loaded_when_directory_exists(self, policy_runtime_factory):
+        loader = policy_runtime_factory(create_tokenizer_dir=True)
+        loader.config.policy.set_tokenizer.assert_called_once()
+        assert loader.tokenizer is loader.config.policy.set_tokenizer.call_args.args[0]
 
     def test_set_tokenizer_runs_before_state_dict_load(
         self, tmp_path, mock_config, mock_checkpoint
@@ -288,16 +291,19 @@ class TestPolicyLoaderTokenizer:
                 return_value=mock_config,
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
-            patch(f"{FLOAT_LOADER_MODULE}.torch.load", return_value=mock_checkpoint),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy", return_value=mock_lightning
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load", return_value=mock_checkpoint
+            ),
+            patch(
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
+                return_value=mock_lightning,
             ),
             patch(
                 f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
                 return_value=MagicMock(),
             ),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
@@ -306,7 +312,7 @@ class TestPolicyLoaderTokenizer:
 
 
 @pytest.mark.unit
-class TestPolicyLoaderPrecisionConversion:
+class TestFloatPolicyRuntimePrecisionConversion:
     @pytest.mark.parametrize(
         "precision, should_convert",
         [
@@ -348,15 +354,15 @@ class TestPolicyLoaderPrecisionConversion:
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
         ):
-            _loader = PolicyLoader(
+            _loader = FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
@@ -380,7 +386,7 @@ class TestPolicyLoaderPrecisionConversion:
 
 
 @pytest.mark.unit
-class TestPolicyLoaderCheckpointValidation:
+class TestFloatPolicyRuntimeCheckpointValidation:
     def test_raises_on_critical_prefix_mismatch(self, tmp_path, mock_config):
         checkpoint_state = {
             "policy.decoder.layer.weight": torch.tensor([1.0]),
@@ -409,11 +415,11 @@ class TestPolicyLoaderCheckpointValidation:
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -423,7 +429,7 @@ class TestPolicyLoaderCheckpointValidation:
                 ),
             ),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
@@ -459,11 +465,11 @@ class TestPolicyLoaderCheckpointValidation:
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -479,7 +485,7 @@ class TestPolicyLoaderCheckpointValidation:
                 ),
             ),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
@@ -515,11 +521,11 @@ class TestPolicyLoaderCheckpointValidation:
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -535,7 +541,7 @@ class TestPolicyLoaderCheckpointValidation:
                 ),
             ),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
@@ -568,11 +574,11 @@ class TestPolicyLoaderCheckpointValidation:
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -580,18 +586,18 @@ class TestPolicyLoaderCheckpointValidation:
                 match=re.escape(f"Weight mismatch for '{shared_key}'"),
             ),
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )
 
-    def test_passes_when_checkpoint_matches_model(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_passes_when_checkpoint_matches_model(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         assert loader.policy.prediction_horizon == 16
 
 
 @pytest.mark.unit
-class TestPolicyLoaderCompileFlag:
+class TestFloatPolicyRuntimeCompileFlag:
     @pytest.mark.parametrize("compile_model", [True, False])
     def test_compile_flag_controls_policy_compilation(
         self,
@@ -615,19 +621,22 @@ class TestPolicyLoaderCompileFlag:
                 return_value=mock_config,
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
-            patch(f"{FLOAT_LOADER_MODULE}.torch.load", return_value=mock_checkpoint),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy", return_value=mock_lightning
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load", return_value=mock_checkpoint
+            ),
+            patch(
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
+                return_value=mock_lightning,
             ),
             patch(
                 f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.compile", return_value=compiled_policy
+                f"{FLOAT_RUNTIME_MODULE}.torch.compile", return_value=compiled_policy
             ) as mock_compile,
         ):
-            PolicyLoader(
+            FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
                 compile_model=compile_model,
@@ -637,9 +646,9 @@ class TestPolicyLoaderCompileFlag:
 
 
 @pytest.mark.unit
-class TestPolicyLoaderRunInference:
-    def test_run_inference_calls_predict_action(self, policy_loader_factory, rng):
-        loader = policy_loader_factory()
+class TestFloatPolicyRuntimeRunInference:
+    def test_run_inference_calls_predict_action(self, policy_runtime_factory, rng):
+        loader = policy_runtime_factory()
         mock_obs = {
             "left": torch.from_numpy(
                 rng.standard_normal((1, 1, 3, 64, 64)).astype(np.float32)
@@ -666,9 +675,9 @@ class TestPolicyLoaderRunInference:
         ],
     )
     def test_run_inference_uses_correct_autocast_dtype(
-        self, policy_loader_factory, rng, precision, expected_dtype
+        self, policy_runtime_factory, rng, precision, expected_dtype
     ):
-        loader = policy_loader_factory(precision=precision)
+        loader = policy_runtime_factory(precision=precision)
         captured_dtype = []
 
         def capturing_predict(obs_dict):
@@ -690,8 +699,8 @@ class TestPolicyLoaderRunInference:
         assert len(captured_dtype) == 1
         assert captured_dtype[0] == expected_dtype
 
-    def test_run_inference_produces_no_gradients(self, policy_loader_factory, rng):
-        loader = policy_loader_factory()
+    def test_run_inference_produces_no_gradients(self, policy_runtime_factory, rng):
+        loader = policy_runtime_factory()
         weight = torch.nn.Parameter(
             torch.from_numpy(rng.standard_normal((3, 3)).astype(np.float32))
         )
@@ -714,16 +723,16 @@ class TestPolicyLoaderRunInference:
 
 @pytest.mark.unit
 class TestDenoisingThresholds:
-    def test_empty_params_dict_returns_empty(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_empty_params_dict_returns_empty(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         loader._policy.denoising_thresholds.params_dict = nn.ParameterDict()
         loader._policy.action_space.actions_metadata = {
             "position": MagicMock(),
         }
         assert loader.denoising_thresholds == {}
 
-    def test_all_keys_match_action_space(self, policy_loader_factory, rng):
-        loader = policy_loader_factory()
+    def test_all_keys_match_action_space(self, policy_runtime_factory, rng):
+        loader = policy_runtime_factory()
         position_value = float(rng.standard_normal(1).astype(np.float32).item())
         orientation_value = float(rng.standard_normal(1).astype(np.float32).item())
         loader._policy.denoising_thresholds.params_dict = nn.ParameterDict(
@@ -747,9 +756,9 @@ class TestDenoisingThresholds:
         }
 
     def test_keys_not_in_action_space_are_filtered_out(
-        self, policy_loader_factory, rng
+        self, policy_runtime_factory, rng
     ):
-        loader = policy_loader_factory()
+        loader = policy_runtime_factory()
         threshold_value = float(rng.standard_normal(1).astype(np.float32).item())
         loader._policy.denoising_thresholds.params_dict = nn.ParameterDict(
             {
@@ -763,8 +772,8 @@ class TestDenoisingThresholds:
         }
         assert loader.denoising_thresholds == {}
 
-    def test_mixed_keys_returns_only_matching(self, policy_loader_factory, rng):
-        loader = policy_loader_factory()
+    def test_mixed_keys_returns_only_matching(self, policy_runtime_factory, rng):
+        loader = policy_runtime_factory()
         position_value = float(rng.standard_normal(1).astype(np.float32).item())
         extra_value = float(rng.standard_normal(1).astype(np.float32).item())
         loader._policy.denoising_thresholds.params_dict = nn.ParameterDict(
@@ -789,15 +798,15 @@ class TestDenoisingThresholds:
 
 @pytest.mark.unit
 class TestDepthClampRange:
-    def test_depth_key_absent_returns_none(self, policy_loader_factory):
-        loader = policy_loader_factory()
+    def test_depth_key_absent_returns_none(self, policy_runtime_factory):
+        loader = policy_runtime_factory()
         loader._policy.normalizer.params_dict = nn.ParameterDict()
         assert loader.depth_clamp_range is None
 
     def test_depth_key_present_but_input_stats_none_returns_none(
-        self, policy_loader_factory
+        self, policy_runtime_factory
     ):
-        loader = policy_loader_factory()
+        loader = policy_runtime_factory()
         depth_key = Cameras.DEPTH.value
         loader._policy.observation_space.depth_cameras = {depth_key: MagicMock()}
         depth_params = nn.ParameterDict()
@@ -814,9 +823,9 @@ class TestDepthClampRange:
             assert loader.depth_clamp_range is None
 
     def test_depth_key_with_valid_stats_returns_min_max_tuple(
-        self, policy_loader_factory
+        self, policy_runtime_factory
     ):
-        loader = policy_loader_factory()
+        loader = policy_runtime_factory()
         depth_key = Cameras.DEPTH.value
         loader._policy.observation_space.depth_cameras = {depth_key: MagicMock()}
         depth_params = nn.ParameterDict()
@@ -879,16 +888,16 @@ class TestCheckpointValidationWarning:
             ),
             patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
+                f"{FLOAT_CHECKPOINT_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_CHECKPOINT_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             caplog.at_level(logging.WARNING),
         ):
-            _loader = PolicyLoader(
+            _loader = FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
             )

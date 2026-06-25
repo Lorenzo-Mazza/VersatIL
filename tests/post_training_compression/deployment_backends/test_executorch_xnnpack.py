@@ -8,8 +8,8 @@ import torch.nn as nn
 
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionBackendName,
     CompressionFilename,
+    DeploymentBackendName,
 )
 from versatil.post_training_compression.deployment_backends.executorch_xnnpack import (
     ExecutorchXNNPACKBackend,
@@ -52,7 +52,7 @@ class TestExecutorchXNNPACKBackend:
         assert artifact.model_bytes == b"pte-bytes"
         assert artifact.model_filename == CompressionFilename.EXECUTORCH_MODEL.value
         assert artifact.artifact_format == ArtifactFormat.EXECUTORCH_PTE
-        assert artifact.backend_name == CompressionBackendName.EXECUTORCH_XNNPACK.value
+        assert artifact.backend_name == DeploymentBackendName.EXECUTORCH_XNNPACK.value
 
 
 @pytest.mark.unit
