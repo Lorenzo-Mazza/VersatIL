@@ -187,29 +187,32 @@ We currently support Grad-CAM, Grad-CAM++, Ablation-CAM and Integrated Gradients
 ---
 
 
-#### 📦 Post-Training Compression
-
-VersatIL includes a post-training compression (PTC) pipeline that turns a trained policy checkpoint into a deployment artifact for edge or resource-constrained hardware. A PTC run can export a floating-point model, apply pruning, quantize the policy, and save either a Torch Export `.pt2` artifact or an ExecuTorch `.pte` artifact.
+#### 📦 Quantization and Post-Training Compression
 
 **What is post-training quantization?**
-Post-training quantization (PTQ) converts trained floating-point model weights and activations to lower-precision integer representations (e.g., INT8). This reduces memory footprint, improves cache utilization, and enables hardware-accelerated integer arithmetic — typically achieving inference speedup on x86 CPUs with minimal accuracy loss. Unlike quantization-aware training (QAT), PTQ is done after training. Static quantization uses a small calibration dataset to determine optimal activation ranges per layer; dynamic quantization computes ranges on-the-fly at inference time and needs no calibration.
+Post-training quantization (PTQ) converts trained floating-point model weights and activations to lower-precision integer representations (e.g., INT8). This reduces memory footprint, improves cache utilization, and enables hardware-accelerated integer arithmetic — typically achieving inference speedup on x86 CPUs with minimal accuracy loss. PTQ is done after training. Static quantization uses a small calibration dataset to determine optimal activation ranges per layer; dynamic quantization computes ranges on-the-fly at inference time and needs no calibration.
+**What is quantization-aware-training?**
+Quantization-aware training inserts fake quantizers between layers of the neural policy to mimic the information loss that the policy will experience at deployment time after PTQ. In this way, the policy learns a mapping that is robust to PTQ-induced information loss, improving downstream performance.
+**How VersatIL implements quantization:**
+VersatIL's quantization package is built upon PyTorch's native quantization library `torchao`, which supports two types of quantization workflows: eager quantization (mainly used for dynamic quantization of Large Language Models, int8 to int2 support, linear layers only) and PyTorch 2 Export quantization (mainly used for static quantization, int8 only, linear and convolutional layers). VersatIL integrates these two workflows seamlessly into policy training and deployment. See docs/quantization.md for more details about these quantization workflows.
+
+**What is post-training compression?**
+The post-training compression (PTC) pipeline that turns a trained policy checkpoint into a deployment artifact for edge or resource-constrained hardware. A PTC run can export a floating-point model, apply pruning, quantize the policy, and save either a Torch Export `.pt2` artifact or an ExecuTorch `.pte` artifact.
+
 
 **How VersatIL implements PTC:**
 
 The compression pipeline is configurable via Hydra and supports three complementary techniques applied sequentially:
 
-1. **Preparation**: Frozen BatchNorm replacement and Conv+BN weight folding — standard pre-quantization model surgery that merges batch normalization parameters into convolution weights.
+1. **Preparation**: Frozen BatchNorm replacement and Conv+BN weight folding — standard pre-quantization layer fusion that merges batch normalization parameters into convolution weights.
 
-2. **Pruning**: Weight pruning to introduce sparsity before quantization. Supports both unstructured (global L1 magnitude) and structured (per-channel Lp-norm) pruning, composable as a list — e.g., structured pruning followed by unstructured pruning on the same module.
+2. **Pruning**: Weight pruning to introduce sparsity before quantization. Supports both unstructured (global L1 magnitude) and structured (per-channel Lp-norm) pruning, composable sequentially, e.g. structured pruning followed by unstructured pruning on the same module.
 
 3. **Quantization workflow**: One workflow is selected per policy:
    - **No quantization**: `quantization: null` exports the floating-point policy.
-   - **Eager quantization**: Uses the [`torchao.quantization.quantize_()` API](https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_) before export. The same workflow supports eager PTQ and eager QAT through `is_qat`.
+   - **Eager quantization**: Uses the [`torchao.quantization.quantize_()` API](https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_) before export.
    - **PT2E** (PyTorch 2 Export): Exports the policy with `torch.export`, then applies PT2E prepare, optional calibration, and convert.
 
-**Compressed inference:**
-
-Compressed models are loaded by [`CompressedPolicyRuntime`](src/versatil/inference/policy_runtime/compressed_runtime.py). Torch Export `.pt2` artifacts run through PyTorch and can be compiled with `torch.compile` when appropriate. ExecuTorch `.pte` artifacts run through the ExecuTorch adapter on CPU. Compressed checkpoints include the deployment artifact, normalizer, tokenizer, training config, and compression metadata for self-contained deployment.
 
 **Per-module targeting:**
 
@@ -217,8 +220,13 @@ Compression targets configure preparation and pruning globally or per module. Qu
 
 **Deployment backends:**
 
-The `deployment_backend` config field selects the artifact format and lowering step for edge deployment: `TorchInductorBackend` saves Torch Export `.pt2` artifacts, while `ExecutorchXNNPACKBackend` lowers to ExecuTorch XNNPACK `.pte` artifacts. 
-**QAT presets:** Hydra configs under `quantization/` provide verified torchao QAT base configs, including dynamic INT8 activation + INT4 weight QAT and INT4 weight-only QAT. See `docs/known-issues.md` for the torchao 0.17 INT4 group-size compatibility patch.
+The `deployment_backend` config field selects the artifact format and lowering step for edge deployment. As of now, two backends are supported:
+- `TorchInductorBackend`, for running on X86 CPUs.
+- `ExecutorchXNNPACKBackend` for running on ARM and X86 mobile CPUs. 
+
+**Compressed inference:**
+
+Compressed models are loaded by [`CompressedPolicyRuntime`](src/versatil/inference/policy_runtime/compressed_runtime.py). Torch Export `.pt2` artifacts run through PyTorch and can be compiled with `torch.compile` when appropriate. ExecuTorch `.pte` artifacts run through the ExecuTorch adapter on CPU.  Currently, compressed models are not fully standalone: they still require a complete VersatIL installation, including its dependencies. Since this is not ideal for edge deployment, self-contained edge-device inference runtime is currently under development.
 
 ---
 
