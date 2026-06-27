@@ -216,6 +216,5 @@ packages = ["src/versatil"]
 
 [tool.coverage.run]
 omit = [
-    "src/versatil/explainability/**",
-    "src/versatil/endpoints/explain.py",
+
 ]
