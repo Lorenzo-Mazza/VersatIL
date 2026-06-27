@@ -112,13 +112,17 @@ class TestNchwToTargetTensor:
         "spatial_resnet18",
         "flat_deit_tiny",
         "smolvla",
+        "paligemma_vlm",
+        "prismatic_vlm",
     ],
 )
 def test_target_tensor_to_nchw_supports_real_model_targets(
     real_explainability_policy_case_factory: Callable,
     policy_case_name: str,
 ):
-    batch_size = 1 if policy_case_name == "smolvla" else 2
+    batch_size = (
+        1 if policy_case_name.endswith("_vlm") or policy_case_name == "smolvla" else 2
+    )
     case = real_explainability_policy_case_factory(
         case_name=policy_case_name,
         batch_size=batch_size,

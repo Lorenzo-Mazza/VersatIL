@@ -104,6 +104,8 @@ def test_to_explanation_heatmaps_dispatches_supported_methods():
         ("spatial_resnet18", ExplanationType.GRADCAM.value),
         ("flat_deit_tiny", ExplanationType.GRADCAM_PLUS_PLUS.value),
         ("smolvla", ExplanationType.ABLATION_CAM.value),
+        ("paligemma_vlm", ExplanationType.GRADCAM.value),
+        ("prismatic_vlm", ExplanationType.GRADCAM_PLUS_PLUS.value),
     ],
 )
 def test_to_explanation_heatmaps_dispatches_real_policy_classes(
@@ -111,7 +113,9 @@ def test_to_explanation_heatmaps_dispatches_real_policy_classes(
     policy_case_name: str,
     explanation_type: str,
 ):
-    batch_size = 1 if policy_case_name == "smolvla" else 2
+    batch_size = (
+        1 if policy_case_name.endswith("_vlm") or policy_case_name == "smolvla" else 2
+    )
     case = real_explainability_policy_case_factory(
         case_name=policy_case_name,
         batch_size=batch_size,

@@ -65,6 +65,8 @@ def test_compute_ablation_maps_for_policy_selects_requested_camera_invocation(
         "spatial_resnet18",
         "flat_deit_tiny",
         "smolvla",
+        "paligemma_vlm",
+        "prismatic_vlm",
     ],
 )
 def test_compute_ablation_maps_for_policy_supports_real_model_classes(

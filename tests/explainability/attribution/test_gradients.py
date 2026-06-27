@@ -77,6 +77,8 @@ def test_compute_gradient_maps_for_policy_selects_requested_camera_invocation(
         "flat_deit_tiny",
         "flat_deit_small",
         "smolvla",
+        "paligemma_vlm",
+        "prismatic_vlm",
     ],
 )
 def test_compute_gradient_maps_for_policy_supports_real_model_wiring(
@@ -84,7 +86,9 @@ def test_compute_gradient_maps_for_policy_supports_real_model_wiring(
     policy_case_name: str,
     explanation_type: str,
 ):
-    batch_size = 1 if policy_case_name == "smolvla" else 2
+    batch_size = (
+        1 if policy_case_name.endswith("_vlm") or policy_case_name == "smolvla" else 2
+    )
     case = real_explainability_policy_case_factory(
         case_name=policy_case_name,
         batch_size=batch_size,

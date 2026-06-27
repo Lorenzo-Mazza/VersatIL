@@ -1,6 +1,7 @@
 """Base class for vision-language models used by VLA decoders."""
 
 import abc
+import math
 
 import torch
 import torch.nn as nn
@@ -66,6 +67,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
             model_dtype=model_dtype,
         )
         self.camera_keys = camera_keys
+        self.is_multi_camera = len(camera_keys) > 1
         self._setup_language_keys(
             output_modality=EncoderOutputKeys.FUSED_RGB_LANGUAGE.value
         )
@@ -76,6 +78,20 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
     def total_image_tokens(self) -> int:
         """Total image tokens across all cameras."""
         return int(self.num_image_tokens_per_camera * len(self.camera_keys))
+
+    def _get_image_token_grid(self) -> tuple[int, int] | None:
+        """Return a square image-token grid when the token count allows it.
+
+        Returns:
+            ``(height, width)`` when image tokens form a square grid, otherwise
+            ``None``. Attribution map conversion can still infer square grids
+            from the captured token count and raises when the shape is
+            ambiguous.
+        """
+        grid_size = math.isqrt(self.num_image_tokens_per_camera)
+        if grid_size * grid_size != self.num_image_tokens_per_camera:
+            return None
+        return grid_size, grid_size
 
     @abc.abstractmethod
     def _compute_num_image_tokens(self, config: PretrainedConfig) -> int:

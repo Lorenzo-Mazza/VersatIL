@@ -54,6 +54,10 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.rgb.flat import FlatRGBEncoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 
 HIDDEN_DIMENSION = 8
 VISION_DIMENSION = 5
@@ -1057,6 +1061,52 @@ def test_forward_pass_with_real_tiny_modules(
         assert trainable_parameter_names
         assert all("lora_" in name for name in trainable_parameter_names)
         assert 0 < trainable_parameters < total_parameters
+
+
+@pytest.mark.integration
+def test_real_tiny_vision_tower_explainability_target_captures_patch_tokens(
+    tiny_prismatic_backbone_factory: Callable[..., PrismaticVLM],
+) -> None:
+    batch_size = 1
+    backbone = tiny_prismatic_backbone_factory(lora_config=None)
+    target = backbone.vision_encoders[0].get_explainability_targets()[0]
+    captured_output = {}
+
+    def capture_output(
+        module: nn.Module,
+        module_input: tuple[torch.Tensor, ...],
+        module_output: torch.Tensor,
+    ) -> None:
+        del module, module_input
+        captured_output["patch_tokens"] = module_output
+
+    handle = target.layer.register_forward_hook(capture_output)
+    try:
+        with torch.no_grad():
+            backbone(
+                inputs={
+                    Cameras.LEFT.value: torch.zeros(
+                        batch_size,
+                        3,
+                        backbone.image_size,
+                        backbone.image_size,
+                    ),
+                    SampleKey.TOKENIZED_OBSERVATIONS.value: torch.zeros(
+                        batch_size,
+                        4,
+                        dtype=torch.long,
+                    ),
+                }
+            )
+    finally:
+        handle.remove()
+
+    patch_tokens = captured_output["patch_tokens"]
+    assert target.target_kind == ExplanationTargetKind.TOKEN_SEQUENCE.value
+    assert target.activation_layout == ActivationLayout.NLC.value
+    assert target.patch_grid == (2, 2)
+    assert patch_tokens.shape[0] == batch_size
+    assert patch_tokens.dim() == 3
 
 
 @pytest.mark.integration

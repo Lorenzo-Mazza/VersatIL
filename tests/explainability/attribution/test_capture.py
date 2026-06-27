@@ -89,3 +89,36 @@ def test_activation_capture_selects_real_smolvla_stacked_camera_activation(
         activation.shape[1]
         == case.policy.decoder.vlm_backbone.num_image_tokens_per_camera
     )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("policy_case_name", ["paligemma_vlm", "prismatic_vlm"])
+def test_activation_capture_selects_real_per_camera_vlm_activation(
+    real_explainability_policy_case_factory: Callable,
+    policy_case_name: str,
+):
+    case = real_explainability_policy_case_factory(
+        case_name=policy_case_name,
+        batch_size=1,
+    )
+    camera_target = resolve_camera_explanation_targets(
+        policy=case.policy,
+        target_camera=case.target_camera,
+        target_vision_module_names=case.target_vision_module_names,
+    )[0]
+    capture = ActivationCapture(target=camera_target)
+    handle = camera_target.target.layer.register_forward_hook(capture.forward_hook)
+    try:
+        run_policy_for_explanation(
+            policy=case.policy,
+            observation=case.observation,
+            preprocess_observation=False,
+        )
+    finally:
+        handle.remove()
+
+    activation = capture.require_activation()
+
+    assert activation.dim() == 3
+    assert activation.shape[0] == 1
+    assert camera_target.invocation_index == 1

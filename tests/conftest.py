@@ -1,7 +1,9 @@
 """Root test fixtures shared across the entire test suite."""
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +11,13 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
-from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
+from transformers import (
+    Gemma2Config,
+    Idefics3Config,
+    LlamaConfig,
+    PaliGemmaConfig,
+    SiglipVisionConfig,
+)
 
 import versatil  # noqa: F401 — triggers dotenv loading and cache directory setup
 from versatil.data.constants import (
@@ -46,13 +54,28 @@ from versatil.models.decoding.algorithm.diffusion import Diffusion
 from versatil.models.decoding.decoders.base import DecoderInput
 from versatil.models.decoding.decoders.factory.smolvla import SmolVLADecoder
 from versatil.models.decoding.generative_language_models.constants import (
+    PRISMATIC_CONFIG_FILENAME,
+    PRISMATIC_VISION_BACKBONES,
+    PRISMATIC_VISION_IMAGE_SIZES,
+    PaliGemmaModelType,
+    PrismaticLLMBackboneType,
+    PrismaticModelType,
+    PrismaticVisionBackboneType,
     SmolVLMModelType,
+)
+from versatil.models.decoding.generative_language_models.vision_language.paligemma import (
+    PaliGemmaVLM,
+)
+from versatil.models.decoding.generative_language_models.vision_language.prismatic import (
+    PrismaticVLM,
 )
 from versatil.models.decoding.generative_language_models.vision_language.smolvlm import (
     SmolVLM,
 )
 from versatil.models.encoding.encoders.constants import (
+    AttentionImplementation,
     BatchNormHandling,
+    EncoderOutputKeys,
     FlatBackboneType,
     PoolingMethod,
     SpatialBackboneType,
@@ -69,6 +92,8 @@ REAL_POLICY_ACTION_KEY = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
 REAL_PIPELINE_ENCODER_NAME = "vision"
 REAL_PIPELINE_FEATURE_KEY = "vision_rgb"
 REAL_SMOLVLA_MODULE_NAME = "decoder.vlm_backbone"
+REAL_VLM_MODULE_NAME = "decoder.vlm_backbone"
+REAL_PRISMATIC_VISION_MODULE_NAME = "decoder.vlm_backbone.vision_encoders.0"
 SMOLVLA_IMAGE_SIZE = 56
 SMOLVLA_HIDDEN_DIMENSION = 32
 SMOLVLA_EXPERT_WIDTH_MULTIPLIER = 0.5
@@ -77,6 +102,8 @@ SMOLVLA_EXPERT_HIDDEN_DIMENSION = int(
 )
 SMOLVLA_VOCAB_SIZE = 1000
 SMOLVLA_TEXT_LENGTH = 4
+PRISMATIC_TINY_VOCAB_SIZE = 128
+VLM_TOKEN_ID_UPPER_BOUND = 128
 
 
 @dataclass(frozen=True)
@@ -144,6 +171,45 @@ class TinyContinuousDecoder(nn.Module):
             tensor = features[key].float()
             scores.append(tensor.flatten(start_dim=1).mean(dim=1))
         return torch.stack(scores, dim=0).mean(dim=0)
+
+
+class TinyVLMContinuousDecoder(nn.Module):
+    requires_tokenized_actions = False
+
+    def __init__(
+        self,
+        vlm_backbone: nn.Module,
+        prediction_horizon: int,
+        prediction_key: str = REAL_POLICY_ACTION_KEY,
+    ) -> None:
+        super().__init__()
+        self.vlm_backbone = vlm_backbone
+        self.decoder_input = DecoderInput(keys=vlm_backbone.input_specification.keys)
+        self.prediction_horizon = prediction_horizon
+        self.prediction_key = prediction_key
+
+    def set_normalizer(self, normalizer: LinearNormalizer) -> None:
+        self.normalizer = normalizer
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
+        self.tokenizer = tokenizer
+
+    def get_prediction_output_keys(self) -> set[str]:
+        return {self.prediction_key}
+
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        del actions
+        vlm_features = self.vlm_backbone(inputs=features)
+        fused_features = vlm_features[
+            EncoderOutputKeys.FUSED_RGB_LANGUAGE.value
+        ].float()
+        score = fused_features.flatten(start_dim=1).mean(dim=1)
+        prediction = score[:, None, None].repeat(1, self.prediction_horizon, 3)
+        return {self.prediction_key: prediction}
 
 
 def pytest_collection_modifyitems(
@@ -651,6 +717,7 @@ def observation_space_factory() -> Callable[..., ObservationSpace]:
 
 @pytest.fixture
 def real_explainability_policy_case_factory(
+    tmp_path: Path,
     rng: np.random.Generator,
     camera_metadata_factory: Callable[..., CameraMetadata],
     precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
@@ -685,7 +752,7 @@ def real_explainability_policy_case_factory(
             image_height=image_height,
             image_width=image_width,
         )
-        if case_name == "smolvla":
+        if case_name in _VLM_REAL_CASES:
             observation.update(
                 _make_real_tokenized_observation(
                     rng=rng,
@@ -750,7 +817,43 @@ def real_explainability_policy_case_factory(
                 expected_vision_module_names=[REAL_SMOLVLA_MODULE_NAME],
             )
 
-        valid_cases = [*_SPATIAL_REAL_BACKBONES, *_FLAT_REAL_BACKBONES, "smolvla"]
+        if case_name == "paligemma_vlm":
+            policy = _make_vlm_real_policy(
+                vlm_backbone=_make_real_paligemma_backbone(),
+                action_space=action_space,
+                observation_space=observation_space,
+                temporal_length=temporal_length,
+            )
+            return RealExplainabilityPolicyCase(
+                policy=policy,
+                observation=observation,
+                target_camera=Cameras.RIGHT.value,
+                target_vision_module_names=[REAL_VLM_MODULE_NAME],
+                expected_camera=Cameras.RIGHT.value,
+                expected_vision_module_names=[REAL_VLM_MODULE_NAME],
+            )
+
+        if case_name == "prismatic_vlm":
+            policy = _make_vlm_real_policy(
+                vlm_backbone=_make_real_prismatic_backbone(root=tmp_path),
+                action_space=action_space,
+                observation_space=observation_space,
+                temporal_length=temporal_length,
+            )
+            return RealExplainabilityPolicyCase(
+                policy=policy,
+                observation=observation,
+                target_camera=Cameras.RIGHT.value,
+                target_vision_module_names=[REAL_PRISMATIC_VISION_MODULE_NAME],
+                expected_camera=Cameras.RIGHT.value,
+                expected_vision_module_names=[REAL_PRISMATIC_VISION_MODULE_NAME],
+            )
+
+        valid_cases = [
+            *_SPATIAL_REAL_BACKBONES,
+            *_FLAT_REAL_BACKBONES,
+            *_VLM_REAL_CASES,
+        ]
         raise ValueError(
             f"Unknown real explainability policy case: {case_name}. "
             f"Valid cases: {valid_cases}"
@@ -769,10 +872,11 @@ _FLAT_REAL_BACKBONES = {
     "flat_deit_tiny": FlatBackboneType.DEIT_TINY.value,
     "flat_deit_small": FlatBackboneType.DEIT_SMALL.value,
 }
+_VLM_REAL_CASES = {"smolvla", "paligemma_vlm", "prismatic_vlm"}
 
 
 def _camera_keys_for_real_case(case_name: str) -> list[str]:
-    if case_name == "smolvla":
+    if case_name in _VLM_REAL_CASES:
         return [Cameras.LEFT.value, Cameras.RIGHT.value]
     return [Cameras.LEFT.value]
 
@@ -838,7 +942,7 @@ def _make_real_tokenized_observation(
     token_shape = (batch_size, temporal_length, SMOLVLA_TEXT_LENGTH)
     token_ids = rng.integers(
         low=0,
-        high=SMOLVLA_VOCAB_SIZE,
+        high=VLM_TOKEN_ID_UPPER_BOUND,
         size=token_shape,
         dtype=np.int64,
     )
@@ -905,6 +1009,34 @@ def _make_tiny_smolvlm_config() -> Idefics3Config:
     )
 
 
+def _make_tiny_paligemma_config() -> PaliGemmaConfig:
+    text_config = Gemma2Config(
+        num_hidden_layers=1,
+        hidden_size=SMOLVLA_HIDDEN_DIMENSION,
+        intermediate_size=SMOLVLA_HIDDEN_DIMENSION * 2,
+        num_attention_heads=2,
+        num_key_value_heads=1,
+        head_dim=SMOLVLA_HIDDEN_DIMENSION // 2,
+        vocab_size=SMOLVLA_VOCAB_SIZE,
+        max_position_embeddings=64,
+    )
+    vision_config = SiglipVisionConfig(
+        hidden_size=SMOLVLA_HIDDEN_DIMENSION,
+        intermediate_size=SMOLVLA_HIDDEN_DIMENSION * 2,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        image_size=SMOLVLA_IMAGE_SIZE,
+        patch_size=14,
+    )
+    config = PaliGemmaConfig(
+        text_config=text_config.to_dict(),
+        vision_config=vision_config.to_dict(),
+        projection_dim=SMOLVLA_HIDDEN_DIMENSION,
+    )
+    config.vision_config.num_image_tokens = 16
+    return config
+
+
 def _make_real_smolvlm_backbone() -> SmolVLM:
     tiny_config = _make_tiny_smolvlm_config()
     with patch(
@@ -924,6 +1056,103 @@ def _make_real_smolvlm_backbone() -> SmolVLM:
             max_text_length=SMOLVLA_TEXT_LENGTH,
         )
     backbone.vlm = backbone.vlm.float()
+    return backbone
+
+
+def _make_real_paligemma_backbone() -> PaliGemmaVLM:
+    tiny_config = _make_tiny_paligemma_config()
+    with patch(
+        "versatil.models.decoding.generative_language_models.vision_language"
+        ".huggingface.AutoConfig.from_pretrained",
+        return_value=tiny_config,
+    ):
+        backbone = PaliGemmaVLM(
+            input_keys=[
+                Cameras.LEFT.value,
+                Cameras.RIGHT.value,
+                SampleKey.TOKENIZED_OBSERVATIONS.value,
+            ],
+            pretrained=False,
+            frozen=False,
+            model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
+            max_text_length=SMOLVLA_TEXT_LENGTH,
+        )
+    backbone.vlm = backbone.vlm.float()
+    return backbone
+
+
+def _make_tiny_prismatic_config_dir(root: Path) -> Path:
+    config_dir = root / "prismatic_tiny"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / PRISMATIC_CONFIG_FILENAME
+    config_path.write_text(
+        json.dumps(
+            {
+                "model": {
+                    "model_id": PrismaticModelType.PRISM_DINOSIGLIP_224PX_7B.value,
+                    "vision_backbone_id": (
+                        PrismaticVisionBackboneType.DINOSIGLIP_VIT_SO_224PX.value
+                    ),
+                    "llm_backbone_id": PrismaticLLMBackboneType.LLAMA2_7B_PURE.value,
+                    "arch_specifier": "linear",
+                    "image_resize_strategy": "resize-naive",
+                    "llm_max_length": SMOLVLA_TEXT_LENGTH,
+                }
+            }
+        )
+    )
+    return config_dir
+
+
+def _make_real_prismatic_backbone(root: Path) -> PrismaticVLM:
+    config_dir = _make_tiny_prismatic_config_dir(root=root)
+    text_config = LlamaConfig(
+        vocab_size=PRISMATIC_TINY_VOCAB_SIZE,
+        hidden_size=SMOLVLA_HIDDEN_DIMENSION,
+        intermediate_size=SMOLVLA_HIDDEN_DIMENSION * 2,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=1,
+        max_position_embeddings=64,
+    )
+    with (
+        patch.dict(
+            PRISMATIC_VISION_BACKBONES,
+            {
+                PrismaticVisionBackboneType.DINOSIGLIP_VIT_SO_224PX: (
+                    FlatBackboneType.DEIT_TINY,
+                    FlatBackboneType.DEIT_TINY,
+                )
+            },
+        ),
+        patch.dict(
+            PRISMATIC_VISION_IMAGE_SIZES,
+            {PrismaticVisionBackboneType.DINOSIGLIP_VIT_SO_224PX: 32},
+        ),
+        patch(
+            "versatil.models.decoding.generative_language_models.vision_language"
+            ".prismatic.AutoConfig.from_pretrained",
+            autospec=True,
+            return_value=text_config,
+        ),
+    ):
+        backbone = PrismaticVLM(
+            input_keys=[
+                Cameras.LEFT.value,
+                Cameras.RIGHT.value,
+                SampleKey.TOKENIZED_OBSERVATIONS.value,
+            ],
+            pretrained=False,
+            frozen=False,
+            model_name=str(config_dir),
+            repository_id="test/prismatic",
+            attention_type=AttentionImplementation.SDPA.value,
+            model_dtype=None,
+            max_text_length=SMOLVLA_TEXT_LENGTH,
+            lora_config=None,
+            gradient_checkpointing=False,
+        )
+    backbone.eval()
     return backbone
 
 
@@ -966,6 +1195,28 @@ def _make_smolvla_real_policy(
     )
     policy.eval()
     return policy
+
+
+def _make_vlm_real_policy(
+    vlm_backbone: nn.Module,
+    action_space: ActionSpace,
+    observation_space: ObservationSpace,
+    temporal_length: int,
+) -> Policy:
+    decoder = TinyVLMContinuousDecoder(
+        vlm_backbone=vlm_backbone,
+        prediction_horizon=1,
+    )
+    return _make_real_policy(
+        encoding_pipeline=EncodingPipeline(
+            encoders={},
+            observation_space=observation_space,
+        ),
+        decoder=decoder,
+        observation_space=observation_space,
+        action_space=action_space,
+        temporal_length=temporal_length,
+    )
 
 
 def _make_pipeline_real_policy(

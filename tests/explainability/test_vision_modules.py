@@ -244,6 +244,18 @@ class TestGetVisionExplainableModules:
                 VisionCaptureMode.STACKED_CAMERA_BATCH.value,
                 ExplanationTargetKind.TOKEN_SEQUENCE.value,
             ),
+            (
+                "paligemma_vlm",
+                "decoder.vlm_backbone",
+                VisionCaptureMode.PER_CAMERA_CALL.value,
+                ExplanationTargetKind.TOKEN_SEQUENCE.value,
+            ),
+            (
+                "prismatic_vlm",
+                "decoder.vlm_backbone.vision_encoders.0",
+                VisionCaptureMode.PER_CAMERA_CALL.value,
+                ExplanationTargetKind.TOKEN_SEQUENCE.value,
+            ),
         ],
     )
     def test_returns_real_policy_visual_targets(
@@ -334,6 +346,8 @@ class TestResolveCameraExplanationTargets:
             ("flat_deit_tiny", VisionCaptureMode.SINGLE_CALL.value, None),
             ("flat_deit_small", VisionCaptureMode.SINGLE_CALL.value, None),
             ("smolvla", VisionCaptureMode.STACKED_CAMERA_BATCH.value, 0),
+            ("paligemma_vlm", VisionCaptureMode.PER_CAMERA_CALL.value, None),
+            ("prismatic_vlm", VisionCaptureMode.PER_CAMERA_CALL.value, None),
         ],
     )
     def test_resolves_real_policy_camera_target(

@@ -69,12 +69,17 @@ def test_encoder_cache_disabled_removes_temporary_methods_from_plain_decoder():
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("policy_case_name", ["spatial_resnet18", "smolvla"])
+@pytest.mark.parametrize(
+    "policy_case_name",
+    ["spatial_resnet18", "smolvla", "paligemma_vlm", "prismatic_vlm"],
+)
 def test_run_policy_for_explanation_supports_real_policy_classes(
     real_explainability_policy_case_factory: Callable,
     policy_case_name: str,
 ):
-    batch_size = 1 if policy_case_name == "smolvla" else 2
+    batch_size = (
+        1 if policy_case_name.endswith("_vlm") or policy_case_name == "smolvla" else 2
+    )
     case = real_explainability_policy_case_factory(
         case_name=policy_case_name,
         batch_size=batch_size,

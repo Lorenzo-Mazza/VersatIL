@@ -27,6 +27,10 @@ from versatil.models.decoding.generative_language_models.vision_language.paligem
     PaliGemmaVLM,
 )
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 from versatil.training.constants import PrecisionType
 
 HIDDEN_DIM = 64
@@ -64,6 +68,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         language_model.rotary_emb = MagicMock(spec=nn.Module)
         mock_vlm.model = MagicMock(spec=nn.Module)
         mock_vlm.model.language_model = language_model
+        mock_vlm.model.multi_modal_projector = nn.Identity()
 
         total_image_tokens = NUM_IMAGE_TOKENS * num_cameras
         mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
@@ -676,6 +681,28 @@ class TestPaliGemmaVLMBackboneAccessors:
         assert backbone.get_backbone_hidden_dim() == HIDDEN_DIM
 
 
+@pytest.mark.unit
+class TestPaliGemmaVLMExplainabilityTargets:
+    def test_exposes_multi_modal_projector_token_target(
+        self,
+        paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+    ) -> None:
+        backbone = paligemma_backbone_factory(
+            input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
+            pretrained=False,
+            frozen=False,
+        )
+
+        targets = backbone.get_explainability_targets()
+
+        assert len(targets) == 1
+        assert targets[0].layer is backbone.vlm.model.multi_modal_projector
+        assert targets[0].target_kind == ExplanationTargetKind.TOKEN_SEQUENCE.value
+        assert targets[0].activation_layout == ActivationLayout.NLC.value
+        assert targets[0].patch_grid == (4, 4)
+        assert backbone.is_multi_camera is True
+
+
 class TestPaliGemmaVLMIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize("lora_enabled", [False, True])
@@ -793,6 +820,57 @@ class TestPaliGemmaVLMIntegration:
         assert cos.shape[0] == hidden.shape[0]
         assert sin.shape[0] == hidden.shape[0]
         assert backbone.get_backbone_hidden_dim() == backbone.hidden_dim
+
+    @pytest.mark.integration
+    def test_real_model_explainability_target_captures_image_tokens(
+        self,
+        real_paligemma_backbone: Callable[..., PaliGemmaVLM],
+        rng: np.random.Generator,
+    ) -> None:
+        batch_size = 1
+        backbone = real_paligemma_backbone(model_dtype=PrecisionType.FP32.value)
+        target = backbone.get_explainability_targets()[0]
+        captured_output = {}
+
+        def capture_output(
+            module: nn.Module,
+            module_input: tuple[torch.Tensor, ...],
+            module_output: torch.Tensor,
+        ) -> None:
+            del module, module_input
+            captured_output["image_tokens"] = module_output
+
+        handle = target.layer.register_forward_hook(capture_output)
+        try:
+            images = torch.from_numpy(
+                rng.standard_normal(
+                    (batch_size, 1, 3, backbone.image_size, backbone.image_size)
+                ).astype(np.float32)
+            )
+            token_ids = torch.from_numpy(
+                rng.integers(
+                    low=0,
+                    high=backbone.get_vocab_size(),
+                    size=(batch_size, 1, 10),
+                ).astype(np.int64)
+            )
+            with torch.no_grad():
+                backbone(
+                    inputs={
+                        Cameras.LEFT.value: images,
+                        SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
+                    }
+                )
+        finally:
+            handle.remove()
+
+        image_tokens = captured_output["image_tokens"]
+        assert image_tokens.shape == (
+            batch_size,
+            backbone.num_image_tokens_per_camera,
+            backbone.hidden_dim,
+        )
+        assert target.patch_grid == (4, 4)
 
     @pytest.mark.integration
     @pytest.mark.parametrize(

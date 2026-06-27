@@ -155,10 +155,3 @@ class SmolVLM(HuggingFaceGenerativeVLM):
                 patch_grid=self._get_image_token_grid(),
             )
         ]
-
-    def _get_image_token_grid(self) -> tuple[int, int] | None:
-        """Return the square SmolVLM image-token grid when it can be inferred."""
-        grid_size = math.isqrt(self.num_image_tokens_per_camera)
-        if grid_size * grid_size != self.num_image_tokens_per_camera:
-            return None
-        return grid_size, grid_size

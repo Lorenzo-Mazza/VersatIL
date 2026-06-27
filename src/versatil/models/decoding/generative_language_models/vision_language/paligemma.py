@@ -19,6 +19,11 @@ from versatil.models.decoding.generative_language_models.vision_language.hugging
 )
 from versatil.models.encoding.encoders.constants import AttentionImplementation
 from versatil.models.encoding.encoders.image_mixin import resize_to_target_size
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 
 
 class PaliGemmaVLM(HuggingFaceGenerativeVLM):
@@ -70,9 +75,13 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
 
     def _get_language_model(self) -> nn.Module:
         """Return the nested Gemma2 language model."""
+        return self._get_paligemma_model().language_model
+
+    def _get_paligemma_model(self) -> nn.Module:
+        """Return the inner PaliGemma model under optional PEFT wrapping."""
         if self.lora_config is not None and self.lora_config.enabled:
-            return self.vlm.model.model.language_model
-        return self.vlm.model.language_model
+            return self.vlm.model.model
+        return self.vlm.model
 
     def forward_language_model(
         self,
@@ -138,3 +147,24 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
     ) -> torch.Tensor:
         """Gemma applies sqrt(hidden_size) scaling after embedding lookup."""
         return language_embeddings * math.sqrt(self.hidden_dim)
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the projector output used as PaliGemma visual context.
+
+        PaliGemma encodes each camera independently with SigLIP and projects
+        patch tokens into the Gemma hidden size through ``multi_modal_projector``.
+        For multi-camera inputs this layer is invoked once per camera, and the
+        base VLM ``is_multi_camera`` flag lets the explainability runner select
+        the requested camera invocation.
+
+        Returns:
+            One token-sequence target over PaliGemma image tokens.
+        """
+        return [
+            VisionExplanationTarget(
+                layer=self._get_paligemma_model().multi_modal_projector,
+                target_kind=ExplanationTargetKind.TOKEN_SEQUENCE.value,
+                activation_layout=ActivationLayout.NLC.value,
+                patch_grid=self._get_image_token_grid(),
+            )
+        ]
