@@ -36,7 +36,10 @@ class ExplainabilityConfig:
         sample_stride: Explanation interval. In offline dataset mode, keep every
             Nth episodic dataset sample. In online inference mode, explain every
             Nth inference timestep.
-        max_samples: Optional cap on the number of offline dataset samples.
+        max_samples: Optional cap on the number of observation windows to
+            explain. Offline mode applies the cap after ``sample_stride``. Online
+            mode applies it to ready inference windows and derives the
+            inference-loop step budget from ``sample_stride``.
         data_path_override: Optional offline input location to explain instead
             of the data path stored in the checkpoint task config.
             ``None`` keeps the checkpoint's original ``task.dataset_schema``
@@ -60,8 +63,6 @@ class ExplainabilityConfig:
             checkpoint prediction horizon.
         update_rate_hz: Optional action-send rate limit for online inference.
             ``None`` sends actions as soon as they are available.
-        max_steps: Maximum number of online inference loop steps before the
-            explain endpoint exits.
         temporal_max_timesteps: Maximum episode length tracked by temporal
             aggregation state.
         timing_log: Whether to log per-step preprocessing, inference, and
@@ -101,7 +102,6 @@ class ExplainabilityConfig:
     temporal_aggregation: bool = False
     action_execution_horizon: int | None = None
     update_rate_hz: float | None = None
-    max_steps: int = 1000000
     temporal_max_timesteps: int = 800
     timing_log: bool = False
     compression_type: str = CompressionType.RAW.value

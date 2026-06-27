@@ -70,8 +70,8 @@ class DatasetExplanationSource:
                 zarr directory is used.
 
         Raises:
-            ValueError: If ``split``, ``batch_size``, or ``sample_stride`` is
-                invalid.
+            ValueError: If ``split``, ``batch_size``, ``sample_stride``, or
+                ``max_samples`` is invalid.
         """
         valid_splits = [member.value for member in ExplanationDatasetSplit]
         if split not in valid_splits:
@@ -80,6 +80,10 @@ class DatasetExplanationSource:
             raise ValueError(f"batch_size must be positive. Got: {batch_size}")
         if sample_stride <= 0:
             raise ValueError(f"sample_stride must be positive. Got: {sample_stride}")
+        if max_samples is not None and max_samples <= 0:
+            raise ValueError(
+                f"max_samples must be positive when set. Got: {max_samples}"
+            )
 
         self.config = config
         self.policy = policy

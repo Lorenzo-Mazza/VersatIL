@@ -29,6 +29,8 @@ from versatil.inference.socket_transport import (
 from versatil.models.policy import Policy
 from versatil.training.constants import CheckpointFilename
 
+DEFAULT_ONLINE_MAX_STEPS = 1_000_000
+
 
 class ExplainabilityRunner:
     """Generate xAI insights for the predictions of a trained policy."""
@@ -50,7 +52,6 @@ class ExplainabilityRunner:
         temporal_aggregation: bool = False,
         action_execution_horizon: int | None = None,
         update_rate_hz: float | None = None,
-        max_steps: int = 1000000,
         temporal_max_timesteps: int = 800,
         timing_log: bool = False,
         compression_type: str = CompressionType.RAW.value,
@@ -66,8 +67,8 @@ class ExplainabilityRunner:
         """Initialize the runner.
 
         Args:
-            checkpoint_path: Directory containing the training``config.yaml`` and the model
-                checkpoint.
+            checkpoint_path: Directory containing the training ``config.yaml``
+                and the model checkpoint.
             checkpoint_name: Checkpoint filename to restore trained policy.
             output_directory: Directory for written explanation files. ``None``
                 writes under ``checkpoint_path/explainability/<timestamp>``.
@@ -78,7 +79,10 @@ class ExplainabilityRunner:
             sample_stride: Explanation interval. In offline dataset mode, keep
                 every Nth episodic dataset sample. In online inference mode,
                 explain every Nth inference timestep.
-            max_samples: Optional cap on offline samples.
+            max_samples: Optional cap on the number of observation windows to
+                explain. Offline mode applies this after ``sample_stride``. Online
+                mode applies it to ready inference windows and derives the
+                inference-loop step budget from ``sample_stride``.
             data_path_override: Optional offline input location to explain
                 instead of the data path stored in the checkpoint task config.
                 ``None`` uses the checkpoint schema as-is. A single ``.zarr``
@@ -101,7 +105,6 @@ class ExplainabilityRunner:
                 checkpoint prediction horizon.
             update_rate_hz: Optional action-send rate limit for online
                 inference. ``None`` sends actions as soon as they are available.
-            max_steps: Maximum number of online inference loop steps.
             temporal_max_timesteps: Maximum episode length tracked by temporal
                 aggregation state.
             timing_log: Whether to log per-step timing breakdowns in online
@@ -142,7 +145,6 @@ class ExplainabilityRunner:
         self.temporal_aggregation = temporal_aggregation
         self.action_execution_horizon = action_execution_horizon
         self.update_rate_hz = update_rate_hz
-        self.max_steps = max_steps
         self.temporal_max_timesteps = temporal_max_timesteps
         self.timing_log = timing_log
         self.compression_type = compression_type
@@ -160,12 +162,15 @@ class ExplainabilityRunner:
         self.image_weight = image_weight
         self.overlay_image_format = overlay_image_format
         self._validate_source(source=source)
+        self._validate_sampling_configuration(
+            sample_stride=sample_stride,
+            max_samples=max_samples,
+        )
         if source == ExplanationSourceType.ONLINE_INFERENCE.value:
             self._validate_online_configuration(
                 model_server_port=model_server_port,
                 action_execution_horizon=action_execution_horizon,
                 update_rate_hz=update_rate_hz,
-                max_steps=max_steps,
                 temporal_max_timesteps=temporal_max_timesteps,
                 compression_type=compression_type,
             )
@@ -234,11 +239,33 @@ class ExplainabilityRunner:
             )
 
     @staticmethod
+    def _validate_sampling_configuration(
+        sample_stride: int,
+        max_samples: int | None,
+    ) -> None:
+        """Validate sample selection settings shared by all sources."""
+        if sample_stride <= 0:
+            raise ValueError(f"sample_stride must be positive. Got: {sample_stride}")
+        if max_samples is not None and max_samples <= 0:
+            raise ValueError(
+                f"max_samples must be positive when set. Got: {max_samples}"
+            )
+
+    @staticmethod
+    def _resolve_online_max_steps(
+        sample_stride: int,
+        max_samples: int | None,
+    ) -> int:
+        """Translate the explanation sample cap into an online step budget."""
+        if max_samples is None:
+            return DEFAULT_ONLINE_MAX_STEPS
+        return (max_samples - 1) * sample_stride + 1
+
+    @staticmethod
     def _validate_online_configuration(
         model_server_port: int,
         action_execution_horizon: int | None,
         update_rate_hz: float | None,
-        max_steps: int,
         temporal_max_timesteps: int,
         compression_type: str,
     ) -> None:
@@ -249,7 +276,6 @@ class ExplainabilityRunner:
             action_execution_horizon: Optional number of predicted actions sent
                 per policy call when temporal aggregation is disabled.
             update_rate_hz: Optional action-send rate limit.
-            max_steps: Maximum number of inference loop steps.
             temporal_max_timesteps: Temporal aggregation buffer length.
             compression_type: Requested observation image compression format.
 
@@ -270,8 +296,6 @@ class ExplainabilityRunner:
             raise ValueError(
                 f"update_rate_hz must be positive when set. Got: {update_rate_hz}"
             )
-        if max_steps <= 0:
-            raise ValueError(f"max_steps must be positive. Got: {max_steps}")
         if temporal_max_timesteps <= 0:
             raise ValueError(
                 "temporal_max_timesteps must be positive. "
@@ -348,7 +372,12 @@ class ExplainabilityRunner:
             online_explanation_source=self.build_online_source(),
         )
         try:
-            client.run_episode(max_steps=self.max_steps)
+            client.run_episode(
+                max_steps=self._resolve_online_max_steps(
+                    sample_stride=self.sample_stride,
+                    max_samples=self.max_samples,
+                )
+            )
         finally:
             client.shutdown()
         logging.info("Saved explainability files to %s", self.output_directory)
@@ -363,6 +392,7 @@ class ExplainabilityRunner:
         return OnlineInferenceExplanationSource(
             consumer=self,
             sample_stride=self.sample_stride,
+            max_samples=self.max_samples,
         )
 
     def explain_batch(self, batch: ExplanationBatch) -> None:

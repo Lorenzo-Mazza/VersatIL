@@ -10,6 +10,10 @@ import torch
 from versatil.explainability.sources.typedefs import ExplanationBatch
 from versatil.explainability.visualization import show_cam_on_image
 
+FILENAME_PLUS_TOKEN = "_plus"
+UNSAFE_FILENAME_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
+REPEATED_UNDERSCORE_PATTERN = re.compile(r"_+")
+
 
 class ExplanationWriter:
     """Write raw heatmaps and image overlays to disk."""
@@ -228,7 +232,10 @@ class ExplanationWriter:
             String containing only path-safe alphanumeric, underscore, dot, and
             dash characters.
         """
-        return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
+        sanitized = value.strip().replace("+", FILENAME_PLUS_TOKEN)
+        sanitized = UNSAFE_FILENAME_PATTERN.sub("_", sanitized)
+        sanitized = REPEATED_UNDERSCORE_PATTERN.sub("_", sanitized)
+        return sanitized.strip("_")
 
     @staticmethod
     def source_directory(metadata: dict) -> Path:

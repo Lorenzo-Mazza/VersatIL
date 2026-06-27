@@ -291,11 +291,24 @@ class TestDatasetExplanationSource:
         assert batches[0].observation[Cameras.AGENTVIEW.value].shape == (2, 1, 3, 4, 4)
 
     @pytest.mark.parametrize(
-        "split, batch_size, sample_stride, error_message",
+        "split, batch_size, sample_stride, max_samples, error_message",
         [
-            ("bad", 1, 1, "split must be one of ['train', 'val', 'all']. Got: bad"),
-            ("train", 0, 1, "batch_size must be positive. Got: 0"),
-            ("train", 1, 0, "sample_stride must be positive. Got: 0"),
+            (
+                "bad",
+                1,
+                1,
+                None,
+                "split must be one of ['train', 'val', 'all']. Got: bad",
+            ),
+            ("train", 0, 1, None, "batch_size must be positive. Got: 0"),
+            ("train", 1, 0, None, "sample_stride must be positive. Got: 0"),
+            (
+                "train",
+                1,
+                1,
+                0,
+                "max_samples must be positive when set. Got: 0",
+            ),
         ],
     )
     def test_validates_configuration(
@@ -305,6 +318,7 @@ class TestDatasetExplanationSource:
         split: str,
         batch_size: int,
         sample_stride: int,
+        max_samples: int | None,
         error_message: str,
     ) -> None:
         with pytest.raises(ValueError, match=re.escape(error_message)):
@@ -314,7 +328,7 @@ class TestDatasetExplanationSource:
                 split=split,
                 batch_size=batch_size,
                 sample_stride=sample_stride,
-                max_samples=None,
+                max_samples=max_samples,
             )
 
 

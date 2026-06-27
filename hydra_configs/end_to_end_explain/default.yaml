@@ -12,6 +12,7 @@ split: all
 # Offline: keep every Nth episodic dataset sample.
 # Online: explain every Nth inference timestep.
 sample_stride: 50
+# Optional cap on explained observation windows for both offline and online modes.
 max_samples: null
 # null: use checkpoint task.dataset_schema paths.
 # "/path/to/data.zarr": sample an existing zarr directly.
@@ -25,7 +26,6 @@ model_server_port: 5555
 temporal_aggregation: false
 action_execution_horizon: null
 update_rate_hz: null
-max_steps: 1000000
 temporal_max_timesteps: 800
 timing_log: false
 compression_type: raw

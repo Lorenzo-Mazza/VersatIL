@@ -26,6 +26,7 @@ def runner_factory(tmp_path: Path) -> Callable[..., ExplainabilityRunner]:
         save_raw_heatmaps: bool = False,
         overlay_image_format: str = "png",
         data_path_override: str | list[str] | None = None,
+        max_samples: int | None = 3,
     ) -> ExplainabilityRunner:
         policy = MagicMock()
         policy.eval = MagicMock()
@@ -45,7 +46,7 @@ def runner_factory(tmp_path: Path) -> Callable[..., ExplainabilityRunner]:
                 source=source,
                 split="all",
                 sample_stride=2,
-                max_samples=3,
+                max_samples=max_samples,
                 batch_size=2,
                 explanation_types=explanation_types,
                 target_camera_keys=target_camera_keys,
@@ -124,6 +125,15 @@ class TestExplainabilityRunner:
         )
         assert "zarr_cache_directory" not in mock_source_class.call_args.kwargs
 
+    def test_rejects_non_positive_max_samples(
+        self,
+        runner_factory: Callable[..., ExplainabilityRunner],
+    ) -> None:
+        error_message = "max_samples must be positive when set. Got: 0"
+
+        with pytest.raises(ValueError, match=error_message):
+            runner_factory(max_samples=0)
+
     def test_run_online_source_drives_inference_client(
         self,
         runner_factory: Callable[..., ExplainabilityRunner],
@@ -185,6 +195,31 @@ class TestExplainabilityRunner:
             update_rate_hz=None,
             online_explanation_source=online_source,
         )
+        client.run_episode.assert_called_once_with(max_steps=5)
+        client.shutdown.assert_called_once_with()
+
+    def test_run_online_source_uses_default_step_guard_without_sample_cap(
+        self,
+        runner_factory: Callable[..., ExplainabilityRunner],
+    ) -> None:
+        runner = runner_factory(
+            source=ExplanationSourceType.ONLINE_INFERENCE.value,
+            max_samples=None,
+        )
+        client = MagicMock()
+
+        with (
+            patch("versatil.explainability.runner.ExplainabilityPolicyRuntime"),
+            patch("versatil.explainability.runner.SocketObservationTransport"),
+            patch("versatil.explainability.runner.SocketActionTransport"),
+            patch(
+                "versatil.explainability.runner.InferenceClient",
+                return_value=client,
+            ),
+            patch.object(runner, "build_online_source", return_value=MagicMock()),
+        ):
+            runner.run()
+
         client.run_episode.assert_called_once_with(max_steps=1000000)
         client.shutdown.assert_called_once_with()
 
@@ -203,6 +238,7 @@ class TestExplainabilityRunner:
         mock_online_source_class.assert_called_once_with(
             consumer=runner,
             sample_stride=2,
+            max_samples=3,
         )
 
     def test_compute_heatmaps_filters_target_camera_and_visual_module_names(
