@@ -7,6 +7,9 @@ name = "VersatIL"
 version = "0.4.0"
 description = "A python library for training any robot policy through Imitation Learning, with dependencies handled by uv"
 authors = [
+    { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" }
+]
+maintainers = [
     { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" },
     { name = "Ariel Rodriguez", email = "ariel.rodriguezjimenez@nct-dresden.de" }
 ]
@@ -188,7 +191,7 @@ unfixable = []
 # Allow uppercase R for rotation matrices
 "src/data/action_processor.py" = ["N803"]
 # Ignore loop variable binding in closures for hooks (intentional behavior)
-"src/versatil/explain/**/*.py" = ["B023"]
+"src/versatil/explainability/**/*.py" = ["B023"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["versatil"]
@@ -213,6 +216,6 @@ packages = ["src/versatil"]
 
 [tool.coverage.run]
 omit = [
-    "src/versatil/explain/*",
+    "src/versatil/explainability/**",
     "src/versatil/endpoints/explain.py",
 ]

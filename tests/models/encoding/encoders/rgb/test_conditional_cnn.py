@@ -25,6 +25,10 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.encoding.encoders.rgb.conditional_cnn import (
     ConditionalCNNEncoder,
 )
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 
 CONDITIONAL_CNN_BACKBONES = list(ConditionalCNNEncoder.BACKBONE_CONFIGS.keys())
 
@@ -141,6 +145,18 @@ def conditioning_factory(
         return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
 
     return factory
+
+
+def test_conditional_cnn_encoder_exposes_last_layer4_block_gradcam_target(
+    conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+):
+    encoder = conditional_cnn_factory()
+    target_layer = MagicMock()
+    encoder.backbone.layer4 = [MagicMock(), target_layer]
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is target_layer
+    assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+    assert target.activation_layout == ActivationLayout.NCHW.value
 
 
 class TestConditionalCNNEncoderInitialization:
@@ -480,6 +496,29 @@ class TestConditionalCNNEncoderValidateInputMetadata:
 
 
 class TestConditionalCNNEncoderIntegration:
+    @pytest.mark.integration
+    @pytest.mark.parametrize("backbone", CONDITIONAL_CNN_BACKBONES)
+    def test_exposes_real_gradcam_target_per_backbone(
+        self,
+        backbone: str,
+    ):
+        encoder = ConditionalCNNEncoder(
+            input_keys="left",
+            condition_key="language_instruction",
+            condition_dim=64,
+            backbone=backbone,
+            pooling_method=PoolingMethod.AVERAGE.value,
+            batch_norm_handling=BatchNormHandling.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+        ).cpu()
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is encoder.backbone.layer4[-1]
+        assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+        assert target.activation_layout == ActivationLayout.NCHW.value
+
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", CONDITIONAL_CNN_BACKBONES)
     def test_forward_pass_per_backbone(

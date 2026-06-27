@@ -2,7 +2,7 @@
 
 LeRobot is a HuggingFace robotics dataset format using:
 - Parquet files for tabular data (observation.state, action, timestamps)
-- MP4 videos OR embedded PNG bytes for camera observations
+- MP4 videos or embedded PNG bytes for camera observations
 - JSON metadata files (info.json, stats.json, tasks.jsonl/tasks.parquet)
 
 Reference: https://github.com/huggingface/lerobot
@@ -287,7 +287,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         super().__init__(
             zarr_path=zarr_path, metadata=metadata, dataset_type=dataset_type
         )
-
+        # TODO: This forces the presence of LeRobot raw data, even when the zarr already exists. Need to refactor this.
         self.lerobot_metadata = LeRobotDatasetMetadataV30(dataset_path=dataset_path)
 
     def _get_frames_from_videos(

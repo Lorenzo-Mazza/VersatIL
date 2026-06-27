@@ -1,12 +1,15 @@
 """Root test fixtures shared across the entire test suite."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
+from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 import versatil  # noqa: F401 — triggers dotenv loading and cache directory setup
 from versatil.data.constants import (
@@ -16,6 +19,8 @@ from versatil.data.constants import (
     CoordinateSystem,
     GripperType,
     OrientationRepresentation,
+    ProprioKey,
+    SampleKey,
 )
 from versatil.data.metadata import (
     CameraMetadata,
@@ -27,14 +32,118 @@ from versatil.data.metadata import (
     OrientationObservationMetadata,
     PositionActionMetadata,
     PositionObservationMetadata,
+    PrecomputedActionMetadata,
     RGBCameraMetadata,
 )
+from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import LossOutput
+from versatil.models.decoding.action_heads.single_output import ActionHead
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.diffusion import Diffusion
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.decoders.factory.smolvla import SmolVLADecoder
+from versatil.models.decoding.generative_language_models.constants import (
+    SmolVLMModelType,
+)
+from versatil.models.decoding.generative_language_models.vision_language.smolvlm import (
+    SmolVLM,
+)
+from versatil.models.encoding.encoders.constants import (
+    BatchNormHandling,
+    FlatBackboneType,
+    PoolingMethod,
+    SpatialBackboneType,
+)
+from versatil.models.encoding.encoders.rgb.flat import FlatRGBEncoder
+from versatil.models.encoding.encoders.rgb.spatial import SpatialRGBEncoder
+from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
 
 MINIMUM_VRAM_GB = 8.0
 MINIMUM_FREE_VRAM_GB = 2.0
+REAL_MODEL_IMAGE_SIZE = 64
+REAL_POLICY_ACTION_KEY = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+REAL_PIPELINE_ENCODER_NAME = "vision"
+REAL_PIPELINE_FEATURE_KEY = "vision_rgb"
+REAL_SMOLVLA_MODULE_NAME = "decoder.vlm_backbone"
+SMOLVLA_IMAGE_SIZE = 56
+SMOLVLA_HIDDEN_DIMENSION = 32
+SMOLVLA_EXPERT_WIDTH_MULTIPLIER = 0.5
+SMOLVLA_EXPERT_HIDDEN_DIMENSION = int(
+    SMOLVLA_HIDDEN_DIMENSION * SMOLVLA_EXPERT_WIDTH_MULTIPLIER
+)
+SMOLVLA_VOCAB_SIZE = 1000
+SMOLVLA_TEXT_LENGTH = 4
+
+
+@dataclass(frozen=True)
+class RealExplainabilityPolicyCase:
+    policy: Policy
+    observation: dict[str, torch.Tensor]
+    target_camera: str
+    target_vision_module_names: list[str]
+    expected_camera: str
+    expected_vision_module_names: list[str]
+
+
+class TinyContinuousAlgorithm(DecodingAlgorithm):
+    def forward(
+        self,
+        network: nn.Module,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        return network(features=features, actions=actions)
+
+    def predict(
+        self,
+        network: nn.Module,
+        features: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        return network(features=features, actions=None)
+
+
+class TinyContinuousDecoder(nn.Module):
+    requires_tokenized_actions = False
+
+    def __init__(
+        self,
+        input_keys: list[str],
+        prediction_horizon: int,
+        prediction_key: str = REAL_POLICY_ACTION_KEY,
+    ) -> None:
+        super().__init__()
+        self.decoder_input = DecoderInput(keys=input_keys)
+        self.prediction_horizon = prediction_horizon
+        self.prediction_key = prediction_key
+
+    def set_normalizer(self, normalizer: LinearNormalizer) -> None:
+        self.normalizer = normalizer
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
+        self.tokenizer = tokenizer
+
+    def get_prediction_output_keys(self) -> set[str]:
+        return {self.prediction_key}
+
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        score = self._score_features(features=features)
+        prediction = score[:, None, None].repeat(1, self.prediction_horizon, 3)
+        return {self.prediction_key: prediction}
+
+    def _score_features(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
+        scores = []
+        for key in self.decoder_input.keys:
+            tensor = features[key].float()
+            scores.append(tensor.flatten(start_dim=1).mean(dim=1))
+        return torch.stack(scores, dim=0).mean(dim=0)
 
 
 def pytest_collection_modifyitems(
@@ -365,6 +474,36 @@ def on_the_fly_action_metadata_factory(
 
 
 @pytest.fixture
+def precomputed_action_metadata_factory() -> Callable[..., PrecomputedActionMetadata]:
+    def factory(
+        raw_data_column_keys: list[str] = None,
+        storage_dimension: int = 7,
+        prediction_dimension: int = 3,
+        is_numerical: bool = True,
+        needs_normalization: bool = True,
+        dtype: str = "float32",
+        slice_start: int = None,
+        slice_end: int = None,
+        requires_prediction_head: bool = True,
+    ) -> PrecomputedActionMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["action_col"]
+        return PrecomputedActionMetadata(
+            raw_data_column_keys=raw_data_column_keys,
+            storage_dimension=storage_dimension,
+            prediction_dimension=prediction_dimension,
+            is_numerical=is_numerical,
+            needs_normalization=needs_normalization,
+            dtype=dtype,
+            slice_start=slice_start,
+            slice_end=slice_end,
+            requires_prediction_head=requires_prediction_head,
+        )
+
+    return factory
+
+
+@pytest.fixture
 def gripper_action_metadata_factory() -> Callable[..., GripperActionMetadata]:
     def factory(
         gripper_type: str = GripperType.BINARY.value,
@@ -481,6 +620,24 @@ def orientation_action_metadata_factory() -> Callable[..., OrientationActionMeta
 
 
 @pytest.fixture
+def dataset_metadata_factory() -> Callable[..., DatasetMetadata]:
+    def factory(
+        observations: dict = None,
+        precomputed_actions: dict = None,
+    ) -> DatasetMetadata:
+        if observations is None:
+            observations = {}
+        if precomputed_actions is None:
+            precomputed_actions = {}
+        return DatasetMetadata(
+            observations=observations,
+            precomputed_actions=precomputed_actions,
+        )
+
+    return factory
+
+
+@pytest.fixture
 def observation_space_factory() -> Callable[..., ObservationSpace]:
     def factory(
         observations_metadata: dict = None,
@@ -490,3 +647,367 @@ def observation_space_factory() -> Callable[..., ObservationSpace]:
         return ObservationSpace(observations_metadata=observations_metadata)
 
     return factory
+
+
+@pytest.fixture
+def real_explainability_policy_case_factory(
+    rng: np.random.Generator,
+    camera_metadata_factory: Callable[..., CameraMetadata],
+    precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+    action_space_factory: Callable[..., ActionSpace],
+    observation_space_factory: Callable[..., ObservationSpace],
+) -> Callable[..., RealExplainabilityPolicyCase]:
+    def factory(
+        case_name: str,
+        batch_size: int = 2,
+        temporal_length: int = 1,
+        image_height: int = REAL_MODEL_IMAGE_SIZE,
+        image_width: int = REAL_MODEL_IMAGE_SIZE,
+    ) -> RealExplainabilityPolicyCase:
+        torch.manual_seed(17)
+        action_space = _make_real_action_space(
+            precomputed_action_metadata_factory=precomputed_action_metadata_factory,
+            action_space_factory=action_space_factory,
+        )
+        camera_keys = _camera_keys_for_real_case(case_name=case_name)
+        observation_space = _make_real_observation_space(
+            camera_keys=camera_keys,
+            image_height=image_height,
+            image_width=image_width,
+            camera_metadata_factory=camera_metadata_factory,
+            observation_space_factory=observation_space_factory,
+        )
+        observation = _make_real_camera_observation(
+            rng=rng,
+            camera_keys=camera_keys,
+            batch_size=batch_size,
+            temporal_length=temporal_length,
+            image_height=image_height,
+            image_width=image_width,
+        )
+        if case_name == "smolvla":
+            observation.update(
+                _make_real_tokenized_observation(
+                    rng=rng,
+                    batch_size=batch_size,
+                    temporal_length=temporal_length,
+                )
+            )
+
+        if case_name in _SPATIAL_REAL_BACKBONES:
+            encoder = _make_real_spatial_encoder(
+                backbone=_SPATIAL_REAL_BACKBONES[case_name],
+            )
+            policy = _make_pipeline_real_policy(
+                encoder=encoder,
+                observation_space=observation_space,
+                action_space=action_space,
+                temporal_length=temporal_length,
+            )
+            return RealExplainabilityPolicyCase(
+                policy=policy,
+                observation=observation,
+                target_camera=Cameras.LEFT.value,
+                target_vision_module_names=[REAL_PIPELINE_ENCODER_NAME],
+                expected_camera=Cameras.LEFT.value,
+                expected_vision_module_names=[REAL_PIPELINE_ENCODER_NAME],
+            )
+
+        if case_name in _FLAT_REAL_BACKBONES:
+            encoder = _make_real_flat_encoder(
+                input_keys=[Cameras.LEFT.value],
+                backbone=_FLAT_REAL_BACKBONES[case_name],
+                image_height=image_height,
+                image_width=image_width,
+            )
+            policy = _make_pipeline_real_policy(
+                encoder=encoder,
+                observation_space=observation_space,
+                action_space=action_space,
+                temporal_length=temporal_length,
+            )
+            return RealExplainabilityPolicyCase(
+                policy=policy,
+                observation=observation,
+                target_camera=Cameras.LEFT.value,
+                target_vision_module_names=[REAL_PIPELINE_ENCODER_NAME],
+                expected_camera=Cameras.LEFT.value,
+                expected_vision_module_names=[REAL_PIPELINE_ENCODER_NAME],
+            )
+
+        if case_name == "smolvla":
+            policy = _make_smolvla_real_policy(
+                action_space=action_space,
+                observation_space=observation_space,
+                temporal_length=temporal_length,
+            )
+            return RealExplainabilityPolicyCase(
+                policy=policy,
+                observation=observation,
+                target_camera=Cameras.LEFT.value,
+                target_vision_module_names=[REAL_SMOLVLA_MODULE_NAME],
+                expected_camera=Cameras.LEFT.value,
+                expected_vision_module_names=[REAL_SMOLVLA_MODULE_NAME],
+            )
+
+        valid_cases = [*_SPATIAL_REAL_BACKBONES, *_FLAT_REAL_BACKBONES, "smolvla"]
+        raise ValueError(
+            f"Unknown real explainability policy case: {case_name}. "
+            f"Valid cases: {valid_cases}"
+        )
+
+    return factory
+
+
+_SPATIAL_REAL_BACKBONES = {
+    "spatial_resnet18": SpatialBackboneType.RESNET18.value,
+    "spatial_efficientnet_b0": SpatialBackboneType.EFFICIENTNET_B0.value,
+    "spatial_convnext_nano": SpatialBackboneType.CONVNEXT_NANO.value,
+    "spatial_tiny_vit": SpatialBackboneType.TINY_VIT_21M.value,
+}
+_FLAT_REAL_BACKBONES = {
+    "flat_deit_tiny": FlatBackboneType.DEIT_TINY.value,
+    "flat_deit_small": FlatBackboneType.DEIT_SMALL.value,
+}
+
+
+def _camera_keys_for_real_case(case_name: str) -> list[str]:
+    if case_name == "smolvla":
+        return [Cameras.LEFT.value, Cameras.RIGHT.value]
+    return [Cameras.LEFT.value]
+
+
+def _make_real_action_space(
+    precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+    action_space_factory: Callable[..., ActionSpace],
+) -> ActionSpace:
+    action_metadata = precomputed_action_metadata_factory(
+        raw_data_column_keys=["x", "y", "z"],
+        storage_dimension=3,
+        prediction_dimension=3,
+        slice_start=None,
+        slice_end=None,
+    )
+    return action_space_factory(
+        actions_metadata={REAL_POLICY_ACTION_KEY: action_metadata},
+    )
+
+
+def _make_real_observation_space(
+    camera_keys: list[str],
+    image_height: int,
+    image_width: int,
+    camera_metadata_factory: Callable[..., CameraMetadata],
+    observation_space_factory: Callable[..., ObservationSpace],
+) -> ObservationSpace:
+    observations_metadata = {
+        camera_key: camera_metadata_factory(
+            camera_key=camera_key,
+            image_height=image_height,
+            image_width=image_width,
+        )
+        for camera_key in camera_keys
+    }
+    return observation_space_factory(observations_metadata=observations_metadata)
+
+
+def _make_real_camera_observation(
+    rng: np.random.Generator,
+    camera_keys: list[str],
+    batch_size: int,
+    temporal_length: int,
+    image_height: int,
+    image_width: int,
+) -> dict[str, torch.Tensor]:
+    observation = {}
+    for camera_index, camera_key in enumerate(camera_keys):
+        image_batch = rng.random(
+            (batch_size, temporal_length, 3, image_height, image_width),
+            dtype=np.float32,
+        )
+        image_batch = image_batch + np.float32(camera_index) * np.float32(0.05)
+        observation[camera_key] = torch.from_numpy(np.clip(image_batch, 0.0, 1.0))
+    return observation
+
+
+def _make_real_tokenized_observation(
+    rng: np.random.Generator,
+    batch_size: int,
+    temporal_length: int,
+) -> dict[str, torch.Tensor]:
+    token_shape = (batch_size, temporal_length, SMOLVLA_TEXT_LENGTH)
+    token_ids = rng.integers(
+        low=0,
+        high=SMOLVLA_VOCAB_SIZE,
+        size=token_shape,
+        dtype=np.int64,
+    )
+    return {
+        SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(token_ids),
+        SampleKey.IS_PAD_OBSERVATION.value: torch.zeros(
+            token_shape,
+            dtype=torch.bool,
+        ),
+    }
+
+
+def _make_real_spatial_encoder(backbone: str) -> SpatialRGBEncoder:
+    return SpatialRGBEncoder(
+        input_keys=Cameras.LEFT.value,
+        backbone=backbone,
+        pooling_method=PoolingMethod.NONE.value,
+        batch_norm_handling=BatchNormHandling.DEFAULT.value,
+        pretrained=False,
+        frozen=False,
+    )
+
+
+def _make_real_flat_encoder(
+    input_keys: list[str],
+    backbone: str,
+    image_height: int,
+    image_width: int,
+) -> FlatRGBEncoder:
+    return FlatRGBEncoder(
+        input_keys=input_keys,
+        backbone=backbone,
+        pooling_method=PoolingMethod.NONE.value,
+        pretrained=False,
+        frozen=False,
+        image_size=(image_height, image_width),
+        intermediate_layer_index=-2,
+    )
+
+
+def _make_tiny_smolvlm_config() -> Idefics3Config:
+    text_config = LlamaConfig(
+        num_hidden_layers=1,
+        hidden_size=SMOLVLA_HIDDEN_DIMENSION,
+        intermediate_size=SMOLVLA_HIDDEN_DIMENSION * 2,
+        num_attention_heads=2,
+        num_key_value_heads=1,
+        head_dim=SMOLVLA_HIDDEN_DIMENSION // 2,
+        vocab_size=SMOLVLA_VOCAB_SIZE,
+        max_position_embeddings=64,
+    )
+    vision_config = SiglipVisionConfig(
+        hidden_size=SMOLVLA_HIDDEN_DIMENSION,
+        intermediate_size=SMOLVLA_HIDDEN_DIMENSION * 2,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        image_size=SMOLVLA_IMAGE_SIZE,
+        patch_size=14,
+    )
+    return Idefics3Config(
+        text_config=text_config.to_dict(),
+        vision_config=vision_config.to_dict(),
+        scale_factor=4,
+    )
+
+
+def _make_real_smolvlm_backbone() -> SmolVLM:
+    tiny_config = _make_tiny_smolvlm_config()
+    with patch(
+        "versatil.models.decoding.generative_language_models.vision_language"
+        ".huggingface.AutoConfig.from_pretrained",
+        return_value=tiny_config,
+    ):
+        backbone = SmolVLM(
+            input_keys=[
+                Cameras.LEFT.value,
+                Cameras.RIGHT.value,
+                SampleKey.TOKENIZED_OBSERVATIONS.value,
+            ],
+            pretrained=False,
+            frozen=False,
+            model_name=SmolVLMModelType.SMOLVLM_256M.value,
+            max_text_length=SMOLVLA_TEXT_LENGTH,
+        )
+    backbone.vlm = backbone.vlm.float()
+    return backbone
+
+
+def _make_smolvla_real_policy(
+    action_space: ActionSpace,
+    observation_space: ObservationSpace,
+    temporal_length: int,
+) -> Policy:
+    decoder = SmolVLADecoder(
+        input_keys=[],
+        action_space=action_space,
+        action_heads={
+            "joint_action": ActionHead(input_dim=SMOLVLA_EXPERT_HIDDEN_DIMENSION)
+        },
+        observation_space=observation_space,
+        observation_horizon=temporal_length,
+        prediction_horizon=1,
+        device="cpu",
+        vlm_backbone=_make_real_smolvlm_backbone(),
+        expert_width_multiplier=SMOLVLA_EXPERT_WIDTH_MULTIPLIER,
+        num_expert_layers=1,
+        num_vlm_layers=1,
+        self_attention_every_n_layers=0,
+        freeze_vlm=False,
+        dropout=0.0,
+    )
+    policy = Policy(
+        encoding_pipeline=EncodingPipeline(
+            encoders={},
+            observation_space=observation_space,
+        ),
+        algorithm=Diffusion(num_inference_steps=1),
+        decoder=decoder,
+        observation_space=observation_space,
+        action_space=action_space,
+        prediction_horizon=1,
+        observation_horizon=temporal_length,
+        loss=MagicMock(),
+        device="cpu",
+    )
+    policy.eval()
+    return policy
+
+
+def _make_pipeline_real_policy(
+    encoder: nn.Module,
+    observation_space: ObservationSpace,
+    action_space: ActionSpace,
+    temporal_length: int,
+) -> Policy:
+    encoding_pipeline = EncodingPipeline(
+        encoders={REAL_PIPELINE_ENCODER_NAME: encoder},
+        observation_space=observation_space,
+    )
+    decoder = TinyContinuousDecoder(
+        input_keys=[REAL_PIPELINE_FEATURE_KEY],
+        prediction_horizon=1,
+    )
+    return _make_real_policy(
+        encoding_pipeline=encoding_pipeline,
+        decoder=decoder,
+        observation_space=observation_space,
+        action_space=action_space,
+        temporal_length=temporal_length,
+    )
+
+
+def _make_real_policy(
+    encoding_pipeline: EncodingPipeline,
+    decoder: nn.Module,
+    observation_space: ObservationSpace,
+    action_space: ActionSpace,
+    temporal_length: int,
+) -> Policy:
+    policy = Policy(
+        encoding_pipeline=encoding_pipeline,
+        algorithm=TinyContinuousAlgorithm(),
+        decoder=decoder,
+        observation_space=observation_space,
+        action_space=action_space,
+        prediction_horizon=1,
+        observation_horizon=temporal_length,
+        loss=MagicMock(),
+        device="cpu",
+    )
+    policy.eval()
+    return policy

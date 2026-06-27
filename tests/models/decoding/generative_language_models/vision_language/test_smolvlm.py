@@ -27,6 +27,10 @@ from versatil.models.decoding.generative_language_models.vision_language.smolvlm
     SmolVLM,
 )
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 from versatil.training.constants import PrecisionType
 
 HIDDEN_DIM = 64
@@ -75,6 +79,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         text_model.rotary_emb = MagicMock(spec=nn.Module)
         mock_vlm.model = MagicMock(spec=nn.Module)
         mock_vlm.model.text_model = text_model
+        mock_vlm.model.connector = nn.Identity()
 
         mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
         # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dim)
@@ -230,6 +235,7 @@ class TestSmolVLMInitialization:
         assert backbone.num_image_tokens_per_camera == NUM_IMAGE_TOKENS
         assert len(backbone.camera_keys) == expected_camera_count
         assert SampleKey.IS_PAD_OBSERVATION.value in backbone.input_specification.keys
+        assert backbone.is_stacked_camera_batch
         if frozen:
             for parameter in backbone.parameters():
                 assert not parameter.requires_grad
@@ -296,6 +302,25 @@ class TestSmolVLMInitialization:
                 model_name=SmolVLMModelType.SMOLVLM_256M.value,
             )
         assert backbone.num_image_tokens_per_camera == expected_tokens
+
+    def test_exposes_connector_as_stacked_camera_token_target(
+        self,
+        smolvlm_backbone_factory: Callable[..., SmolVLM],
+    ) -> None:
+        backbone = smolvlm_backbone_factory(
+            input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
+            pretrained=False,
+            frozen=False,
+        )
+
+        targets = backbone.get_explainability_targets()
+
+        assert len(targets) == 1
+        assert targets[0].layer is backbone.vlm.model.connector
+        assert targets[0].target_kind == ExplanationTargetKind.TOKEN_SEQUENCE.value
+        assert targets[0].activation_layout == ActivationLayout.NLC.value
+        assert targets[0].prefix_token_count == 0
+        assert targets[0].patch_grid == (1, 1)
 
 
 @pytest.mark.unit
@@ -790,6 +815,22 @@ class TestSmolVLMBackboneAccessors:
 
 
 class TestSmolVLMIntegration:
+    @pytest.mark.integration
+    def test_exposes_real_connector_token_target(
+        self,
+        real_smolvlm_backbone: Callable[..., SmolVLM],
+    ) -> None:
+        backbone = real_smolvlm_backbone(model_dtype=PrecisionType.FP32.value)
+
+        targets = backbone.get_explainability_targets()
+
+        assert len(targets) == 1
+        assert targets[0].layer is backbone.vlm.model.connector
+        assert targets[0].target_kind == ExplanationTargetKind.TOKEN_SEQUENCE.value
+        assert targets[0].activation_layout == ActivationLayout.NLC.value
+        assert targets[0].prefix_token_count == 0
+        assert targets[0].patch_grid == backbone._get_image_token_grid()
+
     @pytest.mark.integration
     @pytest.mark.parametrize("lora_enabled", [False, True])
     def test_forward_pass_with_real_model(

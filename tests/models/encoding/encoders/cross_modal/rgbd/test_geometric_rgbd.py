@@ -23,6 +23,10 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd import (
     GeometricRGBDEncoder,
 )
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 from versatil.models.layers.constants import AttentionDecompositionMode
 
 
@@ -73,6 +77,16 @@ def light_geometric_encoder_factory(
         return encoder
 
     return factory
+
+
+def test_geometric_rgbd_encoder_exposes_attention_block_gradcam_target(
+    light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
+):
+    encoder = light_geometric_encoder_factory()
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is encoder.attention_block
+    assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+    assert target.activation_layout == ActivationLayout.NHWC.value
 
 
 class TestGeometricRGBDEncoderInitialization:
@@ -366,6 +380,33 @@ class TestGeometricRGBDEncoderForward:
 
 
 class TestGeometricRGBDEncoderIntegration:
+    @pytest.mark.integration
+    def test_exposes_real_attention_block_gradcam_target(
+        self,
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+    ):
+        encoder = GeometricRGBDEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+            embedding_dimension=32,
+            num_heads=2,
+            ffn_dimension=64,
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
+        )
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is encoder.attention_block
+        assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+        assert target.activation_layout == ActivationLayout.NHWC.value
+
     @pytest.mark.integration
     def test_forward_pass(
         self,

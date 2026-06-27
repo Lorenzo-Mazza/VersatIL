@@ -23,6 +23,7 @@ from versatil.inference.policy_runtime.base import PolicyRuntime
 from versatil.inference.protocol import (
     ActionTransport,
     ObservationTransport,
+    OnlineExplanationSource,
 )
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
@@ -59,6 +60,7 @@ class InferenceClient:
         max_timesteps: int = 800,
         timing_log: bool = False,
         update_rate_hz: float | None = None,
+        online_explanation_source: OnlineExplanationSource | None = None,
     ) -> None:
         """Initialize the inference client.
 
@@ -81,6 +83,9 @@ class InferenceClient:
             max_timesteps: Maximum episode length for temporal aggregation.
             timing_log: Whether to log per-step timing breakdown.
             update_rate_hz: Target action-send frequency in Hz.
+            online_explanation_source: Optional source that converts the exact
+                ready observation batch used for policy inference into
+                explanations.
         """
         self.policy_runtime = policy_runtime
         self.observation_transport = observation_transport
@@ -99,6 +104,7 @@ class InferenceClient:
         self.compression_type = compression_type
         self.timing_log = timing_log
         self.update_rate_hz = update_rate_hz
+        self.online_explanation_source = online_explanation_source
         self.timestep = 0
         observation_space = policy_runtime.observation_space
         action_space = policy_runtime.action_space
@@ -411,10 +417,40 @@ class InferenceClient:
         if self.has_language:
             observation_dict[ObsKey.LANGUAGE.value] = language_batch
 
+        self._explain_online_observation_batch(
+            observation_dict=observation_dict,
+            ready_indices=ready_indices,
+        )
         action_dict = self.policy_runtime.run_inference(obs_dict=observation_dict)
 
         return self._distribute_actions(
             action_dict=action_dict, ready_indices=ready_indices
+        )
+
+    def _explain_online_observation_batch(
+        self,
+        observation_dict: dict[str, Any],
+        ready_indices: list[int],
+    ) -> None:
+        """Send the ready inference observation batch to the online source.
+
+        Args:
+            observation_dict: The same batch passed to
+                ``PolicyRuntime.run_inference``.
+            ready_indices: Environment indices represented by the batch rows.
+        """
+        if self.online_explanation_source is None:
+            return
+        display_observation = {
+            camera_key: observation_dict[camera_key].detach().cpu()
+            for camera_key in self.camera_keys
+            if isinstance(observation_dict[camera_key], torch.Tensor)
+        }
+        self.online_explanation_source.explain_observation_batch(
+            observation=observation_dict,
+            display_observation=display_observation,
+            environment_indices=ready_indices,
+            timestep=self.timestep,
         )
 
     def _distribute_actions(

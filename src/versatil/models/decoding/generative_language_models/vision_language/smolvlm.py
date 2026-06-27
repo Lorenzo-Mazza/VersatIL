@@ -15,6 +15,11 @@ from versatil.models.decoding.generative_language_models.vision_language.hugging
 )
 from versatil.models.encoding.encoders.constants import AttentionImplementation
 from versatil.models.encoding.encoders.image_mixin import resize_to_target_size
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 
 
 class SmolVLM(HuggingFaceGenerativeVLM):
@@ -24,6 +29,8 @@ class SmolVLM(HuggingFaceGenerativeVLM):
     through SigLIP + connector in a single call, then concatenated with
     language embeddings before the SmolLM pass.
     """
+
+    is_stacked_camera_batch = True
 
     def __init__(
         self,
@@ -128,3 +135,30 @@ class SmolVLM(HuggingFaceGenerativeVLM):
             device=image_embeddings.device,
         )
         return [image_embeddings], [image_pad_mask]
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the connector output used by SmolVLA as visual context.
+
+        SmolVLM stacks cameras before image encoding, and HuggingFace flattens
+        the stack to ``B * num_cameras`` while producing one token sequence per
+        camera. The explainability package splits this stacked batch back into
+        camera-specific heatmaps through ``is_stacked_camera_batch``.
+
+        Returns:
+            One token-sequence target over SmolVLM image tokens.
+        """
+        return [
+            VisionExplanationTarget(
+                layer=self.vlm.model.connector,
+                target_kind=ExplanationTargetKind.TOKEN_SEQUENCE.value,
+                activation_layout=ActivationLayout.NLC.value,
+                patch_grid=self._get_image_token_grid(),
+            )
+        ]
+
+    def _get_image_token_grid(self) -> tuple[int, int] | None:
+        """Return the square SmolVLM image-token grid when it can be inferred."""
+        grid_size = math.isqrt(self.num_image_tokens_per_camera)
+        if grid_size * grid_size != self.num_image_tokens_per_camera:
+            return None
+        return grid_size, grid_size

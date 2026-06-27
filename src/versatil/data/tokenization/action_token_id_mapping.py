@@ -6,9 +6,9 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoTokenizer
 
 from versatil.data.constants import ActionTokenIdMappingType
+from versatil.data.tokenization.huggingface import load_huggingface_tokenizer
 
 
 class ActionTokenIdMapping(ABC):
@@ -88,8 +88,8 @@ class LanguageVocabularyActionTokenIdMapping(ActionTokenIdMapping):
         """Initialize mapping into the tail of a language tokenizer vocabulary."""
         self.language_tokenizer_model = language_tokenizer_model
         self.num_special_tokens_to_skip = num_special_tokens_to_skip
-        self.language_tokenizer = AutoTokenizer.from_pretrained(
-            language_tokenizer_model
+        self.language_tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=language_tokenizer_model
         )
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
@@ -183,7 +183,9 @@ class LanguageVocabularyActionTokenIdMapping(ActionTokenIdMapping):
         self.language_tokenizer_model = tokenizer_model
         self.num_special_tokens_to_skip = state_dict["num_special_tokens_to_skip"]
         if needs_reload:
-            self.language_tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
+            self.language_tokenizer = load_huggingface_tokenizer(
+                tokenizer_model=tokenizer_model
+            )
             if self.language_tokenizer.pad_token is None:
                 self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
 
@@ -195,4 +197,6 @@ class LanguageVocabularyActionTokenIdMapping(ActionTokenIdMapping):
         """Load saved language tokenizer assets when present."""
         language_path = path / "language_tokenizer"
         if language_path.exists():
-            self.language_tokenizer = AutoTokenizer.from_pretrained(language_path)
+            self.language_tokenizer = load_huggingface_tokenizer(
+                tokenizer_model=language_path
+            )

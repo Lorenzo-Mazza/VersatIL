@@ -16,6 +16,11 @@ from versatil.models.encoding.encoders.image_mixin import (
     resize_to_target_size,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.pooling.pooling_head import create_token_pooling_head
 
@@ -232,6 +237,66 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         if not isinstance(metadata, CameraMetadata):
             return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
         return None
+
+    @staticmethod
+    def _to_size_pair(value: int | tuple[int, int]) -> tuple[int, int]:
+        """Normalize scalar or pair size metadata to ``(height, width)``.
+
+        Args:
+            value: Scalar square size or explicit ``(height, width)`` pair.
+
+        Returns:
+            Explicit ``(height, width)`` pair.
+        """
+        if isinstance(value, int):
+            return value, value
+        return value
+
+    def _get_patch_grid(self) -> tuple[int, int] | None:
+        """Return the ViT patch grid when image and patch sizes are known.
+
+        Returns:
+            ``(patch_grid_height, patch_grid_width)`` when the backbone exposes
+            image and patch sizes, otherwise ``None``.
+
+        Note:
+            ``None`` does not change the map values when the token count forms
+            a square grid. The attribution map conversion infers that square
+            grid and raises if the token count cannot be mapped unambiguously.
+        """
+        if self.expected_image_size is None or self.patch_size is None:
+            return None
+        image_height, image_width = self._to_size_pair(self.expected_image_size)
+        patch_height, patch_width = self._to_size_pair(self.patch_size)
+        return image_height // patch_height, image_width // patch_width
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return a transformer block for patch-token attribution maps.
+
+        Returns:
+            One token-sequence target with NLC layout, prefix-token count, and
+            patch-grid metadata when available. Returns an empty list for
+            backbones that do not expose a ViT ``blocks`` sequence.
+
+        Note:
+            Standard CLS-token ViTs often read only the CLS token in the final
+            head, so final patch-token outputs can be uninformative. When the
+            backbone exposes at least two blocks, this selects the block before
+            the last block.
+        """
+        blocks = getattr(self.backbone, "blocks", None)
+        if blocks is None or len(blocks) == 0:
+            return []
+        target_block = blocks[-2] if len(blocks) > 1 else blocks[-1]
+        return [
+            VisionExplanationTarget(
+                layer=target_block,
+                target_kind=ExplanationTargetKind.TOKEN_SEQUENCE.value,
+                activation_layout=ActivationLayout.NLC.value,
+                prefix_token_count=int(getattr(self.backbone, "num_prefix_tokens", 0)),
+                patch_grid=self._get_patch_grid(),
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Get structured output specification with feature names and dimensions.

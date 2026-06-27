@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - /explainability
+  - _self_
+
+checkpoint_path: ???
+checkpoint_name: last.ckpt
+output_directory: null
+device: auto
+source: dataset
+split: all
+# Offline: keep every Nth episodic dataset sample.
+# Online: explain every Nth inference timestep.
+sample_stride: 50
+max_samples: null
+# null: use checkpoint task.dataset_schema paths.
+# "/path/to/data.zarr": sample an existing zarr directly.
+# "/path/to/raw" or ["/path/to/raw_a", "/path/to/raw_b"]: convert raw data with
+# the checkpoint schema format, then sample sibling offline_dataset.zarr.
+data_path_override: null
+batch_size: 1
+# Online mode uses the same socket inference path as the test endpoint.
+model_server_address: 127.0.0.1
+model_server_port: 5555
+temporal_aggregation: false
+action_execution_horizon: null
+update_rate_hz: null
+max_steps: 1000000
+temporal_max_timesteps: 800
+timing_log: false
+compression_type: raw
+explanation_types:
+  - gradcam
+  - gradcam++
+  - ablation_cam
+target_camera_keys: null
+target_vision_module_names: null
+save_raw_heatmaps: false
+save_overlays: true
+channel_batch_size: 32
+image_weight: 0.5
+overlay_image_format: png

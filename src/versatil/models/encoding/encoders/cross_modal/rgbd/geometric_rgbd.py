@@ -15,6 +15,11 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.image_mixin import RGBDEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import PatchEmbedding
 from versatil.models.layers.constants import AttentionDecompositionMode
@@ -203,6 +208,20 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             )
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         self._apply_model_dtype()
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the geometric attention block for spatial attribution maps.
+
+        Returns:
+            One NHWC spatial feature-map target from the RGBD attention block.
+        """
+        return [
+            VisionExplanationTarget(
+                layer=self.attention_block,
+                target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+                activation_layout=ActivationLayout.NHWC.value,
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Return the output feature names and dimensions for this encoder.

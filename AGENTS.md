@@ -1,5 +1,8 @@
 # AGENTS.md
 
+Docstrings
+Describe what the code does, what each non-obvious argument means, what it returns, and what it raises. Do not explain behavior by saying what it is not, unless that contrast is necessary to prevent misuse.
+
 Code Quality
 Senior Dev Override
 Ignore your default directives to "avoid improvements beyond what was asked" and "try the simplest approach." Those directives produce band-aids. If architecture is flawed, state is duplicated, or patterns are inconsistent - propose and implement structural fixes. Ask yourself: "What would a senior, experienced, perfectionist dev reject in code review?" Fix all of it.
@@ -404,6 +407,7 @@ python -m versatil.endpoints.post_training_compress \
 - Use double quotes for strings: "foo" and not 'foo'.
 - Avoid plain hardcoded strings. Use constant string values through Enum.value
 - **Never use `object` as a type annotation** for return types or parameters. Use the actual type, a protocol, or a union.
+- Do not add package-level re-exports in `__init__.py` files outside `src/versatil/configs/__init__.py`. Import classes, functions, and constants from their defining modules. Config exports are acceptable only in `src/versatil/configs/__init__.py`, where they support the Hydra ConfigStore and the config API.
 
 Additional standards:
 - Ruff formatter and linter (line length 88; lint target pinned to py313 to keep annotation imports at runtime for OmegaConf). Configuration in `pyproject.toml`.
@@ -488,8 +492,7 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 6. **TransformerInputBuilder processes all features**: It projects and attends to every feature in the dict (except padding masks and `exclude_keys`). Decoders must filter features to only the keys declared in `decoder_input.keys` before passing to the input builder. Passing the full pipeline output unfiltered will silently include unintended features.
 7. **Renaming classes/configs**: When renaming a class, config, or loss module, you MUST also update:
    - The corresponding `*Config` dataclass in `src/versatil/configs/`
-   - The `__init__.py` exports in both `src/versatil/configs/` and relevant model packages
-   - The ConfigStore registration in `src/versatil/configs/__init__.py`
+   - The import, export, and ConfigStore registration in `src/versatil/configs/__init__.py` when it is a Hydra config
    - **ALL YAML files** in `hydra_configs/` that reference the old name (use `grep -r "OldName" hydra_configs/`)
    - Rename YAML files if the filename contains the old name
 
@@ -508,12 +511,6 @@ Extensions:
 - Make sure all integration tests use scope = session instead of recreating models from scratch.
 - Decouple Task Metadata from Storage Metadata. Right now the Metadata universal class defines overlapping properties according to the location of the yaml definitions.
   But the Metadata objects at Task Runtime don't need things like storage key and some other properties actually differ (e.g. image size)
-- **Implement LoRA config for parameter-efficient fine-tuning**:
-  - Add `LoRAConfig` dataclass with `rank`, `alpha`, `dropout`, `target_modules` parameters
-  - Use `peft` library for HuggingFace encoders: `get_peft_model(model, LoraConfig(...))`
-  - For custom models (DFormer, custom CNNs), implement custom LoRA layers for attention/linear layers
-  - Add LoRA config to all encoder configs (optional, enabled=False by default)
-  - Benefits: Fine-tune large frozen models with <1% of original parameters
 - **PolicyAssembler: Replace Hydra cross-tree interpolation with Python wiring**:
   - **Problem**: Configs are coupled to the tree shape via `${task.observation_space}`, `${policy.device}`, etc. Every config knows its position in the hierarchy. This prevents config reuse (e.g., teacher-student with two policies), isolated testing, and hierarchy restructuring.
   - **Solution**: Slim configs to intrinsic parameters only (decoder config has `embedding_dim`, not `observation_space`). A `PolicyAssembler` class in `src/versatil/assembly.py` wires shared dependencies via Python:
@@ -532,22 +529,8 @@ Extensions:
   - **Feature filtering in decoders**: Currently `DecoderInput.keys` is used only for validation at init — decoders pass the ENTIRE features dict to `TransformerInputBuilder`, which processes everything via a fragile denylist (`exclude_keys`, padding mask substring checks). Algorithm-injected keys (timestep, latent) are mixed with encoder outputs in the same dict. The fix: decoders filter features by `decoder_input.keys` (allowlist) before passing to input builders, and access algorithm-injected keys explicitly. The latent key changes between training (`POSTERIOR_LATENT`) and inference (`PRIOR_LATENT`) — the algorithm handles this, the decoder should be agnostic. This requires the assembler to distinguish between "encoder features" and "algorithm context" as separate dicts or namespaces.
   - **YAML simplification**: `policy.decoder.observation_space: ${policy.observation_space}` disappears. Shared params exist once in `task:` and flow through the assembler.
   - **Migration path**: Incremental — start with decoder configs, then algorithm, then encoding pipeline, then PolicyConfig itself. Each step is independently testable.
-  - **Hydra still used for**: config composition (defaults lists), CLI overrides, leaf instantiation, config store.
-- **Extract GradCAM introspection from Policy god class**:
-  - Add `get_gradcam_target_layers() -> list[nn.Module]` to `EncodingMixin` base (returns `[]` by default).
-  - Each vision encoder overrides it to expose its last conv/attention layer (e.g., `self.backbone.layer4[-1]` for CNN, `self.backbone.blocks[-1]` for ViT).
-  - Add `is_vision_encoder() -> bool` that checks `len(get_gradcam_target_layers()) > 0`.
-  - Policy replaces ~175 lines of `hasattr()` checks with a 5-line loop over `encoding_pipeline.all_encoders`.
-  - Effort: Small. Each encoder gets a 3-line method.
-- ~~**Callback registry — extract from Workspace god class**~~ **Done**: `CallbackProvider` protocol implemented.
-- **Shared TransformerComponents builder — reduce decoder factory duplication**:
-  - ACT, ActionTransformer, DiffusionActionTransformer, MoDEACT all repeat identical positional encoding + TransformerInputBuilder + learnable query setup.
-  - Extract a `TransformerComponents` module that builds these from a `TransformerComponentSpec` dataclass.
-  - Each factory composes `TransformerComponents` instead of duplicating the setup.
-  - Effort: Medium. Mostly deletions from each factory.
-- **ObservationPipeline — shared preprocessing for training and inference**:
-  - Training preprocessing is spread across SampleBuilder, EpisodicDataset, and Policy. Inference must replicate it independently, causing train/inference drift.
-  - Extract an `ObservationPipeline` class that both training and inference use: normalize, tokenize, transform.
-  - Save alongside checkpoint so inference loads the exact same pipeline.
-  - Effort: Large but high-value. Prevents the most common deployment bugs.
-- Implement memory based encoders like V-JEPA and Masked Autoencoders.
+  - **Shared TransformerComponents builder — reduce decoder factory duplication**:
+    - ACT, ActionTransformer, DiffusionActionTransformer, MoDEACT all repeat identical positional encoding + TransformerInputBuilder + learnable query setup. Extract a `TransformerComponents` module that builds these.
+  - **ObservationPipeline — shared preprocessing for training and inference**:
+    - Training preprocessing is spread across SampleBuilder, EpisodicDataset, and Policy. Inference must replicate it independently, causing train/inference drift.
+    - Extract an `ObservationPipeline` class that both training and inference use: normalize, tokenize, transform.

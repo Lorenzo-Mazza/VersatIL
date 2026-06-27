@@ -52,6 +52,7 @@ class EpisodicDataset(data.Dataset):
         obs_horizon: int,
         train: bool = True,
         seed: int = 42,
+        augment_images: bool | None = None,
     ):
         """Initialize episodic dataset.
 
@@ -63,6 +64,9 @@ class EpisodicDataset(data.Dataset):
             obs_horizon: Observation horizon, i.e. history size.
             train: Whether to use training mode.
             seed: Random seed of the experiment.
+            augment_images: Whether image augmentations are enabled. Defaults
+                to ``train`` so existing training and validation behavior is
+                unchanged.
         """
         self.action_space = action_space
         self.observation_space = observation_space
@@ -75,13 +79,14 @@ class EpisodicDataset(data.Dataset):
         self.depth_norm_type = dataloader_config.depth_norm_type
 
         self.train = train
+        self.augment_images = train if augment_images is None else augment_images
         self.seed = seed
         self.action_processor = ActionProcessor(action_space=action_space)
         self.image_processor = ImageProcessor(
             color_augmentation=dataloader_config.color_augmentation,
             spatial_augmentation=dataloader_config.spatial_augmentation,
             camera_metadata=observation_space.cameras,
-            train=train,
+            train=self.augment_images,
         )
         all_keys = list(
             set(

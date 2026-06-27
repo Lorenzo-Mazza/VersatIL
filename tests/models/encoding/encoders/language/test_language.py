@@ -68,7 +68,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
             with (
                 patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder),
                 patch(
-                    "versatil.models.encoding.encoders.language.language.AutoTokenizer.from_pretrained",
+                    "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
                     return_value=mock_tokenizer,
                 ),
             ):
@@ -97,7 +97,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
                 return_value=mock_config,
             ),
             patch(
-                "versatil.models.encoding.encoders.language.language.AutoTokenizer.from_pretrained",
+                "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
                 return_value=mock_tokenizer,
             ),
             patch(

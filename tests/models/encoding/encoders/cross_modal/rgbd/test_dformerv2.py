@@ -29,6 +29,10 @@ from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
     DFormerStage,
     DFormerVariant,
 )
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 from versatil.models.layers.constants import AttentionDecompositionMode
 
 DFORMER_CHECKPOINT_PATH = (
@@ -148,6 +152,19 @@ def dformer_encoder_factory(
             return encoder
 
     return factory
+
+
+def test_dformer_encoder_exposes_final_stage_gradcam_target(
+    dformer_encoder_factory: Callable[..., DFormerEncoder],
+):
+    encoder = dformer_encoder_factory()
+    target_layer = nn.Identity()
+    encoder.stages = nn.ModuleList([nn.Identity(), target_layer])
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is target_layer
+    assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+    assert target.activation_layout == ActivationLayout.NHWC.value
+    assert target.output_index == 0
 
 
 @pytest.fixture
@@ -643,6 +660,34 @@ class TestDFormerEncoderValidateInputMetadata:
 
 
 class TestDFormerEncoderIntegration:
+    @pytest.mark.integration
+    def test_exposes_real_final_stage_gradcam_target(
+        self,
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+    ):
+        encoder = DFormerEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+            variant=DFormerVariant.SMALL.value,
+            pretrained=False,
+            checkpoint_path=None,
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
+        )
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is encoder.stages[-1]
+        assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+        assert target.activation_layout == ActivationLayout.NHWC.value
+        assert target.output_index == 0
+
     @pytest.mark.integration
     @pytest.mark.parametrize(
         "variant",

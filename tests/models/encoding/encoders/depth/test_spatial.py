@@ -19,6 +19,11 @@ from versatil.models.encoding.encoders.constants import (
     SpatialBackboneType,
 )
 from versatil.models.encoding.encoders.depth.spatial import SpatialDepthEncoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    resolve_timm_feature_info_layer,
+)
 
 CNN_BACKBONES = list(SpatialBackboneType)
 SPATIAL_VALID_BACKBONES = [e.value for e in SpatialBackboneType]
@@ -65,6 +70,23 @@ def spatial_depth_encoder_factory() -> Callable[..., SpatialDepthEncoder]:
             )
 
     return factory
+
+
+def test_spatial_depth_encoder_exposes_layer4_gradcam_target(
+    spatial_depth_encoder_factory: Callable[..., SpatialDepthEncoder],
+):
+    encoder = spatial_depth_encoder_factory()
+    target_layer = MagicMock()
+    encoder.backbone.layer4 = target_layer
+    encoder.backbone.feature_info.module_name.return_value = "layer4"
+    encoder.backbone.named_modules.return_value = [
+        ("", encoder.backbone),
+        ("layer4", target_layer),
+    ]
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is target_layer
+    assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+    assert target.activation_layout == ActivationLayout.NCHW.value
 
 
 class TestSpatialDepthEncoderInitialization:
@@ -541,6 +563,39 @@ class TestSpatialDepthEncoderPoolingValidation:
 
 
 class TestSpatialDepthEncoderIntegration:
+    @pytest.mark.integration
+    @pytest.mark.parametrize("backbone", [b.value for b in CNN_BACKBONES])
+    def test_exposes_real_gradcam_target_per_backbone(
+        self,
+        backbone: str,
+    ):
+        encoder = SpatialDepthEncoder(
+            input_keys=Cameras.DEPTH.value,
+            backbone=backbone,
+            pooling_method=PoolingMethod.AVERAGE.value,
+            batch_norm_handling=BatchNormHandling.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+        )
+        encoder.set_image_size(image_height=224, image_width=224)
+        layer_index = encoder._resolve_intermediate_layer_index(
+            intermediate_layer_index=encoder.intermediate_layer_index,
+            output_count=len(encoder.backbone.feature_info.channels()),
+        )
+        expected_layer = resolve_timm_feature_info_layer(
+            backbone=encoder.backbone,
+            layer_index=layer_index,
+        )
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is expected_layer
+        assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+        assert target.activation_layout in {
+            ActivationLayout.NCHW.value,
+            ActivationLayout.NHWC.value,
+        }
+
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", [b.value for b in CNN_BACKBONES])
     def test_forward_pass_per_backbone(

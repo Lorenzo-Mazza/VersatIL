@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.constants import SampleKey
+from versatil.data.constants import Cameras, SampleKey
+from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
@@ -243,33 +244,43 @@ def batch_dictionary_factory(
 
 
 @pytest.fixture
-def vision_encoder_factory() -> Callable[..., MagicMock]:
-    """Factory for mock vision encoders with configurable architecture attributes.
-
-    With spec=EncodingMixin, attributes not in the spec are absent by default.
-    Pass has_backbone=True etc. to explicitly add the corresponding attribute.
-    """
+def camera_observation_space_factory(
+    observation_space_factory: Callable[..., ObservationSpace],
+    camera_metadata_factory: Callable[..., CameraMetadata],
+) -> Callable[..., ObservationSpace]:
+    """Factory for observation spaces with configurable camera keys."""
 
     def factory(
-        has_backbone: bool = False,
-        has_stages: bool = False,
-        has_layer4: bool = False,
-        has_attention_block: bool = False,
+        camera_keys: list[str] | None = None,
+    ) -> ObservationSpace:
+        if camera_keys is None:
+            camera_keys = [Cameras.LEFT.value]
+        observations_metadata = {
+            camera_key: camera_metadata_factory(camera_key=camera_key)
+            for camera_key in camera_keys
+        }
+        return observation_space_factory(observations_metadata=observations_metadata)
+
+    return factory
+
+
+@pytest.fixture
+def vision_encoder_factory() -> Callable[..., MagicMock]:
+    """Factory for mock vision encoders with optional explainability targets."""
+
+    def factory(
         input_keys: list[str] | None = None,
+        has_explainability_target: bool = False,
     ) -> MagicMock:
         encoder = MagicMock(spec=EncodingMixin)
-        if has_backbone:
-            encoder.backbone = MagicMock()
-        if has_stages:
-            encoder.stages = [MagicMock()]
-        if has_layer4:
-            encoder.layer4 = MagicMock()
-        if has_attention_block:
-            encoder.attention_block = MagicMock()
         if input_keys is not None:
             input_spec = MagicMock(spec=EncoderInput)
             input_spec.keys = input_keys
             encoder.input_specification = input_spec
+        encoder.get_explainability_targets.return_value = (
+            [MagicMock()] if has_explainability_target else []
+        )
+        encoder.is_vision_encoder.return_value = has_explainability_target
         return encoder
 
     return factory
@@ -296,6 +307,7 @@ def encoding_pipeline_factory() -> Callable[..., MagicMock]:
 @pytest.fixture
 def policy_factory(
     feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    observation_space_factory: Callable[..., ObservationSpace],
 ) -> Callable[..., Policy]:
     """Factory for creating Policy instances with mocked dependencies."""
 
@@ -342,8 +354,7 @@ def policy_factory(
                 decoder_input=DecoderInput(keys=decoder_input_keys),
             )
         if observation_space is None:
-            observation_space = MagicMock(spec=ObservationSpace)
-            observation_space.observations_metadata = {}
+            observation_space = observation_space_factory(observations_metadata={})
         if action_space is None:
             action_space = MagicMock(spec=ActionSpace)
         if loss is None:

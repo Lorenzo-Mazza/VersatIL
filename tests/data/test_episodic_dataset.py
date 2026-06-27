@@ -143,6 +143,7 @@ def episodic_dataset_factory(
         preload_data_in_memory: bool = False,
         trailing_padded_actions: int | None = None,
         action_backward_shift: int = 1,
+        augment_images: bool | None = None,
     ) -> EpisodicDataset:
         if actions_metadata is None:
             actions_metadata = {}
@@ -196,6 +197,7 @@ def episodic_dataset_factory(
                 obs_horizon=obs_horizon,
                 train=train,
                 seed=seed,
+                augment_images=augment_images,
             )
         return dataset
 
@@ -219,6 +221,15 @@ class TestEpisodicDatasetInit:
         )
         assert dataset.pred_horizon == pred_horizon
         assert dataset.obs_horizon == obs_horizon
+
+    def test_augment_images_can_be_disabled_for_training_split(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory(train=True, augment_images=False)
+
+        assert dataset.train is True
+        assert dataset.augment_images is False
 
     def test_stores_action_space(
         self,

@@ -14,7 +14,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoTokenizer
 
 from versatil.data.constants import (
     PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER,
@@ -23,6 +22,7 @@ from versatil.data.constants import (
     TokenPaddingStrategy,
 )
 from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
+from versatil.data.tokenization.huggingface import load_huggingface_tokenizer
 
 
 class ObservationTokenizer:
@@ -84,7 +84,9 @@ class ObservationTokenizer:
         self.raw_text = raw_text
         self.prompt_template = prompt_template
         self.padding_strategy = padding_strategy
-        self.language_tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
+        self.language_tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=tokenizer_model
+        )
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
 
@@ -420,8 +422,8 @@ class ObservationTokenizer:
             ),
         )
         tokenizer.load_state_dict(state_dict)
-        tokenizer.language_tokenizer = AutoTokenizer.from_pretrained(
-            path / "language_tokenizer"
+        tokenizer.language_tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=path / "language_tokenizer"
         )
         logging.info(f"Loaded observation tokenizer from {path}")
         return tokenizer

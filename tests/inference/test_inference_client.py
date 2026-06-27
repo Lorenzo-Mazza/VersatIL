@@ -860,6 +860,56 @@ class TestGetActionsForReadyEnvironments:
         policy_loader.run_inference.assert_called_once()
         assert 0 in result
 
+    def test_sends_ready_batch_to_online_explanation_source(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=[Cameras.AGENTVIEW.value],
+            state_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        policy_loader.run_inference.return_value = {
+            "position": torch.from_numpy(
+                rng.standard_normal((1, 4, 3)).astype(np.float32)
+            ),
+        }
+        online_explanation_source = MagicMock()
+        client = InferenceClient(
+            policy_runtime=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+            online_explanation_source=online_explanation_source,
+        )
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                Cameras.AGENTVIEW.value: rng.integers(0, 255, (64, 64, 3)).astype(
+                    np.uint8
+                ),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        )
+        client.environment_states[7] = state
+
+        client._get_actions_for_ready_environments()
+
+        online_explanation_source.explain_observation_batch.assert_called_once()
+        call_kwargs = (
+            online_explanation_source.explain_observation_batch.call_args.kwargs
+        )
+        policy_loader.run_inference.assert_called_once_with(
+            obs_dict=call_kwargs["observation"]
+        )
+        assert call_kwargs["environment_indices"] == [7]
+        assert call_kwargs["timestep"] == 0
+        assert Cameras.AGENTVIEW.value in call_kwargs["display_observation"]
+
     def test_passes_language_batch_to_inference_when_language_enabled(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],

@@ -18,6 +18,11 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.image_mixin import RGBDEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import FrozenBatchNorm2d, PatchEmbedding, PatchMerging
 from versatil.models.layers.constants import AttentionDecompositionMode
@@ -377,6 +382,25 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             _, spatial_height, spatial_width, _ = features.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         self._apply_model_dtype()
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the final DFormer stage for spatial attribution maps.
+
+        DFormer stages return a tuple; ``output_index=0`` selects the stage
+        output before downsampling. The output is NHWC and is converted by the
+        explainability package before feature-grid map computation.
+
+        Returns:
+            One NHWC spatial feature-map target for the final DFormer stage.
+        """
+        return [
+            VisionExplanationTarget(
+                layer=self.stages[-1],
+                target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+                activation_layout=ActivationLayout.NHWC.value,
+                output_index=0,
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Return the output feature names and dimensions for this encoder.

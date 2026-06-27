@@ -237,6 +237,14 @@ class TestEncodingMixinInitialization:
             )
         assert encoder.device.type == expected_device_type
 
+    def test_defaults_to_no_explainability_targets(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+    ):
+        encoder = concrete_encoder_factory(device="cpu")
+        assert encoder.get_explainability_targets() == []
+        assert not encoder.is_vision_encoder()
+
     def test_validates_input_specification_on_init(
         self,
         encoder_input_factory: Callable[..., EncoderInput],

@@ -2,6 +2,10 @@
 
 from typing import Protocol
 
+import torch
+
+type InferenceObservationValue = torch.Tensor | str | list[str] | list[list[str]]
+
 
 class ObservationTransport(Protocol):
     """Receives raw observations from the environment."""
@@ -24,4 +28,18 @@ class ActionTransport(Protocol):
 
     def send(self, actions: dict, action_metadata: dict) -> dict:
         """Send one action packet to the environment."""
+        ...
+
+
+class OnlineExplanationSource(Protocol):
+    """Converts model-ready online inference windows into explanations."""
+
+    def explain_observation_batch(
+        self,
+        observation: dict[str, InferenceObservationValue],
+        display_observation: dict[str, torch.Tensor],
+        environment_indices: list[int],
+        timestep: int,
+    ) -> None:
+        """Explain one ready inference batch."""
         ...

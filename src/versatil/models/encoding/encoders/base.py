@@ -7,6 +7,7 @@ import torch
 
 from versatil.common.module_attr_mixin import ModuleAttrMixin
 from versatil.data.metadata import BaseMetadata
+from versatil.models.encoding.explainability import VisionExplanationTarget
 from versatil.models.feature_meta import FeatureMetadata
 from versatil.models.input_specification import InputSpecification
 from versatil.training.constants import PrecisionType
@@ -127,3 +128,24 @@ class EncodingMixin(ModuleAttrMixin, abc.ABC):
             image_width: Target image width.
         """
         pass
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return target layers and layout metadata for visual explanations.
+
+        Encoders that do not process images return an empty list. Vision
+        encoders override this to expose the exact module whose activations
+        should be captured, plus enough layout metadata for the explainability
+        package to reshape gradients back to image space.
+
+        Returns:
+            Explainability targets supported by this encoder.
+        """
+        return []
+
+    def is_vision_encoder(self) -> bool:
+        """Return whether this encoder exposes visual explanation targets.
+
+        Returns:
+            True when at least one explainability target is available.
+        """
+        return bool(self.get_explainability_targets())

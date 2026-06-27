@@ -147,7 +147,9 @@ class TestActionTokenizerBuildTokenizers:
         )
         mock_auto_processor.assert_called_once_with("custom/model")
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_language_mapping_loads_language_tokenizer(
         self, mock_auto_tokenizer, action_tokenizer_factory
     ):
@@ -155,15 +157,17 @@ class TestActionTokenizerBuildTokenizers:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         tokenizer = action_tokenizer_factory(
             language_tokenizer_model="some-model",
         )
-        mock_auto_tokenizer.from_pretrained.assert_called_once_with("some-model")
+        mock_auto_tokenizer.assert_called_once_with(tokenizer_model="some-model")
         assert tokenizer.vocab_size == 32000
         assert tokenizer.eos_token_id == 2
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_small_language_vocab_raises(
         self, mock_auto_tokenizer, mock_auto_processor
     ):
@@ -171,7 +175,7 @@ class TestActionTokenizerBuildTokenizers:
         mock_lang_tok.vocab_size = 100
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         expected_message = (
             "Language tokenizer token count (100) is too small to hold action "
             "tokens (2048) plus skipped special tokens (128). Required: 2176"
@@ -184,7 +188,9 @@ class TestActionTokenizerBuildTokenizers:
                 ),
             )
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_sets_pad_token_from_eos_when_none(
         self, mock_auto_tokenizer, mock_auto_processor
     ):
@@ -193,7 +199,7 @@ class TestActionTokenizerBuildTokenizers:
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = None
         mock_lang_tok.eos_token = "<eos>"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         ActionTokenizer(
             action_discretizer=FastActionDiscretizer(use_pretrained=True),
             token_id_mapping=LanguageVocabularyActionTokenIdMapping(
@@ -270,13 +276,15 @@ class TestActionTokenizerFit:
 
 
 class TestLanguageVocabularyActionTokenIdMapping:
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_mapping_formula(self, mock_auto_tokenizer, action_tokenizer_factory):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
             num_special_tokens_to_skip=128,
@@ -292,7 +300,9 @@ class TestLanguageVocabularyActionTokenIdMapping:
         )
         np.testing.assert_array_equal(mapped, expected)
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_mapping_accepts_list_input(
         self, mock_auto_tokenizer, action_tokenizer_factory
     ):
@@ -300,7 +310,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
         )
@@ -308,13 +318,15 @@ class TestLanguageVocabularyActionTokenIdMapping:
         expected = np.array([31871, 31870, 31869])
         np.testing.assert_array_equal(mapped, expected)
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_roundtrip_map_unmap(self, mock_auto_tokenizer, action_tokenizer_factory):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
             num_special_tokens_to_skip=128,
@@ -324,7 +336,9 @@ class TestLanguageVocabularyActionTokenIdMapping:
         unmapped = token_id_mapping.decode(mapped)
         np.testing.assert_array_equal(unmapped, original)
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_unmap_accepts_torch_tensor(
         self, mock_auto_tokenizer, action_tokenizer_factory
     ):
@@ -332,7 +346,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
         )
@@ -341,13 +355,15 @@ class TestLanguageVocabularyActionTokenIdMapping:
         expected = np.array([0, 1, 2])
         np.testing.assert_array_equal(local_tokens, expected)
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_load_state_dict_restores_skip_count(self, mock_auto_tokenizer):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
             num_special_tokens_to_skip=128,
@@ -361,7 +377,9 @@ class TestLanguageVocabularyActionTokenIdMapping:
         )
         assert token_id_mapping.num_special_tokens_to_skip == 256
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_language_mapping_uses_native_eos_without_expanding_vocab(
         self, mock_auto_tokenizer
     ):
@@ -369,7 +387,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
             num_special_tokens_to_skip=128,
@@ -378,13 +396,15 @@ class TestLanguageVocabularyActionTokenIdMapping:
         assert token_id_mapping.eos_token_id(action_token_count=2048) == 2
         assert token_id_mapping.tokenizer_vocab_size(action_token_count=2048) == 32000
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_language_mapping_rejects_missing_native_eos(self, mock_auto_tokenizer):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = None
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
             num_special_tokens_to_skip=128,
@@ -397,7 +417,9 @@ class TestLanguageVocabularyActionTokenIdMapping:
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             token_id_mapping.eos_token_id(action_token_count=2048)
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_language_mapping_rejects_eos_action_token_overlap(
         self, mock_auto_tokenizer
     ):
@@ -405,7 +427,7 @@ class TestLanguageVocabularyActionTokenIdMapping:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 31871
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         token_id_mapping = LanguageVocabularyActionTokenIdMapping(
             language_tokenizer_model="model",
             num_special_tokens_to_skip=128,
@@ -894,7 +916,9 @@ class TestActionTokenizerBinnedDiscretizer:
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             tokenizer.decode_chunk(torch.tensor([1, 2, tokenizer.eos_token_id]))
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_binned_actions_can_use_language_vocabulary_mapping(
         self, mock_auto_tokenizer, action_chunk_factory
     ):
@@ -902,7 +926,7 @@ class TestActionTokenizerBinnedDiscretizer:
         mock_language_tokenizer.vocab_size = 32000
         mock_language_tokenizer.eos_token_id = 2
         mock_language_tokenizer.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_language_tokenizer
+        mock_auto_tokenizer.return_value = mock_language_tokenizer
         tokenizer = ActionTokenizer(
             action_discretizer=BinnedActionDiscretizer(num_bins=8),
             token_id_mapping=LanguageVocabularyActionTokenIdMapping(
@@ -1156,7 +1180,9 @@ class TestActionTokenizerSavePretrained:
         tokenizer.save_pretrained(save_path)
         tokenizer.action_discretizer.processor.save_pretrained.assert_called_once()
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     def test_save_saves_language_tokenizer(
         self, mock_auto_tokenizer, action_tokenizer_factory, tmp_path
     ):
@@ -1164,7 +1190,7 @@ class TestActionTokenizerSavePretrained:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         tokenizer = action_tokenizer_factory(
             language_tokenizer_model="model",
         )
@@ -1273,7 +1299,9 @@ class TestActionTokenizerFromPretrained:
         assert loaded.action_discretizer.token_count == 8
         np.testing.assert_array_equal(loaded_decoded, original_decoded)
 
-    @patch("versatil.data.tokenization.action_token_id_mapping.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer"
+    )
     @patch("versatil.data.tokenization.action_tokenizer.torch.load")
     def test_loads_language_tokenizer_from_disk(
         self, mock_torch_load, mock_auto_tokenizer, mock_auto_processor, tmp_path
@@ -1286,7 +1314,7 @@ class TestActionTokenizerFromPretrained:
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.eos_token_id = 2
         mock_lang_tok.pad_token = "[PAD]"
-        mock_auto_tokenizer.from_pretrained.return_value = mock_lang_tok
+        mock_auto_tokenizer.return_value = mock_lang_tok
         mock_torch_load.return_value = {
             "action_discretizer": {
                 "type": "fast",
@@ -1305,8 +1333,8 @@ class TestActionTokenizerFromPretrained:
             "is_fitted": True,
         }
         loaded = ActionTokenizer.from_pretrained(save_path)
-        mock_auto_tokenizer.from_pretrained.assert_any_call(
-            save_path / "language_tokenizer"
+        mock_auto_tokenizer.assert_any_call(
+            tokenizer_model=save_path / "language_tokenizer"
         )
         assert loaded.token_id_mapping.language_tokenizer is not None
 

@@ -2,10 +2,11 @@
 
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.tokenization.huggingface import load_huggingface_tokenizer
 from versatil.models.adaptation.lora import (
     LoRAAdaptation,
     apply_lora_config,
@@ -87,7 +88,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             if self.use_embeddings_only
             else self.config.hidden_size
         )
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = load_huggingface_tokenizer(tokenizer_model=model_name)
         self._has_cls_token = tokenizer.cls_token_id is not None
         self._num_prefix_tokens = 1 if self._has_cls_token else 0
         self.token_pooling_head = create_token_pooling_head(

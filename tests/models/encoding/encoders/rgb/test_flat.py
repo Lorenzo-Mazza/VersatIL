@@ -24,6 +24,10 @@ from versatil.models.encoding.encoders.constants import (
     SpatialBackboneType,
 )
 from versatil.models.encoding.encoders.rgb.flat import FlatRGBEncoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 
 FLAT_BACKBONES = list(FlatBackboneType)
 FLAT_VALID_BACKBONES = [e.value for e in FlatBackboneType]
@@ -72,6 +76,27 @@ def _make_mock_timm_backbone(
         patch_embed.patch_size = patch_size
         backbone.patch_embed = patch_embed
     return backbone
+
+
+def test_flat_rgb_encoder_exposes_vit_token_target(
+    mock_timm_backend,
+):
+    mock_timm_backend.configure(
+        num_prefix_tokens=1,
+        patch_embed_img_size=(224, 224),
+        patch_size=(16, 16),
+    )
+    encoder = FlatRGBEncoder(
+        input_keys="left",
+        pretrained=False,
+        frozen=False,
+    )
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is encoder.backbone.blocks[-2]
+    assert target.target_kind == ExplanationTargetKind.TOKEN_SEQUENCE.value
+    assert target.activation_layout == ActivationLayout.NLC.value
+    assert target.prefix_token_count == 1
+    assert target.patch_grid == (14, 14)
 
 
 @pytest.fixture
@@ -857,6 +882,37 @@ class TestFlatRGBEncoderMultiCamera:
 
 
 class TestFlatRGBEncoderIntegration:
+    @pytest.mark.integration
+    @pytest.mark.parametrize("backbone", [b.value for b in FLAT_BACKBONES])
+    def test_exposes_real_token_target_per_backbone(
+        self,
+        backbone: str,
+    ):
+        encoder = FlatRGBEncoder(
+            input_keys="left",
+            backbone=backbone,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+        )
+        expected_block = encoder.backbone.blocks[-2]
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is expected_block
+        assert target.target_kind == ExplanationTargetKind.TOKEN_SEQUENCE.value
+        assert target.activation_layout == ActivationLayout.NLC.value
+        assert target.prefix_token_count == int(encoder.backbone.num_prefix_tokens)
+        if encoder.expected_image_size is not None and encoder.patch_size is not None:
+            image_height, image_width = encoder._to_size_pair(
+                encoder.expected_image_size
+            )
+            patch_height, patch_width = encoder._to_size_pair(encoder.patch_size)
+            assert target.patch_grid == (
+                image_height // patch_height,
+                image_width // patch_width,
+            )
+
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", [b.value for b in FLAT_BACKBONES])
     def test_forward_pass_per_backbone(

@@ -1,4 +1,4 @@
-"""Main Hydra configuration dataclass composing all sub-configurations."""
+"""Main Hydra configuration dataclass for the `train` endpoint."""
 
 from dataclasses import dataclass, field
 from typing import Any

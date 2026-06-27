@@ -17,6 +17,11 @@ from versatil.models.encoding.encoders.constants import (
     SpatialBackboneType,
 )
 from versatil.models.encoding.encoders.image_mixin import RGBEncoderMixin
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
 from versatil.models.layers.modulation.film_residual_block import FiLMedResBlock
@@ -419,6 +424,21 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         if not isinstance(metadata, CameraMetadata):
             return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
         return None
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the last FiLM residual block for spatial attribution maps.
+
+        Returns:
+            One NCHW spatial feature-map target pointing at the final block of
+            ``layer4`` in the conditioned ResNet backbone.
+        """
+        return [
+            VisionExplanationTarget(
+                layer=self.backbone.layer4[-1],
+                target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+                activation_layout=ActivationLayout.NCHW.value,
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Get structured output specification with feature names and dimensions.

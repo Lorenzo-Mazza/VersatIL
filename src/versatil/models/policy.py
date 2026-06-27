@@ -6,7 +6,7 @@ import torch.nn as nn
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.common.tensor_ops import to_device
-from versatil.data.constants import Cameras, MetadataPassthroughSource, SampleKey
+from versatil.data.constants import MetadataPassthroughSource, SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform import (
     detokenize_actions,
@@ -26,7 +26,7 @@ from versatil.models.encoding.pipeline import EncodingPipeline
 
 
 class Policy(nn.Module):
-    """General policy class that orchestrates encoding, decoding, and loss computation."""
+    """General policy class that orchestrates observation encoding, action decoding, and loss computation."""
 
     def __init__(
         self,
@@ -56,7 +56,8 @@ class Policy(nn.Module):
             device: Device to run on.
             metadata_passthrough: Mapping from source dictionaries to metadata
                 keys for logging/visualization.
-            validate_loss_keys: Deprecated, kept for backwards compatibility.
+            validate_loss_keys: Unused policy-constructor parameter. Loss-key
+                validation is handled before policy instantiation.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline
@@ -353,159 +354,3 @@ class Policy(nn.Module):
             action_space=self.action_space,
         )
         return actions
-
-    def get_vision_encoder_modules(self) -> dict[str, nn.Module]:
-        """Get vision encoder modules that can produce spatial feature maps for explainability.
-
-        Supports the following encoder types:
-        - SpatialRGBEncoder (RGB): Has 'backbone' attribute
-        - SpatialDepthEncoder: Has 'backbone' attribute
-        - ConditionalCNNEncoder (FiLM): Has 'layer4' attribute
-        - DFormerEncoder: Has 'stages' attribute
-        - GeometricRGBDEncoder: Has 'attention_block' attribute
-
-        Returns:
-            Dictionary mapping encoder names to their encoder instances.
-            Only includes encoders that produce spatial feature maps.
-
-        Raises:
-            RuntimeError: If no compatible vision encoders are found
-        """
-        vision_encoders = {}
-
-        def is_vision_encoder(encoder: nn.Module) -> bool:
-            """Return whether an encoder exposes a vision target layer."""
-            # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder)
-            if hasattr(encoder, "backbone"):
-                return True
-            # DFormer-based encoders
-            if hasattr(encoder, "stages"):
-                return True
-            # FiLM-conditioned ResNet (ConditionalCNNEncoder)
-            if hasattr(encoder, "layer4"):
-                return True
-            # LightGeometric encoder
-            return bool(hasattr(encoder, "attention_block"))
-
-        for encoder_name, encoder in self.encoding_pipeline.encoders.items():
-            if is_vision_encoder(encoder):
-                vision_encoders[encoder_name] = encoder
-
-        for (
-            encoder_name,
-            encoder,
-        ) in self.encoding_pipeline.conditional_encoders.items():
-            if is_vision_encoder(encoder):
-                vision_encoders[encoder_name] = encoder
-
-        if not vision_encoders:
-            raise RuntimeError(
-                "No compatible vision encoders found in the encoding pipeline. "
-                "Explainer requires encoders that produce spatial feature maps "
-                "(SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
-                "Available encoders: "
-                + str(
-                    list(self.encoding_pipeline.encoders.keys())
-                    + list(self.encoding_pipeline.conditional_encoders.keys())
-                )
-            )
-
-        return vision_encoders
-
-    def get_gradcam_target_layers(self, encoder_name: str) -> list[nn.Module]:
-        """Get target layers for GradCAM from a specific vision encoder.
-
-        Supports different encoder architectures:
-        - TIMM backbones (SpatialRGBEncoder, SpatialDepthEncoder): Returns last stage
-        - ConditionalCNNEncoder (FiLM): Returns last block of layer4
-        - DFormerEncoder: Returns last stage
-        - GeometricRGBDEncoder: Returns attention block
-
-        Args:
-            encoder_name: Name of the encoder in the encoding pipeline
-
-        Returns:
-            List of target layers suitable for GradCAM
-
-        Raises:
-            ValueError: If encoder doesn't exist or is not a vision encoder
-            RuntimeError: If encoder architecture is not supported
-        """
-        vision_encoders = self.get_vision_encoder_modules()
-        if encoder_name not in vision_encoders:
-            raise ValueError(
-                f"Encoder '{encoder_name}' not found or not a vision encoder. "
-                f"Available vision encoders: {list(vision_encoders.keys())}"
-            )
-
-        encoder = vision_encoders[encoder_name]
-
-        # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder, FlatRGBEncoder)
-        if hasattr(encoder, "backbone"):
-            backbone = encoder.backbone
-            if hasattr(backbone, "layer4"):
-                return [backbone.layer4]
-            elif hasattr(backbone, "stages") and len(backbone.stages) > 0:
-                return [backbone.stages[-1]]
-            else:
-                raise RuntimeError(
-                    f"Encoder '{encoder_name}' has backbone but structure not recognized. "
-                    f"Backbone type: {type(backbone).__name__}"
-                )
-
-        # DFormer-based encoders
-        if hasattr(encoder, "stages") and len(encoder.stages) > 0:
-            return [encoder.stages[-1]]
-
-        # FiLM-conditioned ResNet (ConditionalCNNEncoder)
-        if hasattr(encoder, "layer4") and len(encoder.layer4) > 0:
-            return [encoder.layer4[-1]]
-
-        # LightGeometric encoder
-        if hasattr(encoder, "attention_block"):
-            return [encoder.attention_block]
-
-        raise RuntimeError(
-            f"Encoder '{encoder_name}' architecture not supported for GradCAM. "
-            f"Encoder type: {type(encoder).__name__}. "
-            f"Supported types: SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, "
-            f"DFormerEncoder, GeometricRGBDEncoder."
-        )
-
-    def get_camera_to_encoder_mapping(self) -> dict[str, str]:
-        """Get mapping from camera keys to their corresponding vision encoder names.
-
-        This method only returns mappings for valid camera keys (as defined by the Cameras enum)
-        that are processed by vision encoders capable of producing spatial feature maps.
-        Non-camera observations like proprioceptive state or language are excluded.
-
-        Returns:
-            Dictionary mapping camera keys to vision encoder names
-
-        Raises:
-            RuntimeError: If no camera-to-encoder mappings are found
-        """
-        valid_camera_keys = {cam.value for cam in Cameras}
-        vision_encoders = self.get_vision_encoder_modules()
-
-        mapping = {}
-        for encoder_name, encoder in vision_encoders.items():
-            if not hasattr(encoder, "input_specification"):
-                continue
-
-            input_keys = encoder.input_specification.keys
-            for key in input_keys:
-                # Only include valid camera keys, not proprioceptive/language keys
-                if key in valid_camera_keys:
-                    mapping[key] = encoder_name
-        # TODO: Here we ignore the case of multiple encoders with the same camera key.
-        #  Although unlikely, we should safeguard against it in the future.
-
-        if not mapping:
-            raise RuntimeError(
-                f"No camera-to-encoder mappings found. "
-                f"Valid camera keys: {valid_camera_keys}. "
-                f"Vision encoders: {list(vision_encoders.keys())}"
-            )
-
-        return mapping

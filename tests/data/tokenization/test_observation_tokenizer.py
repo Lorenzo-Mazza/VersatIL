@@ -14,19 +14,19 @@ from versatil.data.tokenization.observation_tokenizer import ObservationTokenize
 
 @pytest.fixture
 def mock_obs_auto_tokenizer():
-    """Patches AutoTokenizer in observation_tokenizer module."""
+    """Patches the HuggingFace tokenizer loader in observation_tokenizer."""
     with patch(
-        "versatil.data.tokenization.observation_tokenizer.AutoTokenizer"
+        "versatil.data.tokenization.observation_tokenizer.load_huggingface_tokenizer"
     ) as mock:
         mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
         mock_tok.__len__ = lambda self: 30000
-        mock.from_pretrained.return_value = mock_tok
+        mock.return_value = mock_tok
         yield mock
 
 
 @pytest.fixture
 def observation_tokenizer_factory(mock_obs_auto_tokenizer):
-    """Factory for ObservationTokenizer with AutoTokenizer mocked."""
+    """Factory for ObservationTokenizer with tokenizer loading mocked."""
 
     def factory(
         tokenizer_model: str = "test-model",
@@ -146,7 +146,7 @@ class TestObservationTokenizerInit:
     def test_vocab_size_from_language_tokenizer(self, mock_obs_auto_tokenizer):
         mock_tok = MagicMock(vocab_size=32000, pad_token="[PAD]")
         mock_tok.__len__ = lambda self: 32128
-        mock_obs_auto_tokenizer.from_pretrained.return_value = mock_tok
+        mock_obs_auto_tokenizer.return_value = mock_tok
         tokenizer = ObservationTokenizer(
             tokenizer_model="test-model",
             observation_keys=[ObsKey.LANGUAGE.value],
@@ -160,7 +160,7 @@ class TestObservationTokenizerInit:
     def test_sets_pad_token_from_eos_when_none(self, mock_obs_auto_tokenizer):
         mock_tok = MagicMock(vocab_size=30000, pad_token=None, eos_token="<eos>")
         mock_tok.__len__ = lambda self: 30000
-        mock_obs_auto_tokenizer.from_pretrained.return_value = mock_tok
+        mock_obs_auto_tokenizer.return_value = mock_tok
         ObservationTokenizer(
             tokenizer_model="test-model",
             observation_keys=[ObsKey.LANGUAGE.value],
@@ -476,7 +476,7 @@ class TestObservationTokenizerTokenize:
         observation_tokenizer_factory,
         mock_language_tokenizer_result,
     ):
-        mock_tok = mock_obs_auto_tokenizer.from_pretrained.return_value
+        mock_tok = mock_obs_auto_tokenizer.return_value
         mock_tok.return_value = mock_language_tokenizer_result(
             batch_size=1, max_length=16
         )
@@ -496,7 +496,7 @@ class TestObservationTokenizerTokenize:
     ):
         max_token_len = 16
         batch_size = 3
-        mock_tok = mock_obs_auto_tokenizer.from_pretrained.return_value
+        mock_tok = mock_obs_auto_tokenizer.return_value
         mock_tok.return_value = mock_language_tokenizer_result(
             batch_size=batch_size, max_length=max_token_len
         )
@@ -524,7 +524,7 @@ class TestObservationTokenizerTokenize:
         time_steps,
     ):
         max_token_len = 8
-        mock_tok = mock_obs_auto_tokenizer.from_pretrained.return_value
+        mock_tok = mock_obs_auto_tokenizer.return_value
         mock_tok.return_value = mock_language_tokenizer_result(
             batch_size=batch_size * time_steps, max_length=max_token_len
         )
@@ -548,7 +548,7 @@ class TestObservationTokenizerTokenize:
     ):
         max_token_len = 8
         pad_token_id = 0
-        mock_tok = mock_obs_auto_tokenizer.from_pretrained.return_value
+        mock_tok = mock_obs_auto_tokenizer.return_value
         mock_tok.pad_token_id = pad_token_id
         input_ids = torch.tensor([[5, 3, 1, 0, 0, 0, 0, 0]])  # 3 real + 5 padding
         mock_tok.return_value = {"input_ids": input_ids}
@@ -771,7 +771,7 @@ class TestObservationTokenizerSavePretrained:
         tokenizer._is_fitted = True
         save_path = tmp_path / "obs_tokenizer"
         tokenizer.save_pretrained(save_path)
-        mock_tok = mock_obs_auto_tokenizer.from_pretrained.return_value
+        mock_tok = mock_obs_auto_tokenizer.return_value
         mock_tok.save_pretrained.assert_called_once_with(
             save_path / "language_tokenizer"
         )
@@ -796,7 +796,9 @@ class TestObservationTokenizerFromPretrained:
             ObservationTokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.observation_tokenizer.torch.load")
-    @patch("versatil.data.tokenization.observation_tokenizer.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.observation_tokenizer.load_huggingface_tokenizer"
+    )
     def test_loads_state_dict_and_language_tokenizer(
         self, mock_auto_tokenizer, mock_torch_load, tmp_path
     ):
@@ -816,16 +818,18 @@ class TestObservationTokenizerFromPretrained:
         }
         mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
         mock_tok.__len__ = lambda self: 30000
-        mock_auto_tokenizer.from_pretrained.return_value = mock_tok
+        mock_auto_tokenizer.return_value = mock_tok
         loaded = ObservationTokenizer.from_pretrained(save_path)
         assert loaded.tokenizer_model == "test-model"
         assert loaded._is_fitted is True
-        mock_auto_tokenizer.from_pretrained.assert_any_call(
-            save_path / "language_tokenizer"
+        mock_auto_tokenizer.assert_any_call(
+            tokenizer_model=save_path / "language_tokenizer"
         )
 
     @patch("versatil.data.tokenization.observation_tokenizer.torch.load")
-    @patch("versatil.data.tokenization.observation_tokenizer.AutoTokenizer")
+    @patch(
+        "versatil.data.tokenization.observation_tokenizer.load_huggingface_tokenizer"
+    )
     def test_from_pretrained_logs_info(
         self, mock_auto_tokenizer, mock_torch_load, tmp_path
     ):
@@ -845,7 +849,7 @@ class TestObservationTokenizerFromPretrained:
         }
         mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
         mock_tok.__len__ = lambda self: 30000
-        mock_auto_tokenizer.from_pretrained.return_value = mock_tok
+        mock_auto_tokenizer.return_value = mock_tok
         with patch(
             "versatil.data.tokenization.observation_tokenizer.logging"
         ) as mock_logging:

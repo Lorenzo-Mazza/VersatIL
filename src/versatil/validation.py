@@ -1,4 +1,4 @@
-"""Experiment validation module for validating global experiment configuration."""
+"""Experiment validation module for validating global training experiment configuration."""
 
 from __future__ import annotations
 

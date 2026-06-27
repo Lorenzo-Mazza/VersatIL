@@ -114,6 +114,7 @@ from versatil.configs.encoding.fusion import (
 )
 from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.configs.experiment import ExperimentConfig
+from versatil.configs.explainability import ExplainabilityConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
     ActionTokenLossConfig,
@@ -269,6 +270,7 @@ __all__ = [
     "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
     "InferenceConfig",
+    "ExplainabilityConfig",
     "DataLoaderConfig",
     "DecodingAlgorithmConfig",
     "BehavioralCloningConfig",
@@ -1137,6 +1139,10 @@ def register_configs() -> None:
     cs.store(
         name="post_training_compression",
         node=PostTrainingCompressorConfig,
+    )
+    cs.store(
+        name="explainability",
+        node=ExplainabilityConfig,
     )
     cs.store(
         group="compression/module",

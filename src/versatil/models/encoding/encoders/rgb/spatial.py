@@ -15,6 +15,12 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.image_mixin import RGBEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+    resolve_timm_feature_info_layer,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
 from versatil.models.layers.pooling.pooling_head import (
@@ -257,6 +263,59 @@ class SpatialRGBEncoder(RGBEncoderMixin, Encoder):
         if not isinstance(metadata, CameraMetadata):
             return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
         return None
+
+    def _get_backbone_explanation_layer(self) -> torch.nn.Module:
+        """Return the timm module that produces the configured feature map.
+
+        Returns:
+            Module associated with the selected ``feature_info`` entry.
+
+        Raises:
+            RuntimeError: If the timm feature module cannot be resolved.
+        """
+        feature_info = getattr(self.backbone, "feature_info", None)
+        if feature_info is not None:
+            layer_index = self._resolve_intermediate_layer_index(
+                intermediate_layer_index=self.intermediate_layer_index,
+                output_count=len(feature_info.channels()),
+            )
+            target_layer = resolve_timm_feature_info_layer(
+                backbone=self.backbone,
+                layer_index=layer_index,
+            )
+            if target_layer is not None:
+                return target_layer
+        encoder_name = getattr(self, "name", type(self).__name__)
+        raise RuntimeError(
+            f"Encoder '{encoder_name}' cannot resolve visual attribution target layer "
+            f"for backbone '{self.backbone_name}'."
+        )
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return spatial feature-map targets for visual explanations.
+
+        The target layout follows the backbone output layout detected in
+        ``set_image_size()``. CNN backbones usually emit NCHW; Swin/TinyViT
+        style feature backbones may emit NHWC.
+
+        Returns:
+            One spatial feature-map target for visual attribution methods.
+
+        Raises:
+            RuntimeError: If no supported backbone target layer can be selected.
+        """
+        layout = (
+            ActivationLayout.NHWC.value
+            if self._channels_last
+            else ActivationLayout.NCHW.value
+        )
+        return [
+            VisionExplanationTarget(
+                layer=self._get_backbone_explanation_layer(),
+                target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+                activation_layout=layout,
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Get structured output specification with feature names and dimensions.
