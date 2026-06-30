@@ -11,7 +11,10 @@ import torch
 from versatil.data.constants import ActionTokenIdMappingType, SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import ActionTokenizer, Tokenizer
-from versatil.data.tokenization.action_discretizer import BinnedActionDiscretizer
+from versatil.data.tokenization.action_discretizer import (
+    BinnedActionDiscretizer,
+    UniformBinnedActionDiscretizer,
+)
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
 from versatil.models.decoding.decoders.autoregressive_mixin import (
@@ -210,17 +213,13 @@ class AutoregressiveVLADecoder(
             )
         return valid_token_ids
 
-    @staticmethod
-    def _uses_fixed_length_action_generation(
-        action_tokenizer: ActionTokenizer,
-    ) -> bool:
-        """Return whether inference should generate a known action-token count."""
-        return isinstance(action_tokenizer.action_discretizer, BinnedActionDiscretizer)
-
     def _get_action_payload_token_count(self) -> int | None:
         """Return the required action-token count before any optional EOS."""
-        if self.tokenizer is None or not self._uses_fixed_length_action_generation(
-            action_tokenizer=self.tokenizer
+        if self.tokenizer is None:
+            return None
+        if not isinstance(
+            self.tokenizer.action_discretizer,
+            (BinnedActionDiscretizer, UniformBinnedActionDiscretizer),
         ):
             return None
         time_horizon = self.tokenizer.action_discretizer.time_horizon
@@ -228,7 +227,7 @@ class AutoregressiveVLADecoder(
         if time_horizon is None or action_dim is None:
             raise ValueError(
                 "AutoregressiveVLADecoder fixed-length generation requires the "
-                "binned action discretizer to know time_horizon and action_dim."
+                "action discretizer to know time_horizon and action_dim."
             )
         return int(time_horizon * action_dim)
 

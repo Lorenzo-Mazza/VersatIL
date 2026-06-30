@@ -12,6 +12,7 @@ import zarr.storage
 
 from versatil.data.constants import (
     CLIP_RGB_MEAN,
+    ActionDiscretizerType,
     Cameras,
     ImageNormalizationType,
     KinematicsNormalizationType,
@@ -25,6 +26,7 @@ from versatil.data.metadata import (
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform_builder import TransformBuilder
 from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization.action_discretizer import UniformBinnedActionDiscretizer
 
 
 def _numpy_to_zarr_array(array: np.ndarray) -> zarr.Array:
@@ -1090,6 +1092,44 @@ class TestCreateTokenizer:
             observation_tokenizer=None,
             action_tokenizer=mock_action_instance,
         )
+
+    def test_creates_action_tokenizer_with_uniform_binned_discretizer(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ):
+        mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = True
+
+        mock_config = MagicMock()
+        mock_config.tokenize_observations = False
+        mock_config.tokenize_actions = True
+        mock_config.action_tokenizer.action_discretizer.type = (
+            ActionDiscretizerType.UNIFORM_BINNED.value
+        )
+        mock_config.action_tokenizer.action_discretizer.num_bins = 256
+        mock_config.action_tokenizer.action_discretizer.min_value = -1.0
+        mock_config.action_tokenizer.action_discretizer.max_value = 1.0
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
+
+        builder = transform_builder_factory(tokenization_config=mock_config)
+
+        with (
+            patch(
+                "versatil.data.processing.transform_builder.ActionTokenizer",
+                return_value=mock_action_instance,
+            ) as mock_action_class,
+            patch("versatil.data.processing.transform_builder.Tokenizer"),
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data={}, action_meta={}
+            )
+
+        action_discretizer = mock_action_class.call_args.kwargs["action_discretizer"]
+        assert isinstance(action_discretizer, UniformBinnedActionDiscretizer)
+        assert action_discretizer.token_count == 256
+        assert action_discretizer.min_value == -1.0
+        assert action_discretizer.max_value == 1.0
 
     def test_fits_action_tokenizer_when_not_pretrained(
         self,

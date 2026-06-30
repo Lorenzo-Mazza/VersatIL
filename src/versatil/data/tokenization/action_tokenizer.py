@@ -17,6 +17,7 @@ from versatil.data.tokenization.action_discretizer import (
     ActionDiscretizer,
     BinnedActionDiscretizer,
     FastActionDiscretizer,
+    UniformBinnedActionDiscretizer,
 )
 from versatil.data.tokenization.action_token_id_mapping import (
     ActionTokenIdMapping,
@@ -40,7 +41,7 @@ class ActionTokenizer:
     - an action discretizer, e.g. FAST or per-value binning;
     - a token-id mapping, e.g. identity IDs or language-tokenizer tail IDs.
 
-    The high-level tokenizer owns sequence behavior: EOS, padding, masks, and
+    The class owns sequence behavior: EOS, padding, masks, and
     batch dispatch.
     """
 
@@ -429,32 +430,42 @@ def _build_action_discretizer_from_state(
     device: torch.device | None,
 ) -> ActionDiscretizer:
     """Instantiate an action discretizer from serialized state."""
-    discretizer_type = state_dict["type"]
-    if discretizer_type == ActionDiscretizerType.FAST.value:
-        return FastActionDiscretizer(
-            use_pretrained=state_dict["use_pretrained"],
-            tokenizer_model=state_dict.get(
-                "tokenizer_model", "physical-intelligence/fast"
-            ),
-        )
-    if discretizer_type == ActionDiscretizerType.BINNED.value:
-        return BinnedActionDiscretizer(
-            num_bins=state_dict["num_bins"],
-            device=device,
-        )
-    raise ValueError(f"Unsupported action discretizer type: {discretizer_type}")
+    match state_dict["type"]:
+        case ActionDiscretizerType.FAST.value:
+            return FastActionDiscretizer(
+                use_pretrained=state_dict["use_pretrained"],
+                tokenizer_model=state_dict.get(
+                    "tokenizer_model", "physical-intelligence/fast"
+                ),
+            )
+        case ActionDiscretizerType.BINNED.value:
+            return BinnedActionDiscretizer(
+                num_bins=state_dict["num_bins"],
+                device=device,
+            )
+        case ActionDiscretizerType.UNIFORM_BINNED.value:
+            return UniformBinnedActionDiscretizer(
+                num_bins=state_dict["num_bins"],
+                min_value=state_dict.get("min_value", -1.0),
+                max_value=state_dict.get("max_value", 1.0),
+            )
+        case unsupported_type:
+            raise ValueError(f"Unsupported action discretizer type: {unsupported_type}")
 
 
 def _build_token_id_mapping_from_state(
     state_dict: dict[str, Any],
 ) -> ActionTokenIdMapping:
     """Instantiate a token-id mapping from serialized state."""
-    mapping_type = state_dict["type"]
-    if mapping_type == ActionTokenIdMappingType.IDENTITY.value:
-        return IdentityActionTokenIdMapping()
-    if mapping_type == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value:
-        return LanguageVocabularyActionTokenIdMapping(
-            language_tokenizer_model=state_dict["language_tokenizer_model"],
-            num_special_tokens_to_skip=state_dict["num_special_tokens_to_skip"],
-        )
-    raise ValueError(f"Unsupported action token-id mapping type: {mapping_type}")
+    match state_dict["type"]:
+        case ActionTokenIdMappingType.IDENTITY.value:
+            return IdentityActionTokenIdMapping()
+        case ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value:
+            return LanguageVocabularyActionTokenIdMapping(
+                language_tokenizer_model=state_dict["language_tokenizer_model"],
+                num_special_tokens_to_skip=state_dict["num_special_tokens_to_skip"],
+            )
+        case unsupported_type:
+            raise ValueError(
+                f"Unsupported action token-id mapping type: {unsupported_type}"
+            )

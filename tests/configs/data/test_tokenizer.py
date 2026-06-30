@@ -82,6 +82,34 @@ class TestActionTokenizationConfig:
         assert config.action_discretizer.type == ActionDiscretizerType.BINNED.value
         assert config.action_discretizer.num_bins == num_bins
 
+    @pytest.mark.parametrize(
+        ("num_bins", "min_value", "max_value"),
+        [
+            (64, -1.0, 1.0),
+            (256, -2.0, 2.0),
+        ],
+    )
+    def test_stores_uniform_binned_action_discretizer(
+        self,
+        num_bins,
+        min_value,
+        max_value,
+    ):
+        config = ActionTokenizationConfig(
+            action_discretizer=ActionDiscretizerConfig(
+                type=ActionDiscretizerType.UNIFORM_BINNED.value,
+                num_bins=num_bins,
+                min_value=min_value,
+                max_value=max_value,
+            )
+        )
+        assert (
+            config.action_discretizer.type == ActionDiscretizerType.UNIFORM_BINNED.value
+        )
+        assert config.action_discretizer.num_bins == num_bins
+        assert config.action_discretizer.min_value == min_value
+        assert config.action_discretizer.max_value == max_value
+
     def test_token_id_mapping_default_is_identity(self):
         config = ActionTokenizationConfig()
         assert config.token_id_mapping.type == ActionTokenIdMappingType.IDENTITY.value

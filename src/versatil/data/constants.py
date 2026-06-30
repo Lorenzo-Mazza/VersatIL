@@ -221,6 +221,7 @@ class ActionDiscretizerType(enum.StrEnum):
 
     FAST = "fast"
     BINNED = "binned"
+    UNIFORM_BINNED = "uniform_binned"
 
 
 class ActionTokenIdMappingType(enum.StrEnum):

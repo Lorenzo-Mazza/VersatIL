@@ -43,8 +43,10 @@ class ActionDiscretizerConfig:
     # FAST-specific options.
     use_pretrained: bool = True
     tokenizer_model: str = "physical-intelligence/fast"
-    # Binned discretizer option.
+    # Binned discretizer options.
     num_bins: int = 256
+    min_value: float = -1.0
+    max_value: float = 1.0
 
 
 @dataclass

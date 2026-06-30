@@ -18,7 +18,7 @@ defaults:
 
 task:
   observation_horizon: 1
-  prediction_horizon: 8
+  prediction_horizon: 1
   dataloader:
     batch_size: 2
     image_norm_type: ${image_norm_type:ZERO_TO_ONE}
@@ -36,13 +36,15 @@ task:
         padding_strategy: ${token_padding:MAX_LENGTH}
       action_tokenizer:
         action_discretizer:
-          type: ${action_discretizer:BINNED}
+          type: ${action_discretizer:UNIFORM_BINNED}
           num_bins: 256
+          min_value: -1.0
+          max_value: 1.0
         token_id_mapping:
           type: ${action_token_id_mapping:LANGUAGE_VOCABULARY}
           language_tokenizer_model: ${prismatic_llm_model:LLAMA2_7B_PURE}
           num_special_tokens_to_skip: 0
-        max_token_len: 57 # This is calculated as 8 (prediction horizon) * 7 (number of action dimensions) + 1 (eos token)
+        max_token_len: 8 # 1 action step * 7 action dimensions + EOS
 
 experiment:
   precision: ${precision:BF16_MIXED}
@@ -78,3 +80,16 @@ policy:
     encoders: {}
     observation_space: ${task.observation_space}
     fusion_stages: []
+  loss:
+    loss_modules:
+      token_loss:
+        label_smoothing: 0.0
+  decoder:
+    vlm_backbone:
+      lora_config:
+        rank: 32
+        alpha: 16
+        dropout: 0.0
+        target_modules: ${lora_target_modules:ALL_LINEAR}
+        bias: none
+        init_lora_weights: gaussian
