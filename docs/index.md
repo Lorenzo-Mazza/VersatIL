@@ -121,11 +121,19 @@ The key features are:
 
     [:octicons-arrow-right-24: Inference](architecture/inference.md)
 
+-   **Quantization**
+
+    ---
+
+    Quantization-aware training and eager/PT2E workflows via torchao.
+
+    [:octicons-arrow-right-24: Quantization](architecture/quantization.md)
+
 -   **Post-Training Compression**
 
     ---
 
-    Pruning, eager/PT2E quantization via torchao, compressed inference.
+    Pruning, quantization, and export for compressed inference.
 
     [:octicons-arrow-right-24: Compression](architecture/post_training_compression.md)
 

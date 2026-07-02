@@ -49,7 +49,7 @@ The transport sends requests via `ServerRoute` enums (e.g., `GET_OBSERVATION`, `
 
 ### Custom Transports
 
-Any object satisfying the [`ObservationTransport`][versatil.inference.protocol.ObservationTransport] or [`ActionTransport`][versatil.inference.protocol.ActionTransport] protocol can be used. This enables direct integration with custom environments without ZMQ overhead.
+Any object satisfying the [`ObservationTransport`][versatil.inference.protocol.ObservationTransport] or [`ActionTransport`][versatil.inference.protocol.ActionTransport] protocol can be used. Custom environments can integrate directly, without going through ZMQ.
 
 ## Observation Preprocessing
 
@@ -336,7 +336,7 @@ The `timing_log` flag enables per-step timing breakdowns (preprocessing, inferen
 
 ## Simulation Servers
 
-We provide custom ZMQ server wrappers for popular robot learning simulators, enabling seamless policy rollout with VersatIL:
+We provide ZMQ server wrappers for common robot learning simulators, so policies can be rolled out without extra glue code:
 
 | Simulator | Original | ZMQ Server Wrapper |
 |---|---|---|

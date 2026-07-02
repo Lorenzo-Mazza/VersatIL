@@ -108,7 +108,7 @@ Use the source-build flow from the README when ExecuTorch is needed in a Python
 pre-commit install
 ```
 
-This enables automatic Ruff formatting and linting on every `git commit`.
+Ruff then formats and lints your changes on every `git commit`.
 
 ## Environment Configuration
 

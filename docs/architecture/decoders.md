@@ -27,7 +27,7 @@ class ActionDecoder(nn.Module, ABC):
 
 ## [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] Specification
 
-Each decoder declares its input requirements via a [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] dataclass. This enables validation during experiment setup -- [`ExperimentValidator`][versatil.validation.ExperimentValidator] checks that the encoding pipeline produces compatible features before training begins.
+Each decoder declares its input requirements via a [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] dataclass. [`ExperimentValidator`][versatil.validation.ExperimentValidator] uses it during experiment setup to check that the encoding pipeline produces compatible features before training begins.
 
 ```python
 @dataclass
@@ -333,7 +333,7 @@ All transformer decoder factories follow a unified positional encoding (PE) patt
 ### How it works
 
 1. **[`TransformerInputBuilder`][versatil.models.decoding.transformer_input_builder.TransformerInputBuilder]** projects input features to a common embedding dimension and computes additive PE: 2D sinusoidal for spatial features, 1D sinusoidal for flat/sequential features. When the observation horizon is greater than 1, an additional learned temporal PE layer is added so that the policy receives distinct temporal representations across timesteps. The builder returns `(input_tokens, pos_encodings, padding_mask)`.
-2. **Always pre-add** the PE to tokens before the transformer call: `hidden_states = input_tokens + pos_encodings`. This ensures cross-attention keys carry absolute position information regardless of the transformer's internal PE setting.
+2. **Always pre-add** the PE to tokens before the transformer call: `hidden_states = input_tokens + pos_encodings`, so cross-attention keys carry absolute position information regardless of the transformer's internal PE setting.
 3. **`positional_encoding_type`** on the transformer controls self-attention PE only:
     - `None`: no internal PE. Position info comes entirely from the pre-added additive PE.
     - `rope`: RoPE (rotary) applied to Q/K inside self-attention layers, complementing the pre-added additive PE.

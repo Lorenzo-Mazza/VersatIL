@@ -5,14 +5,19 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-06
+## [Unreleased]
 
 This release adds a full VLA decoder stack (OpenVLA, OpenVLA-OFT, Pi0, Pi0.5,
 pi0-FAST, SmolVLA), a reworked action-tokenization pipeline, PEFT LoRA
-adaptation, and typed camera metadata. **Breaking**: the legacy
+adaptation, typed camera metadata, quantization-aware training, an
+explainability package with attribution maps for vision policies, and an
+ExecuTorch XNNPACK deployment backend. **Breaking**: the legacy
 `FreeActionTransformer`, `MoEFreeActionTransformer`, and
-`DiscreteDETRActionTransformer` decoders are removed, and `TwoTowerVLMEncoder`
-is renamed `VLMEncoder` with a new config path.
+`DiscreteDETRActionTransformer` decoders are removed, `TwoTowerVLMEncoder`
+is renamed `VLMEncoder` with a new config path, and loss modules moved from
+`versatil.metrics.components` to the `versatil.metrics.losses` subpackage
+(checkpoints saved with the old `_target_` paths need their stored
+`config.yaml` rewritten before loading).
 
 ### Added
 - `AutoregressiveVLADecoder`, the VLM-backed autoregressive action-token
@@ -50,6 +55,39 @@ is renamed `VLMEncoder` with a new config path.
   VLA autoregressive decoders.
 - Action-head layouts (`none`, `component`, `joint`, `vocabulary`) plus
   conditional action heads with adaptive-normalization blocks.
+- Quantization-aware training through torchao's eager `QATConfig`:
+  `EagerQuantizationWorkflow` handles fake-quant preparation before training
+  and conversion afterwards, QAT checkpoints load through their own policy
+  context, and `quantization/qat_int8_dynamic_intx_int4`,
+  `qat_int4_weight_only`, and `qat_int2_weight_only` presets ship ready to
+  compose onto any training config.
+- Standalone quantization workflows (`none`, `eager`, `pt2e`) with per-module
+  targets, decoupled from pruning and the post-training compression
+  orchestrator. Eager targets skip linears whose `in_features` don't divide
+  the configured group size, and overlapping module paths are rejected up
+  front.
+- XNNPACK PT2E quantizer backend and an `ExecutorchXNNPACKBackend` that lowers
+  exported programs to ExecuTorch `.pte` artifacts, plus build instructions
+  and an optional `executorch` extra on Python 3.13.
+- Explainability package (`versatil.explainability`): gradient- and
+  ablation-based attribution, activation capture, saliency map construction
+  with per-decoder explanation targets, dataset and online observation
+  sources, heatmap rendering, and an `ExplainabilityRunner` exposed through
+  the `versatil.endpoints.explain` endpoint with its own Hydra config family.
+- Binning strategies on `BinnedValueDiscretizer`: equal-width `uniform` bins
+  over a configurable `[min_value, max_value]` range (the default, matching
+  common VLA practice) alongside the existing `quantile` strategy. Quantile
+  decode now returns per-bin data means, so duplicate bin edges no longer
+  collapse decoded values.
+- Graceful FAST action-token decoding: out-of-range tokens are clipped and
+  DCT coefficient sequences padded or truncated to the expected length, with
+  a warning instead of a crash.
+- `trust_remote_code` option on `LanguageEncoder` and `ObservationTokenizer`
+  for models that ship custom HuggingFace code, such as
+  nvidia/llama-nemotron-embed. The flag is persisted in the tokenizer state
+  dict and enabled in the nemotron LIBERO+ language-sweep config.
+- `infer_constant_prior` flag on `GaussianPrior` to sample a constant zero
+  latent at deployment while keeping training and validation stochastic.
 
 ### Changed
 - Renamed the previous encoder-pipeline image-text embedding module to
@@ -90,10 +128,87 @@ is renamed `VLMEncoder` with a new config path.
 - GPT-style and VLA autoregressive decoders share cached-generation control
   flow, while discrete tokenizer/vocabulary concerns live in `DiscreteDecoder`.
 - PyTorch dependency upgraded to 2.12.0 using the `cu130` wheel index,
-  torchao upgraded to 0.17.0, timm upgraded to 1.0.27, torchvision left
-  unpinned against the PyTorch index, and unused torchaudio dependency removed.
+  torchao upgraded to 0.17.0, timm upgraded to 1.0.27, transformers upgraded
+  to 5.9.0, torchvision left unpinned against the PyTorch index, and unused
+  torchaudio dependency removed.
 - Python 3.14 PT2E import workaround kept for the torchao 0.17 wheel because
   the clean wheel still mutates immutable Union aliases at import time.
+- hydra-core pinned to 1.4.0.dev5 and omegaconf to 2.4.0.dev12 from PyPI for
+  Python 3.14 support, replacing the git direct reference that blocked PyPI
+  publishing. Resolver registration migrated from the deprecated
+  `register_new_resolver` to `register_resolver`.
+- Dev tooling (pytest, pytest-cov, ruff, pre-commit) moved from runtime
+  dependencies into a uv `dev` dependency group; install docs updated for
+  conda- and venv-based `uv sync` flows.
+- Loss modules reorganized into a `versatil.metrics.losses` subpackage with
+  one module per loss family, replacing the 2.5k-line `metrics/components.py`.
+  `CompositeLoss` and the optimal-transport losses moved in as well, and every
+  loss `_target_` path in the Hydra configs was updated. Checkpoints saved
+  before this change need the same path rewrite in their stored `config.yaml`
+  before they can be re-instantiated.
+- Training runs now save checkpoints under the config file name instead of
+  mirroring the full `end_to_end_training_runs/...` config path, which nested
+  the dataset directory twice. WandB run names keep the full path.
+- The OpenVLA LIBERO preset discretizes actions with uniform bins over
+  min-max-normalized actions instead of quantile bins.
+- `gpt_action_transformer` and `mixture_density_act` decoder configs declare
+  grouped-query attention, matching their 8-head/2-KV-head layout.
+
+### Fixed
+- Padding-aware loss reduction averaged over valid timesteps while the
+  unmasked path averages over elements, which scaled padded `(B, T, D)`
+  regression losses by the action dimension relative to their configured
+  weights. Both paths now average over valid elements.
+- Image normalization produced striped outputs: per-channel stats were
+  broadcast against the flattened pixel dimension instead of the channel
+  axis. Stat alignment is now shape-aware and raises on unalignable inputs.
+- Geometric attention scrambled head contents through a reshape that mixed
+  head and spatial dimensions; heads are now independent.
+- Fully-unmasked attention masks were converted to `None` as an optimization,
+  which HuggingFace decoder-only models interpret as causal masking —
+  silently breaking bidirectional prefix attention in VLA backbones. Explicit
+  masks are now always passed through.
+- Fixed-length autoregressive action generation could emit EOS mid-payload;
+  EOS is now excluded from the valid token set when the action token length
+  is known.
+- Joint dual-stream attention applied QK-normalization after RoPE and
+  restarted the secondary stream's positions at zero; normalization now
+  precedes rotation and the secondary stream continues the primary stream's
+  position space.
+- EMA callback saved averaged weights as the policy state without stashing
+  the raw weights, so resumed trainings continued from EMA weights. Raw
+  weights are now stored under a dedicated checkpoint key and restored on
+  resume, and EMA updates respect gradient accumulation boundaries.
+- `ReduceLROnPlateau` never stepped for runs without a validation loader; it
+  now steps on train epoch ends in that case, and the best-checkpoint monitor
+  falls back to `train_loss`.
+- Phase-classification metrics included edge-padded steps, inflating the
+  final phase in accuracy and confusion matrices.
+- Variational training leaked decoder-only latent jitter into prior training
+  targets and logged latents; predictions now keep the clean posterior
+  sample.
+- `ConditionalUnet1D` injected up-path local conditioning at half resolution
+  inside the upsampling loop; it now joins after the final upsample at full
+  temporal resolution, mirroring the down path.
+- Roll angle action deltas were not wrapped, producing ±2π jumps at the
+  discontinuity; deltas are wrapped via `arctan2(sin, cos)`.
+- Eager PTQ exported the float baseline after `quantize_()` had already
+  mutated the policy, so compression reports compared the quantized model
+  against itself.
+- PT2E export used single calibration batches, so `torch.export` specialized
+  the batch dimension to a constant; export now always builds synthetic
+  example inputs with batch size 2 and dynamic batch dims.
+- Conv+BN fusion missed pairs wrapped in `Sequential` containers and could
+  fuse mismatched channel counts.
+- Metric accumulation averaged per-component sums over the global batch
+  count, deflating components that only appear in some batches.
+- Per-sample image augmentations drew independent spatial transforms per
+  camera; cameras in one sample now share replayed spatial parameters.
+- Observation tokenizer fitting attempted to fit non-numerical and
+  non-predicted keys, and dataset statistics ignored episode selection masks.
+- Denoising thresholds were dropped during post-training compression; they
+  are now serialized into the artifact metadata and restored by the
+  compressed-checkpoint loader.
 
 ### Removed
 - Legacy experimental model classes `DiscreteDETRActionTransformer`, `MoEFreeActionTransformer`,

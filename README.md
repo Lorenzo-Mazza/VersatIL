@@ -48,7 +48,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * Modular Deep Neural Networks layers such as normalization, modulation, convolution, etc
     * *Note: These are policy-agnostic and reusable in other projects.*
 - 🔒 **Explainability & Safety** – Strict interfaces, full type hints, Google-style docstrings, and runtime config validation.
-- 🧪 **Testing** – Comprehensive unit and integration tests for every module.
+- 🧪 **Testing** – Unit and integration tests for every module, run in CI.
 
 ### Paper Reproducibility Instructions
 
@@ -201,7 +201,7 @@ Instead, VersatIL handles this with a two-stage approach:
    Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.
    - Created **automatically** on first training run if missing — no separate preprocessing script needed.
    - Decouples raw storage from training-optimized layout.
-   - Raw keys vs pipeline keys: Raw data formats use their own naming (e.g., LIBERO LeRobot dataset uses `observation.images.image`, LIBERO original HDF5 dataset uses `agentview_image`). During zarr creation, these *raw camera keys* ([`RawCameraKey`](src/versatil/data/constants.py)) are remapped to standardized *pipeline camera keys* ([`Cameras`](src/versatil/data/constants.py)) via `RAW_TO_CAMERA_MAPPING`. After zarr creation, only pipeline keys exist — the rest of the codebase (training, inference, validation) never sees raw format keys. This separation is defined in `src/versatil/data/constants.py` and ensures that adding a new raw data format only requires a new [`RawCameraKey`](src/versatil/data/constants.py) entry and its mapping, with zero changes to the training or inference pipeline.
+   - Raw keys vs pipeline keys: Raw data formats use their own naming (e.g., LIBERO LeRobot dataset uses `observation.images.image`, LIBERO original HDF5 dataset uses `agentview_image`). During zarr creation, these *raw camera keys* ([`RawCameraKey`](src/versatil/data/constants.py)) are remapped to standardized *pipeline camera keys* ([`Cameras`](src/versatil/data/constants.py)) via `RAW_TO_CAMERA_MAPPING`. After zarr creation, only pipeline keys exist — the rest of the codebase (training, inference, validation) never sees raw format keys. This separation is defined in `src/versatil/data/constants.py`, so adding a new raw data format only takes a new [`RawCameraKey`](src/versatil/data/constants.py) entry and its mapping — the training and inference pipeline stays untouched.
 
 ---
 
@@ -271,7 +271,7 @@ The built-in ZMQ transport works for both simulation and real hardware — the d
 
 ##### Simulation Servers
 
-We provide custom ZMQ server wrappers for popular robot learning simulation environments, enabling seamless rollout of VersatIL policies:
+We provide ZMQ server wrappers for common robot learning simulators, so VersatIL policies can be rolled out without extra glue code:
 
 | Simulator | Original | ZMQ Server Wrapper |
 |---|---|---|
@@ -300,7 +300,7 @@ Post-training quantization (PTQ) converts trained floating-point model weights a
 **What is quantization-aware-training?**
 Quantization-aware training inserts fake quantizers between layers of the neural policy to mimic the information loss that the policy will experience at deployment time after PTQ. In this way, the policy learns a mapping that is robust to PTQ-induced information loss, improving downstream performance.
 **How VersatIL implements quantization:**
-VersatIL's quantization package is built upon PyTorch's native quantization library `torchao`, which supports two types of quantization workflows: eager quantization (mainly used for dynamic quantization of Large Language Models, int8 to int2 support, linear layers only) and PyTorch 2 Export quantization (mainly used for static quantization, int8 only, linear and convolutional layers). VersatIL integrates these two workflows seamlessly into policy training and deployment. See docs/quantization.md for more details about these quantization workflows.
+VersatIL's quantization package is built upon PyTorch's native quantization library `torchao`, which supports two types of quantization workflows: eager quantization (mainly used for dynamic quantization of Large Language Models, int8 to int2 support, linear layers only) and PyTorch 2 Export quantization (mainly used for static quantization, int8 only, linear and convolutional layers). Both workflows plug directly into policy training and deployment. See docs/quantization.md for more details about these quantization workflows.
 
 **What is post-training compression?**
 The post-training compression (PTC) pipeline that turns a trained policy checkpoint into a deployment artifact for edge or resource-constrained hardware. A PTC run can export a floating-point model, apply pruning, quantize the policy, and save either a Torch Export `.pt2` artifact or an ExecuTorch `.pte` artifact.

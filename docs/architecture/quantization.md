@@ -106,7 +106,7 @@ targets, it filters to `nn.Linear` modules under the
 configured `module_path`.
 
 ### Eager Quantization-Aware-Training (QAT)
-QAT allows to train the policy with fake-quantization layers that mimic the inference conditions.
+QAT trains the policy with fake-quantization layers that mimic inference conditions.
 When `is_qat: true`, the workflow stores the same base torchao PTQ config but wraps
 it in a `QATConfig`:
 
