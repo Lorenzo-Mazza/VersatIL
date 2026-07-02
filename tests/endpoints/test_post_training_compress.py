@@ -382,7 +382,7 @@ class TestGlobalPT2EQuantization:
         output_dir = Path(policy_loader.checkpoint_path)
 
         _prepare_backbones(policy)
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -437,7 +437,7 @@ class TestPerModulePT2EWithPruning:
         else:
             _prepare_backbones(policy)
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -511,7 +511,7 @@ class TestGlobalEagerPTQDynamic:
             num_calibration_steps=3,
         )
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -586,7 +586,7 @@ class TestGlobalFallbackPipeline:
         _, zeroed = pruner.prune(module=policy)
         assert zeroed > 0
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
         with torch.no_grad():
@@ -606,7 +606,7 @@ class TestGlobalFallbackPipeline:
         _, zeroed = UnstructuredPruner(amount=0.3).prune(module=policy)
         assert zeroed > 0
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
         with torch.no_grad():

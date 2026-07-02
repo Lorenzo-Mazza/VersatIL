@@ -165,7 +165,7 @@ def language_action_transformer_qat_policy_factory() -> Callable[
 
     def factory(qat_preset: str) -> tuple[Policy, EagerQuantizationWorkflow]:
         overrides = [
-            f"+quantization=../../../quantization/{qat_preset}",
+            f"+quantization={qat_preset}",
             "experiment.device=cuda",
         ]
         with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
