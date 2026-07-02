@@ -211,6 +211,12 @@ Geometry-aware RGB+Depth encoder using geometric self-attention. Based on [DForm
 
 Processes RGB and depth through parallel patch embedding streams and fuses them via geometric attention blocks that use depth-derived spatial relationships.
 
+Pretrained backbone checkpoints (S/B/L, from the official
+[DFormer repository](https://github.com/VCIP-RGBD/DFormer)) are mirrored at
+[bbynku/DFormerv2](https://huggingface.co/bbynku/DFormerv2) on the HuggingFace
+Hub. Pass the downloaded checkpoint through the encoder's `checkpoint_path`
+together with `pretrained: true`.
+
 #### [`GeometricRGBDEncoder`][versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder]
 
 Single-layer geometry-aware RGBD encoder. A lightweight alternative to DFormerV2 with a single geometric attention block.

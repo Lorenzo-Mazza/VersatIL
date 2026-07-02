@@ -503,7 +503,7 @@ fusion = AttentionFusion(
 - **Depth** via [timm](https://github.com/huggingface/pytorch-image-models)
   - [`SpatialDepthEncoder`](src/versatil/models/encoding/encoders/depth/spatial.py): single-channel spatial feature maps
 - **Cross-Modal RGBD**
-  - [`DFormerEncoder`](src/versatil/models/encoding/encoders/cross_modal/rgbd/dformerv2.py): RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
+  - [`DFormerEncoder`](src/versatil/models/encoding/encoders/cross_modal/rgbd/dformerv2.py): RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701), [pretrained weights](https://huggingface.co/bbynku/DFormerv2), [docs](https://lorenzo-mazza.github.io/VersatIL/architecture/encoding/))
   - [`GeometricRGBDEncoder`](src/versatil/models/encoding/encoders/cross_modal/rgbd/geometric_rgbd.py): Custom lightweight geometric depth encoder
 - **Vision Language Model (VLM) encoders** via [HF Transformers](https://github.com/huggingface/transformers):
   - [`VLMEncoder`](src/versatil/models/encoding/encoders/cross_modal/vision_language/vlm_encoder.py): encoder-pipeline module for image-text embedding models, e.g. CLIP and SigLIP.
