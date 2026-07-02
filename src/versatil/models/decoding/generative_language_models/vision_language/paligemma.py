@@ -1,7 +1,5 @@
 """PaliGemma VLM component for VLA decoders."""
 
-import math
-
 import torch
 import torch.nn as nn
 from transformers import AutoConfig
@@ -30,8 +28,10 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
     """PaliGemma VLM with per-camera sequential image encoding.
 
     Each camera image is encoded through SigLIP + multi-modal projector
-    separately, scaled by ``sqrt(hidden_dim)`` (Gemma convention), then
-    concatenated with language embeddings before the Gemma language-model pass.
+    separately, then concatenated with language embeddings before the Gemma
+    language-model pass. Scaling follows the HF reference: text embeddings are
+    scaled by ``sqrt(hidden_dim)`` inside Gemma's embedding module, image
+    tokens enter unscaled.
     """
 
     def __init__(
@@ -130,7 +130,10 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
                 target_width=self.image_size,
             )
             features = self.vlm.get_image_features(images)
-            camera_embeddings = features.pooler_output * math.sqrt(self.hidden_dim)
+            # The HF PaliGemma reference inserts projector outputs into the
+            # prefix unscaled; only text embeddings carry the Gemma
+            # sqrt(hidden) scale, applied inside GemmaTextScaledWordEmbedding.
+            camera_embeddings = features.pooler_output
             image_embeddings.append(camera_embeddings)
             image_pad_masks.append(
                 torch.zeros(
@@ -141,12 +144,6 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
                 )
             )
         return image_embeddings, image_pad_masks
-
-    def _scale_language_embeddings(
-        self, language_embeddings: torch.Tensor
-    ) -> torch.Tensor:
-        """Gemma applies sqrt(hidden_size) scaling after embedding lookup."""
-        return language_embeddings * math.sqrt(self.hidden_dim)
 
     def get_explainability_targets(self) -> list[VisionExplanationTarget]:
         """Return the projector output used as PaliGemma visual context.
