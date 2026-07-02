@@ -143,6 +143,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- PaliGemma prefixes were scaled twice: transformers 5.x moved the Gemma
+  sqrt(hidden) embedding scale into the embedding module, so the manual
+  multiply on top of it blew text tokens up by the full hidden size and
+  image tokens carried a scale the HF reference never applies. Pretrained
+  PaliGemma backbones (Pi0, Pi0.5, pi0-FAST, OpenVLA-OFT) now start from
+  faithful reference activations.
+- Prefix/suffix attention masks reached HF language models as boolean 4D
+  tensors, which eager attention adds to logits and effectively ignores;
+  they are converted to additive float masks, and fully-visible masks stay
+  explicit so HF cannot fall back to causal attention.
+- Binary gripper inference thresholded the raw logit at 0.5 instead of the
+  sigmoid probability, biasing deployment toward the closed state.
+- MoE experts ran on unsynchronized CUDA side streams, nondeterministically
+  corrupting outputs and gradients on GPU; experts run sequentially now.
+- AttentionFusion crashed on token-sequence inputs, which reach fusion as
+  (B, T, S, D) before the pipeline's time squeeze.
+- DEFAULT (CLS) pooling is rejected for flat RGB backbones and language
+  models without a class token, where it silently returned an arbitrary
+  first token; SigLIP timm backbones and CLS-less embedding models need
+  AVERAGE or NONE pooling.
+- Zero-initialized gated (SwiGLU/GeGLU) modulation projections had
+  identically zero gradients, freezing DiT-style conditioning forever;
+  only the value branch is zeroed now.
+- Rebuilt strict-image-size backbones (Swin) crashed under half-precision
+  model dtypes during the post-rebuild shape probe.
+- Pi0 silently dropped a configured proprioceptive feature under
+  adaptive-norm time conditioning.
+- Batched inference observations mixing language lists with time-dimmed
+  tensors produced corrupted prompts or crashes in the observation
+  tokenizer; padded action chunks could poison the FAST decode shape, and
+  pretrained FAST tokenizers saved without one could never decode after
+  checkpoint load.
+- reduce_lr_on_plateau combined with a per-step LR schedule was silently
+  undone every optimizer step; the combination is rejected, plateau state
+  survives checkpoint resumes, EMA includes the epoch-final flushed
+  optimizer step, and LR schedules no longer end early under gradient
+  accumulation.
+- Compressed eager-workflow artifacts never moved off CPU at inference;
+  overlapping compression targets compounded pruning sparsity silently;
+  compression reports compared parameter-only float bytes against
+  parameter-plus-buffer quantized bytes.
+- Fitted action statistics dropped each episode's final row even for
+  precomputed actions, letting served actions normalize outside the
+  fitted range.
 - Padding-aware loss reduction averaged over valid timesteps while the
   unmasked path averages over elements, which scaled padded `(B, T, D)`
   regression losses by the action dimension relative to their configured
