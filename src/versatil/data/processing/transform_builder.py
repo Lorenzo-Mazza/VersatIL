@@ -50,7 +50,11 @@ def _build_action_discretizer(
             tokenizer_model=config.tokenizer_model,
         )
     if config.type == ActionDiscretizerType.BINNED.value:
-        return BinnedActionDiscretizer(num_bins=config.num_bins, device=device)
+        return BinnedActionDiscretizer(
+            num_bins=config.num_bins,
+            device=device,
+            binning_strategy=config.binning_strategy,
+        )
     raise ValueError(f"Unsupported action discretizer type: {config.type}")
 
 

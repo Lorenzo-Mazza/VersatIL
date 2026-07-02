@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from versatil.data.constants import (
     ActionDiscretizerType,
     ActionTokenIdMappingType,
+    BinningStrategy,
     TokenPaddingStrategy,
 )
 from versatil.models.encoding.encoders.constants import LanguageEncoderType
@@ -43,8 +44,10 @@ class ActionDiscretizerConfig:
     # FAST-specific options.
     use_pretrained: bool = True
     tokenizer_model: str = "physical-intelligence/fast"
-    # Binned discretizer option.
+    # Binned discretizer options. Uniform binning places equal-width bins
+    # over [-1, 1]; quantile binning adapts edges to the action distribution.
     num_bins: int = 256
+    binning_strategy: str = BinningStrategy.UNIFORM.value
 
 
 @dataclass

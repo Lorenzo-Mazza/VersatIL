@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from transformers.processing_utils import ProcessorMixin
 
-from versatil.data.constants import ActionDiscretizerType
+from versatil.data.constants import ActionDiscretizerType, BinningStrategy
 from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
 from versatil.data.tokenization.fast import load_fast_processor
 
@@ -225,9 +225,14 @@ class BinnedActionDiscretizer(ActionDiscretizer):
         self,
         num_bins: int = 256,
         device: torch.device | None = None,
+        binning_strategy: str = BinningStrategy.UNIFORM.value,
     ):
         """Initialize per-value binning for action chunks."""
-        self.binner = BinnedValueDiscretizer(num_bins=num_bins, device=device)
+        self.binner = BinnedValueDiscretizer(
+            num_bins=num_bins,
+            device=device,
+            binning_strategy=binning_strategy,
+        )
         self.time_horizon: int | None = None
         self.action_dim: int | None = None
 

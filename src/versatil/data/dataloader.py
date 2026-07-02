@@ -8,6 +8,11 @@ from omegaconf import DictConfig
 
 from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.configs.data.tokenizer import TokenizationConfig
+from versatil.data.constants import (
+    ActionDiscretizerType,
+    BinningStrategy,
+    KinematicsNormalizationType,
+)
 from versatil.data.episodic_dataset import EpisodicDataset
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer
@@ -182,6 +187,34 @@ def validate_dataloader_config(config: DataLoaderConfig) -> None:
         raise ValueError(
             f"action_backward_shift cannot be negative, "
             f"got {config.action_backward_shift}"
+        )
+    _validate_uniform_binning_normalization(config=config)
+
+
+def _validate_uniform_binning_normalization(config: DataLoaderConfig) -> None:
+    """Reject uniform action binning without min-max kinematics normalization.
+
+    Uniform bins span a fixed [-1, 1] range, so action values outside it
+    (gaussian or demeaned normalization) would silently clip into the edge
+    bins and corrupt every tokenized action.
+    """
+    tokenization = config.tokenization
+    if not tokenization.tokenize_actions or tokenization.action_tokenizer is None:
+        return
+    action_discretizer = tokenization.action_tokenizer.action_discretizer
+    if action_discretizer.type != ActionDiscretizerType.BINNED.value:
+        return
+    if action_discretizer.binning_strategy != BinningStrategy.UNIFORM.value:
+        return
+    if config.kinematics_norm_type != KinematicsNormalizationType.MIN_MAX.value:
+        raise ValueError(
+            "Uniform action binning requires min-max kinematics normalization: "
+            "uniform bins cover the fixed [-1, 1] range and would clip "
+            f"'{config.kinematics_norm_type}'-normalized actions at the edge "
+            "bins. Set kinematics_norm_type to "
+            f"'{KinematicsNormalizationType.MIN_MAX.value}' or switch the "
+            f"action discretizer to binning_strategy="
+            f"'{BinningStrategy.QUANTILE.value}'."
         )
 
 

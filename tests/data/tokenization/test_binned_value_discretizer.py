@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import BinningStrategy
 from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
 
 
@@ -208,7 +209,7 @@ class TestBinnedValueDiscretizerDecode:
         tokenizer = fitted_binned_value_discretizer_factory(
             num_bins=num_bins, num_dimensions=3, num_samples=1000
         )
-        data = rng.standard_normal((50, 3)).astype(np.float32)
+        data = rng.uniform(-1, 1, (50, 3)).astype(np.float32)
         tokens = tokenizer.encode(data)
         decoded = tokenizer.decode(tokens)
         max_error = torch.abs(decoded - torch.tensor(data, dtype=torch.float32)).max()
@@ -222,7 +223,7 @@ class TestBinnedValueDiscretizerGetBinCenters:
         tokenizer = fitted_binned_value_discretizer_factory(
             num_bins=8, num_dimensions=1
         )
-        centers = tokenizer._get_bin_centers(dim=0)
+        centers = tokenizer._geometric_bin_centers(dim=0)
         edges = tokenizer.bin_edges[0]
         expected = edges[0] - (edges[1] - edges[0]) / 2
         assert torch.isclose(centers[0], expected)
@@ -233,7 +234,7 @@ class TestBinnedValueDiscretizerGetBinCenters:
         tokenizer = fitted_binned_value_discretizer_factory(
             num_bins=8, num_dimensions=1
         )
-        centers = tokenizer._get_bin_centers(dim=0)
+        centers = tokenizer._geometric_bin_centers(dim=0)
         edges = tokenizer.bin_edges[0]
         expected = edges[-1] + (edges[-1] - edges[-2]) / 2
         assert torch.isclose(centers[-1], expected)
@@ -244,7 +245,7 @@ class TestBinnedValueDiscretizerGetBinCenters:
         tokenizer = fitted_binned_value_discretizer_factory(
             num_bins=8, num_dimensions=1
         )
-        centers = tokenizer._get_bin_centers(dim=0)
+        centers = tokenizer._geometric_bin_centers(dim=0)
         edges = tokenizer.bin_edges[0]
         for i in range(1, 7):
             expected = (edges[i - 1] + edges[i]) / 2
@@ -257,7 +258,7 @@ class TestBinnedValueDiscretizerGetBinCenters:
         tokenizer = fitted_binned_value_discretizer_factory(
             num_bins=num_bins, num_dimensions=2
         )
-        centers = tokenizer._get_bin_centers(dim=0)
+        centers = tokenizer._geometric_bin_centers(dim=0)
         assert centers.shape == (num_bins,)
 
 
@@ -287,7 +288,13 @@ class TestBinnedValueDiscretizerStateDict:
     def test_state_dict_keys(self, fitted_binned_value_discretizer_factory):
         tokenizer = fitted_binned_value_discretizer_factory()
         state = tokenizer.state_dict()
-        assert set(state.keys()) == {"num_bins", "bin_edges", "is_fitted"}
+        assert set(state.keys()) == {
+            "num_bins",
+            "binning_strategy",
+            "bin_edges",
+            "bin_values",
+            "is_fitted",
+        }
 
     @pytest.mark.parametrize("num_bins", [8, 32, 128])
     def test_state_dict_contains_num_bins(
@@ -394,3 +401,62 @@ class TestBinnedValueDiscretizerLoadStateDict:
         original_tokens = original.encode(data)
         restored_tokens = restored.encode(data)
         assert torch.equal(original_tokens, restored_tokens)
+
+
+class TestBinningStrategies:
+    def test_invalid_strategy_raises(self):
+        with pytest.raises(ValueError, match="Unknown binning_strategy"):
+            BinnedValueDiscretizer(num_bins=16, binning_strategy="log")
+
+    def test_uniform_roundtrip_error_bounded_by_bin_width(
+        self, binned_value_discretizer_factory, rng
+    ):
+        num_bins = 256
+        tokenizer = binned_value_discretizer_factory(
+            num_bins=num_bins,
+            binning_strategy=BinningStrategy.UNIFORM.value,
+        )
+        tokenizer.fit(rng.uniform(-1, 1, (100, 2)).astype(np.float32))
+
+        probe = torch.tensor([[-1.0, 1.0], [0.0, 0.5]])
+        decoded = tokenizer.decode(tokenizer.encode(probe))
+        bin_width = 2.0 / num_bins
+        assert torch.abs(decoded - probe).max() <= bin_width
+
+    def test_quantile_decodes_repeated_values_exactly(
+        self, binned_value_discretizer_factory, rng
+    ):
+        # Regression: duplicate quantile edges on bimodal data (e.g. a binary
+        # gripper) used to decode the minority mode to the bin midpoint
+        # (+1 -> 0.0). Per-bin data means keep repeated values exact.
+        tokenizer = binned_value_discretizer_factory(
+            num_bins=256,
+            binning_strategy=BinningStrategy.QUANTILE.value,
+        )
+        gripper = np.where(rng.random(5000) < 0.7, -1.0, 1.0)
+        tokenizer.fit(gripper.reshape(-1, 1).astype(np.float32))
+
+        probe = torch.tensor([[-1.0], [1.0]])
+        decoded = tokenizer.decode(tokenizer.encode(probe))
+        torch.testing.assert_close(decoded, probe)
+
+    def test_legacy_state_dict_loads_as_quantile_with_geometric_centers(
+        self, binned_value_discretizer_factory, rng
+    ):
+        tokenizer = binned_value_discretizer_factory(
+            num_bins=16,
+            binning_strategy=BinningStrategy.QUANTILE.value,
+        )
+        tokenizer.fit(rng.standard_normal((200, 2)).astype(np.float32))
+        state = tokenizer.state_dict()
+        del state["binning_strategy"]
+        del state["bin_values"]
+
+        restored = BinnedValueDiscretizer(num_bins=16)
+        restored.load_state_dict(state)
+
+        assert restored.binning_strategy == BinningStrategy.QUANTILE.value
+        assert restored.bin_values is None
+        probe = torch.tensor([[0.0, 0.0]])
+        decoded = restored.decode(restored.encode(probe))
+        assert decoded.shape == probe.shape

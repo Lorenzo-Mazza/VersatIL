@@ -9,7 +9,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from versatil.configs.data.dataloader import DataLoaderConfig
-from versatil.data.constants import ActionComputationMethod, ProprioKey
+from versatil.configs.data.tokenizer import (
+    ActionDiscretizerConfig,
+    ActionTokenizationConfig,
+    TokenizationConfig,
+)
+from versatil.data.constants import (
+    ActionComputationMethod,
+    ActionDiscretizerType,
+    BinningStrategy,
+    KinematicsNormalizationType,
+    ProprioKey,
+)
 from versatil.data.dataloader import (
     _collect_dataset_paths,
     _ensure_zarr_exists,
@@ -33,12 +44,18 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
         skip_initial_episode_steps: int = 0,
         downsample_factor: int = 1,
         action_backward_shift: int = 0,
+        kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX.value,
+        tokenization: TokenizationConfig | None = None,
     ) -> DataLoaderConfig:
+        if tokenization is None:
+            tokenization = TokenizationConfig()
         return DataLoaderConfig(
             batch_size=batch_size,
             num_workers=num_workers,
             val_ratio=val_ratio,
             total_ratio=total_ratio,
+            kinematics_norm_type=kinematics_norm_type,
+            tokenization=tokenization,
             skip_initial_episode_steps=skip_initial_episode_steps,
             downsample_factor=downsample_factor,
             action_backward_shift=action_backward_shift,
@@ -152,6 +169,71 @@ class TestValidateDataloaderConfig:
 
         with expectation:
             validate_dataloader_config(config)
+
+    @pytest.mark.parametrize(
+        "binning_strategy, kinematics_norm_type, expectation",
+        [
+            (
+                BinningStrategy.UNIFORM.value,
+                KinematicsNormalizationType.MIN_MAX.value,
+                does_not_raise(),
+            ),
+            (
+                BinningStrategy.QUANTILE.value,
+                KinematicsNormalizationType.GAUSSIAN.value,
+                does_not_raise(),
+            ),
+            (
+                BinningStrategy.UNIFORM.value,
+                KinematicsNormalizationType.GAUSSIAN.value,
+                pytest.raises(
+                    ValueError,
+                    match="Uniform action binning requires min-max",
+                ),
+            ),
+            (
+                BinningStrategy.UNIFORM.value,
+                KinematicsNormalizationType.DEMEAN.value,
+                pytest.raises(
+                    ValueError,
+                    match="Uniform action binning requires min-max",
+                ),
+            ),
+        ],
+    )
+    def test_uniform_binning_requires_min_max_normalization(
+        self,
+        dataloader_config_factory,
+        binning_strategy,
+        kinematics_norm_type,
+        expectation,
+    ):
+        tokenization = TokenizationConfig(
+            tokenize_actions=True,
+            action_tokenizer=ActionTokenizationConfig(
+                action_discretizer=ActionDiscretizerConfig(
+                    type=ActionDiscretizerType.BINNED.value,
+                    binning_strategy=binning_strategy,
+                ),
+            ),
+        )
+        config = dataloader_config_factory(
+            kinematics_norm_type=kinematics_norm_type,
+            tokenization=tokenization,
+        )
+
+        with expectation:
+            validate_dataloader_config(config)
+
+    def test_uniform_binning_check_skipped_without_action_tokenization(
+        self, dataloader_config_factory
+    ):
+        config = dataloader_config_factory(
+            kinematics_norm_type=KinematicsNormalizationType.GAUSSIAN.value,
+            tokenization=TokenizationConfig(tokenize_actions=False),
+        )
+
+        validate_dataloader_config(config)
 
     @pytest.mark.parametrize(
         "num_workers, expectation",

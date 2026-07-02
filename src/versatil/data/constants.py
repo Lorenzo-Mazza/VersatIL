@@ -223,6 +223,13 @@ class ActionDiscretizerType(enum.StrEnum):
     BINNED = "binned"
 
 
+class BinningStrategy(enum.StrEnum):
+    """Bin-edge placement strategies for value discretization."""
+
+    UNIFORM = "uniform"
+    QUANTILE = "quantile"
+
+
 class ActionTokenIdMappingType(enum.StrEnum):
     """Mappings from action-local token IDs to model token IDs."""
 

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import BinningStrategy
 from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
 
 
@@ -16,8 +17,11 @@ def binned_value_discretizer_factory() -> Callable[..., BinnedValueDiscretizer]:
     def factory(
         num_bins: int = 16,
         device: torch.device = torch.device("cpu"),
+        binning_strategy: str = BinningStrategy.UNIFORM.value,
     ) -> BinnedValueDiscretizer:
-        return BinnedValueDiscretizer(num_bins=num_bins, device=device)
+        return BinnedValueDiscretizer(
+            num_bins=num_bins, device=device, binning_strategy=binning_strategy
+        )
 
     return factory
 
@@ -33,8 +37,11 @@ def fitted_binned_value_discretizer_factory(
         num_samples: int = 100,
         num_dimensions: int = 7,
         device: torch.device = torch.device("cpu"),
+        binning_strategy: str = BinningStrategy.UNIFORM.value,
     ) -> BinnedValueDiscretizer:
-        tokenizer = binned_value_discretizer_factory(num_bins=num_bins, device=device)
+        tokenizer = binned_value_discretizer_factory(
+            num_bins=num_bins, device=device, binning_strategy=binning_strategy
+        )
         data = rng.standard_normal((num_samples, num_dimensions)).astype(np.float32)
         tokenizer.fit(data)
         return tokenizer
