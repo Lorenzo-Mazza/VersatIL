@@ -158,7 +158,7 @@ class GripperLoss(BaseLoss):
         actions_metadata: dict[str, ActionMetadata],
         bce_weight: float = 0.005,
         mse_weight: float = 0.0,
-        pos_weight: torch.Tensor | None = None,
+        pos_weight: torch.Tensor | float | None = None,
     ):
         """Initialize gripper loss.
 
@@ -173,6 +173,8 @@ class GripperLoss(BaseLoss):
         self.key = key
         self.bce_weight = bce_weight
         self.mse_weight = mse_weight
+        if pos_weight is not None and not isinstance(pos_weight, torch.Tensor):
+            pos_weight = torch.tensor(float(pos_weight))
         self.register_buffer("pos_weight", pos_weight)
         resolved_metadata = resolve_dict_keys(dict(actions_metadata))
         if key not in resolved_metadata:
@@ -448,10 +450,10 @@ class KLDivergenceLoss(BaseLoss):
                 MetadataKey.POSTERIOR_Z.value: z,
                 MetadataKey.POSTERIOR_MU.value: mu_q,
                 MetadataKey.POSTERIOR_LOGVAR.value: logvar_q,
-                MetadataKey.PRIOR_Z.value: predictions.get(
-                    LatentKey.PRIOR_LATENT.value
-                ),
             }
+            prior_latent = predictions.get(LatentKey.PRIOR_LATENT.value)
+            if prior_latent is not None:
+                metadata[MetadataKey.PRIOR_Z.value] = prior_latent
 
             return LossOutput(
                 total_loss=total_loss,

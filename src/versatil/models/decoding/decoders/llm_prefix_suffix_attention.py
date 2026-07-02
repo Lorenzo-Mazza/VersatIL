@@ -67,15 +67,15 @@ class LLMPrefixSuffixAttentionMixin:
         prefix_mask = (
             padding_mask[:, :prefix_length] if padding_mask is not None else None
         )
-        attention_mask = self._build_prefix_attention_mask(
+        # Always return the explicit 4D mask: HF decoder-only models treat a
+        # None mask as fully causal, which contradicts the bidirectional
+        # prefix this branch encodes (even when no position is masked).
+        return self._build_prefix_attention_mask(
             prefix_tokens=prefix_tokens,
             suffix_tokens=suffix_tokens,
             prefix_mask=prefix_mask,
             causal_suffix=causal_suffix,
         )
-        if attention_mask.all():
-            return None
-        return attention_mask
 
     @staticmethod
     def _append_unmasked_tokens(

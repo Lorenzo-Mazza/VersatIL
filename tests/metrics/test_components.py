@@ -253,6 +253,14 @@ class TestGripperLossInit:
         ):
             GripperLoss(key="wrong_key", actions_metadata=metadata)
 
+    def test_float_pos_weight_is_converted_to_buffer_tensor(
+        self, binary_gripper_metadata_factory
+    ):
+        metadata = binary_gripper_metadata_factory()
+        loss = GripperLoss(key="gripper", actions_metadata=metadata, pos_weight=2.0)
+        assert isinstance(loss.pos_weight, torch.Tensor)
+        assert loss.pos_weight.item() == pytest.approx(2.0)
+
     def test_on_the_fly_metadata_extracts_gripper_type(self):
         source = GripperObservationMetadata(
             raw_data_column_keys=["gripper"],
@@ -572,6 +580,22 @@ class TestKLDivergenceLossForwardWithLogProb:
         output = loss(predictions, {})
         # KL = E_q[log q - log p], both N(0,I), evaluated at z=0 => KL ≈ 0
         assert output.total_loss.item() == pytest.approx(0.0, abs=1e-4)
+
+    def test_omits_prior_z_metadata_when_prior_latent_absent(self):
+        batch_size, latent_dim = 4, 8
+        z = torch.zeros(batch_size, latent_dim)
+        predictions = {
+            LatentKey.POSTERIOR_MU.value: torch.zeros(batch_size, latent_dim),
+            LatentKey.POSTERIOR_LOGVAR.value: torch.zeros(batch_size, latent_dim),
+            LatentKey.POSTERIOR_LATENT.value: z,
+            LatentKey.PRIOR_LOG_PROB.value: torch.zeros(batch_size),
+        }
+        loss = KLDivergenceLoss(weight=1.0)
+        output = loss(predictions, {})
+        # A None entry here used to crash MetricsAccumulator's torch.cat at
+        # epoch end for VampPrior runs with sampling_from_prior_probability=0.
+        assert MetadataKey.PRIOR_Z.value not in output.metadata
+        assert all(value is not None for value in output.metadata.values())
 
 
 @pytest.mark.unit

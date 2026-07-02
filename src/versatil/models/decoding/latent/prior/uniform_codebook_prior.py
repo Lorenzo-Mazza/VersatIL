@@ -5,7 +5,6 @@ uniformly and returns the corresponding embedding. No learnable parameters.
 The codebook is shared from the VQ posterior encoder via wire_posterior().
 """
 
-import weakref
 from typing import Any
 
 import torch
@@ -53,17 +52,17 @@ class UniformCodebookPrior(PriorLatentEncoder):
         self.code_dim = latent_dimension
         self.num_codes = num_codes
         self.num_residual_layers = num_residual_layers
-        self._residual_vq_ref: weakref.ReferenceType[ResidualVQ] | None = None
+        self._residual_vq_reference: tuple[ResidualVQ, ...] = ()
 
     @property
     def residual_vq(self) -> ResidualVQ | None:
         """Return the posterior-owned VQ module without registering it as a child."""
-        if self._residual_vq_ref is None:
+        if not self._residual_vq_reference:
             return None
-        return self._residual_vq_ref()
+        return self._residual_vq_reference[0]
 
     def __getstate__(self) -> dict[str, Any]:
-        """Return copy-safe state without the posterior weak reference.
+        """Return copy-safe state without the posterior VQ reference.
 
         Returns:
             Module state with runtime wiring cleared. The owning
@@ -71,7 +70,7 @@ class UniformCodebookPrior(PriorLatentEncoder):
             posterior after deepcopy or unpickling.
         """
         state = super().__getstate__()
-        state["_residual_vq_ref"] = None
+        state["_residual_vq_reference"] = ()
         return state
 
     def get_auxiliary_output_keys(self) -> set[str]:
@@ -112,7 +111,7 @@ class UniformCodebookPrior(PriorLatentEncoder):
                 f"ResidualVQ num_layers ({residual_vq.num_layers}) does not match "
                 f"UniformCodebookPrior num_residual_layers ({self.num_residual_layers})"
             )
-        self._residual_vq_ref = weakref.ref(residual_vq)
+        self._residual_vq_reference = (residual_vq,)
 
     def forward(
         self,
@@ -137,9 +136,8 @@ class UniformCodebookPrior(PriorLatentEncoder):
         residual_vq = self.residual_vq
         if residual_vq is None:
             raise RuntimeError(
-                "UniformCodebookPrior.residual_vq is not set or has been "
-                "garbage-collected. Call wire_posterior() before forward(), "
-                "and keep the posterior alive."
+                "UniformCodebookPrior.residual_vq is not set. "
+                "Call wire_posterior() before forward()."
             )
         if target_latents is not None:
             batch_size = target_latents.shape[0]
@@ -176,9 +174,8 @@ class UniformCodebookPrior(PriorLatentEncoder):
         residual_vq = self.residual_vq
         if residual_vq is None:
             raise RuntimeError(
-                "UniformCodebookPrior.residual_vq is not set or has been "
-                "garbage-collected. Call wire_posterior() before sample_prior(), "
-                "and keep the posterior alive."
+                "UniformCodebookPrior.residual_vq is not set. "
+                "Call wire_posterior() before sample_prior()."
             )
         device = self.device
         all_indices = [

@@ -739,7 +739,9 @@ class TestCreateCallbacks:
             if isinstance(cb, ModelCheckpoint) and "best" in (cb.filename or "")
         ]
         assert len(best_checkpoint) == 1
-        assert best_checkpoint[0].monitor == "train_loss_epoch"
+        # "train_loss" is the actual logged key: on_step=False means
+        # Lightning never forks a "train_loss_epoch" variant.
+        assert best_checkpoint[0].monitor == "train_loss"
 
     def test_swa_callback_added_when_swa_lrs_set(
         self, workspace_factory, mock_workspace_policy_factory

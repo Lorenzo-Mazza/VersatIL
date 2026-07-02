@@ -117,6 +117,7 @@ class TestExecutorchXNNPACKBackend:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_executorch
 class TestExecutorchXNNPACKBackendIntegration:
     def test_unbounded_dynamic_batch_reproduces_executorch_lowering_error(
         self,

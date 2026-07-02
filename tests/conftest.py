@@ -1,5 +1,6 @@
 """Root test fixtures shared across the entire test suite."""
 
+import importlib.util
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -87,6 +88,7 @@ from versatil.models.policy import Policy
 
 MINIMUM_VRAM_GB = 8.0
 MINIMUM_FREE_VRAM_GB = 2.0
+EXECUTORCH_PACKAGE = "executorch"
 REAL_MODEL_IMAGE_SIZE = 64
 REAL_POLICY_ACTION_KEY = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
 REAL_PIPELINE_ENCODER_NAME = "vision"
@@ -215,15 +217,25 @@ class TinyVLMContinuousDecoder(nn.Module):
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skip ``@pytest.mark.requires_gpu`` tests when CUDA is unavailable."""
-    if _cuda_has_sufficient_memory():
-        return
-    skip_requires_gpu = pytest.mark.skip(
-        reason="requires CUDA with sufficient free memory; unavailable in this environment"
-    )
+    """Skip optional-capability tests when the current environment cannot run them."""
+    skip_requires_gpu = None
+    skip_requires_executorch = None
+    if not _cuda_has_sufficient_memory():
+        skip_requires_gpu = pytest.mark.skip(
+            reason="requires CUDA with sufficient free memory; unavailable in this environment"
+        )
+    if not _executorch_available():
+        skip_requires_executorch = pytest.mark.skip(
+            reason="requires ExecuTorch with XNNPACK support; unavailable in this environment"
+        )
     for item in items:
-        if "requires_gpu" in item.keywords:
+        if skip_requires_gpu is not None and "requires_gpu" in item.keywords:
             item.add_marker(skip_requires_gpu)
+        if (
+            skip_requires_executorch is not None
+            and "requires_executorch" in item.keywords
+        ):
+            item.add_marker(skip_requires_executorch)
 
 
 def _cuda_has_sufficient_memory() -> bool:
@@ -237,6 +249,11 @@ def _cuda_has_sufficient_memory() -> bool:
         return False
     free_vram_gb = free_memory_bytes / 1e9
     return total_vram_gb > MINIMUM_VRAM_GB and free_vram_gb > MINIMUM_FREE_VRAM_GB
+
+
+def _executorch_available() -> bool:
+    """Return whether the optional ExecuTorch package is installed."""
+    return importlib.util.find_spec(EXECUTORCH_PACKAGE) is not None
 
 
 def get_test_device() -> torch.device:

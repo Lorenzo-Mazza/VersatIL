@@ -141,3 +141,65 @@ class TestReduceLROnPlateauCallback:
         assert len(lr_log_calls) == 1
         logged_lr = lr_log_calls[0][0][1]
         assert logged_lr == pytest.approx(expected_lr)
+
+    def test_steps_on_train_epoch_end_without_validation_loop(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(
+            patience=2, factor=0.5, threshold=0.0, monitor="train_loss"
+        )
+        param = torch.nn.Parameter(torch.zeros(1))
+        optimizer = torch.optim.SGD([param], lr=0.1)
+        pl_module = MagicMock()
+        pl_module.optimizers.return_value = optimizer
+        pl_module.log = MagicMock()
+        callback.on_fit_start(trainer=mock_trainer_factory(), pl_module=pl_module)
+        initial_lr = optimizer.param_groups[0]["lr"]
+
+        for _ in range(4):
+            trainer = mock_trainer_factory(
+                callback_metrics={"train_loss": torch.tensor(1.0)},
+                val_dataloaders=None,
+            )
+            callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        assert optimizer.param_groups[0]["lr"] == pytest.approx(initial_lr * 0.5)
+
+    def test_train_epoch_end_defers_to_validation_loop_when_present(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(patience=1, monitor="val_loss")
+        pl_module = MagicMock()
+        optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=0.1)
+        pl_module.optimizers.return_value = optimizer
+        callback.on_fit_start(trainer=mock_trainer_factory(), pl_module=pl_module)
+        callback.scheduler = MagicMock()
+
+        trainer = mock_trainer_factory(
+            callback_metrics={"val_loss": torch.tensor(1.0)},
+            val_dataloaders=MagicMock(),
+        )
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        callback.scheduler.step.assert_not_called()
+
+    def test_skips_scheduler_step_during_sanity_check(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(patience=1, monitor="val_loss")
+        pl_module = MagicMock()
+        optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=0.1)
+        pl_module.optimizers.return_value = optimizer
+        callback.on_fit_start(trainer=mock_trainer_factory(), pl_module=pl_module)
+        callback.scheduler = MagicMock()
+
+        trainer = mock_trainer_factory(
+            callback_metrics={"val_loss": torch.tensor(1.0)},
+            sanity_checking=True,
+        )
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        callback.scheduler.step.assert_not_called()

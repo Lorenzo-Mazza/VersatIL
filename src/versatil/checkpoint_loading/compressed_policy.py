@@ -54,6 +54,14 @@ class CompressedCheckpointLoader(BaseCheckpointLoader):
             CompressionMetadataKey.ARTIFACT_FORMAT.value,
             ArtifactFormat.TORCH_EXPORT_PT2.value,
         )
+        if (
+            self._artifact_format == ArtifactFormat.EXECUTORCH_PTE.value
+            and self._device.type != "cpu"
+        ):
+            raise ValueError(
+                "ExecuTorch XNNPACK artifacts support CPU inference only, "
+                f"got '{self._device}'."
+            )
 
         model_filename = self._metadata[CompressionMetadataKey.MODEL_FILE.value]
         self._model_path = os.path.join(self._checkpoint_path, model_filename)
@@ -78,6 +86,11 @@ class CompressedCheckpointLoader(BaseCheckpointLoader):
                 f"'{CompressionMetadataKey.TRAINING_CHECKPOINT_PATH.value}'."
             )
         self._load_training_config(training_checkpoint_path=training_checkpoint_path)
+        saved_thresholds = self._metadata.get(
+            CompressionMetadataKey.DENOISING_THRESHOLDS.value
+        )
+        if saved_thresholds:
+            self._policy.set_denoising_thresholds(thresholds=saved_thresholds)
         self._workflow = self._metadata.get(
             CompressionMetadataKey.QUANTIZATION_WORKFLOW.value
         )

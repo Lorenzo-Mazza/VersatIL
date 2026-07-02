@@ -711,6 +711,7 @@ class TestCompressorEndToEnd:
         assert str(output_dir / "compressed") in result
         assert (Path(result) / CompressionFilename.COMPRESSED_MODEL.value).exists()
 
+    @pytest.mark.requires_executorch
     def test_compress_full_pipeline_with_eager_xnnpack(
         self,
         tmp_path: Path,
@@ -743,6 +744,7 @@ class TestCompressorEndToEnd:
             Path(compressed_dir) / CompressionFilename.COMPRESSION_METADATA.value
         ).exists()
 
+    @pytest.mark.requires_executorch
     def test_compress_full_pipeline_with_pt2e_xnnpack(
         self,
         tmp_path: Path,

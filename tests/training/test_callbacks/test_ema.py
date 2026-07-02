@@ -10,6 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from versatil.training.callbacks.ema import EMACallback
+from versatil.training.constants import CheckpointKey
 
 
 @pytest.fixture
@@ -646,3 +647,114 @@ class TestEMACallbackCheckpoint:
         )
 
         assert torch.equal(checkpoint["state_dict"]["policy.weight"], original_weight)
+
+
+@pytest.mark.unit
+class TestEMACallbackResume:
+    def test_save_then_load_restores_raw_weights_and_ema_state(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory()
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        ema_weight = torch.from_numpy(
+            rng.standard_normal(callback.ema_model.weight.shape).astype(np.float32)
+        )
+        callback.ema_model.weight.data.copy_(ema_weight)
+        raw_weight = policy.weight.data.clone()
+        checkpoint = {
+            "state_dict": {
+                "policy.weight": policy.weight.data.clone(),
+                "policy.bias": policy.bias.data.clone(),
+            }
+        }
+
+        callback.on_save_checkpoint(
+            trainer=trainer, pl_module=pl_module, checkpoint=checkpoint
+        )
+
+        # Deployment view: state_dict carries the EMA weights.
+        torch.testing.assert_close(
+            checkpoint["state_dict"]["policy.weight"], ema_weight
+        )
+        # Resume view: raw fast weights survive under a dedicated key.
+        torch.testing.assert_close(
+            checkpoint[CheckpointKey.RAW_POLICY_STATE_DICT.value]["policy.weight"],
+            raw_weight,
+        )
+
+        # Simulate resume: Lightning already loaded state_dict (EMA weights)
+        # into the module before the callback hook fires.
+        resumed_policy = simple_module_factory()
+        resumed_policy.weight.data.copy_(ema_weight)
+        resumed_pl_module = pl_module_with_policy_factory(policy=resumed_policy)
+        resumed_callback = ema_callback_factory()
+
+        resumed_callback.on_load_checkpoint(
+            trainer=trainer, pl_module=resumed_pl_module, checkpoint=checkpoint
+        )
+        torch.testing.assert_close(resumed_policy.weight.data, raw_weight)
+
+        resumed_callback.on_fit_start(trainer=trainer, pl_module=resumed_pl_module)
+        torch.testing.assert_close(resumed_callback.ema_model.weight.data, ema_weight)
+
+    def test_load_checkpoint_without_raw_state_is_noop(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        loaded_weight = policy.weight.data.clone()
+        checkpoint = {"state_dict": {"policy.weight": loaded_weight.clone()}}
+
+        callback.on_load_checkpoint(
+            trainer=mock_trainer_factory(), pl_module=pl_module, checkpoint=checkpoint
+        )
+
+        torch.testing.assert_close(policy.weight.data, loaded_weight)
+        assert callback._resume_ema_state is None
+
+
+@pytest.mark.unit
+class TestEMACallbackGradientAccumulation:
+    def test_skips_update_on_accumulation_micro_batches(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory(accumulate_grad_batches=2)
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+        ema_weight_before = callback.ema_model.weight.data.clone()
+
+        new_weight = torch.from_numpy(
+            rng.standard_normal(policy.weight.shape).astype(np.float32)
+        )
+        policy.weight.data.copy_(new_weight)
+
+        callback.on_train_batch_end(
+            trainer=trainer, pl_module=pl_module, outputs=None, batch=None, batch_idx=0
+        )
+        torch.testing.assert_close(callback.ema_model.weight.data, ema_weight_before)
+
+        callback.on_train_batch_end(
+            trainer=trainer, pl_module=pl_module, outputs=None, batch=None, batch_idx=1
+        )
+        torch.testing.assert_close(callback.ema_model.weight.data, new_weight)

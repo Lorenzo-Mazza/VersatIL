@@ -77,6 +77,7 @@ class CheckpointKey(StrEnum):
 
     STATE_DICT = "state_dict"
     INPUT_STATS = "input_stats"
+    RAW_POLICY_STATE_DICT = "raw_policy_state_dict"
 
 
 class CompileMode(StrEnum):

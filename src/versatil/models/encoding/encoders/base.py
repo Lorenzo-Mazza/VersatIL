@@ -54,7 +54,7 @@ class EncodingMixin(ModuleAttrMixin, abc.ABC):
         else:
             self.model_dtype = None
         if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cuda" if _cuda_runtime_available() else "cpu"
         self.device = torch.device(device)
 
     def _freeze_weights(self):
@@ -149,3 +149,8 @@ class EncodingMixin(ModuleAttrMixin, abc.ABC):
             True when at least one explainability target is available.
         """
         return bool(self.get_explainability_targets())
+
+
+def _cuda_runtime_available() -> bool:
+    """Return whether CUDA is available in the installed torch runtime."""
+    return torch.cuda.is_available() and torch.version.cuda is not None

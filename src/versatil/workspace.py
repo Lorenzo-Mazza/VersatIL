@@ -337,10 +337,13 @@ class Workspace:
                     auto_insert_metric_name=False,
                 )
             else:
+                # training_step logs "train_loss" with on_step=False, so
+                # Lightning never creates a "train_loss_epoch" variant; the
+                # plain key already holds the epoch aggregate.
                 checkpoint_callback_best = ModelCheckpoint(
                     dirpath=self.output_dir,
-                    filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
-                    monitor="train_loss_epoch",
+                    filename="best-{epoch:02d}-{train_loss:.4f}",
+                    monitor="train_loss",
                     mode="min",
                     save_top_k=3,
                     save_last=True,

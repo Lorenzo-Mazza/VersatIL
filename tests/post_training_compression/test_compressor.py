@@ -410,6 +410,7 @@ class TestCompressOrchestration:
         policy.input_keys = ["observation"]
         policy.output_keys = ["action"]
         policy.normalizer = MagicMock()
+        policy.get_denoising_thresholds = MagicMock(return_value={"delta_pos": 0.01})
         context.policy = policy
         quantization.load_policy_context.return_value = context
         quantized = MagicMock()
@@ -475,6 +476,7 @@ class TestCompressOrchestration:
             artifact_format=ArtifactFormat.TORCH_EXPORT_PT2.value,
             backend_name=DeploymentBackendName.TORCH_INDUCTOR.value,
             model_bytes=None,
+            denoising_thresholds={"delta_pos": 0.01},
         )
         assert result == "/tmp/compressed"
 

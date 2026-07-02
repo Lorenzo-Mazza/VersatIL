@@ -6,7 +6,7 @@ import torch.nn as nn
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
-from versatil.models.policy import Policy
+from versatil.models.policy import Policy, build_algorithm_features
 
 
 class ExportablePolicy(nn.Module):
@@ -67,7 +67,11 @@ class ExportablePolicy(nn.Module):
                 f"got {len(observation_tensors)}"
             )
         observation_dict = dict(zip(self._observation_keys, observation_tensors))
-        features = self.encoding_pipeline(observation_dict)
+        features = build_algorithm_features(
+            observation=observation_dict,
+            encoding_pipeline=self.encoding_pipeline,
+            decoder=self.decoder,
+        )
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         return tuple(predictions[key] for key in self._action_keys)
 

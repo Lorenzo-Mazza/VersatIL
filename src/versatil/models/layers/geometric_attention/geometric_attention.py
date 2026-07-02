@@ -171,9 +171,7 @@ class GeometricSelfAttention(nn.Module):
 
         query_width = query_rotated.transpose(1, 2)
         key_width = key_rotated.transpose(1, 2)
-        value_height_first = value.reshape(
-            batch_size, height, self.num_heads, width, -1
-        ).permute(0, 1, 2, 3, 4)
+        value_height_first = value.transpose(1, 2)  # (B, H, num_heads, W, dv)
 
         attention_scores_width = torch.matmul(query_width, key_width.transpose(-1, -2))
         attention_scores_width = attention_scores_width + width_bias.transpose(1, 2)

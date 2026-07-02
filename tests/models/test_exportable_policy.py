@@ -174,23 +174,47 @@ class TestExportablePolicyForward:
         encoding_pipeline_factory,
     ):
         pipeline = encoding_pipeline_factory()
-        features = {"encoded": torch.zeros(2, 64)}
-        pipeline.return_value = features
+        requested_feature = torch.zeros(2, 64)
+        pipeline.return_value = {
+            "encoded": requested_feature,
+            "unrequested_prefusion": torch.ones(2, 64),
+        }
         exportable = exportable_factory(
             observation_keys=["left"],
             action_keys=["position"],
             pipeline=pipeline,
         )
+        exportable.decoder.decoder_input.keys = ["encoded"]
         exportable.algorithm.predict.return_value = {
             "position": torch.zeros(2, 16, 3),
         }
 
         exportable(torch.zeros(2, 3, 64, 64))
 
+        # Features must be filtered to the decoder's allowlist exactly like
+        # Policy._build_algorithm_features; unrequested pipeline outputs
+        # (e.g. pre-fusion features) must not leak into the decoder.
         exportable.algorithm.predict.assert_called_once_with(
-            features=features,
+            features={"encoded": requested_feature},
             network=exportable.decoder,
         )
+
+    def test_raises_when_decoder_requests_unavailable_key(
+        self,
+        exportable_factory,
+        encoding_pipeline_factory,
+    ):
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = {"encoded": torch.zeros(2, 64)}
+        exportable = exportable_factory(
+            observation_keys=["left"],
+            action_keys=["position"],
+            pipeline=pipeline,
+        )
+        exportable.decoder.decoder_input.keys = ["encoded", "proprioception"]
+
+        with pytest.raises(ValueError, match="proprioception"):
+            exportable(torch.zeros(2, 3, 64, 64))
 
     def test_returns_tuple_in_action_key_order(
         self,

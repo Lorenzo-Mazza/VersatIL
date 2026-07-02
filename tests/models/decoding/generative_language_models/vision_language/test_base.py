@@ -210,7 +210,7 @@ class TestGenerativeVLMStaticMethods:
         torch.testing.assert_close(result, expected)
 
     @pytest.mark.unit
-    def test_build_additive_attention_mask_returns_none_when_all_entries_valid(
+    def test_build_additive_attention_mask_keeps_all_valid_mask_explicit(
         self,
     ) -> None:
         attention_mask = torch.zeros(2, 1, 4, 4, dtype=torch.bool)
@@ -218,7 +218,9 @@ class TestGenerativeVLMStaticMethods:
             attention_mask=attention_mask,
             dtype=torch.float32,
         )
-        assert result is None
+        # None would make HF decoder layers fall back to causal attention,
+        # so an all-visible mask must stay an explicit zero tensor.
+        torch.testing.assert_close(result, torch.zeros(2, 1, 4, 4, dtype=torch.float32))
 
     @pytest.mark.unit
     def test_build_additive_attention_mask_rejects_non_float_dtype(self) -> None:

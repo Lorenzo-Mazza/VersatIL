@@ -541,6 +541,18 @@ def _fit(
     return parameters
 
 
+def _trailing_dims_flatten_to(shape: torch.Size, stat_dim: int) -> bool:
+    """Whether a suffix of the shape multiplies to exactly stat_dim elements."""
+    trailing_size = 1
+    for dim_size in reversed(shape):
+        trailing_size *= dim_size
+        if trailing_size == stat_dim:
+            return True
+        if trailing_size > stat_dim:
+            return False
+    return False
+
+
 @torch.no_grad()
 def _normalize(
     x: torch.Tensor | np.ndarray,
@@ -564,11 +576,25 @@ def _normalize(
     scale = params["scale"]
     offset = params["offset"]
     x = x.to(device=scale.device, dtype=scale.dtype)
+    stat_dim = scale.shape[0]
     source_shape = x.shape
-    x = x.reshape(-1, scale.shape[0])
+    if stat_dim == 1:
+        pass  # scalar stats broadcast over any shape
+    elif _trailing_dims_flatten_to(shape=source_shape, stat_dim=stat_dim):
+        x = x.reshape(-1, stat_dim)
+    elif x.ndim >= 3 and x.shape[-3] == stat_dim:
+        # Channels-first image data: broadcast over the channel dimension.
+        scale = scale.view(stat_dim, 1, 1)
+        offset = offset.view(stat_dim, 1, 1)
+    else:
+        raise ValueError(
+            f"Cannot align normalizer stats of size {stat_dim} with input of "
+            f"shape {tuple(source_shape)}: expected trailing dimensions to "
+            "flatten to the stat size or, for channels-first images, the "
+            "third-to-last dimension to match."
+        )
     x = x * scale + offset if forward else (x - offset) / scale
-    x = x.reshape(source_shape)
-    return x
+    return x.reshape(source_shape)
 
 
 class SequentialNormalizer(SingleFieldLinearNormalizer):

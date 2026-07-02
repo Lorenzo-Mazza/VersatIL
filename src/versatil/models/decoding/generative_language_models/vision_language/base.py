@@ -469,7 +469,10 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         Returns:
             Additive attention mask with ``0`` for valid locations and
             ``torch.finfo(dtype).min`` for masked locations. Returns ``None``
-            when no mask is provided or when the mask has no masked entries.
+            only when no mask is provided. An all-visible mask is returned as
+            explicit zeros: HF decoder layers fall back to causal attention
+            when given ``None``, which would silently override the intended
+            bidirectional structure.
 
         Raises:
             ValueError: If ``dtype`` is not a floating-point dtype.
@@ -479,8 +482,6 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
         if not torch.empty((), dtype=dtype).is_floating_point():
             raise ValueError(f"dtype must be floating point, got {dtype}.")
         boolean_mask = attention_mask.to(dtype=torch.bool)
-        if not boolean_mask.any():
-            return None
         additive_mask = torch.zeros(
             boolean_mask.shape,
             dtype=dtype,

@@ -176,7 +176,7 @@ def test_build_attention_mask_rejects_invalid_prefix_length(
 
 
 @pytest.mark.unit
-def test_build_attention_mask_drops_all_visible_prefix_mask() -> None:
+def test_build_attention_mask_keeps_all_visible_prefix_mask_explicit() -> None:
     helper = ConcretePrefixSuffixAttention()
     tokens = torch.zeros(1, 3, 4)
 
@@ -187,7 +187,11 @@ def test_build_attention_mask_drops_all_visible_prefix_mask() -> None:
         causal_suffix=True,
     )
 
-    assert attention_mask is None
+    # Returning None here would make HF causal LMs run the bidirectional
+    # prefix causally at prefill (the standard batch-1 deployment case).
+    assert attention_mask is not None
+    assert attention_mask.shape == (1, 1, 3, 3)
+    assert attention_mask.all()
 
 
 @pytest.mark.unit

@@ -36,6 +36,7 @@ def save_compressed_model(
     artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
     backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
     model_bytes: bytes | None = None,
+    denoising_thresholds: dict[str, float] | None = None,
 ) -> Path:
     """Save compressed model artifact with normalizer and metadata.
 
@@ -58,6 +59,9 @@ def save_compressed_model(
         artifact_format: Serialized artifact format identifier.
         backend_name: Serialized deployment backend identifier.
         model_bytes: Optional pre-lowered artifact bytes, used for .pte.
+        denoising_thresholds: Per-action-key denoising thresholds from the
+            source policy, persisted so compressed deployments zero small
+            deltas exactly like the float runtime.
 
     Returns:
         Path to the save directory.
@@ -105,6 +109,7 @@ def save_compressed_model(
         CompressionMetadataKey.TORCH_VERSION.value: torch.__version__,
         CompressionMetadataKey.TRAINING_CHECKPOINT_PATH.value: training_checkpoint_path,
         CompressionMetadataKey.QUANTIZATION_WORKFLOW.value: quantization_workflow,
+        CompressionMetadataKey.DENOISING_THRESHOLDS.value: denoising_thresholds or {},
     }
     with open(save_path / CompressionFilename.COMPRESSION_METADATA.value, "w") as file:
         json.dump(metadata, file, indent=2)

@@ -214,17 +214,13 @@ class TestEncodingMixinInitialization:
         assert encoder.input_specification.keys == expected_keys
 
     @pytest.mark.parametrize(
-        "cuda_available, expected_device_type",
-        [
-            (False, "cpu"),
-            (True, "cuda"),
-        ],
+        "cuda_available",
+        [False, True],
     )
-    def test_device_defaults_based_on_cuda_availability(
+    def test_device_defaults_based_on_cuda_runtime_support(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
         cuda_available: bool,
-        expected_device_type: str,
     ):
         input_specification = encoder_input_factory()
         with patch(
@@ -235,6 +231,9 @@ class TestEncodingMixinInitialization:
                 input_specification=input_specification,
                 device=None,
             )
+        expected_device_type = (
+            "cuda" if cuda_available and torch.version.cuda is not None else "cpu"
+        )
         assert encoder.device.type == expected_device_type
 
     def test_defaults_to_no_explainability_targets(

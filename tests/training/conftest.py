@@ -214,12 +214,18 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         callback_metrics: dict[str, torch.Tensor] | None = None,
         logger: Mock | None = "default",
         optimizers: list[torch.optim.Optimizer] | None = None,
+        sanity_checking: bool = False,
+        val_dataloaders: Mock | None = None,
+        accumulate_grad_batches: int = 1,
     ) -> Mock:
         trainer = MagicMock(spec="pl.Trainer")
         trainer.current_epoch = current_epoch
         trainer.global_step = global_step
         trainer.max_epochs = max_epochs
         trainer.estimated_stepping_batches = estimated_stepping_batches
+        trainer.sanity_checking = sanity_checking
+        trainer.val_dataloaders = val_dataloaders
+        trainer.accumulate_grad_batches = accumulate_grad_batches
         trainer.callback_metrics = (
             callback_metrics if callback_metrics is not None else {}
         )

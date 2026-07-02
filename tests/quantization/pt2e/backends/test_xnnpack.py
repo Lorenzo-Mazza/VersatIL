@@ -110,6 +110,7 @@ def test_create_quantizer_imports_xnnpack_on_demand(
 
 
 @pytest.mark.integration
+@pytest.mark.requires_executorch
 class TestXNNPACKPT2EBackendCreateQuantizer:
     @pytest.mark.parametrize(
         "module_path",

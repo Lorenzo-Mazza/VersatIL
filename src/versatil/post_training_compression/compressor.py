@@ -139,6 +139,7 @@ class PostTrainingCompressor:
             artifact_format=deployment_artifact.artifact_format.value,
             backend_name=deployment_artifact.backend_name,
             model_bytes=deployment_artifact.model_bytes,
+            denoising_thresholds=policy.get_denoising_thresholds(),
         )
         logging.info("Compressed model saved to %s", output_directory)
         if self.generate_report:

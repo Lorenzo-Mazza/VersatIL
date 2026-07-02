@@ -25,6 +25,44 @@ from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.pipeline import EncodingPipeline
 
 
+def build_algorithm_features(
+    observation: dict[str, torch.Tensor],
+    encoding_pipeline: EncodingPipeline,
+    decoder: ActionDecoder,
+) -> dict[str, torch.Tensor]:
+    """Encode observations and select the features the decoder declared.
+
+    Merges raw observations with encoding-pipeline outputs, then filters to
+    the decoder's ``decoder_input.keys`` allowlist plus their padding masks.
+    Both ``Policy`` and ``ExportablePolicy`` must build features through this
+    function so that exported models see exactly the training-time inputs.
+
+    Raises:
+        ValueError: If the decoder requests keys that are neither raw
+            observations nor encoding-pipeline outputs.
+    """
+    encoded_features = encoding_pipeline(observation)
+    available_features = {**observation, **encoded_features}
+    selected_features: dict[str, torch.Tensor] = {}
+    missing_keys: list[str] = []
+    for key in decoder.decoder_input.keys:
+        if key not in available_features:
+            missing_keys.append(key)
+            continue
+        selected_features[key] = available_features[key]
+        padding_key = f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        if padding_key in available_features:
+            selected_features[padding_key] = available_features[padding_key]
+
+    if missing_keys:
+        raise ValueError(
+            f"Decoder requested input keys {missing_keys}, but they were not "
+            f"available from raw observations or the encoding pipeline. "
+            f"Available keys: {sorted(available_features.keys())}."
+        )
+    return selected_features
+
+
 class Policy(nn.Module):
     """General policy class that orchestrates observation encoding, action decoding, and loss computation."""
 
@@ -131,6 +169,13 @@ class Policy(nn.Module):
             self.denoising_thresholds.params_dict[key] = nn.Parameter(
                 torch.tensor(value), requires_grad=False
             )
+
+    def get_denoising_thresholds(self) -> dict[str, float]:
+        """Return the stored denoising thresholds as plain floats."""
+        return {
+            key: float(parameter.item())
+            for key, parameter in self.denoising_thresholds.params_dict.items()
+        }
 
     def set_gripper_class_weights(self, pos_weight: torch.Tensor | None) -> None:
         """Set positive class weight for GripperLoss components in the loss module.
@@ -282,26 +327,11 @@ class Policy(nn.Module):
         Algorithms add their own control tensors later, such as diffusion/flow
         timesteps or variational latents.
         """
-        encoded_features = self.encoding_pipeline(observation)
-        available_features = {**observation, **encoded_features}
-        selected_features: dict[str, torch.Tensor] = {}
-        missing_keys: list[str] = []
-        for key in self.decoder.decoder_input.keys:
-            if key not in available_features:
-                missing_keys.append(key)
-                continue
-            selected_features[key] = available_features[key]
-            padding_key = f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"
-            if padding_key in available_features:
-                selected_features[padding_key] = available_features[padding_key]
-
-        if missing_keys:
-            raise ValueError(
-                f"Decoder requested input keys {missing_keys}, but they were not "
-                f"available from raw observations or the encoding pipeline. "
-                f"Available keys: {sorted(available_features.keys())}."
-            )
-        return selected_features
+        return build_algorithm_features(
+            observation=observation,
+            encoding_pipeline=self.encoding_pipeline,
+            decoder=self.decoder,
+        )
 
     def predict_action(
         self,

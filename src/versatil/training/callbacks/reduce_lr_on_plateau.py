@@ -81,7 +81,30 @@ class ReduceLROnPlateauCallback(Callback):
             trainer: Lightning trainer
             pl_module: Lightning module
         """
-        if self.scheduler is None:
+        self._step_scheduler(trainer=trainer, pl_module=pl_module)
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Update scheduler on train epochs when no validation loop runs.
+
+        Runs without a validation dataloader never trigger
+        ``on_validation_epoch_end``, so a train-metric monitor must be
+        stepped from the training loop instead.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if trainer.val_dataloaders is not None:
+            return
+        self._step_scheduler(trainer=trainer, pl_module=pl_module)
+
+    def _step_scheduler(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Step the plateau scheduler with the monitored metric and log the LR."""
+        if self.scheduler is None or trainer.sanity_checking:
             return
 
         if self.monitor not in trainer.callback_metrics:

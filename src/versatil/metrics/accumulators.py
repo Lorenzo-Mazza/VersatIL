@@ -71,6 +71,8 @@ class MetricsAccumulator:
 
         # Store metadata for special metrics (e.g., phase predictions for confusion matrix)
         for key, value in loss_output.metadata.items():
+            if value is None:
+                continue
             if key not in self.metadata:
                 self.metadata[key] = []
             # Detach and move to CPU to save memory

@@ -189,7 +189,13 @@ class AutoregressiveVLADecoder(
         tokenizer_vocab_size: int,
         eos_token_id: int,
     ) -> torch.Tensor:
-        """Return action-token IDs that inference is allowed to sample."""
+        """Return action-token IDs that inference is allowed to sample.
+
+        Fixed-length generation (binned discretizers) excludes EOS: the
+        detokenizer requires exactly ``time_horizon * action_dim`` payload
+        tokens, so an early EOS sample would truncate the sequence and fail
+        decoding. The generation loop is already capped at the payload count.
+        """
         token_count = action_tokenizer.action_discretizer.token_count
         local_token_ids = list(range(int(token_count)))
         action_token_ids = action_tokenizer.token_id_mapping.encode(local_token_ids)
@@ -198,8 +204,13 @@ class AutoregressiveVLADecoder(
             dtype=torch.long,
             device=self.device,
         )
-        eos_token = torch.tensor([eos_token_id], dtype=torch.long, device=self.device)
-        valid_token_ids = torch.cat([valid_token_ids, eos_token], dim=0)
+        if not self._uses_fixed_length_action_generation(
+            action_tokenizer=action_tokenizer
+        ):
+            eos_token = torch.tensor(
+                [eos_token_id], dtype=torch.long, device=self.device
+            )
+            valid_token_ids = torch.cat([valid_token_ids, eos_token], dim=0)
         if (
             valid_token_ids.min().item() < 0
             or valid_token_ids.max().item() >= tokenizer_vocab_size

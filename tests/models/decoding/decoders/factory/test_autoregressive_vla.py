@@ -240,7 +240,7 @@ class TestAutoregressiveVLADecoderTokenizer:
             [0, 1, 2]
         )
 
-    def test_set_tokenizer_includes_eos_when_action_tokenizer_is_fixed_length(
+    def test_set_tokenizer_excludes_eos_when_action_tokenizer_is_fixed_length(
         self,
         autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
         language_vocab_tokenizer_factory: Callable[..., MagicMock],
@@ -257,9 +257,11 @@ class TestAutoregressiveVLADecoderTokenizer:
 
         decoder.set_tokenizer(tokenizer=tokenizer)
 
+        # An early EOS sample would truncate the fixed-length payload and
+        # crash the binned detokenizer, so EOS must not be sampleable.
         torch.testing.assert_close(
             decoder.valid_generation_token_ids,
-            torch.tensor([10, 11, 12, VOCABULARY_SIZE - 1]),
+            torch.tensor([10, 11, 12]),
         )
 
     def test_set_tokenizer_accepts_padded_vlm_vocabulary(
@@ -881,7 +883,14 @@ class TestAutoregressiveVLADecoderGeneration:
         decoder.vlm_backbone.forward_language_model.assert_called_once()
         prefill_call = decoder.vlm_backbone.forward_language_model.call_args
         torch.testing.assert_close(prefill_call.kwargs["inputs_embeds"], prefix_tokens)
-        assert prefill_call.kwargs["attention_mask"] is None
+        prefill_attention_mask = prefill_call.kwargs["attention_mask"]
+        assert prefill_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_TOKEN_LENGTH,
+            PREFIX_TOKEN_LENGTH,
+        )
+        assert prefill_attention_mask.all()
         torch.testing.assert_close(
             prefill_call.kwargs["position_ids"],
             torch.arange(PREFIX_TOKEN_LENGTH).unsqueeze(0).expand(BATCH_SIZE, -1),
@@ -998,7 +1007,14 @@ class TestAutoregressiveVLADecoderGeneration:
         assert decoder.vlm_backbone.forward_language_model.call_count == 2
         prefill_call = decoder.vlm_backbone.forward_language_model.call_args_list[0]
         torch.testing.assert_close(prefill_call.kwargs["inputs_embeds"], prefix_tokens)
-        assert prefill_call.kwargs["attention_mask"] is None
+        prefill_attention_mask = prefill_call.kwargs["attention_mask"]
+        assert prefill_attention_mask.shape == (
+            BATCH_SIZE,
+            1,
+            PREFIX_TOKEN_LENGTH,
+            PREFIX_TOKEN_LENGTH,
+        )
+        assert prefill_attention_mask.all()
         torch.testing.assert_close(
             prefill_call.kwargs["position_ids"],
             torch.arange(PREFIX_TOKEN_LENGTH).unsqueeze(0).expand(BATCH_SIZE, -1),

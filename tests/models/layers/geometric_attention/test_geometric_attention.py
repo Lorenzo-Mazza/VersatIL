@@ -1,5 +1,6 @@
 """Tests for versatil.models.layers.geometric_attention.geometric_attention module."""
 
+import numpy as np
 import pytest
 import torch
 
@@ -233,6 +234,52 @@ class TestGeometricSelfAttentionForward:
         assert input_tensor.grad.shape == input_tensor.shape
         # Verify gradients actually flow (non-zero)
         assert input_tensor.grad.abs().sum().item() > 0.0
+
+
+class TestSeparableAttentionHeadIndependence:
+    def test_zeroed_value_head_produces_zeroed_output_slice(
+        self,
+        geometric_attention_factory,
+        rng,
+    ):
+        attention = geometric_attention_factory(
+            decomposition_mode=AttentionDecompositionMode.SEPARABLE.value,
+            num_heads=4,
+        )
+        batch_size, height, width = 1, 6, 5
+        key_dim = attention.head_dimension_key
+        value_dim = attention.head_dimension_value
+        zeroed_head = 1
+
+        def random_tensor(head_dim: int) -> torch.Tensor:
+            data = rng.standard_normal(
+                (batch_size, attention.num_heads, height, width, head_dim)
+            )
+            return torch.from_numpy(data.astype(np.float32))
+
+        query = random_tensor(key_dim)
+        key = random_tensor(key_dim)
+        value = random_tensor(value_dim)
+        value[:, zeroed_head] = 0.0
+        depth_map = torch.from_numpy(
+            rng.random((batch_size, 1, height, width)).astype(np.float32)
+        )
+
+        (sine, cosine), bias_masks = attention.geometric_bias(
+            height=height,
+            width=width,
+            depth_map=depth_map,
+            device=query.device,
+            decomposition_mode=attention.decomposition_mode,
+        )
+        attended = attention._compute_attention_separable(
+            query, key, value, sine, cosine, bias_masks[0], bias_masks[1]
+        )
+
+        head_slice = attended[
+            ..., zeroed_head * value_dim : (zeroed_head + 1) * value_dim
+        ]
+        torch.testing.assert_close(head_slice, torch.zeros_like(head_slice))
 
 
 class TestGeometricSelfAttentionDepthAwareness:

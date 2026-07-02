@@ -1,6 +1,7 @@
 """Tests for versatil.models.decoding.latent.prior.codebook_prior module."""
 
 import copy
+import gc
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -205,6 +206,26 @@ class TestCodebookPriorWirePosterior:
         assert mock_posterior.residual_vq.training is True
 
     @pytest.mark.unit
+    def test_wired_residual_vq_survives_posterior_garbage_collection(
+        self,
+        codebook_prior_factory: Callable[..., CodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        batch_size = 2
+        latent_dimension = 8
+        prior = codebook_prior_factory(latent_dimension=latent_dimension)
+        posterior = mock_vq_posterior_factory(code_dim=latent_dimension)
+        prior.wire_posterior(posterior)
+        del posterior
+        gc.collect()
+        observations = observation_dictionary_factory(batch_size=batch_size)
+
+        sample = prior.sample_prior(batch_size=batch_size, observations=observations)
+
+        assert sample.shape == (batch_size, latent_dimension)
+
+    @pytest.mark.unit
     def test_raises_on_code_dim_mismatch(
         self,
         codebook_prior_factory: Callable[..., CodebookPrior],
@@ -312,8 +333,8 @@ class TestCodebookPriorForward:
         with pytest.raises(
             RuntimeError,
             match=re.escape(
-                "CodebookPrior.residual_vq is not set or has been garbage-collected. "
-                "Call wire_posterior() before forward(), and keep the posterior alive."
+                "CodebookPrior.residual_vq is not set. "
+                "Call wire_posterior() before forward()."
             ),
         ):
             prior.forward(target_latents=target_latents, observations=observations)

@@ -10,6 +10,8 @@ import torch
 from versatil.data.constants import (
     CLIP_RGB_MEAN,
     CLIP_RGB_STD,
+    IMAGENET_RGB_MEAN,
+    IMAGENET_RGB_STD,
     ImageNormalizationType,
 )
 from versatil.data.normalization.image_normalizer import (
@@ -145,6 +147,38 @@ class TestGetRgbImageNormalizer:
         )
 
         assert isinstance(normalizer, SingleFieldLinearNormalizer)
+
+    @pytest.mark.parametrize(
+        "image_shape",
+        [
+            (1, 3, 4, 6),
+            (2, 1, 3, 4, 6),
+        ],
+    )
+    def test_imagenet_standardizes_per_channel_for_channels_first_images(
+        self,
+        image_shape: tuple[int, ...],
+    ):
+        normalizer = get_rgb_image_normalizer(
+            norm_type=ImageNormalizationType.IMAGENET.value,
+        )
+        image = torch.full(image_shape, 0.5)
+        normalized = normalizer.normalize(image)
+
+        assert normalized.shape == image.shape
+        channel_axis = len(image_shape) - 3
+        for channel in range(3):
+            channel_values = normalized.select(dim=channel_axis, index=channel)
+            expected = (0.5 - IMAGENET_RGB_MEAN[channel]) / IMAGENET_RGB_STD[channel]
+            torch.testing.assert_close(
+                channel_values,
+                torch.full_like(channel_values, expected),
+                atol=1e-5,
+                rtol=1e-5,
+            )
+        torch.testing.assert_close(
+            normalizer.unnormalize(normalized), image, atol=1e-5, rtol=1e-5
+        )
 
     def test_clip_uses_clip_processor_statistics(self):
         normalizer = get_rgb_image_normalizer(
