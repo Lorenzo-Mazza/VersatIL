@@ -890,7 +890,9 @@ class TestAutoregressiveVLADecoderGeneration:
             PREFIX_TOKEN_LENGTH,
             PREFIX_TOKEN_LENGTH,
         )
-        assert prefill_attention_mask.all()
+        # Additive mask form: zeros everywhere means every position may attend.
+        assert prefill_attention_mask.dtype == prefix_tokens.dtype
+        assert (prefill_attention_mask == 0.0).all()
         torch.testing.assert_close(
             prefill_call.kwargs["position_ids"],
             torch.arange(PREFIX_TOKEN_LENGTH).unsqueeze(0).expand(BATCH_SIZE, -1),
@@ -1014,7 +1016,9 @@ class TestAutoregressiveVLADecoderGeneration:
             PREFIX_TOKEN_LENGTH,
             PREFIX_TOKEN_LENGTH,
         )
-        assert prefill_attention_mask.all()
+        # Additive mask form: zeros everywhere means every position may attend.
+        assert prefill_attention_mask.dtype == prefix_tokens.dtype
+        assert (prefill_attention_mask == 0.0).all()
         torch.testing.assert_close(
             prefill_call.kwargs["position_ids"],
             torch.arange(PREFIX_TOKEN_LENGTH).unsqueeze(0).expand(BATCH_SIZE, -1),

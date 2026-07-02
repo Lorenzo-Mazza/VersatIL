@@ -1,7 +1,7 @@
 """Tests for versatil.models.decoding.decoders.moe module."""
 
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -248,17 +248,6 @@ def moe_decoder_factory(
     return factory
 
 
-@pytest.fixture
-def mock_cuda():
-    """Mock CUDA stream operations for CPU testing."""
-    with (
-        patch("torch.cuda.Stream", return_value=MagicMock(spec=torch.cuda.Stream)),
-        patch("torch.cuda.stream"),
-        patch("torch.cuda.synchronize"),
-    ):
-        yield
-
-
 @pytest.mark.unit
 class TestMoEDecoderInitialization:
     def test_inherits_from_action_decoder_and_base_moe(
@@ -423,7 +412,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
     ):
         decoder = moe_decoder_factory(
             gating_feature_key=GATING_FEATURE_KEY,
@@ -443,7 +431,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
     ):
         decoder = moe_decoder_factory(
             gating_feature_key=GATING_FEATURE_KEY,
@@ -463,7 +450,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
     ):
         decoder = moe_decoder_factory()
         decoder.train()
@@ -480,7 +466,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
     ):
         decoder = moe_decoder_factory()
         decoder.train()
@@ -501,7 +486,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
     ):
         num_experts = 4
         decoder = moe_decoder_factory(num_experts=num_experts)
@@ -519,7 +503,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
     ):
         decoder = moe_decoder_factory()
         decoder.train()
@@ -532,10 +515,9 @@ class TestMoEDecoderForward:
         decoder(features=features, actions=None)
         assert GATING_FEATURE_KEY in features
 
-    def test_cuda_available_with_only_gating_feature_does_not_require_expert_features(
+    def test_only_gating_feature_does_not_require_expert_features(
         self,
         featureless_expert_factory: Callable[..., FeaturelessDecoder],
-        mock_cuda: None,
     ):
         decoder = MoEDecoder(
             base_expert=featureless_expert_factory(),
@@ -547,8 +529,7 @@ class TestMoEDecoderForward:
             GATING_FEATURE_KEY: torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION),
         }
 
-        with patch("torch.cuda.is_available", return_value=True):
-            outputs = decoder(features=features, actions=None)
+        outputs = decoder(features=features, actions=None)
 
         assert outputs["position_action"].shape == (
             BATCH_SIZE,
@@ -567,7 +548,6 @@ class TestMoEDecoderForward:
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_cuda: None,
         routing_type: str,
     ):
         decoder = moe_decoder_factory(routing_type=routing_type, top_k=2)

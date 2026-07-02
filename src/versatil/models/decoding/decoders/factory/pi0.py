@@ -182,10 +182,7 @@ class Pi0Decoder(BaseInterleavedVLMDecoder):
             InterleavedLayerType.JOINT_SELF_ATTENTION.value
             for _ in range(self.expert_number_of_layers)
         ]
-        if (
-            self.proprioceptive_feature_key is not None
-            and self.time_conditioning == TimeConditioning.CONCAT_MLP.value
-        ):
+        if self.proprioceptive_feature_key is not None:
             self.proprioceptive_projection = FeatureProjection(
                 embedding_dim=vlm_hidden_dimension
             )

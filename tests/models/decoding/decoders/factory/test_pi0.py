@@ -334,6 +334,7 @@ class TestPi0DecoderInitialization:
             (TimeConditioning.CONCAT_MLP.value, PROPRIO_KEY),
             (TimeConditioning.CONCAT_MLP.value, None),
             (TimeConditioning.ADANORM.value, PROPRIO_KEY),
+            (TimeConditioning.ADANORM.value, None),
         ],
     )
     def test_proprioceptive_projection_created_from_owned_backbone(
@@ -346,10 +347,10 @@ class TestPi0DecoderInitialization:
             time_conditioning=time_conditioning,
             proprioceptive_feature_key=proprioceptive_feature_key,
         )
-        expected_projection = (
-            time_conditioning == TimeConditioning.CONCAT_MLP.value
-            and proprioceptive_feature_key is not None
-        )
+        # Proprio tokens are appended to the VLM prefix, independent of how
+        # the timestep is fused into the expert, so the projection must exist
+        # for every time_conditioning mode when the key is configured.
+        expected_projection = proprioceptive_feature_key is not None
         assert (decoder.proprioceptive_projection is not None) == expected_projection
 
     def test_fill_prefix_cache_raises_when_rotary_embedding_missing(
@@ -422,11 +423,17 @@ class TestPi0DecoderSetBackbone:
                 TimeConditioning.ADANORM.value,
                 NormalizationType.RMS_NORM.value,
                 PROPRIO_KEY,
+                True,
+            ),
+            (
+                TimeConditioning.ADANORM.value,
+                NormalizationType.RMS_NORM.value,
+                None,
                 False,
             ),
         ],
     )
-    def test_proprioceptive_projection_created_only_for_concat_mlp_with_key(
+    def test_proprioceptive_projection_created_whenever_key_is_set(
         self,
         initialized_decoder_factory: Callable[..., Pi0Decoder],
         time_conditioning: str,
@@ -585,6 +592,33 @@ class TestPi0DecoderForward:
             assert not torch.allclose(
                 output_without[action_key], output_with[action_key]
             )
+
+    def test_adanorm_with_proprioceptive_key_appends_proprio_tokens(
+        self,
+        initialized_decoder_factory: Callable[..., Pi0Decoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # Proprio tokens go into the VLM prefix regardless of how the timestep
+        # is fused, so ADANORM must not silently drop a configured key.
+        decoder = initialized_decoder_factory(
+            time_conditioning=TimeConditioning.ADANORM.value,
+            proprioceptive_feature_key=PROPRIO_KEY,
+        )
+        features = prefix_features_factory(include_proprioceptive=True)
+        actions = noisy_actions_factory()
+
+        with patch.object(
+            decoder,
+            "_build_interleaved_attention_state",
+            wraps=decoder._build_interleaved_attention_state,
+        ) as attention_state_spy:
+            decoder(features=features, actions=actions)
+
+        attention_state_call = attention_state_spy.call_args
+        prefix_embeddings = attention_state_call.kwargs["prefix_embeddings"]
+        assert prefix_embeddings.shape[1] == PREFIX_SEQUENCE_LENGTH + 1
+        assert attention_state_call.kwargs["causal_prefix_suffix_length"] == 1
 
 
 @pytest.mark.integration

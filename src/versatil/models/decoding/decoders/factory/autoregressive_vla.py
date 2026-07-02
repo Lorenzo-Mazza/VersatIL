@@ -531,6 +531,7 @@ class AutoregressiveVLADecoder(
             prefix_lengths=prefix_lengths,
             action_token_length=action_token_length,
             sequence_length=sequence_length,
+            embeddings_dtype=full_token_sequence.dtype,
         )
         return full_token_sequence, attention_mask, prefix_lengths
 
@@ -540,6 +541,7 @@ class AutoregressiveVLADecoder(
         prefix_lengths: torch.Tensor,
         action_token_length: int,
         sequence_length: int,
+        embeddings_dtype: torch.dtype,
     ) -> torch.Tensor | None:
         """Build the LM attention mask for variable-length prefix/action rows.
 
@@ -549,11 +551,16 @@ class AutoregressiveVLADecoder(
             prefix_lengths: Valid prefix lengths with shape ``(B,)``.
             action_token_length: Number of action tokens ``A``.
             sequence_length: Full sequence length ``S = P_valid_max + A``.
+            embeddings_dtype: Floating dtype of the token embeddings, used for
+                the additive 4D mask.
 
         Returns:
             ``None`` when no mask is needed, a 2D causal-model mask with shape
-            ``(B, S)`` for OpenVLA, or a 4D attention mask with shape
-            ``(B, 1, S, S)`` for bidirectional-prefix models.
+            ``(B, S)`` for OpenVLA, or a 4D additive float mask with shape
+            ``(B, 1, S, S)`` for bidirectional-prefix models where ``0`` marks
+            allowed positions and ``torch.finfo(embeddings_dtype).min`` marks
+            masked positions. HF language models add 4D masks to the attention
+            logits, so the boolean form is converted before the hand-off.
         """
         if self.causal_prefix:
             if not full_padding_mask.any():
@@ -565,9 +572,13 @@ class AutoregressiveVLADecoder(
             sequence_length=sequence_length,
             device=full_padding_mask.device,
         )
-        if attention_mask.all():
-            return None
-        return attention_mask
+        # Even a fully-visible mask must stay explicit: None makes HF decoder
+        # layers fall back to causal attention, overriding the bidirectional
+        # prefix structure.
+        return GenerativeVLM.build_additive_attention_mask(
+            attention_mask=~attention_mask,
+            dtype=embeddings_dtype,
+        )
 
     @staticmethod
     def _build_variable_prefix_attention_mask(

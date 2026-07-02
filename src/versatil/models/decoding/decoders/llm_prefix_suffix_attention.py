@@ -3,6 +3,9 @@
 import torch
 
 from versatil.models.decoding.action_masking import make_attention_mask
+from versatil.models.decoding.generative_language_models.vision_language.base import (
+    GenerativeVLM,
+)
 
 
 class LLMPrefixSuffixAttentionMixin:
@@ -34,14 +37,25 @@ class LLMPrefixSuffixAttentionMixin:
         prefix_mask: torch.Tensor | None,
         causal_suffix: bool,
     ) -> torch.Tensor:
-        """Build a bidirectional-prefix mask over action suffix tokens."""
+        """Build an additive bidirectional-prefix mask over action suffix tokens.
+
+        Returns:
+            Additive float mask with shape ``(B, 1, P+S_suffix, P+S_suffix)``
+            and the dtype of ``prefix_tokens``: ``0`` where attention is
+            allowed and ``torch.finfo(dtype).min`` where it is masked. HF
+            language models add 4D masks to the attention logits, so a boolean
+            mask must not be passed through directly.
+        """
         masked_attention_mask, _ = make_attention_mask(
             feature_tokens=prefix_tokens,
             action_tokens=suffix_tokens,
             feature_token_mask=prefix_mask,
             causal_actions=causal_suffix,
         )
-        return ~masked_attention_mask  # (B, 1, P+S_suffix, P+S_suffix)
+        return GenerativeVLM.build_additive_attention_mask(
+            attention_mask=masked_attention_mask,
+            dtype=prefix_tokens.dtype,
+        )
 
     def _build_attention_mask(
         self,

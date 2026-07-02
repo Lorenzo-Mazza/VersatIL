@@ -148,33 +148,14 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         expert_features = {
             key: value for key, value in features.items() if key != gating_key
         }
-        if torch.cuda.is_available() and gating_feature.device.type == "cuda":
-            expert_outputs: list[dict[str, torch.Tensor] | None] = [
-                None for _ in self.expert_decoders
-            ]
-            streams = [torch.cuda.Stream() for _ in self.expert_decoders]
-            for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
-                with torch.cuda.stream(stream):
-                    expert_outputs[i] = expert(expert_features, actions)
-            torch.cuda.synchronize()
-            resolved_expert_outputs = []
-            for expert_output in expert_outputs:
-                if expert_output is None:
-                    raise RuntimeError(
-                        "MoEDecoder expert stream did not produce output."
-                    )
-                resolved_expert_outputs.append(expert_output)
-        else:
-            resolved_expert_outputs = [
-                expert(expert_features, actions) for expert in self.expert_decoders
-            ]
+        expert_outputs = [
+            expert(expert_features, actions) for expert in self.expert_decoders
+        ]
         combined_outputs = self._combine_expert_outputs(
-            expert_outputs=resolved_expert_outputs, weights=mixing_probabilities
+            expert_outputs=expert_outputs, weights=mixing_probabilities
         )
         combined_outputs[DecoderOutputKey.ROUTING_WEIGHTS.value] = mixing_probabilities
-        combined_outputs[DecoderOutputKey.EXPERT_OUTPUTS.value] = (
-            resolved_expert_outputs
-        )
+        combined_outputs[DecoderOutputKey.EXPERT_OUTPUTS.value] = expert_outputs
         return combined_outputs
 
     def _combine_expert_outputs(

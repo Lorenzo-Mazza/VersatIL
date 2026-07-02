@@ -82,6 +82,7 @@ def test_causal_attention_mask_converts_padding_to_lm_visibility_mask() -> None:
 def test_prefix_attention_mask_blocks_prefix_queries_from_suffix_tokens() -> None:
     prefix_tokens = torch.zeros(1, 2, 4)
     suffix_tokens = torch.zeros(1, 2, 4)
+    masked_value = torch.finfo(prefix_tokens.dtype).min
 
     attention_mask = ConcretePrefixSuffixAttention._build_prefix_attention_mask(
         prefix_tokens=prefix_tokens,
@@ -90,15 +91,18 @@ def test_prefix_attention_mask_blocks_prefix_queries_from_suffix_tokens() -> Non
         causal_suffix=True,
     )
 
+    # HF language models add 4D masks to attention logits, so the mask must
+    # be additive float: 0 where attention is allowed, finfo.min where masked.
     assert attention_mask.shape == (1, 1, 4, 4)
-    assert not attention_mask[0, 0, 0, 2]
-    assert not attention_mask[0, 0, 1, 3]
-    assert attention_mask[0, 0, 2, 0]
-    assert attention_mask[0, 0, 3, 1]
-    assert attention_mask[0, 0, 2, 2]
-    assert not attention_mask[0, 0, 2, 3]
-    assert attention_mask[0, 0, 3, 2]
-    assert attention_mask[0, 0, 3, 3]
+    assert attention_mask.dtype == prefix_tokens.dtype
+    assert attention_mask[0, 0, 0, 2] == masked_value
+    assert attention_mask[0, 0, 1, 3] == masked_value
+    assert attention_mask[0, 0, 2, 0] == 0.0
+    assert attention_mask[0, 0, 3, 1] == 0.0
+    assert attention_mask[0, 0, 2, 2] == 0.0
+    assert attention_mask[0, 0, 2, 3] == masked_value
+    assert attention_mask[0, 0, 3, 2] == 0.0
+    assert attention_mask[0, 0, 3, 3] == 0.0
 
 
 @pytest.mark.unit
@@ -113,8 +117,8 @@ def test_prefix_attention_mask_can_make_suffix_bidirectional() -> None:
         causal_suffix=False,
     )
 
-    assert attention_mask[0, 0, 1, 2]
-    assert attention_mask[0, 0, 2, 1]
+    assert attention_mask[0, 0, 1, 2] == 0.0
+    assert attention_mask[0, 0, 2, 1] == 0.0
 
 
 @pytest.mark.unit
@@ -122,6 +126,7 @@ def test_prefix_attention_mask_applies_prefix_key_padding() -> None:
     prefix_tokens = torch.zeros(1, 2, 4)
     suffix_tokens = torch.zeros(1, 1, 4)
     prefix_mask = torch.tensor([[False, True]])
+    masked_value = torch.finfo(prefix_tokens.dtype).min
 
     attention_mask = ConcretePrefixSuffixAttention._build_prefix_attention_mask(
         prefix_tokens=prefix_tokens,
@@ -130,8 +135,8 @@ def test_prefix_attention_mask_applies_prefix_key_padding() -> None:
         causal_suffix=True,
     )
 
-    assert not attention_mask[0, 0, 0, 1]
-    assert not attention_mask[0, 0, 2, 1]
+    assert attention_mask[0, 0, 0, 1] == masked_value
+    assert attention_mask[0, 0, 2, 1] == masked_value
 
 
 @pytest.mark.unit
@@ -191,7 +196,7 @@ def test_build_attention_mask_keeps_all_visible_prefix_mask_explicit() -> None:
     # prefix causally at prefill (the standard batch-1 deployment case).
     assert attention_mask is not None
     assert attention_mask.shape == (1, 1, 3, 3)
-    assert attention_mask.all()
+    assert (attention_mask == 0.0).all()
 
 
 @pytest.mark.unit
