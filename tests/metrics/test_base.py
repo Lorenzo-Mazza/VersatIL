@@ -145,23 +145,37 @@ class TestReduceLossWithPaddingNoMask:
 
 @pytest.mark.unit
 class TestReduceLossWithPaddingMasked:
-    def test_mean_reduction_excludes_padded_positions(self, padding_mask_factory):
+    def test_mean_reduction_excludes_padded_positions(
+        self, loss_tensor_factory, padding_mask_factory
+    ):
         batch_size, horizon, dim = 2, 4, 3
         padded_from = 2
-        loss = torch.ones(batch_size, horizon, dim)
+        loss = loss_tensor_factory(
+            batch_size=batch_size, horizon=horizon, extra_dims=(dim,)
+        )
         is_pad = padding_mask_factory(
             batch_size=batch_size, sequence_length=horizon, padded_from=padded_from
         )
         result = reduce_loss_with_padding(
             loss_tensor=loss, is_pad=is_pad, reduction="mean"
         )
-        # masked_loss.sum() = batch_size * padded_from * dim = 2*2*3 = 12
-        # pad_mask after unsqueeze is (B, horizon, 1), so pad_mask.sum() = batch_size * padded_from = 4
-        # result = 12 / 4 = 3.0 (averages over valid positions, not elements)
-        valid_positions = batch_size * padded_from
-        valid_elements = valid_positions * dim
-        expected = valid_elements / valid_positions
-        assert result.item() == pytest.approx(expected, abs=1e-6)
+        expected = loss[:, :padded_from].mean()
+        assert result.item() == pytest.approx(expected.item(), abs=1e-6)
+
+    def test_mean_reduction_matches_unmasked_scale(
+        self, loss_tensor_factory, padding_mask_factory
+    ):
+        batch_size, horizon, dim = 2, 4, 3
+        loss = loss_tensor_factory(
+            batch_size=batch_size, horizon=horizon, extra_dims=(dim,)
+        )
+        all_valid = padding_mask_factory(
+            batch_size=batch_size, sequence_length=horizon, padded_from=horizon
+        )
+        result = reduce_loss_with_padding(
+            loss_tensor=loss, is_pad=all_valid, reduction="mean"
+        )
+        assert result.item() == pytest.approx(loss.mean().item(), abs=1e-6)
 
     def test_mean_reduction_with_scalar_loss_per_position(self, padding_mask_factory):
         batch_size, horizon = 2, 4

@@ -2,6 +2,7 @@
 
 import re
 
+import numpy as np
 import pytest
 import torch
 import torch.nn.functional as F
@@ -130,19 +131,27 @@ class TestRegressionLossForward:
         batch_size, horizon, action_dim = 1, 4, 2
         predictions = {"position": torch.ones(batch_size, horizon, action_dim)}
         targets = {"position": torch.zeros(batch_size, horizon, action_dim)}
+        # Padded positions carry a huge error that must not leak into the loss.
+        targets["position"][:, 2:] = 100.0
         is_pad = torch.tensor([[False, False, True, True]])
-        loss_no_pad = RegressionLoss(action_keys=["position"], mse_weight=1.0)
-        loss_with_pad = RegressionLoss(action_keys=["position"], mse_weight=1.0)
-        output_no_pad = loss_no_pad(predictions, targets)
-        output_with_pad = loss_with_pad(predictions, targets, is_pad=is_pad)
-        # Padded positions contribute nothing; with half valid, the per-position
-        # loss is the same (all ones vs zeros = MSE 1.0 per element).
-        # reduce_loss_with_padding divides by pad_mask.sum() (number of valid positions).
-        # masked_loss.sum() = 1 * 2 * 2 = 4; pad_mask.sum() = 2 (after unsqueeze)
-        # result = 4 / 2 = 2.0
-        # Without padding: mean over all elements = 1.0
-        # The key behavioral check: padded outputs don't affect the loss
-        assert output_with_pad.total_loss.item() != output_no_pad.total_loss.item()
+        loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        output = loss(predictions, targets, is_pad=is_pad)
+        # Valid positions: MSE (1 - 0)^2 = 1.0 per element, averaged over the
+        # valid elements only.
+        assert output.total_loss.item() == pytest.approx(1.0, abs=1e-6)
+
+    def test_padding_mean_matches_unmasked_element_scale(self, rng):
+        batch_size, horizon, action_dim = 2, 4, 3
+        data = rng.standard_normal((batch_size, horizon, action_dim)).astype(np.float32)
+        predictions = {"position": torch.from_numpy(data)}
+        targets = {"position": torch.zeros(batch_size, horizon, action_dim)}
+        all_valid = torch.zeros(batch_size, horizon, dtype=torch.bool)
+        loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        output_masked = loss(predictions, targets, is_pad=all_valid)
+        output_unmasked = loss(predictions, targets)
+        assert output_masked.total_loss.item() == pytest.approx(
+            output_unmasked.total_loss.item(), abs=1e-6
+        )
 
     def test_handles_long_dtype_targets(self):
         predictions = {"gripper": torch.tensor([[[0.8]]])}

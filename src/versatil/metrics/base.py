@@ -230,7 +230,10 @@ def reduce_loss_with_padding(
         pad_mask = pad_mask.unsqueeze(-1)
     masked_loss = loss_tensor * pad_mask
     if reduction == "mean":
-        return masked_loss.sum() / (pad_mask.sum() + 1e-8)
+        # Divide by valid elements, not valid timesteps, so the masked mean
+        # matches the scale of loss_tensor.mean() on unpadded inputs.
+        valid_elements = pad_mask.expand_as(loss_tensor).sum()
+        return masked_loss.sum() / (valid_elements + 1e-8)
     elif reduction == "sum":
         return masked_loss.sum()
     else:
