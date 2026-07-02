@@ -84,10 +84,13 @@ class EMACallback(Callback):
         """
         if self.ema_model is None:
             return
-        if (batch_idx + 1) % trainer.accumulate_grad_batches != 0:
+        window_incomplete = (batch_idx + 1) % trainer.accumulate_grad_batches != 0
+        if window_incomplete and not trainer.is_last_batch:
             # Track optimizer steps, not micro-batches: updating on every
             # accumulation micro-batch would decay the average N times faster
-            # than the configured warmup schedule.
+            # than the configured warmup schedule. Lightning also flushes a
+            # partial accumulation window on the epoch's last batch, so that
+            # optimizer step must enter the average too.
             return
 
         self.decay = self._get_decay(trainer.global_step)

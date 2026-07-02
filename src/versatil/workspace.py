@@ -1,6 +1,7 @@
 """Workspace for training and evaluating policies using PyTorch Lightning."""
 
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -223,11 +224,11 @@ class Workspace:
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
         self.policy.set_gripper_class_weights(self.gripper_class_weights)
-        # Calculate total training steps for learning-rate scheduling
-        # Steps per epoch = len(train_loader) // gradient_accumulate_every
-        # Total steps = steps_per_epoch * num_epochs
-        steps_per_epoch = (
-            len(self.train_loader) // self.config.training.gradient_accumulate_every
+        # Calculate total training steps for learning-rate scheduling. Lightning
+        # flushes the final partial accumulation window each epoch, so the
+        # optimizer step count per epoch is the ceiling, not the floor.
+        steps_per_epoch = math.ceil(
+            len(self.train_loader) / self.config.training.gradient_accumulate_every
         )
         total_training_steps = steps_per_epoch * self.config.training.num_epochs
         self.lightning_policy = LightningPolicy(

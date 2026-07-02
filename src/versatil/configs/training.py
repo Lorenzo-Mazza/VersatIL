@@ -182,6 +182,12 @@ class TrainingConfig:
         """Validate training knobs that are incompatible with staged control."""
         if self.stages and self.reduce_lr_on_plateau:
             raise ValueError("training.stages does not support reduce_lr_on_plateau.")
+        if self.lr_schedule is not None and self.reduce_lr_on_plateau:
+            raise ValueError(
+                "reduce_lr_on_plateau cannot be combined with lr_schedule: the "
+                "per-step LR scheduler recomputes group learning rates every "
+                "step, silently undoing plateau reductions."
+            )
 
 
 def _duplicates(values: Sequence[Any]) -> list[Any]:

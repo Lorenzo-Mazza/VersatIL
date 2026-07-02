@@ -57,6 +57,8 @@ class ExpertUsageCallback(Callback):
             trainer: Lightning trainer
             pl_module: Lightning module
         """
+        if trainer.sanity_checking:
+            return
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
         expert_usages = pl_module.val_metrics.compute_expert_usage()

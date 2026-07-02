@@ -1,5 +1,7 @@
 """ReduceLROnPlateau callback."""
 
+from typing import Any
+
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback
 from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
@@ -49,9 +51,14 @@ class ReduceLROnPlateauCallback(Callback):
         self.min_lr = min_lr
         self.eps = eps
         self.scheduler: TorchReduceLROnPlateau | None = None
+        self._resume_scheduler_state: dict[str, Any] | None = None
 
     def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Create ReduceLROnPlateau scheduler at start of training.
+
+        Restores any scheduler state stashed by ``load_state_dict`` so that
+        ``best``, ``num_bad_epochs``, and ``cooldown_counter`` survive
+        checkpoint resumes.
 
         Args:
             trainer: Lightning trainer
@@ -71,6 +78,33 @@ class ReduceLROnPlateauCallback(Callback):
             min_lr=self.min_lr,
             eps=self.eps,
         )
+        if self._resume_scheduler_state is not None:
+            self.scheduler.load_state_dict(self._resume_scheduler_state)
+            self._resume_scheduler_state = None
+
+    def state_dict(self) -> dict[str, Any]:
+        """Return the underlying torch scheduler state for checkpointing.
+
+        Returns:
+            The torch scheduler's state dict, or an empty dict when the
+            scheduler has not been created yet.
+        """
+        if self.scheduler is None:
+            return {}
+        return self.scheduler.state_dict()
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Stash checkpointed scheduler state until the scheduler exists.
+
+        ``on_fit_start`` recreates the torch scheduler and applies this state
+        onto it, mirroring how the EMA callback handles resume state.
+
+        Args:
+            state_dict: Scheduler state saved by ``state_dict``.
+        """
+        if not state_dict:
+            return
+        self._resume_scheduler_state = state_dict
 
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule

@@ -27,6 +27,3 @@ ema_power: 0.999
 
 tune_lr: false
 early_stopping_patience: 1000
-reduce_lr_on_plateau: true
-reduce_lr_patience: 100
-reduce_lr_cooldown: 50

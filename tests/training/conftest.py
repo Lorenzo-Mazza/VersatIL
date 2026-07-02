@@ -217,6 +217,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         sanity_checking: bool = False,
         val_dataloaders: Mock | None = None,
         accumulate_grad_batches: int = 1,
+        is_last_batch: bool = False,
     ) -> Mock:
         trainer = MagicMock(spec="pl.Trainer")
         trainer.current_epoch = current_epoch
@@ -226,6 +227,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         trainer.sanity_checking = sanity_checking
         trainer.val_dataloaders = val_dataloaders
         trainer.accumulate_grad_batches = accumulate_grad_batches
+        trainer.is_last_batch = is_last_batch
         trainer.callback_metrics = (
             callback_metrics if callback_metrics is not None else {}
         )

@@ -1473,14 +1473,30 @@ class TestSetupPolicy:
             expected_dtype
         )
 
+    @pytest.mark.parametrize(
+        "train_loader_length, gradient_accumulate_every, num_epochs, expected_total",
+        [
+            (100, 2, 10, 500),
+            # Lightning flushes the final partial accumulation window each
+            # epoch, so 101 batches with accumulation 2 yield 51 steps.
+            (101, 2, 10, 510),
+            (7, 3, 4, 12),
+        ],
+    )
     def test_computes_total_training_steps_correctly(
-        self, workspace_factory, mock_workspace_policy_factory
+        self,
+        workspace_factory,
+        mock_workspace_policy_factory,
+        train_loader_length: int,
+        gradient_accumulate_every: int,
+        num_epochs: int,
+        expected_total: int,
     ):
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(
             training_kwargs={
-                "num_epochs": 10,
-                "gradient_accumulate_every": 2,
+                "num_epochs": num_epochs,
+                "gradient_accumulate_every": gradient_accumulate_every,
             },
             policy=policy,
         )
@@ -1492,7 +1508,7 @@ class TestSetupPolicy:
         workspace.gripper_class_weights = None
 
         mock_train_loader = MagicMock()
-        mock_train_loader.__len__ = MagicMock(return_value=100)
+        mock_train_loader.__len__ = MagicMock(return_value=train_loader_length)
         workspace.train_loader = mock_train_loader
 
         workspace.config.policy = policy
@@ -1504,12 +1520,10 @@ class TestSetupPolicy:
             mock_lightning_cls.return_value = MagicMock(spec=LightningPolicy)
             workspace._setup_policy()
 
-            # steps_per_epoch = 100 // 2 = 50
-            # total = 50 * 10 = 500
             mock_lightning_cls.assert_called_once_with(
                 policy=policy,
                 training_config=workspace.config.training,
-                total_training_steps=500,
+                total_training_steps=expected_total,
             )
 
     def test_prepares_qat_after_lazy_initialization(

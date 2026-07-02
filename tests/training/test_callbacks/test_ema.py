@@ -758,3 +758,30 @@ class TestEMACallbackGradientAccumulation:
             trainer=trainer, pl_module=pl_module, outputs=None, batch=None, batch_idx=1
         )
         torch.testing.assert_close(callback.ema_model.weight.data, new_weight)
+
+    def test_updates_on_last_batch_of_epoch_despite_incomplete_window(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory(accumulate_grad_batches=4, is_last_batch=True)
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        new_weight = torch.from_numpy(
+            rng.standard_normal(policy.weight.shape).astype(np.float32)
+        )
+        policy.weight.data.copy_(new_weight)
+
+        # batch_idx 0 with accumulation 4 is mid-window, but Lightning flushes
+        # the partial window on the epoch's last batch, so EMA must update.
+        callback.on_train_batch_end(
+            trainer=trainer, pl_module=pl_module, outputs=None, batch=None, batch_idx=0
+        )
+
+        torch.testing.assert_close(callback.ema_model.weight.data, new_weight)
