@@ -45,6 +45,9 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
     RGBBackboneType,
 )
+from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
+    DFormerPretrainedWeights,
+)
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
     AttentionType,
@@ -291,6 +294,10 @@ class TestPathResolvers:
         with patch.dict(os.environ, {}, clear=True):
             cfg = OmegaConf.create({"dir": "${cache_dir:}"})
             assert cfg.dir == str(Path.home() / ".cache" / "versatil")
+
+    def test_dformer_weights_resolver_maps_enum_names(self):
+        cfg = OmegaConf.create({"weights": "${dformer_weights:NYU}"})
+        assert cfg.weights == DFormerPretrainedWeights.NYU.value
 
     def test_bowel_retraction_dir_resolver_uses_env_variable(self):
         with patch.dict(

@@ -138,8 +138,6 @@ VERSATIL_CACHE_DIR=/path/to/cache
 Set only the variables for datasets you use:
 
 ```bash
-# Pretrained models directory
-
 # Raw data paths (one per dataset)
 VERSATIL_BOWEL_RETRACTION_DIR=/path/to/bowel_retraction
 VERSATIL_LIBERO_HDF5_DIR=/path/to/libero/datasets

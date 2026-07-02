@@ -1,10 +1,8 @@
 """Tests for versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 module."""
 
-import os
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -39,12 +37,6 @@ from versatil.models.encoding.explainability import (
     ExplanationTargetKind,
 )
 from versatil.models.layers.constants import AttentionDecompositionMode
-
-DFORMER_CHECKPOINT_PATH = (
-    Path(os.environ.get("VERSATIL_PRETRAINED_DIR", "."))
-    / "pretrained_dformer"
-    / "DFormerv2_Small_NYU.pth"
-)
 
 
 def _mock_build_backbone(
@@ -701,7 +693,6 @@ class TestDFormerEncoderIntegration:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         encoder.set_camera_metadata(
@@ -738,7 +729,6 @@ class TestDFormerEncoderIntegration:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         encoder.set_camera_metadata(
@@ -768,7 +758,6 @@ class TestDFormerEncoderIntegration:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         encoder.set_camera_metadata(
@@ -791,10 +780,6 @@ class TestDFormerEncoderIntegration:
 
 @pytest.mark.integration
 class TestDFormerEncoderPretrainedCheckpoint:
-    @pytest.mark.skipif(
-        not DFORMER_CHECKPOINT_PATH.exists(),
-        reason=f"DFormer checkpoint not found at {DFORMER_CHECKPOINT_PATH}",
-    )
     def test_loads_pretrained_weights_and_produces_output(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -804,7 +789,7 @@ class TestDFormerEncoderPretrainedCheckpoint:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=True,
-            checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
+            pretrained_weights=DFormerPretrainedWeights.NYU.value,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         encoder.set_camera_metadata(
@@ -827,10 +812,6 @@ class TestDFormerEncoderPretrainedCheckpoint:
         assert features.shape == (batch_size, 1, encoder.output_dim)
         assert features.std() > 1e-6
 
-    @pytest.mark.skipif(
-        not DFORMER_CHECKPOINT_PATH.exists(),
-        reason=f"DFormer checkpoint not found at {DFORMER_CHECKPOINT_PATH}",
-    )
     def test_pretrained_features_differ_from_random_init(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -840,14 +821,13 @@ class TestDFormerEncoderPretrainedCheckpoint:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=True,
-            checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
+            pretrained_weights=DFormerPretrainedWeights.NYU.value,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         random_encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         camera_metadata = rgbd_camera_metadata_factory(
