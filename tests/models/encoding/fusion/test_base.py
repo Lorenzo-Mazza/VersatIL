@@ -52,10 +52,14 @@ class ConcreteSequentialFusion(SequentialFusion):
         return torch.cat(projected, dim=-1)
 
     def get_output_specification(self) -> FeatureMetadata:
+        output_dim = self.hidden_dim * len(self.input_features)
+        dimension: tuple[int, ...] = (output_dim,)
+        if self._output_feature_type == FeatureType.SEQUENTIAL.value:
+            dimension = (self._output_sequence_length, output_dim)
         return FeatureMetadata(
             key=self.output_name,
             feature_type=self._output_feature_type,
-            dimension=(self.hidden_dim * len(self.input_features),),
+            dimension=dimension,
         )
 
 
@@ -329,16 +333,6 @@ class TestSequentialFusionSetupLayers:
                 },
                 FeatureType.SEQUENTIAL.value,
             ),
-            (
-                {
-                    "feat_a": (64,),
-                    "feat_b": (
-                        10,
-                        128,
-                    ),
-                },
-                FeatureType.SEQUENTIAL.value,
-            ),
         ],
     )
     def test_output_feature_type_matches_inputs(
@@ -353,6 +347,41 @@ class TestSequentialFusionSetupLayers:
         module.setup(feature_registry=_make_feature_registry(registry))
         spec = module.get_output_specification()
         assert spec.feature_type == expected_type
+
+    def test_rejects_mixed_flat_and_sequential_features(
+        self,
+        sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
+    ):
+        # Mixed inputs used to pass setup and crash with an opaque shape
+        # error inside torch.cat on the first forward pass.
+        module = sequential_fusion_factory(input_features=["feat_a", "feat_b"])
+        registry = _make_feature_registry({"feat_a": (64,), "feat_b": (10, 128)})
+
+        with pytest.raises(ValueError, match="share one feature type"):
+            module.setup(feature_registry=registry)
+
+    def test_rejects_sequential_features_with_mismatched_lengths(
+        self,
+        sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
+    ):
+        module = sequential_fusion_factory(input_features=["feat_a", "feat_b"])
+        registry = _make_feature_registry({"feat_a": (10, 64), "feat_b": (12, 128)})
+
+        with pytest.raises(ValueError, match="equal sequence lengths"):
+            module.setup(feature_registry=registry)
+
+    def test_sequential_output_metadata_carries_sequence_length(
+        self,
+        sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
+    ):
+        module = sequential_fusion_factory(input_features=["feat_a", "feat_b"])
+        registry = _make_feature_registry({"feat_a": (10, 64), "feat_b": (10, 128)})
+        module.setup(feature_registry=registry)
+
+        spec = module.get_output_specification()
+
+        assert spec.feature_type == FeatureType.SEQUENTIAL.value
+        assert spec.dimension[0] == 10
 
     def test_rejects_spatial_features(
         self,

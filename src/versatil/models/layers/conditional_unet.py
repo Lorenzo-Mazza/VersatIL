@@ -285,18 +285,22 @@ class ConditionalUnet1D(nn.Module):
         for middle_module in self.middle_modules:
             x = middle_module(x=x, condition=global_features)
 
-        for index, (first_residual_block, second_residual_block, upsample) in enumerate(
-            self.upsampling_modules
-        ):
+        for (
+            first_residual_block,
+            second_residual_block,
+            upsample,
+        ) in self.upsampling_modules:
             x = torch.cat((x, hidden_states.pop()), dim=1)
             x = first_residual_block(x=x, condition=global_features)
-            if (
-                index == (len(self.upsampling_modules) - 1)
-                and len(local_hidden_states) > 0
-            ):
-                x = x + local_hidden_states[1]
             x = second_residual_block(x=x, condition=global_features)
             x = upsample(x)
+
+        # The up-path local conditioning joins after the last upsample, where
+        # x is back at full temporal resolution and base width — the mirror of
+        # the down-path injection. Injecting inside the loop would add a
+        # full-resolution tensor to a half-resolution feature map.
+        if len(local_hidden_states) > 0:
+            x = x + local_hidden_states[1]
 
         x = self.final_convolution(x)
 

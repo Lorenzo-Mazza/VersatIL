@@ -96,11 +96,20 @@ class SequentialFusion(FusionModule, abc.ABC):
         self.projections: nn.ModuleList | None = None
         self.hidden_dim = hidden_dim
         self._output_feature_type: str | None = None
+        self._output_sequence_length: int | None = None
 
     def _setup_layers(self, feature_registry: dict[str, FeatureMetadata]):
-        """Build projection layers for each input feature."""
+        """Build projection layers for each input feature.
+
+        Raises:
+            ValueError: If inputs mix flat and sequential feature types, mix
+                sequential lengths, or include spatial features. Mixed inputs
+                would otherwise fail with an opaque shape error at the first
+                forward pass.
+        """
         input_dims: list[int] = []
-        has_sequential = False
+        feature_types: dict[str, str] = {}
+        sequence_lengths: dict[str, int] = {}
         for feat_name in self.input_features:
             metadata = feature_registry[feat_name]
             if metadata.feature_type == FeatureType.SPATIAL.value:
@@ -109,11 +118,25 @@ class SequentialFusion(FusionModule, abc.ABC):
                     f"but '{feat_name}' is spatial with dimension {metadata.dimension}. "
                     f"Use SpatialFusion for spatial features."
                 )
+            feature_types[feat_name] = metadata.feature_type
             if metadata.feature_type == FeatureType.SEQUENTIAL.value:
-                has_sequential = True
+                sequence_lengths[feat_name] = metadata.dimension[0]
             input_dims.append(metadata.dimension[-1])
-        self._output_feature_type = (
-            FeatureType.SEQUENTIAL.value if has_sequential else FeatureType.FLAT.value
+        distinct_types = set(feature_types.values())
+        if len(distinct_types) > 1:
+            raise ValueError(
+                f"{type(self).__name__} '{self.output_name}' requires all input "
+                f"features to share one feature type, got {feature_types}."
+            )
+        distinct_lengths = set(sequence_lengths.values())
+        if len(distinct_lengths) > 1:
+            raise ValueError(
+                f"{type(self).__name__} '{self.output_name}' requires sequential "
+                f"inputs with equal sequence lengths, got {sequence_lengths}."
+            )
+        self._output_feature_type = distinct_types.pop()
+        self._output_sequence_length = (
+            distinct_lengths.pop() if distinct_lengths else None
         )
         self.projections = nn.ModuleList(
             [nn.Linear(dim, self.hidden_dim) for dim in input_dims]

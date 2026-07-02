@@ -114,6 +114,7 @@ class EpisodicDataset(data.Dataset):
         if dataloader_config.downsample_factor > 1:
             self._apply_downsampling(episode_mask, dataloader_config.downsample_factor)
             episode_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
+        self.episode_selection_mask = episode_mask
         self.episode_ends = self.replay_buffer.episode_ends[:]
         trailing_padded_actions = dataloader_config.trailing_padded_actions
         if trailing_padded_actions is None:
@@ -318,6 +319,7 @@ class EpisodicDataset(data.Dataset):
             min_kinematics_std=min_kinematics_std,
             min_kinematics_range=min_kinematics_range,
             action_sample_size=action_sample_size,
+            episode_selection_mask=self.episode_selection_mask,
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(
@@ -375,6 +377,14 @@ class EpisodicDataset(data.Dataset):
                 f"got gripper_type={gripper_type} for key={key}"
             )
         gripper_actions = self.replay_buffer[key][:]
+        if not bool(np.all(self.episode_selection_mask)):
+            step_mask = np.zeros(len(gripper_actions), dtype=bool)
+            episode_start = 0
+            for episode_index, episode_end in enumerate(self.episode_ends):
+                if self.episode_selection_mask[episode_index]:
+                    step_mask[episode_start:episode_end] = True
+                episode_start = int(episode_end)
+            gripper_actions = gripper_actions[step_mask]
         gripper_actions = gripper_actions.reshape(-1)
         number_of_positive_actions = (gripper_actions == 1).sum()
         number_of_negative_actions = len(gripper_actions) - number_of_positive_actions

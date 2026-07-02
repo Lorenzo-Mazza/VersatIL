@@ -44,11 +44,15 @@ class ImageProcessor:
         )
 
         self.photometric_transform = None
-        self.spatial_transform = None
+        self.spatial_transform: A.ReplayCompose | None = None
+        self._spatial_replay: dict | None = None
         if self.use_color:
             self.photometric_transform = color_augmentation
         if self.use_spatial:
-            self.spatial_transform = spatial_augmentation
+            # ReplayCompose lets one parameter draw be shared across all
+            # frames and cameras of a sample, keeping temporal consistency
+            # and RGB/depth pixel correspondence intact.
+            self.spatial_transform = A.ReplayCompose(spatial_augmentation.transforms)
 
         self._camera_resize: dict[str, A.Resize] = {}
         self._rgb_cameras: set[str] = set()
@@ -90,6 +94,25 @@ class ImageProcessor:
             return image / max_pixel_value
         return image
 
+    def begin_sample(self) -> None:
+        """Start a new sample, drawing fresh shared spatial parameters.
+
+        Call once per sample before processing its cameras; every frame and
+        camera processed until the next call replays the same spatial
+        transform parameters.
+        """
+        self._spatial_replay = None
+
+    def _apply_shared_spatial_transform(self, frame: np.ndarray) -> np.ndarray:
+        """Apply the sample-wide spatial transform to one frame."""
+        if self._spatial_replay is None:
+            result = self.spatial_transform(image=frame)
+            self._spatial_replay = result["replay"]
+        else:
+            result = A.ReplayCompose.replay(self._spatial_replay, image=frame)
+        transformed_frame: np.ndarray = result["image"]
+        return transformed_frame
+
     def process(self, images: np.ndarray, camera_key: str) -> torch.Tensor:
         """Process camera images: resize, augment, normalize, reorder channels.
 
@@ -111,7 +134,7 @@ class ImageProcessor:
             )
         if self.spatial_transform is not None:
             images = np.stack(
-                [self.spatial_transform(image=frame)["image"] for frame in images]
+                [self._apply_shared_spatial_transform(frame=frame) for frame in images]
             )
 
         images = images[:, None] if images.ndim == 3 else np.moveaxis(images, -1, 1)

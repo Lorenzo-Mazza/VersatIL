@@ -2798,23 +2798,19 @@ def leaf_weight_spec_factory(
                 return {
                     "loss": KLDivergenceLoss(
                         weight=10.0,
-                        prior_entropy_weight=0.1,
                         prior_regularization_weight=0.2,
                     ),
                     "initial_weights": {
                         "weight": 10.0,
-                        "prior_entropy_weight": 0.1,
                         "prior_regularization_weight": 0.2,
                     },
                     "set_to": {
                         "weight": 1.0,
-                        "prior_entropy_weight": 0.0,
                         "prior_regularization_weight": 0.9,
                     },
                     "partial_update": {"prior_regularization_weight": 0.9},
                     "expected_after_partial": {
                         "weight": 10.0,
-                        "prior_entropy_weight": 0.1,
                         "prior_regularization_weight": 0.9,
                     },
                 }
@@ -3121,7 +3117,7 @@ def leaf_loss_case(
         case "kl_divergence":
             return (
                 KLDivergenceLoss(),
-                {"weight", "prior_entropy_weight", "prior_regularization_weight"},
+                {"weight", "prior_regularization_weight"},
             )
         case "binary_kl_divergence":
             return BinaryKLDivergenceLoss(), {"weight", "entropy_weight"}

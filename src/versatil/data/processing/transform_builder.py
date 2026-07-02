@@ -101,6 +101,7 @@ class TransformBuilder:
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
         action_sample_size: int = 2048,
+        episode_selection_mask: np.ndarray | None = None,
     ):
         """Initialize transform builder.
 
@@ -124,11 +125,17 @@ class TransformBuilder:
                 mixture-density head k-means++). Set to 0 to disable. Memory cost
                 per action key is ``action_sample_size * action_dim * bytes_per_element``
                 (four bytes for float32, eight for float64).
+            episode_selection_mask: Optional boolean mask over episodes.
+                Statistics, tokenizers, and denoising thresholds are fitted
+                only on selected episodes (the training split), keeping
+                validation data out of the fitted transforms.
         """
         self.replay_buffer = replay_buffer
         self.action_processor = action_processor
         self.observation_space = observation_space
         self.episode_ends = episode_ends
+        self.episode_selection_mask = episode_selection_mask
+        self._selected_step_mask = self._build_selected_step_mask()
         self.kinematics_norm_type = kinematics_norm_type
         self.image_norm_type = image_norm_type
         self.depth_norm_type = depth_norm_type
@@ -140,6 +147,48 @@ class TransformBuilder:
         self.min_kinematics_std = min_kinematics_std
         self.min_kinematics_range = min_kinematics_range
         self.action_sample_size = action_sample_size
+
+    def _build_selected_step_mask(self) -> np.ndarray | None:
+        """Return a per-step mask of selected episodes, or None for all."""
+        if self.episode_selection_mask is None or bool(
+            np.all(self.episode_selection_mask)
+        ):
+            return None
+        step_mask = np.zeros(int(self.episode_ends[-1]), dtype=bool)
+        episode_start = 0
+        for episode_index, episode_end in enumerate(self.episode_ends):
+            if self.episode_selection_mask[episode_index]:
+                step_mask[episode_start:episode_end] = True
+            episode_start = int(episode_end)
+        return step_mask
+
+    def _is_episode_selected(self, episode_index: int) -> bool:
+        """Return whether an episode contributes to fitted statistics."""
+        if self.episode_selection_mask is None:
+            return True
+        return bool(self.episode_selection_mask[episode_index])
+
+    def _select_step_rows(self, array: np.ndarray) -> np.ndarray:
+        """Filter an (n_steps, ...) array down to selected-episode rows."""
+        if self._selected_step_mask is None:
+            return array
+        return array[self._selected_step_mask]
+
+    def _select_episodes_contiguous(
+        self, array: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return selected-episode rows with remapped episode boundaries."""
+        if self._selected_step_mask is None:
+            return array, self.episode_ends
+        selected_rows = array[self._selected_step_mask]
+        selected_lengths = []
+        episode_start = 0
+        for episode_index, episode_end in enumerate(self.episode_ends):
+            if self._is_episode_selected(episode_index=episode_index):
+                selected_lengths.append(int(episode_end) - episode_start)
+            episode_start = int(episode_end)
+        remapped_ends = np.cumsum(np.asarray(selected_lengths, dtype=np.int64))
+        return selected_rows, remapped_ends
 
     def create_normalizer_and_tokenizer(
         self,
@@ -169,6 +218,8 @@ class TransformBuilder:
         cross_indices = self.episode_ends[:-1] - 1
         valid_mask = np.ones(len(next(iter(action_data.values()))), dtype=bool)
         valid_mask[cross_indices] = False
+        if self._selected_step_mask is not None:
+            valid_mask &= self._selected_step_mask[: len(valid_mask)]
         valid_action_data = {key: data[valid_mask] for key, data in action_data.items()}
 
         normalizer = self._create_normalizer(
@@ -197,12 +248,14 @@ class TransformBuilder:
             if isinstance(meta, OnTheFlyActionMetadata):
                 source_meta = meta.source_metadata
                 if isinstance(source_meta, PositionObservationMetadata):
-                    obs_data = self.replay_buffer[key][:]
+                    obs_data, selected_episode_ends = self._select_episodes_contiguous(
+                        array=self.replay_buffer[key][:]
+                    )
                     self.action_processor.compute_denoising_threshold(
                         obs_data=obs_data,
                         key=key,
                         meta=source_meta,
-                        episode_ends=self.episode_ends,
+                        episode_ends=selected_episode_ends,
                     )
         self.action_processor.log_movement_distribution()
 
@@ -237,7 +290,9 @@ class TransformBuilder:
                     raise ValueError(
                         f"Cannot normalize non-numerical observation key: {key}"
                     )
-                data_to_normalize[key] = self.replay_buffer[key][:]
+                data_to_normalize[key] = self._select_step_rows(
+                    array=self.replay_buffer[key][:]
+                )
 
         action_normalization_keys: set[str] = set()
         for key, meta in action_meta.items():
@@ -314,6 +369,11 @@ class TransformBuilder:
         """
         depth_array = self.replay_buffer[camera_key]
         n_frames = depth_array.shape[0]
+        selected_frame_indices = (
+            np.flatnonzero(self._selected_step_mask[:n_frames])
+            if self._selected_step_mask is not None
+            else None
+        )
         total_pixels = depth_array.size
         p_lower, p_upper = None, None
         if winsorize and self.depth_winsorize_quantiles:
@@ -321,6 +381,19 @@ class TransformBuilder:
             dtype = depth_array.dtype
             if total_pixels == 0:
                 reservoir = np.empty(0, dtype=dtype)
+            elif selected_frame_indices is not None:
+                # Quantiles must come from selected episodes only: sample a
+                # subset of selected frames and pool their pixels.
+                sampled_frame_count = min(200, len(selected_frame_indices))
+                sampled_frames = np.sort(
+                    np.random.choice(
+                        selected_frame_indices, sampled_frame_count, replace=False
+                    )
+                )
+                pooled = depth_array[sampled_frames].ravel()
+                if pooled.size > reservoir_size:
+                    pooled = np.random.choice(pooled, reservoir_size, replace=False)
+                reservoir = pooled
             elif total_pixels <= reservoir_size:
                 # Small array - load all and ravel
                 reservoir = depth_array[:].ravel()
@@ -346,6 +419,8 @@ class TransformBuilder:
         for start in range(0, n_frames, chunk_size):
             end = min(start + chunk_size, n_frames)
             chunk = depth_array[start:end]
+            if self._selected_step_mask is not None:
+                chunk = chunk[self._selected_step_mask[start:end]]
             if chunk.size == 0:
                 continue
             if p_lower is not None:
@@ -466,7 +541,7 @@ class TransformBuilder:
                         continue
                     if not meta.is_numerical:
                         continue
-                    obs_data = self.replay_buffer[key][:]
+                    obs_data = self._select_step_rows(array=self.replay_buffer[key][:])
                     if meta.needs_normalization:
                         obs_data = normalizer[key].normalize(obs_data)
                         obs_data = (
@@ -507,7 +582,11 @@ class TransformBuilder:
             if not action_tokenizer._is_fitted:
                 actions_to_tokenize = {}
                 for key, meta in action_meta.items():
-                    if not meta.is_numerical:
+                    # Match the encode-time filter in normalize_actions: a
+                    # numerical key without a prediction head is excluded from
+                    # the tokenized tensor, so fitting on it would misalign
+                    # every per-dimension bin.
+                    if not (meta.is_numerical and meta.requires_prediction_head):
                         continue
                     if meta.needs_normalization:
                         action = normalizer[key].normalize(action_data[key])
@@ -557,7 +636,11 @@ class TransformBuilder:
                 )
         chunks = []
         episode_start = 0
-        for length in episode_lengths:
+        for episode_index, length in enumerate(episode_lengths):
+            if not self._is_episode_selected(episode_index=episode_index):
+                # Unselected episodes contributed no rows to the filtered
+                # action arrays, so the running offset must not advance.
+                continue
             episode_actions = all_actions[episode_start : episode_start + length]
             if length >= self.prediction_horizon:
                 for i in range(length - self.prediction_horizon + 1):

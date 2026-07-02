@@ -107,7 +107,8 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             initial_decay=initial_decay,
             decay_range=decay_range,
         )
-        self.norm = nn.LayerNorm(embedding_dimension, eps=1e-6)
+        self.pre_attention_norm = nn.LayerNorm(embedding_dimension, eps=1e-6)
+        self.post_attention_norm = nn.LayerNorm(embedding_dimension, eps=1e-6)
         self.pooling_head: PoolingHead | None = None
         self.output_dim: int | tuple[int, ...] = self.embedding_dimension
         if frozen:
@@ -150,7 +151,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         features, H_patches, W_patches = self.patch_embed(
             rgb_image, return_patch_size=True
         )  # (B, N_patches, embedding_dimension)
-        features = self.norm(features)
+        features = self.pre_attention_norm(features)
         features = features.reshape(
             rgb_image.shape[0], H_patches, W_patches, self.embedding_dimension
         )
@@ -160,7 +161,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         features = self.attention_block(
             features, depth_map_resized
         )  # (B, H_patches, W_patches, embedding_dimension)
-        features = self.norm(features)
+        features = self.post_attention_norm(features)
         features = features.permute(
             0, 3, 1, 2
         ).contiguous()  # (B, embedding_dimension, H_patches, W_patches)

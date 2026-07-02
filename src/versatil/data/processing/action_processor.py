@@ -264,16 +264,21 @@ class ActionProcessor:
 
     @staticmethod
     def _compute_roll_deltas(curr_ori: np.ndarray, next_ori: np.ndarray) -> np.ndarray:
-        """Compute roll angle deltas (simple angle difference in radians).
+        """Compute roll angle deltas wrapped to [-pi, pi].
+
+        Wrapping keeps deltas continuous when the stored angle crosses the
+        +pi/-pi boundary; the raw difference would spike by ~2*pi there and
+        corrupt both the training label and the normalization statistics.
 
         Args:
             curr_ori: Current roll angles (N, 1)
             next_ori: Next roll angles (N, 1)
 
         Returns:
-            Roll deltas (N, 1)
+            Roll deltas (N, 1) in [-pi, pi]
         """
-        return next_ori - curr_ori
+        delta = next_ori - curr_ori
+        return np.arctan2(np.sin(delta), np.cos(delta))
 
     @staticmethod
     def _compute_euler_deltas(curr_ori: np.ndarray, next_ori: np.ndarray) -> np.ndarray:

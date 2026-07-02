@@ -373,21 +373,18 @@ class KLDivergenceLoss(BaseLoss):
     def __init__(
         self,
         weight: float = 10.0,
-        prior_entropy_weight: float = 0.0,
         prior_regularization_weight: float = 0.0,
     ):
         """Initialize KL divergence loss.
 
         Args:
             weight: Weight for KL divergence loss KL(posterior || prior)
-            prior_entropy_weight: Weight for prior entropy regularization
             prior_regularization_weight: Weight for KL(prior || N(0,I)) regularization.
                 Only meaningful for learned priors. Pushes the learned prior towards
                 a standard Gaussian.
         """
         super().__init__()
         self.weight = weight
-        self.prior_entropy_weight = prior_entropy_weight
         self.prior_regularization_weight = prior_regularization_weight
 
     @property
@@ -395,7 +392,6 @@ class KLDivergenceLoss(BaseLoss):
         """Getter that returns dictionary with weight keys and scalar coefficients."""
         return {
             "weight": self.weight,
-            "prior_entropy_weight": self.prior_entropy_weight,
             "prior_regularization_weight": self.prior_regularization_weight,
         }
 
@@ -403,7 +399,6 @@ class KLDivergenceLoss(BaseLoss):
         """Setter that updates the weight scalar coefficients."""
         self._validate_weights(new_weights)
         self.weight = new_weights["weight"]
-        self.prior_entropy_weight = new_weights["prior_entropy_weight"]
         self.prior_regularization_weight = new_weights["prior_regularization_weight"]
 
     def get_required_keys(self) -> set[str]:
@@ -1346,9 +1341,12 @@ class PhaseClassificationLoss(BaseLoss):
             # We want to maximize entropy so we need to subtract it from the loss.
             total_loss = total_loss - self.entropy_weight * entropy_reduced
 
+        # Store only unpadded steps: edge-padded episodes repeat their final
+        # phase, which would inflate that phase in accuracy and the
+        # confusion matrix computed from this metadata.
         metadata = {
-            MetadataKey.PHASE_LOGITS.value: pred_logits.detach(),
-            MetadataKey.PHASE_LABEL.value: target_labels.detach(),
+            MetadataKey.PHASE_LOGITS.value: pred_flat.detach(),
+            MetadataKey.PHASE_LABEL.value: target_flat.detach(),
         }
 
         return LossOutput(

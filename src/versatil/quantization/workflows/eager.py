@@ -126,20 +126,23 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         Returns:
             Exported eager-quantized model and example inputs for deployment.
         """
-        if self.is_qat:
-            self.convert_model(model=context.policy)
-        else:
-            self._apply_ptq(model=context.policy)
-
         example_inputs = build_example_inputs(
             exportable=exportable,
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
         )
+        # Export the float baseline before quantize_() mutates the policy.
+        float_exported = export_policy(
+            exportable=exportable, example_inputs=example_inputs
+        )
+        if self.is_qat:
+            self.convert_model(model=context.policy)
+        else:
+            self._apply_ptq(model=context.policy)
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
         return QuantizedContext(
-            float_model=exported,
+            float_model=float_exported,
             quantized_model=exported,
             example_inputs=example_inputs,
             quantization_workflow=QuantizationWorkflow.EAGER.value,

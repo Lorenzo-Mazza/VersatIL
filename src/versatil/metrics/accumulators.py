@@ -50,6 +50,7 @@ class MetricsAccumulator:
 
     total_loss: float = 0.0
     component_metrics: dict[str, float] = field(default_factory=dict)
+    component_batch_counts: dict[str, int] = field(default_factory=dict)
     num_batches: int = 0
     metadata: dict[str, list | torch.Tensor] = field(default_factory=dict)
 
@@ -67,7 +68,9 @@ class MetricsAccumulator:
         for key, value in loss_output.component_losses.items():
             if key not in self.component_metrics:
                 self.component_metrics[key] = 0.0
+                self.component_batch_counts[key] = 0
             self.component_metrics[key] += to_scalar(value)
+            self.component_batch_counts[key] += 1
 
         # Store metadata for special metrics (e.g., phase predictions for confusion matrix)
         for key, value in loss_output.metadata.items():
@@ -94,8 +97,11 @@ class MetricsAccumulator:
             MetricKey.TOTAL_LOSS.value: self.total_loss / self.num_batches,
         }
 
+        # Average each component over the batches that actually emitted it:
+        # stochastic components (e.g. prior/posterior mixing) appear only in a
+        # subset of batches and would otherwise be deflated.
         for key, value in self.component_metrics.items():
-            averaged[key] = value / self.num_batches
+            averaged[key] = value / self.component_batch_counts[key]
 
         return averaged
 
@@ -389,5 +395,6 @@ class MetricsAccumulator:
         """Reset accumulator to initial state."""
         self.total_loss = 0.0
         self.component_metrics = {}
+        self.component_batch_counts = {}
         self.num_batches = 0
         self.metadata = {}

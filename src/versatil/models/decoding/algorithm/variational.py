@@ -246,10 +246,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
                     batch_size=batch_size, observations=features
                 )
             latent = prior_output[LatentKey.PRIOR_LATENT.value]
-            posterior_decoder_latent = None
         else:
             latent = self._posterior_latent_for_decoder(posterior_output)
-            posterior_decoder_latent = latent
         features_with_latent = {
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent,
@@ -259,15 +257,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features_with_latent,
             actions=actions,
         )
-        if posterior_decoder_latent is None:
-            predictions.update(posterior_output)
-        else:
-            predictions.update(
-                {
-                    **posterior_output,
-                    LatentKey.POSTERIOR_LATENT.value: posterior_decoder_latent,
-                }
-            )
+
+        predictions.update(posterior_output)
         predictions.update(prior_output)
         return predictions
 

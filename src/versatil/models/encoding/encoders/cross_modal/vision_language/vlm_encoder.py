@@ -115,6 +115,12 @@ class VLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
             hasattr(self.encoder.vision_model.embeddings, "class_embedding")
             and self.encoder.vision_model.embeddings.class_embedding is not None
         )
+        if pooling_method == PoolingMethod.DEFAULT.value and not vision_has_cls:
+            raise ValueError(
+                "DEFAULT pooling on a vision tower without a class embedding "
+                "would silently return an ordinary patch token. Use AVERAGE "
+                "or LEARNED_AGGREGATION pooling instead."
+            )
         self.vision_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.hidden_vision_dim,

@@ -78,6 +78,8 @@ class GaussianPriorConfig(PriorLatentEncoderConfig):
 
     _target_: str = "versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior"
     latent_dimension: int = 32
+    # ACT-style constant zero latent at inference instead of N(0, I) samples.
+    infer_constant_prior: bool = False
 
 
 @dataclass

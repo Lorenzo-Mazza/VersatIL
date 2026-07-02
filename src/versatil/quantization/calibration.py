@@ -48,11 +48,3 @@ class CalibrationDataProvider:
             yield tuple(
                 observation[key].to(self.device) for key in self._observation_keys
             )
-
-    def get_single_batch(self) -> tuple[torch.Tensor, ...]:
-        """Return the first calibration batch for torch.export example inputs.
-
-        Returns:
-            First calibration batch as a tuple of tensors.
-        """
-        return next(iter(self))

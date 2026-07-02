@@ -196,7 +196,7 @@ class TestPT2EQuantizationWorkflow:
         assert result.example_inputs is example_inputs
         assert result.quantization_workflow == QuantizationWorkflow.PT2E.value
 
-    def test_quantize_uses_calibration_batch_when_available(
+    def test_quantize_exports_with_synthetic_inputs_and_keeps_calibration(
         self,
         pt2e_target_factory,
     ):
@@ -210,7 +210,6 @@ class TestPT2EQuantizationWorkflow:
         workflow = PT2EQuantizationWorkflow(targets=targets)
         calibration = MagicMock()
         example_inputs = (MagicMock(),)
-        calibration.get_single_batch.return_value = example_inputs
         exported = MagicMock(spec=nn.Module)
         converted = MagicMock(spec=nn.Module)
 
@@ -220,7 +219,10 @@ class TestPT2EQuantizationWorkflow:
                 "_build_calibration",
                 return_value=calibration,
             ) as mock_build_calibration,
-            patch(f"{PT2E_WORKFLOW_MODULE}.build_example_inputs") as mock_build_inputs,
+            patch(
+                f"{PT2E_WORKFLOW_MODULE}.build_example_inputs",
+                return_value=example_inputs,
+            ) as mock_build_inputs,
             patch(
                 f"{PT2E_WORKFLOW_MODULE}.export_policy",
                 return_value=exported,
@@ -243,8 +245,15 @@ class TestPT2EQuantizationWorkflow:
             targets=targets,
             calibration_steps=8,
         )
-        calibration.get_single_batch.assert_called_once_with()
-        mock_build_inputs.assert_not_called()
+        # Export must use synthetic batch>=2 inputs (a raw batch_size=1
+        # training batch would hit torch.export 0/1 specialization), while
+        # calibration still consumes the real dataloader batches.
+        mock_build_inputs.assert_called_once_with(
+            exportable=exportable,
+            observation_space=context.observation_space,
+            observation_horizon=context.observation_horizon,
+            tokenizer=context.tokenizer,
+        )
         mock_export.assert_called_once_with(
             exportable=exportable,
             example_inputs=example_inputs,

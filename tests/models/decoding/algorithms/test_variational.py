@@ -507,7 +507,7 @@ class TestVariationalAlgorithmForward:
         )
         assert torch.equal(
             result[LatentKey.POSTERIOR_LATENT.value],
-            expected_latent,
+            posterior_latent,
         )
 
     def test_posterior_decoder_noise_keeps_prior_target_clean(

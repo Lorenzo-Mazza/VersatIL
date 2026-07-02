@@ -48,17 +48,49 @@ def fuse_conv_batchnorm(
     return fused_conv
 
 
+def _unwrap_batchnorm_container(
+    module: nn.Module,
+) -> tuple[nn.Module | None, nn.Module | None]:
+    """Return the BN module and trailing activation held by a child module.
+
+    ``replace_frozen_batchnorm`` rewrites BN+activation modules into
+    ``nn.Sequential(batchnorm, activation)``; fusion must look through that
+    wrapper or it silently skips exactly the modules the preparation targeted.
+    """
+    if has_batchnorm_buffers(module):
+        return module, extract_activation(module)
+    if (
+        isinstance(module, nn.Sequential)
+        and len(module) > 0
+        and has_batchnorm_buffers(module[0])
+    ):
+        activation = module[1] if len(module) > 1 else None
+        return module[0], activation
+    return None, None
+
+
 def _find_conv_batchnorm_pairs(
     module: nn.Module,
 ) -> list[tuple[nn.Module, str, str]]:
-    """Find consecutive Conv2d + BN child pairs in a module's children."""
+    """Find consecutive Conv2d + BN child pairs in a module's children.
+
+    Pairing assumes children are declared in forward-execution order (the
+    torchvision/timm convention). Pairs whose channel counts disagree are
+    skipped: the BN cannot belong to the preceding convolution.
+    """
     pairs = []
     children = list(module.named_children())
     for index in range(len(children) - 1):
         current_name, current_child = children[index]
         next_name, next_child = children[index + 1]
-        if isinstance(current_child, nn.Conv2d) and has_batchnorm_buffers(next_child):
-            pairs.append((module, current_name, next_name))
+        if not isinstance(current_child, nn.Conv2d):
+            continue
+        batchnorm, _ = _unwrap_batchnorm_container(next_child)
+        if batchnorm is None:
+            continue
+        if batchnorm.running_mean.shape[0] != current_child.out_channels:
+            continue
+        pairs.append((module, current_name, next_name))
     return pairs
 
 
@@ -72,10 +104,11 @@ def fuse_all_conv_batchnorm_pairs(model: nn.Module) -> int:
         pairs = _find_conv_batchnorm_pairs(parent)
         for container, conv_name, batchnorm_name in pairs:
             conv = getattr(container, conv_name)
-            batchnorm = getattr(container, batchnorm_name)
+            batchnorm, activation = _unwrap_batchnorm_container(
+                getattr(container, batchnorm_name)
+            )
             fused = fuse_conv_batchnorm(conv=conv, batchnorm=batchnorm)
             setattr(container, conv_name, fused)
-            activation = extract_activation(batchnorm)
             if activation is not None:
                 setattr(container, batchnorm_name, activation)
             else:

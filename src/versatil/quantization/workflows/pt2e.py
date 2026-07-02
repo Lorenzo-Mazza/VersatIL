@@ -123,15 +123,15 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             targets=self.targets,
             calibration_steps=calibration_steps,
         )
-        example_inputs = (
-            calibration.get_single_batch()
-            if calibration is not None
-            else build_example_inputs(
-                exportable=exportable,
-                observation_space=context.observation_space,
-                observation_horizon=context.observation_horizon,
-                tokenizer=context.tokenizer,
-            )
+        # Export always uses synthetic batch>=2 example inputs: a raw
+        # training batch with batch_size=1 would trip torch.export's 0/1
+        # specialization on the dynamic batch dimension. Calibration still
+        # runs on real dataloader batches.
+        example_inputs = build_example_inputs(
+            exportable=exportable,
+            observation_space=context.observation_space,
+            observation_horizon=context.observation_horizon,
+            tokenizer=context.tokenizer,
         )
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
         converted = self._convert_exported_model(

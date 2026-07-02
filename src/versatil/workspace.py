@@ -72,9 +72,12 @@ class Workspace:
         self.exp_name = f"{main_config_name}/{additional_exp_name}{sweep_suffix}"
         self.config.experiment.name = self.exp_name
         self.original_yaml_config.experiment.name = self.exp_name
+        # Only the config basename goes on disk: checkpoint_folder already
+        # carries the dataset, so the full Hydra config path would nest
+        # checkpoints as <dataset>/end_to_end_training_runs/<dataset>/<model>.
         self.output_dir = (
             Path(config.experiment.checkpoint_folder)
-            / main_config_name
+            / Path(main_config_name).name
             / f"{additional_exp_name}{sweep_suffix}"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)

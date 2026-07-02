@@ -99,6 +99,7 @@ def transform_builder_factory(
         tokenization_config: MagicMock = None,
         use_zarr: bool = False,
         action_sample_size: int = 2048,
+        episode_selection_mask: np.ndarray | None = None,
     ) -> TransformBuilder:
         action_space = action_space_factory(
             actions_metadata=actions_metadata or {},
@@ -130,6 +131,7 @@ def transform_builder_factory(
             depth_norm_type=depth_norm_type,
             tokenization_config=tokenization_config,
             action_sample_size=action_sample_size,
+            episode_selection_mask=episode_selection_mask,
         )
 
     return factory
@@ -976,6 +978,49 @@ class TestCreateNormalizerAndTokenizer:
 
         # The normalizer should be fitted without the 999.0 outlier
         # If masking works, the fitted range won't include 999.0
+        stats = normalizer["position"].get_input_stats()
+        assert stats["max"].item() < 900.0
+
+    def test_unselected_episodes_are_excluded_from_fitted_statistics(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        rng: np.random.Generator,
+    ):
+        position_source = position_observation_metadata_factory(dimension=1)
+        position_data = rng.standard_normal((10, 1)).astype(np.float32)
+
+        builder = transform_builder_factory(
+            observations_metadata={"position": position_source},
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                ),
+            },
+            replay_buffer_data={"position": position_data},
+            n_steps=10,
+            episode_ends=np.array([5, 10]),
+            # Second episode is the validation split: its actions must not
+            # leak into the fitted normalizer statistics.
+            episode_selection_mask=np.array([True, False]),
+        )
+        all_actions = rng.standard_normal((9, 1)).astype(np.float32)
+        all_actions[6] = 999.0  # Inside the unselected (validation) episode
+
+        builder.action_processor.compute_sample_actions.return_value = (
+            {"position": all_actions},
+            {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                )
+            },
+        )
+
+        normalizer, _ = builder.create_normalizer_and_tokenizer()
+
         stats = normalizer["position"].get_input_stats()
         assert stats["max"].item() < 900.0
 

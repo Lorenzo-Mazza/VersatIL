@@ -81,6 +81,7 @@ def export_mocks_factory() -> Callable[..., dict[str, MagicMock | tuple[MagicMoc
             "exportable": MagicMock(),
             "example_inputs": (MagicMock(),),
             "exported": MagicMock(spec=nn.Module),
+            "quantized": MagicMock(spec=nn.Module),
         }
 
     return factory
@@ -198,7 +199,7 @@ class TestEagerQuantizationWorkflow:
             ) as mock_build_inputs,
             patch(
                 f"{EAGER_WORKFLOW_MODULE}.export_policy",
-                return_value=export_mocks["exported"],
+                side_effect=[export_mocks["exported"], export_mocks["quantized"]],
             ) as mock_export,
         ):
             result = workflow.quantize(
@@ -214,12 +215,13 @@ class TestEagerQuantizationWorkflow:
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
         )
-        mock_export.assert_called_once_with(
-            exportable=export_mocks["exportable"],
-            example_inputs=export_mocks["example_inputs"],
-        )
+        # The float baseline must be exported BEFORE quantize_() mutates the
+        # policy, so the report does not compare the quantized model to itself.
+        assert mock_export.call_count == 2
+        assert mock_export.call_args_list[0] == mock_export.call_args_list[1]
         assert result.float_model is export_mocks["exported"]
-        assert result.quantized_model is export_mocks["exported"]
+        assert result.quantized_model is export_mocks["quantized"]
+        assert result.float_model is not result.quantized_model
         assert result.example_inputs is export_mocks["example_inputs"]
         assert result.quantization_workflow == QuantizationWorkflow.EAGER.value
 
@@ -244,7 +246,7 @@ class TestEagerQuantizationWorkflow:
             ) as mock_build_inputs,
             patch(
                 f"{EAGER_WORKFLOW_MODULE}.export_policy",
-                return_value=export_mocks["exported"],
+                side_effect=[export_mocks["exported"], export_mocks["quantized"]],
             ) as mock_export,
         ):
             result = workflow.quantize(
@@ -260,11 +262,9 @@ class TestEagerQuantizationWorkflow:
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
         )
-        mock_export.assert_called_once_with(
-            exportable=export_mocks["exportable"],
-            example_inputs=export_mocks["example_inputs"],
-        )
-        assert result.quantized_model is export_mocks["exported"]
+        assert mock_export.call_count == 2
+        assert result.float_model is export_mocks["exported"]
+        assert result.quantized_model is export_mocks["quantized"]
         assert result.quantization_workflow == QuantizationWorkflow.EAGER.value
 
     def test_ptq_applies_quantize_to_root(

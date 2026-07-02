@@ -269,23 +269,25 @@ class TestConditionalUnet1DForward:
             )
         assert output.shape == (batch_size, sequence_length, input_dimension)
 
-    def test_output_shape_with_local_conditioning_no_downsampling(
+    @pytest.mark.parametrize("down_dimensions", [[32], [32, 64], [32, 64, 128]])
+    def test_output_shape_with_local_conditioning(
         self,
         unet_factory: Callable[..., ConditionalUnet1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         timestep_factory: Callable[..., torch.Tensor],
         local_conditioning_factory: Callable[..., torch.Tensor],
         batch_size: int,
+        down_dimensions: list[int],
     ):
-        # With a single down_dimension, the only downsample is Identity,
-        # so local conditioning sequence length matches throughout.
+        # Regression: multi-level UNets used to crash adding the
+        # full-resolution up-path local conditioning inside the up loop.
         input_dimension = 8
         sequence_length = 16
         local_conditioning_dimension = 16
         module = unet_factory(
             input_dimension=input_dimension,
             local_conditioning_dimension=local_conditioning_dimension,
-            down_dimensions=[32],
+            down_dimensions=down_dimensions,
         )
         noisy_input = sequence_tensor_factory(
             batch_size=batch_size,
@@ -315,7 +317,6 @@ class TestConditionalUnet1DForward:
         condition_factory: Callable[..., torch.Tensor],
         batch_size: int,
     ):
-        # Single down_dimension to avoid local conditioning sequence mismatch
         input_dimension = 8
         sequence_length = 16
         local_conditioning_dimension = 16
@@ -740,3 +741,48 @@ class TestConditionalUnet1DConditionPredictScale:
         with torch.no_grad():
             output = module(noisy_input=noisy_input, timesteps=timesteps)
         assert output.shape == (batch_size, sequence_length, input_dimension)
+
+
+@pytest.mark.unit
+class TestConditionalUnet1DLocalConditioningEffect:
+    def test_local_conditioning_changes_output(
+        self,
+        unet_factory: Callable[..., ConditionalUnet1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        timestep_factory: Callable[..., torch.Tensor],
+        local_conditioning_factory: Callable[..., torch.Tensor],
+        batch_size: int,
+    ):
+        input_dimension = 8
+        sequence_length = 16
+        local_conditioning_dimension = 16
+        module = unet_factory(
+            input_dimension=input_dimension,
+            local_conditioning_dimension=local_conditioning_dimension,
+            down_dimensions=[32, 64],
+        )
+        module.eval()
+        noisy_input = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=input_dimension,
+        )
+        timesteps = timestep_factory(batch_size=batch_size)
+        local_conditioning = local_conditioning_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            local_conditioning_dimension=local_conditioning_dimension,
+        )
+        with torch.no_grad():
+            with_conditioning = module(
+                noisy_input=noisy_input,
+                timesteps=timesteps,
+                local_conditioning=local_conditioning,
+            )
+            with_other_conditioning = module(
+                noisy_input=noisy_input,
+                timesteps=timesteps,
+                local_conditioning=local_conditioning + 1.0,
+            )
+
+        assert not torch.allclose(with_conditioning, with_other_conditioning)

@@ -357,3 +357,45 @@ class TestFusionOnCuda:
         with torch.no_grad():
             actual = model(input_data)
         assert torch.allclose(actual, expected, atol=1e-5)
+
+
+@pytest.mark.unit
+class TestFusionAfterFrozenBatchnormReplacement:
+    def test_fuses_batchnorm_wrapped_in_sequential_with_activation(self, rng):
+        # replace_frozen_batchnorm rewrites BN+act into Sequential(bn, act);
+        # fusion must look through the wrapper instead of silently skipping.
+        model = nn.Sequential(
+            nn.Conv2d(3, 8, kernel_size=3, padding=1),
+            nn.Sequential(nn.BatchNorm2d(8), nn.ReLU()),
+        )
+        model.eval()
+        with torch.no_grad():
+            model[1][0].running_mean.copy_(
+                torch.from_numpy(rng.standard_normal(8).astype(np.float32))
+            )
+        model[1][0].running_var.copy_(
+            torch.from_numpy(rng.uniform(0.5, 1.5, 8).astype(np.float32))
+        )
+        inputs = torch.from_numpy(rng.standard_normal((2, 3, 6, 6)).astype(np.float32))
+        with torch.no_grad():
+            reference = model(inputs)
+
+        fused_count = fuse_all_conv_batchnorm_pairs(model)
+
+        assert fused_count == 1
+        assert isinstance(model[1], nn.ReLU)
+        with torch.no_grad():
+            fused_output = model(inputs)
+        torch.testing.assert_close(fused_output, reference, atol=1e-5, rtol=1e-5)
+
+    def test_skips_pair_with_mismatched_channels(self):
+        model = nn.Sequential(
+            nn.Conv2d(3, 8, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+        )
+        model.eval()
+
+        fused_count = fuse_all_conv_batchnorm_pairs(model)
+
+        assert fused_count == 0
+        assert isinstance(model[1], nn.BatchNorm2d)

@@ -307,6 +307,24 @@ class TestWorkspaceInitialization:
         assert workspace.output_dir == expected_dir
         assert expected_dir.exists()
 
+    def test_output_directory_uses_config_basename_only(
+        self, workspace_factory, tmp_path
+    ):
+        workspace = workspace_factory(
+            experiment_kwargs={"name": "output_test"},
+            config_name="end_to_end_training_runs/libero_lerobot/openvla",
+        )
+
+        # checkpoint_folder already carries the dataset; the Hydra config
+        # path must not re-nest checkpoints under the runs/dataset dirs.
+        expected_dir = tmp_path / "openvla" / "output_test"
+        assert workspace.output_dir == expected_dir
+        assert expected_dir.exists()
+        assert (
+            workspace.exp_name
+            == "end_to_end_training_runs/libero_lerobot/openvla/output_test"
+        )
+
     def test_initial_state_is_none(self, workspace_factory):
         workspace = workspace_factory()
 
