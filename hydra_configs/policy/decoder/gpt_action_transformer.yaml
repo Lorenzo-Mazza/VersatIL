@@ -20,7 +20,7 @@ feedforward_dimension: 1024
 number_of_layers: 4
 activation: ${activation_function:RELU}
 normalization_type: ${normalization:RMS_NORM}
-attention_type: ${attention:MULTI_HEAD}
+attention_type: ${attention:GROUPED_QUERY}
 dropout_rate: 0.1
 attention_dropout: 0.1
 positional_encoding_type: ${pos_encoding:SINUSOIDAL}
