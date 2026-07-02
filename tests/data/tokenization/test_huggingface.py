@@ -34,4 +34,6 @@ def test_load_huggingface_tokenizer_patches_roberta_processing_cls_alias(
 
     assert result is tokenizer
     assert isinstance(post_processor, processors.PostProcessor)
-    mock_from_pretrained.assert_called_once_with("roberta-base")
+    mock_from_pretrained.assert_called_once_with(
+        "roberta-base", trust_remote_code=False
+    )

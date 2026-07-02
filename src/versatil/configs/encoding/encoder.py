@@ -128,6 +128,7 @@ class LanguageEncoderConfig:
     max_token_len: int = 128
     use_embeddings_only: bool = False
     model_dtype: str | None = "${experiment.precision}"
+    trust_remote_code: bool = False
 
 
 @dataclass

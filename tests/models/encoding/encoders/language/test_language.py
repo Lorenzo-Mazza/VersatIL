@@ -735,6 +735,63 @@ class TestLanguageEncoderBuildEncoder:
         )
         assert encoder.encoder is mock_model
 
+    @pytest.mark.parametrize("trust_remote_code", [True, False])
+    @pytest.mark.parametrize("pretrained", [True, False])
+    def test_trust_remote_code_forwarded_to_huggingface_loaders(
+        self,
+        trust_remote_code: bool,
+        pretrained: bool,
+    ):
+        mock_config = MagicMock(spec=["hidden_size", "vocab_size"])
+        mock_config.hidden_size = HIDDEN_SIZE
+        mock_config.vocab_size = VOCAB_SIZE
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.cls_token_id = 101
+        with (
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ) as mock_from_pretrained_config,
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_pretrained",
+                return_value=MagicMock(),
+            ) as mock_from_pretrained_model,
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_config",
+                return_value=MagicMock(),
+            ) as mock_from_config_model,
+            patch(
+                "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
+                return_value=mock_tokenizer,
+            ) as mock_load_tokenizer,
+        ):
+            LanguageEncoder(
+                pretrained=pretrained,
+                frozen=False,
+                pooling_method=PoolingMethod.NONE.value,
+                model_name="bert-base-uncased",
+                trust_remote_code=trust_remote_code,
+            )
+        mock_from_pretrained_config.assert_called_once_with(
+            "bert-base-uncased", trust_remote_code=trust_remote_code
+        )
+        if pretrained:
+            mock_from_pretrained_model.assert_called_once_with(
+                "bert-base-uncased",
+                attn_implementation=AttentionImplementation.SDPA.value,
+                trust_remote_code=trust_remote_code,
+            )
+        else:
+            mock_from_config_model.assert_called_once_with(
+                mock_config,
+                attn_implementation=AttentionImplementation.SDPA.value,
+                trust_remote_code=trust_remote_code,
+            )
+        mock_load_tokenizer.assert_called_once_with(
+            tokenizer_model="bert-base-uncased",
+            trust_remote_code=trust_remote_code,
+        )
+
     def test_apply_model_dtype_called_when_model_dtype_set(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
@@ -803,13 +860,6 @@ def _integration_marks(encoder_type: LanguageEncoderType) -> list:
                 reason=f"{encoder_type.value} is a gated model requiring authentication",
             )
         )
-    if encoder_type in TRUST_REMOTE_CODE_LANGUAGE_MODELS:
-        marks.append(
-            pytest.mark.skipif(
-                True,
-                reason=f"{encoder_type.value} requires trust_remote_code=True",
-            )
-        )
     if encoder_type in TIKTOKEN_LANGUAGE_MODELS:
         marks.append(
             pytest.mark.xfail(
@@ -836,6 +886,7 @@ ENCODER_ONLY_MODELS = [
     LanguageEncoderType.E5_BASE,
     LanguageEncoderType.EMBEDDINGGEMMA_300M,
     LanguageEncoderType.QWEN_3_EMBEDDING_0_6B,
+    LanguageEncoderType.LLAMA_NEMOTRON_EMBED_1B_V2,
 ]
 
 
@@ -867,6 +918,7 @@ class TestLanguageEncoderIntegration:
             if model_name in no_sdpa_values
             else AttentionImplementation.SDPA.value
         )
+        trust_remote_code_values = {m.value for m in TRUST_REMOTE_CODE_LANGUAGE_MODELS}
         lora_config = (
             LoRAAdaptation(
                 enabled=True,
@@ -884,6 +936,7 @@ class TestLanguageEncoderIntegration:
             model_name=model_name,
             attention_type=attention_type,
             lora_config=lora_config,
+            trust_remote_code=model_name in trust_remote_code_values,
         )
         inputs = token_input_factory(
             batch_size=batch_size,

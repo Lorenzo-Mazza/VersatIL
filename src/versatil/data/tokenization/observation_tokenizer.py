@@ -45,6 +45,7 @@ class ObservationTokenizer:
         raw_text: bool = False,
         prompt_template: str | None = None,
         padding_strategy: str = TokenPaddingStrategy.MAX_LENGTH.value,
+        trust_remote_code: bool = False,
     ):
         """Initialize observation tokenizer.
 
@@ -65,6 +66,8 @@ class ObservationTokenizer:
             padding_strategy: HuggingFace padding strategy. ``"max_length"``
                 pads all sequences to ``max_token_len``. ``"longest"`` pads to
                 the longest sequence in the batch.
+            trust_remote_code: Whether to allow tokenizers that ship custom
+                HuggingFace code (e.g. nvidia/llama-nemotron-embed).
         """
         if prompt_template is not None:
             if not raw_text:
@@ -84,8 +87,9 @@ class ObservationTokenizer:
         self.raw_text = raw_text
         self.prompt_template = prompt_template
         self.padding_strategy = padding_strategy
+        self.trust_remote_code = trust_remote_code
         self.language_tokenizer = load_huggingface_tokenizer(
-            tokenizer_model=tokenizer_model
+            tokenizer_model=tokenizer_model, trust_remote_code=trust_remote_code
         )
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
@@ -340,6 +344,7 @@ class ObservationTokenizer:
             "raw_text": self.raw_text,
             "prompt_template": self.prompt_template,
             "padding_strategy": self.padding_strategy,
+            "trust_remote_code": self.trust_remote_code,
             "binned_value_discretizers": {
                 key: discretizer.state_dict()
                 for key, discretizer in self.binned_value_discretizers.items()
@@ -364,6 +369,7 @@ class ObservationTokenizer:
         self.padding_strategy = state_dict.get(
             "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
         )
+        self.trust_remote_code = state_dict.get("trust_remote_code", False)
         self._is_fitted = state_dict["is_fitted"]
         self.binned_value_discretizers = {}
 
@@ -420,10 +426,12 @@ class ObservationTokenizer:
             padding_strategy=state_dict.get(
                 "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
             ),
+            trust_remote_code=state_dict.get("trust_remote_code", False),
         )
         tokenizer.load_state_dict(state_dict)
         tokenizer.language_tokenizer = load_huggingface_tokenizer(
-            tokenizer_model=path / "language_tokenizer"
+            tokenizer_model=path / "language_tokenizer",
+            trust_remote_code=tokenizer.trust_remote_code,
         )
         logging.info(f"Loaded observation tokenizer from {path}")
         return tokenizer

@@ -532,6 +532,7 @@ class TransformBuilder:
                 raw_text=obs_config.raw_text,
                 prompt_template=obs_config.prompt_template,
                 padding_strategy=obs_config.padding_strategy,
+                trust_remote_code=obs_config.trust_remote_code,
             )
             if obs_config.bin_continuous_data:
                 data_to_bin = {}

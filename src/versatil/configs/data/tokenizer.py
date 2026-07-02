@@ -33,6 +33,8 @@ class ObservationTokenizationConfig:
     # Padding strategy: "max_length" pads all sequences to max_token_len,
     # "longest" pads to the longest sequence in the batch.
     padding_strategy: str = TokenPaddingStrategy.MAX_LENGTH.value
+    # Allow tokenizers that ship custom HuggingFace code
+    trust_remote_code: bool = False
 
 
 @dataclass

@@ -37,7 +37,15 @@ def _patch_roberta_processing_cls_alias() -> None:
 
 def load_huggingface_tokenizer(
     tokenizer_model: str | Path,
+    trust_remote_code: bool = False,
 ) -> PreTrainedTokenizerBase:
-    """Load a HuggingFace tokenizer with local compatibility patches applied."""
+    """Load a HuggingFace tokenizer with local compatibility patches applied.
+
+    Args:
+        tokenizer_model: HuggingFace model identifier or local path.
+        trust_remote_code: Whether to allow tokenizers that ship custom code.
+    """
     _patch_roberta_processing_cls_alias()
-    return AutoTokenizer.from_pretrained(tokenizer_model)
+    return AutoTokenizer.from_pretrained(
+        tokenizer_model, trust_remote_code=trust_remote_code
+    )

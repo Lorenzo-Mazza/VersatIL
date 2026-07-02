@@ -607,6 +607,7 @@ class TestObservationTokenizerStateDict:
             "raw_text",
             "prompt_template",
             "padding_strategy",
+            "trust_remote_code",
             "binned_value_discretizers",
             "is_fitted",
         }
@@ -823,7 +824,8 @@ class TestObservationTokenizerFromPretrained:
         assert loaded.tokenizer_model == "test-model"
         assert loaded._is_fitted is True
         mock_auto_tokenizer.assert_any_call(
-            tokenizer_model=save_path / "language_tokenizer"
+            tokenizer_model=save_path / "language_tokenizer",
+            trust_remote_code=False,
         )
 
     @patch("versatil.data.tokenization.observation_tokenizer.torch.load")

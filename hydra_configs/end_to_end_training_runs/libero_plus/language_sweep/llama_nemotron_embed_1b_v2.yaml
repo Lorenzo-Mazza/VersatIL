@@ -25,6 +25,7 @@ task:
     tokenization:
       observation_tokenizer:
         tokenizer_model: ${language_model:LLAMA_NEMOTRON_EMBED_1B_V2}
+        trust_remote_code: true
 
 experiment:
   precision: ${precision:FP32}
@@ -68,6 +69,7 @@ policy:
         model_name: ${language_model:LLAMA_NEMOTRON_EMBED_1B_V2}
         frozen: true
         use_embeddings_only: false
+        trust_remote_code: true
   decoder:
     input_keys:
       - 'left_rgb:agentview_rgb'

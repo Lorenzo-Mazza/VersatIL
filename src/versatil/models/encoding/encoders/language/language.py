@@ -42,6 +42,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         use_embeddings_only: bool = False,
         model_dtype: str | None = None,
         lora_config: LoRAAdaptation | None = None,
+        trust_remote_code: bool = False,
     ):
         """
         Args:
@@ -54,6 +55,8 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             use_embeddings_only: If True, use only the pretrained token embedding layer
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
             lora_config: Optional LoRA adapter configuration.
+            trust_remote_code: Whether to allow HuggingFace models that ship
+                custom modeling code (e.g. nvidia/llama-nemotron-embed).
         """
         specification = EncoderInput(
             keys=[
@@ -76,6 +79,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         self.max_token_len = max_token_len
         self.use_embeddings_only = use_embeddings_only
         self.lora_config = lora_config
+        self.trust_remote_code = trust_remote_code
         if self.use_embeddings_only and lora_config is not None and lora_config.enabled:
             raise ValueError("LoRA is not supported when use_embeddings_only=True.")
         if self.use_embeddings_only and self.pooling_method != PoolingMethod.NONE.value:
@@ -88,7 +92,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             if self.use_embeddings_only
             else self.config.hidden_size
         )
-        tokenizer = load_huggingface_tokenizer(tokenizer_model=model_name)
+        tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=model_name, trust_remote_code=trust_remote_code
+        )
         self._has_cls_token = tokenizer.cls_token_id is not None
         self._num_prefix_tokens = 1 if self._has_cls_token else 0
         self.token_pooling_head = create_token_pooling_head(
@@ -109,7 +115,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
 
     def _build_encoder(self):
         """Build language encoder and tokenizer."""
-        self.config = AutoConfig.from_pretrained(self.model_name)
+        self.config = AutoConfig.from_pretrained(
+            self.model_name, trust_remote_code=self.trust_remote_code
+        )
         if self.use_embeddings_only:
             # Models like ALBERT use factorized embeddings where
             # embedding_size != hidden_size
@@ -127,7 +135,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
                 embedding_dim=embedding_dim,
             )
             if self.pretrained:
-                temp_model = AutoModel.from_pretrained(self.model_name)
+                temp_model = AutoModel.from_pretrained(
+                    self.model_name, trust_remote_code=self.trust_remote_code
+                )
                 source_emb = temp_model.get_input_embeddings()
                 self.encoder.load_state_dict(source_emb.state_dict())
                 del temp_model
@@ -136,11 +146,15 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         else:
             if self.pretrained:
                 self.encoder = AutoModel.from_pretrained(
-                    self.model_name, attn_implementation=self.attention_type
+                    self.model_name,
+                    attn_implementation=self.attention_type,
+                    trust_remote_code=self.trust_remote_code,
                 )
             else:
                 self.encoder = AutoModel.from_config(
-                    self.config, attn_implementation=self.attention_type
+                    self.config,
+                    attn_implementation=self.attention_type,
+                    trust_remote_code=self.trust_remote_code,
                 )
             self.encoder = apply_lora_config(
                 model=self.encoder,
