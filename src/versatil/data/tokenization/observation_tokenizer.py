@@ -31,11 +31,12 @@ def _is_nested_language_list(value: Any) -> bool:
 
 
 def _flatten_time_dim(value: Any) -> Any:
-    """Flatten the time dimension of one observation value env-major.
+    """Merge the batch and time dimensions of one observation value.
 
     Tensors of shape (B, T, ...) become (B*T, ...) and nested language lists
-    of shape (B, T) become flat lists of length B*T, both ordered env-major,
-    timestep-minor so tensor rows and language entries stay paired. Other
+    of shape (B, T) become flat lists of length B*T. Both orderings list all
+    timesteps of the first batch element before moving to the next, matching
+    torch's reshape, so tensor rows and language entries stay paired. Other
     values pass through unchanged.
     """
     if isinstance(value, torch.Tensor) and value.ndim >= 3:
