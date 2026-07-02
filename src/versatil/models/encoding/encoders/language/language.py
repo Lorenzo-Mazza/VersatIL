@@ -97,6 +97,12 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         )
         self._has_cls_token = tokenizer.cls_token_id is not None
         self._num_prefix_tokens = 1 if self._has_cls_token else 0
+        if pooling_method == PoolingMethod.DEFAULT.value and not self._has_cls_token:
+            raise ValueError(
+                f"Tokenizer for '{model_name}' has no CLS token, so DEFAULT "
+                "pooling would silently return the first prompt token. Use "
+                "AVERAGE or NONE pooling instead."
+            )
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.feature_dim,

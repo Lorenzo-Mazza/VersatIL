@@ -51,7 +51,8 @@ class AttentionFusion(SequentialFusion):
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         """
         Args:
-            features: List of sequence features [B, T, D_i] or [B, D_i]
+            features: List of features shaped [B, T, S, D_i] (sequential),
+                [B, T, D_i] (flat with time), or [B, D_i] (flat).
 
         Returns:
             Fused features [B, T, hidden_dim] or [B, hidden_dim]
@@ -63,8 +64,17 @@ class AttentionFusion(SequentialFusion):
             if self.norms is None:
                 raise RuntimeError("Norms should be initialized when use_norm is True")
             projected = [norm(p) for p, norm in zip(projected, self.norms)]
-        has_time = projected[0].dim() == 3
-        if not has_time:
+        # Sequential features arrive as (B, T, S, D) — fusion runs before the
+        # pipeline's T=1 squeeze — so batch and time are merged for attention
+        # over tokens and restored afterwards.
+        batch_time_shape: torch.Size | None = None
+        if projected[0].dim() == 4:
+            batch_time_shape = projected[0].shape[:2]
+            projected = [
+                p.reshape(-1, p.shape[2], p.shape[3]) for p in projected
+            ]  # [B*T, S, D]
+        has_sequence = projected[0].dim() == 3
+        if not has_sequence:
             projected = [p.unsqueeze(1) for p in projected]  # [B, 1, D]
 
         feature_to_use_as_query = self.input_feature_query or self.input_features[0]
@@ -73,14 +83,18 @@ class AttentionFusion(SequentialFusion):
         other_features = [p for i, p in enumerate(projected) if i != query_idx]
 
         if len(other_features) > 0:
-            key_value = torch.cat(other_features, dim=1)  # [B, sum(T_i), D]
+            key_value = torch.cat(other_features, dim=1)  # [B, sum(S_i), D]
             attention_map, _ = self.attention(query, key_value, key_value)
             fused = query + attention_map if self.use_residual else attention_map
         else:
             fused = query
 
-        if not has_time:
+        if not has_sequence:
             fused = fused.squeeze(1)
+        if batch_time_shape is not None:
+            fused = fused.reshape(
+                batch_time_shape[0], batch_time_shape[1], fused.shape[1], fused.shape[2]
+            )
 
         result: torch.Tensor = fused
         return result

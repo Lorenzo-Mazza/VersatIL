@@ -498,6 +498,27 @@ class TestFlatRGBEncoderGetOutputSpecification:
         )
 
 
+class TestFlatRGBEncoderDefaultPoolingGuard:
+    def test_default_pooling_without_prefix_tokens_raises(self, mock_timm_backend):
+        mock_timm_backend.configure(num_prefix_tokens=0)
+        backbone = FlatBackboneType.SIGLIP_BASE_B16_224.value
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Backbone '{backbone}' has no class token, so DEFAULT pooling "
+                "would silently return the first patch token. Use AVERAGE, "
+                "LEARNED_AGGREGATION, or NONE pooling instead."
+            ),
+        ):
+            FlatRGBEncoder(
+                input_keys="left",
+                backbone=backbone,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                pretrained=False,
+                frozen=False,
+            )
+
+
 class TestFlatRGBEncoderBuildBackbone:
     @pytest.mark.integration
     def test_fixed_input_size_models_have_strict_image_size(self):

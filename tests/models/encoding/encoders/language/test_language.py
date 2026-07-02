@@ -735,6 +735,42 @@ class TestLanguageEncoderBuildEncoder:
         )
         assert encoder.encoder is mock_model
 
+    def test_default_pooling_without_cls_token_raises(self):
+        model_name = "bert-base-uncased"
+        mock_config = MagicMock(spec=["hidden_size", "vocab_size"])
+        mock_config.hidden_size = HIDDEN_SIZE
+        mock_config.vocab_size = VOCAB_SIZE
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.cls_token_id = None
+        with (
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_config",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
+                return_value=mock_tokenizer,
+            ),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Tokenizer for '{model_name}' has no CLS token, so DEFAULT "
+                    "pooling would silently return the first prompt token. Use "
+                    "AVERAGE or NONE pooling instead."
+                ),
+            ),
+        ):
+            LanguageEncoder(
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                model_name=model_name,
+            )
+
     @pytest.mark.parametrize("trust_remote_code", [True, False])
     @pytest.mark.parametrize("pretrained", [True, False])
     def test_trust_remote_code_forwarded_to_huggingface_loaders(
@@ -846,6 +882,12 @@ NO_SDPA_LANGUAGE_MODELS = {
     LanguageEncoderType.DEBERTA_V3_BASE,
 }
 
+NO_CLS_TOKEN_LANGUAGE_MODELS = {
+    LanguageEncoderType.EMBEDDINGGEMMA_300M,
+    LanguageEncoderType.QWEN_3_EMBEDDING_0_6B,
+    LanguageEncoderType.LLAMA_NEMOTRON_EMBED_1B_V2,
+}
+
 TIKTOKEN_LANGUAGE_MODELS = {
     LanguageEncoderType.DEBERTA_V3_BASE,
 }
@@ -919,6 +961,13 @@ class TestLanguageEncoderIntegration:
             else AttentionImplementation.SDPA.value
         )
         trust_remote_code_values = {m.value for m in TRUST_REMOTE_CODE_LANGUAGE_MODELS}
+        # DEFAULT (CLS) pooling is rejected for tokenizers without a CLS token.
+        no_cls_values = {m.value for m in NO_CLS_TOKEN_LANGUAGE_MODELS}
+        pooling_method = (
+            PoolingMethod.AVERAGE.value
+            if model_name in no_cls_values
+            else PoolingMethod.DEFAULT.value
+        )
         lora_config = (
             LoRAAdaptation(
                 enabled=True,
@@ -932,7 +981,7 @@ class TestLanguageEncoderIntegration:
         encoder = LanguageEncoder(
             pretrained=False,
             frozen=False,
-            pooling_method=PoolingMethod.DEFAULT.value,
+            pooling_method=pooling_method,
             model_name=model_name,
             attention_type=attention_type,
             lora_config=lora_config,

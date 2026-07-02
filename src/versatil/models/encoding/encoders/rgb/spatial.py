@@ -218,6 +218,9 @@ class SpatialRGBEncoder(RGBEncoderMixin, Encoder):
             self.feature_dim = self._get_intermediate_layer_channels()
             if self.frozen:
                 self._freeze_weights()
+            # The rebuilt backbone is float32; recast before the probe below
+            # runs a model_dtype input through it.
+            self._apply_model_dtype()
 
         probe_dtype = (
             self.model_dtype if self.model_dtype is not None else torch.float32

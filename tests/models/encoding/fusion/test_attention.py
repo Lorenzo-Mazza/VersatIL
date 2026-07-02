@@ -167,6 +167,43 @@ class TestAttentionFusionForward:
         else:
             assert output.shape == (batch_size, hidden_dim)
 
+    def test_sequential_features_with_time_dimension(
+        self,
+        attention_fusion_factory: Callable[..., AttentionFusion],
+        rng,
+    ):
+        # The pipeline runs fusion before its T=1 squeeze, so sequential
+        # features arrive as (B, T, S, D).
+        batch_size, time_steps, sequence_length, hidden_dim = 2, 1, 8, 32
+        module = attention_fusion_factory(
+            input_features=["tokens_a", "tokens_b"],
+            hidden_dim=hidden_dim,
+        )
+        module.setup(
+            feature_registry=_make_registry(
+                {
+                    "tokens_a": (sequence_length, 64),
+                    "tokens_b": (sequence_length, 128),
+                }
+            )
+        )
+        features = [
+            torch.from_numpy(
+                rng.standard_normal(
+                    (batch_size, time_steps, sequence_length, 64)
+                ).astype("float32")
+            ),
+            torch.from_numpy(
+                rng.standard_normal(
+                    (batch_size, time_steps, sequence_length, 128)
+                ).astype("float32")
+            ),
+        ]
+        output = module(features)
+        assert output.shape == (batch_size, time_steps, sequence_length, hidden_dim)
+        specification = module.get_output_specification()
+        assert specification.dimension == (sequence_length, hidden_dim)
+
     def test_single_feature_returns_projected_query(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],

@@ -300,6 +300,13 @@ class EncodingPipeline(nn.Module):
                 )
                 continue
             condition_key = encoder.condition_key
+            if condition_key not in features:
+                logging.warning(
+                    f"Conditional encoder '{encoder_name}' skipped: conditioning "
+                    f"feature '{condition_key}' was not produced (its encoder "
+                    "may have been skipped)"
+                )
+                continue
             encoded = encoder(encoder_input, features[condition_key])
             for feature_key in self._encoder_feature_keys[encoder_name]:
                 if feature_key in encoded:

@@ -86,6 +86,15 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         self.intermediate_layer_index = intermediate_layer_index
         self.lora_config = lora_config
         self._build_backbone()
+        if (
+            pooling_method == PoolingMethod.DEFAULT.value
+            and self.backbone.num_prefix_tokens == 0
+        ):
+            raise ValueError(
+                f"Backbone '{backbone}' has no class token, so DEFAULT pooling "
+                "would silently return the first patch token. Use AVERAGE, "
+                "LEARNED_AGGREGATION, or NONE pooling instead."
+            )
         self.feature_dim: int = int(self.backbone.num_features)
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
