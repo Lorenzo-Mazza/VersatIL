@@ -4,47 +4,105 @@
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
-| Python | 3.14 | Required by `pyproject.toml` (`requires-python = ">=3.14"`); pinned in `environment.yml`. |
-| CUDA driver | Supports CUDA 13.0 runtime | Required for the pinned `cu130` PyTorch wheels |
+| Python | 3.13 or 3.14 | Supported by `pyproject.toml` (`requires-python = ">=3.13,<3.15"`). |
+| CUDA driver | Supports CUDA 13.0 runtime | Required only when installing the `gpu` extra |
 | Git | Latest | Credentials for private repositories if applicable |
 
 ## Setup
 
-### 1. Install Conda/Mamba
+### Option A: Miniforge/Mamba Environment
+
+#### 1. Install Conda/Mamba
 
 Install [Miniforge](https://github.com/conda-forge/miniforge) to get `conda` and `mamba`. Mamba is recommended over conda for significantly faster dependency resolution.
 
-### 2. Clone and Create Environment
+#### 2. Clone and Create Environment
 
 ```bash
-git clone https://gitlab.com/nct_tso_public/versatil.git
-cd versatil
+git clone https://github.com/Lorenzo-Mazza/VersatIL.git
+cd VersatIL
 
 # Create environment (use mamba for faster installation)
 mamba env create -f environment.yml
 mamba activate versatil
 ```
 
-The `environment.yml` creates a minimal conda environment with Python 3.14 and uv.
+The `environment.yml` creates a minimal conda environment with a supported
+Python version and uv. To force Python 3.13 instead of the default solver
+choice, create the environment manually:
 
-### 3. Install Dependencies
+```bash
+mamba create -n versatil python=3.13 pip
+mamba activate versatil
+python -m pip install uv
+```
+
+#### 3. Install Dependencies
 
 VersatIL uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. All dependencies are declared in `pyproject.toml`.
 
 ```bash
-UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
+PYTHON_VERSION=3.14
+UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra gpu
+# For CPU-only environments:
+# UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra cpu
+# For Python 3.13, set PYTHON_VERSION=3.13.
 ```
 
-This installs all packages into the active conda environment, including:
+This installs all packages into the active conda environment.
 
-- **PyTorch 2.12.0** with CUDA 13.0 wheels from the PyTorch index
+### Option B: uv Environment
+
+Use this path when you want a project-local `.venv` without conda, mamba, or
+Miniforge.
+
+```bash
+# Install uv if it is not already available
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+git clone https://github.com/Lorenzo-Mazza/VersatIL.git
+cd VersatIL
+
+PYTHON_VERSION=3.14
+uv python install "$PYTHON_VERSION"
+uv venv --python "$PYTHON_VERSION"
+source .venv/bin/activate
+# For Python 3.13, set PYTHON_VERSION=3.13.
+
+uv sync --python "$PYTHON_VERSION" --extra gpu
+# For CPU-only environments:
+# uv sync --python "$PYTHON_VERSION" --extra cpu
+```
+
+Both setup paths install:
+
+- **PyTorch 2.12.0** from the selected PyTorch wheel extra (`gpu` or `cpu`)
 - **Hydra + OmegaConf** for configuration
 - **Lightning 2.6.1** for training
 - **timm**, **transformers**, **diffusers** for model backbones
 - **albumentations** for image augmentation
 - **wandb** for experiment tracking
+- **Dev tooling** (pytest, pytest-cov, ruff, pre-commit) from the `dev`
+  dependency group, which `uv sync` includes by default — pass `--no-dev` for a
+  runtime-only install
 
-### 4. Install Pre-commit Hooks
+### Optional ExecuTorch Dependency
+
+Python 3.13 environments can install ExecuTorch from PyPI through the optional
+extra:
+
+```bash
+PYTHON_VERSION=3.13
+uv sync --python "$PYTHON_VERSION" --extra cpu --extra executorch
+# Use --extra gpu instead of --extra cpu when installing the CUDA PyTorch stack.
+```
+
+The `executorch` extra is ignored on Python 3.14 by package markers because the
+published ExecuTorch wheel currently declares `requires-python = ">=3.10,<3.14"`.
+Use the source-build flow from the README when ExecuTorch is needed in a Python
+3.14 environment.
+
+### Install Pre-commit Hooks
 
 ```bash
 pre-commit install

@@ -3,7 +3,7 @@
 [![CI](https://github.com/Lorenzo-Mazza/VersatIL/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Lorenzo-Mazza/VersatIL/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Lorenzo-Mazza/VersatIL/branch/main/graph/badge.svg)](https://codecov.io/gh/Lorenzo-Mazza/VersatIL)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13/3.14](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/versatil.svg)](https://pypi.org/project/versatil/)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://lorenzo-mazza.github.io/VersatIL)
@@ -56,6 +56,112 @@ Paper-specific instructions for reproducing reported experiments are collected i
 the [Papers Reproducibility Instructions](docs/papers-reproducibility-instructions/index.md)
 docs section. These notes list the datasets, local path setup, environment
 variables, and Hydra configs used for each paper.
+
+---
+
+## 🚀 Installation
+
+**Prerequisites:**
+- Python 3.13 or 3.14 — supported by `pyproject.toml` (`requires-python = ">=3.13,<3.15"`).
+- NVIDIA driver compatible with CUDA 13.0 PyTorch wheels, only when installing the `gpu` extra.
+
+**Setup:**
+### Option A: Install into a Miniforge/Mamba environment
+Follow the Miniforge instructions at https://github.com/conda-forge/miniforge
+
+```bash
+# 1. Clone repository
+git clone https://github.com/Lorenzo-Mazza/VersatIL.git
+cd VersatIL
+
+# 2. Create environment (use Mamba for faster installation)
+mamba env create -f environment.yml
+mamba activate versatil
+# To force Python 3.13 instead:
+# mamba create -n versatil python=3.13 pip
+# mamba activate versatil
+# python -m pip install uv
+
+# 3. Install dependencies into the active conda environment
+PYTHON_VERSION=3.14
+UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra gpu
+# For CPU-only environments:
+# UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra cpu
+# For Python 3.13, set PYTHON_VERSION=3.13.
+
+# 4. Install pre-commit hooks (formatting + linting on every commit)
+pre-commit install
+```
+
+### Option B: Install with uv directly
+This creates a project-local `.venv` and does not require conda, mamba, or
+Miniforge.
+
+```bash
+# 1. Install uv if it is not already available
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Clone repository
+git clone https://github.com/Lorenzo-Mazza/VersatIL.git
+cd VersatIL
+
+# 3. Create the Python environment
+PYTHON_VERSION=3.14
+uv python install "$PYTHON_VERSION"
+uv venv --python "$PYTHON_VERSION"
+source .venv/bin/activate
+# For Python 3.13, set PYTHON_VERSION=3.13.
+
+# 4. Install dependencies
+uv sync --python "$PYTHON_VERSION" --extra gpu
+# For CPU-only environments:
+# uv sync --python "$PYTHON_VERSION" --extra cpu
+
+# 5. Install pre-commit hooks (formatting + linting on every commit)
+pre-commit install
+```
+
+With both options, `uv sync` installs the `dev` dependency group (pytest,
+pytest-cov, ruff, pre-commit) by default, so the environment is ready for
+development out of the box. Pass `--no-dev` for a runtime-only install.
+
+### Optional ExecuTorch Dependency for Edge Deployment
+
+**ExecuTorch for XNNPACK `.pte` export:** Python 3.13 environments can install
+ExecuTorch from PyPI through the optional extra:
+
+```bash
+PYTHON_VERSION=3.13
+uv sync --python "$PYTHON_VERSION" --extra cpu --extra executorch
+# Use --extra gpu instead of --extra cpu when installing the CUDA PyTorch stack.
+```
+
+The `executorch` extra is guarded by a Python marker, because the published
+ExecuTorch package currently declares `requires-python = ">=3.10,<3.14"`.
+Python 3.14 environments need an ExecuTorch package built from source in the
+active `versatil` environment:
+
+```bash
+cd ..
+git clone https://github.com/pytorch/executorch.git
+cd executorch
+git submodule update --init --recursive
+
+SITE_PACKAGES=$(python - <<'PY'
+import site
+print(site.getsitepackages()[0])
+PY
+)
+CMAKE_PREFIX_PATH="$SITE_PACKAGES" \
+CMAKE_BUILD_PARALLEL_LEVEL=8 \
+CMAKE_ARGS="-DEXECUTORCH_BUILD_CUDA=OFF -DEXECUTORCH_BUILD_QNN=OFF -DEXECUTORCH_BUILD_OPENVINO=OFF -DEXECUTORCH_BUILD_COREML=OFF -DEXECUTORCH_BUILD_MLX=OFF -DEXECUTORCH_BUILD_VGF=OFF -DEXECUTORCH_BUILD_EXTENSION_LLM=OFF -DEXECUTORCH_BUILD_EXTENSION_LLM_RUNNER=OFF -DEXECUTORCH_BUILD_EXTENSION_TRAINING=OFF -DEXECUTORCH_BUILD_KERNELS_LLM=OFF -DEXECUTORCH_BUILD_KERNELS_LLM_AOT=OFF -DEXECUTORCH_BUILD_TESTS=OFF -DEXECUTORCH_BUILD_XNNPACK=ON -DEXECUTORCH_BUILD_PYBIND=ON -DEXECUTORCH_BUILD_KERNELS_QUANTIZED=ON -DEXECUTORCH_BUILD_KERNELS_QUANTIZED_AOT=ON" \
+python -m pip install . --no-build-isolation --ignore-requires-python --no-deps -v
+
+cd ../versatil
+```
+
+`python -m pip check` can still report a `scikit-learn` metadata conflict in
+Python 3.14 environments. The XNNPACK export path works with the built package.
 
 ---
 
@@ -231,60 +337,6 @@ Compressed models are loaded by [`CompressedPolicyRuntime`](src/versatil/inferen
 ---
 
 ## 🚀 Quick Start
-
-### Installation
-
-**Prerequisites:**
-- Python 3.14 — required by `pyproject.toml` (`requires-python = ">=3.14"`) and pinned in the shipped `environment.yml`.
-- NVIDIA driver compatible with CUDA 13.0 PyTorch wheels (required for training)
-
-**Setup:**
-###### Install Conda/Mamba from miniforge
-Follow the instructions here https://github.com/conda-forge/miniforge
-
-```bash
-# 1. Clone repository
-git clone https://gitlab.com/nct_tso_public/versatil.git
-cd versatil
-
-# 2. Create environment (use Mamba for faster installation)
-mamba env create -f environment.yml
-mamba activate versatil
-
-# 3. Install dependencies with uv
-UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
-
-# 4. Install pre-commit hooks (formatting + linting on every commit)
-pre-commit install
-```
-# 5. Optional ExecuTorch dependency for edge deployment
-
-**ExecuTorch for XNNPACK `.pte` export:** ExecuTorch currently declares
-`requires-python = ">=3.10,<3.14"`, while VersatIL uses Python 3.14. The
-`ExecutorchXNNPACKBackend` needs an ExecuTorch package built from source in the
-active `versatil` environment:
-
-```bash
-cd ..
-git clone https://github.com/pytorch/executorch.git
-cd executorch
-git submodule update --init --recursive
-
-SITE_PACKAGES=$(python - <<'PY'
-import site
-print(site.getsitepackages()[0])
-PY
-)
-CMAKE_PREFIX_PATH="$SITE_PACKAGES" \
-CMAKE_BUILD_PARALLEL_LEVEL=8 \
-CMAKE_ARGS="-DEXECUTORCH_BUILD_CUDA=OFF -DEXECUTORCH_BUILD_QNN=OFF -DEXECUTORCH_BUILD_OPENVINO=OFF -DEXECUTORCH_BUILD_COREML=OFF -DEXECUTORCH_BUILD_MLX=OFF -DEXECUTORCH_BUILD_VGF=OFF -DEXECUTORCH_BUILD_EXTENSION_LLM=OFF -DEXECUTORCH_BUILD_EXTENSION_LLM_RUNNER=OFF -DEXECUTORCH_BUILD_EXTENSION_TRAINING=OFF -DEXECUTORCH_BUILD_KERNELS_LLM=OFF -DEXECUTORCH_BUILD_KERNELS_LLM_AOT=OFF -DEXECUTORCH_BUILD_TESTS=OFF -DEXECUTORCH_BUILD_XNNPACK=ON -DEXECUTORCH_BUILD_PYBIND=ON -DEXECUTORCH_BUILD_KERNELS_QUANTIZED=ON -DEXECUTORCH_BUILD_KERNELS_QUANTIZED_AOT=ON" \
-python -m pip install . --no-build-isolation --ignore-requires-python --no-deps -v
-
-cd ../versatil
-```
-
-`python -m pip check` can still report a `scikit-learn` metadata conflict on
-Python 3.14. The XNNPACK export path works with the built package.
 
 ### Environment Configuration
 
@@ -679,5 +731,5 @@ Pre-commit hooks run ruff automatically on every `git commit`.
 - Check dataset schema matches your data
 - Ensure sufficient disk space for Zarr cache
 
-### Python 3.14 Compatibility
-If Hydra or torchao crash on Python 3.14, see the [Known Issues](https://lorenzo-mazza.github.io/VersatIL/known-issues/) docs for active workarounds.
+### Python Compatibility
+If torchao crashes on Python 3.14, see the [Known Issues](https://lorenzo-mazza.github.io/VersatIL/known-issues/) docs for active workarounds.

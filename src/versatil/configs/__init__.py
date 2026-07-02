@@ -415,292 +415,274 @@ def register_resolvers():
     This allows using ${cameras:LEFT} in YAML to get Cameras.LEFT.value.
     """
     if not OmegaConf.has_resolver("cameras"):
-        OmegaConf.register_new_resolver("cameras", lambda name: Cameras[name].value)
+        OmegaConf.register_resolver("cameras", lambda name: Cameras[name].value)
     if not OmegaConf.has_resolver("raw_camera"):
-        OmegaConf.register_new_resolver(
-            "raw_camera", lambda name: RawCameraKey[name].value
-        )
+        OmegaConf.register_resolver("raw_camera", lambda name: RawCameraKey[name].value)
     if not OmegaConf.has_resolver("gripper"):
-        OmegaConf.register_new_resolver("gripper", lambda name: GripperType[name].value)
+        OmegaConf.register_resolver("gripper", lambda name: GripperType[name].value)
     if not OmegaConf.has_resolver("orientation"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "orientation", lambda name: OrientationRepresentation[name].value
         )
     if not OmegaConf.has_resolver("action_computation"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "action_computation", lambda name: ActionComputationMethod[name].value
         )
     if not OmegaConf.has_resolver("rgb_backbone"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "rgb_backbone", lambda name: RGBBackboneType[name].value
         )
     if not OmegaConf.has_resolver("batch_norm_handling"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "batch_norm_handling", lambda name: BatchNormHandling[name].value
         )
     if not OmegaConf.has_resolver("precision"):
-        OmegaConf.register_new_resolver(
-            "precision", lambda name: PrecisionType[name].value
-        )
+        OmegaConf.register_resolver("precision", lambda name: PrecisionType[name].value)
     if not OmegaConf.has_resolver("lora_target_modules"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "lora_target_modules", lambda name: LoRATargetModulePreset[name].value
         )
     if not OmegaConf.has_resolver("float32_matmul"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "float32_matmul", lambda name: Float32MatmulPrecision[name].value
         )
     if not OmegaConf.has_resolver("pooling_method"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "pooling_method", lambda name: PoolingMethod[name].value
         )
     if not OmegaConf.has_resolver("language_model"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "language_model", lambda name: LanguageEncoderType[name].value
         )
     if not OmegaConf.has_resolver("vlm_model"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "vlm_model", lambda name: ImageTextModelType[name].value
         )
     if not OmegaConf.has_resolver("smolvlm_model"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "smolvlm_model", lambda name: SmolVLMModelType[name].value
         )
     if not OmegaConf.has_resolver("paligemma_model"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "paligemma_model", lambda name: PaliGemmaModelType[name].value
         )
     if not OmegaConf.has_resolver("prismatic_model"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "prismatic_model", lambda name: PrismaticModelType[name].value
         )
     if not OmegaConf.has_resolver("prismatic_llm_model"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "prismatic_llm_model",
             lambda name: PRISMATIC_LLM_BACKBONES[PrismaticLLMBackboneType[name]],
         )
     if not OmegaConf.has_resolver("activation_function"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "activation_function", lambda name: ActivationFunction[name].value
         )
     if not OmegaConf.has_resolver("normalization"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "normalization", lambda name: NormalizationType[name].value
         )
     if not OmegaConf.has_resolver("attention"):
-        OmegaConf.register_new_resolver(
-            "attention", lambda name: AttentionType[name].value
-        )
+        OmegaConf.register_resolver("attention", lambda name: AttentionType[name].value)
     if not OmegaConf.has_resolver("pos_encoding"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "pos_encoding", lambda name: PositionalEncodingType[name].value
         )
     if not OmegaConf.has_resolver("tokenizer_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "tokenizer_type", lambda name: TokenizerType[name].value
         )
     if not OmegaConf.has_resolver("action_discretizer"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "action_discretizer", lambda name: ActionDiscretizerType[name].value
         )
     if not OmegaConf.has_resolver("action_token_id_mapping"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "action_token_id_mapping",
             lambda name: ActionTokenIdMappingType[name].value,
         )
     if not OmegaConf.has_resolver("kinematics_norm_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "kinematics_norm_type", lambda name: KinematicsNormalizationType[name].value
         )
     if not OmegaConf.has_resolver("image_norm_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "image_norm_type", lambda name: ImageNormalizationType[name].value
         )
     if not OmegaConf.has_resolver("obs_key"):
-        OmegaConf.register_new_resolver("obs_key", lambda name: ObsKey[name].value)
+        OmegaConf.register_resolver("obs_key", lambda name: ObsKey[name].value)
     if not OmegaConf.has_resolver("sample_key"):
-        OmegaConf.register_new_resolver(
-            "sample_key", lambda name: SampleKey[name].value
-        )
+        OmegaConf.register_resolver("sample_key", lambda name: SampleKey[name].value)
     if not OmegaConf.has_resolver("moe_routing_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "moe_routing_type", lambda name: MoERoutingType[name].value
         )
     if not OmegaConf.has_resolver("coordinate_system"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "coordinate_system", lambda name: CoordinateSystem[name].value
         )
     if not OmegaConf.has_resolver("gripper_range"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "gripper_range", lambda name: BinaryGripperRange[name].value
         )
     if not OmegaConf.has_resolver("proprio_key"):
-        OmegaConf.register_new_resolver(
-            "proprio_key", lambda name: ProprioKey[name].value
-        )
+        OmegaConf.register_resolver("proprio_key", lambda name: ProprioKey[name].value)
     if not OmegaConf.has_resolver("latent_key"):
-        OmegaConf.register_new_resolver(
-            "latent_key", lambda name: LatentKey[name].value
-        )
+        OmegaConf.register_resolver("latent_key", lambda name: LatentKey[name].value)
     if not OmegaConf.has_resolver("scheduler_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "scheduler_type", lambda name: SchedulerType[name].value
         )
     if not OmegaConf.has_resolver("denoising_algorithm"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "denoising_algorithm", lambda name: DenoisingAlgorithm[name].value
         )
     if not OmegaConf.has_resolver("conditioning_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "conditioning_type", lambda name: ConditioningType[name].value
         )
     if not OmegaConf.has_resolver("metadata_key"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "metadata_key", lambda name: MetadataKey[name].value
         )
     if not OmegaConf.has_resolver("metadata_passthrough_source"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "metadata_passthrough_source",
             lambda name: MetadataPassthroughSource[name].value,
         )
     if not OmegaConf.has_resolver("dit_type"):
-        OmegaConf.register_new_resolver("dit_type", lambda name: DiTType[name].value)
+        OmegaConf.register_resolver("dit_type", lambda name: DiTType[name].value)
     if not OmegaConf.has_resolver("time_conditioning"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "time_conditioning", lambda name: TimeConditioning[name].value
         )
     if not OmegaConf.has_resolver("timestep_sampler"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "timestep_sampler", lambda name: TimestepSampler[name].value
         )
     if not OmegaConf.has_resolver("dataset_type"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "dataset_type", lambda name: DatasetType[name].value
         )
     if not OmegaConf.has_resolver("kernel_type"):
-        OmegaConf.register_new_resolver(
-            "kernel_type", lambda name: KernelType[name].value
-        )
+        OmegaConf.register_resolver("kernel_type", lambda name: KernelType[name].value)
     if not OmegaConf.has_resolver("mixture_sampling"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "mixture_sampling", lambda name: MixtureSamplingMode[name].value
         )
     if not OmegaConf.has_resolver("gmm_init"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "gmm_init", lambda name: GMMInitStrategy[name].value
         )
     if not OmegaConf.has_resolver("token_padding"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "token_padding", lambda name: TokenPaddingStrategy[name].value
         )
     if not OmegaConf.has_resolver("synthetic_task"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "synthetic_task", lambda name: SyntheticTaskName[name].value
         )
     if not OmegaConf.has_resolver("synthetic_obs_key"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "synthetic_obs_key", lambda name: SyntheticObsKey[name].value
         )
     if not OmegaConf.has_resolver("tso_obs_key"):
-        OmegaConf.register_new_resolver(
-            "tso_obs_key", lambda name: TSOObsKey[name].value
-        )
+        OmegaConf.register_resolver("tso_obs_key", lambda name: TSOObsKey[name].value)
 
     if not OmegaConf.has_resolver("compile_mode"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "compile_mode", lambda name: CompileMode[name].value
         )
     if not OmegaConf.has_resolver("quantization_backend"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "quantization_backend", lambda name: PT2EBackendName[name].value
         )
     if not OmegaConf.has_resolver("torch_dtype"):
-        OmegaConf.register_new_resolver(
-            "torch_dtype", lambda name: getattr(torch, name)
-        )
+        OmegaConf.register_resolver("torch_dtype", lambda name: getattr(torch, name))
     if not OmegaConf.has_resolver("env"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "env", lambda key, default=None: os.environ.get(key, default)
         )
     if not OmegaConf.has_resolver("checkpoint_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "checkpoint_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_CHECKPOINT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("zarr_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "zarr_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_ZARR_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("cache_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "cache_dir",
             lambda: os.environ.get(
                 "VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")
             ),
         )
     if not OmegaConf.has_resolver("pretrained_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "pretrained_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_PRETRAINED_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("bowel_retraction_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "bowel_retraction_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_BOWEL_RETRACTION_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("libero_hdf5_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "libero_hdf5_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_LIBERO_HDF5_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("libero_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "libero_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_LIBERO_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("libero_plus_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "libero_plus_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_LIBERO_PLUS_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("metaworld_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "metaworld_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("pusht_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "pusht_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_PUSHT_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("kitchen_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "kitchen_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_KITCHEN_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("block_pushing_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "block_pushing_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_DIR", "."))
@@ -708,7 +690,7 @@ def register_resolvers():
             ),
         )
     if not OmegaConf.has_resolver("block_pushing_lerobot_abs_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "block_pushing_lerobot_abs_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR", "."))
@@ -716,21 +698,21 @@ def register_resolvers():
             ),
         )
     if not OmegaConf.has_resolver("ant_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "ant_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_ANT_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("ur3_lerobot_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "ur3_lerobot_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_UR3_LEROBOT_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("multimodal_peg_transfer_dir"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "multimodal_peg_transfer_dir",
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR", "."))
@@ -738,27 +720,27 @@ def register_resolvers():
             ),
         )
     if not OmegaConf.has_resolver("prunable_layer"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "prunable_layer",
             lambda name: PrunableLayerType[name].value,
         )
     if not OmegaConf.has_resolver("mul"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "mul",
             _multiply_resolver,
         )
     if not OmegaConf.has_resolver("int_mul"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "int_mul",
             _integer_multiply_resolver,
         )
     if not OmegaConf.has_resolver("action_space_prediction_dimension"):
-        OmegaConf.register_new_resolver(
+        OmegaConf.register_resolver(
             "action_space_prediction_dimension",
             _action_space_prediction_dimension_resolver,
         )
     if not OmegaConf.has_resolver("stage_split_epoch"):
-        OmegaConf.register_new_resolver("stage_split_epoch", _stage_split_epoch)
+        OmegaConf.register_resolver("stage_split_epoch", _stage_split_epoch)
 
 
 def register_configs() -> None:
