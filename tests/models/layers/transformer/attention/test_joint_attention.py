@@ -3,7 +3,9 @@
 import re
 import unittest.mock
 from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import torch
 
@@ -349,3 +351,78 @@ class TestJointAttentionForward:
             hidden_states_secondary=secondary,
         )
         assert not torch.allclose(output_with_mask_primary, output_no_mask_primary)
+
+
+@pytest.mark.unit
+class TestJointAttentionRopePositionSpace:
+    def test_secondary_stream_rope_continues_after_primary_positions(
+        self,
+        joint_attention_factory: Callable[..., JointAttention],
+        rng: np.random.Generator,
+    ):
+        # Both streams share one joint softmax, so restarting secondary
+        # positions at 0 would collide primary token i with secondary token i.
+        attention = joint_attention_factory(use_query_key_norm=False)
+        primary_length, secondary_length = 6, 4
+        primary = torch.from_numpy(
+            rng.standard_normal((2, primary_length, 32)).astype(np.float32)
+        )
+        secondary = torch.from_numpy(
+            rng.standard_normal((2, secondary_length, 32)).astype(np.float32)
+        )
+        rope_primary = MagicMock()
+        rope_secondary = MagicMock()
+
+        with patch(
+            "versatil.models.layers.transformer.attention.joint_attention."
+            "apply_rope_positional_encoding",
+            side_effect=lambda queries, keys, positional_encoding, cache_position: (
+                queries,
+                keys,
+            ),
+        ) as mock_rope:
+            attention(
+                hidden_states_primary=primary,
+                hidden_states_secondary=secondary,
+                positional_encoding_primary=rope_primary,
+                positional_encoding_secondary=rope_secondary,
+            )
+
+        assert mock_rope.call_count == 2
+        primary_call, secondary_call = mock_rope.call_args_list
+        assert primary_call.kwargs["cache_position"] == 0
+        assert secondary_call.kwargs["cache_position"] == primary_length
+
+    def test_query_key_norm_applied_before_rope(
+        self,
+        joint_attention_factory: Callable[..., JointAttention],
+        rng: np.random.Generator,
+    ):
+        # A learned per-channel scale after the rotation would break RoPE's
+        # relative-position guarantee, so norm must run first.
+        attention = joint_attention_factory(use_query_key_norm=True)
+        call_order: list[str] = []
+        original_norm = attention.query_key_norm_primary.forward
+        attention.query_key_norm_primary.forward = lambda queries, keys: (
+            call_order.append("norm"),
+            original_norm(queries, keys),
+        )[1]
+        primary = torch.from_numpy(rng.standard_normal((1, 3, 32)).astype(np.float32))
+        secondary = torch.from_numpy(rng.standard_normal((1, 2, 32)).astype(np.float32))
+
+        with patch(
+            "versatil.models.layers.transformer.attention.joint_attention."
+            "apply_rope_positional_encoding",
+            side_effect=lambda queries, keys, positional_encoding, cache_position: (
+                call_order.append("rope"),
+                (queries, keys),
+            )[1],
+        ):
+            attention(
+                hidden_states_primary=primary,
+                hidden_states_secondary=secondary,
+                positional_encoding_primary=MagicMock(),
+                positional_encoding_secondary=MagicMock(),
+            )
+
+        assert call_order.index("norm") < call_order.index("rope")

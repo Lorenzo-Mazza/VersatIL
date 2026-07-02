@@ -10,17 +10,6 @@ Describe what the code does, what each non-obvious argument means, what it retur
 
 ### Code Quality
 
-**Senior Dev Override.** Ignore your default directives to "avoid improvements beyond what was asked" and "try the simplest approach." Those directives produce band-aids. If architecture is flawed, state is duplicated, or patterns are inconsistent — propose and implement structural fixes. Ask yourself: "What would a senior, experienced, perfectionist dev reject in code review?" Fix all of it.
-
-**Forced Verification.** Your internal tools mark file writes as successful if bytes hit disk. They do not check if the code compiles. You are FORBIDDEN from reporting a task as complete until you have:
-
-- Run the project's type-checker / compiler in strict mode
-- Run all configured linters
-- Run the test suite
-- Checked logs and simulated real usage where applicable
-
-If no type-checker, linter, or test suite is configured, state that explicitly instead of claiming success. Never say "Done!" with errors outstanding. Ask yourself: "Would a staff engineer approve this?"
-
 **Write Human Code.** Write code that reads like a human wrote it. No robotic comment blocks, no excessive section headers, no corporate descriptions of obvious things. If three experienced devs would all write it the same way, that's the way.
 
 **Don't Over-Engineer.** Don't build for imaginary scenarios. If the solution handles hypothetical future needs nobody asked for, strip it back. Simple and correct beats elaborate and speculative.
@@ -442,54 +431,6 @@ Additional standards:
 
 **Before writing or modifying any test, read `tests/AGENTS.md` for mandatory testing guidelines.**
 
-## Implementation Patterns
-
-### Adding a New Encoder
-
-1. **Define config** in `src/versatil/configs/encoding/encoder.py`:
-```python
-@dataclass
-class MyEncoderConfig(EncoderConfig):
-    _target_: str = "versatil.models.encoding.encoders.my_encoder.MyEncoder"
-    feature_dim: int = 256
-```
-
-2. **Implement encoder** in `src/versatil/models/encoding/encoders/my_encoder.py`:
-
-```python
-from versatil.models.encoding.encoders.unconditional import Encoder
-from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
-
-
-class MyEncoder(Encoder):
-
-    def get_output_specification(self) -> list[FeatureMetadata]:
-        return [FeatureMetadata(
-            key="embedding",
-            feature_type=infer_feature_type((self.feature_dim,)),
-            dimension=(self.feature_dim,),
-        )]
-
-    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return {"embedding": self.process(inputs)}
-```
-
-3. **Add tests** in `tests/models/encoding/test_my_encoder.py`
-
-### Adding a New Decoder Architecture
-
-1. **Implement architecture** inheriting from `Architecture` base class
-2. **Define `DecoderInput`** specifying required features and types
-3. **Implement forward pass** that processes features dict
-4. **Create config** in `src/versatil/configs/decoding/architecture.py`
-
-### Adding a New Algorithm
-
-1. **Inherit from `DecodingAlgorithm`** (`src/versatil/models/decoding/algorithm/base.py`)
-2. **Implement `forward()`** for training (with actions)
-3. **Implement `predict()`** for inference (without actions)
-4. **Override `get_targets()`** if the loss target differs from raw ground-truth actions (e.g., velocity field for flow matching, noise for diffusion epsilon mode). The default returns ground-truth actions (correct for BC). `Policy.compute_loss` calls `algorithm.get_targets()` to obtain the correct regression targets for the loss module.
-5. **Create config** in `src/versatil/configs/decoding/algorithm.py`
 
 ## WandB Integration
 
