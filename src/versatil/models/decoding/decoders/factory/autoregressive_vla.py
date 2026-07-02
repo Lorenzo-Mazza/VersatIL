@@ -546,7 +546,7 @@ class AutoregressiveVLADecoder(
         """Build the LM attention mask for variable-length prefix/action rows.
 
         Note:
-            Even a fully-visible attention mask must stay explicit: None makes 
+            Even a fully-visible attention mask must stay explicit: None makes
             HF decoder layers fall back to causal attention, overriding the
             bidirectional prefix structure.
 

@@ -7,6 +7,7 @@ from versatil.models.layers.geometric_attention.depth_decay import (
 )
 from versatil.models.layers.geometric_attention.spatial_decay import SpatialDecayMask
 from versatil.models.layers.positional_encoding.rotary import (
+    RasterRotaryPositionalEncoding2D,
     RotaryPositionalEncoding2D,
 )
 
@@ -27,6 +28,7 @@ class GeometricAttentionBias(nn.Module):
         initial_decay: float = 5.0,
         decay_range: float = 3.0,
         base_frequency: float = 10000.0,
+        use_raster_positions: bool = False,
     ):
         """Initializes geometric attention bias generator.
 
@@ -36,11 +38,20 @@ class GeometricAttentionBias(nn.Module):
             initial_decay: Initial decay rate for spatial distance.
             decay_range: Range of decay rates across heads.
             base_frequency: Base frequency for rotary encoding.
+            use_raster_positions: Whether to rotate by flattened raster grid
+                positions (the DFormerv2 reference convention) instead of
+                axis-split 2D positions. Required for pretrained DFormerv2
+                checkpoints.
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
         self.num_heads = num_heads
-        self.rotary_encoding = RotaryPositionalEncoding2D(
+        rotary_class = (
+            RasterRotaryPositionalEncoding2D
+            if use_raster_positions
+            else RotaryPositionalEncoding2D
+        )
+        self.rotary_encoding = rotary_class(
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
             base_frequency=base_frequency,

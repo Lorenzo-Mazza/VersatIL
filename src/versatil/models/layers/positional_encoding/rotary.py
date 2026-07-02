@@ -159,6 +159,63 @@ class RotaryPositionalEncoding1D(RotaryPositionalEncoding):
         return sine_components, cosine_components
 
 
+class RasterRotaryPositionalEncoding2D(RotaryPositionalEncoding):
+    """Rotary encoding over flattened raster positions of a 2D grid.
+
+    Matches the DFormerv2 reference convention: every token is rotated by its
+    flattened index ``row * width + column`` with a single frequency band
+    spanning the full head dimension, spaced as
+    ``1 / base_frequency ** linspace(0, 1, head_dim // 2)`` with the endpoint
+    included. Pretrained DFormerv2 checkpoints require exactly this scheme.
+    """
+
+    def __init__(
+        self,
+        embedding_dimension: int,
+        num_heads: int,
+        base_frequency: float = 10000.0,
+        learnable_frequencies: bool = False,
+    ):
+        """Initialize raster rotary encoding with endpoint-spaced frequencies.
+
+        Args:
+            embedding_dimension: Full model embedding dimension.
+            num_heads: Number of attention heads.
+            base_frequency: Base frequency for geometric spacing.
+            learnable_frequencies: Whether frequency bands are trainable.
+        """
+        super().__init__(
+            embedding_dimension=embedding_dimension,
+            num_heads=num_heads,
+            base_frequency=base_frequency,
+            learnable_frequencies=learnable_frequencies,
+        )
+        half_dimension = self.head_dimension // 2
+        exponents = torch.linspace(0, 1, half_dimension)
+        frequencies = 1.0 / (base_frequency**exponents)
+        with torch.no_grad():
+            self.frequencies.copy_(frequencies.repeat_interleave(2))
+
+    def compute_rotation_components(
+        self, height: int, width: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Computes sine and cosine components for raster grid positions.
+
+        Args:
+            height: Grid height.
+            width: Grid width.
+
+        Returns:
+            Tuple of (sine, cosine) tensors of shape (H, W, head_dim).
+        """
+        device = self.frequencies.device
+        position_indices = torch.arange(height * width, device=device)
+        angles = position_indices[:, None] * self.frequencies[None, :]
+        sine_components = torch.sin(angles).reshape(height, width, -1)
+        cosine_components = torch.cos(angles).reshape(height, width, -1)
+        return sine_components, cosine_components
+
+
 class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
     """Rotary positional encoding for 2D spatial grids."""
 

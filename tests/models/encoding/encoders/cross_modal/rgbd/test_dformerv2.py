@@ -61,6 +61,7 @@ _TINY_VARIANT = {
     "depths": [1, 1],
     "num_heads": [2, 2],
     "decay_ranges": [3, 3],
+    "ffn_ratios": [2, 2],
     "use_layer_scales": [False, True],
 }
 
@@ -345,12 +346,9 @@ class TestDFormerStageForward:
             downsampled_width,
             output_dimension,
         )
-        assert output_depth.shape == (
-            batch_size,
-            1,
-            downsampled_height,
-            downsampled_width,
-        )
+        # The depth map keeps its original resolution: each block's
+        # geometric bias interpolates to the current grid, like the reference.
+        assert output_depth.shape == (batch_size, 1, height, width)
 
     def test_returns_three_tensors(
         self,
@@ -839,6 +837,62 @@ class TestDFormerEncoderPretrainedCheckpoint:
             random_features = random_encoder(inputs)[EncoderOutputKeys.RGBD.value]
 
         assert not torch.allclose(pretrained_features, random_features, atol=1e-3)
+
+
+class TestDFormerReferenceKeyRemap:
+    @pytest.mark.parametrize(
+        "reference_key, expected_key",
+        [
+            (
+                "layers.0.blocks.1.Attention.q_proj.weight",
+                "stages.0.blocks.1.attention.query_projection.weight",
+            ),
+            (
+                "layers.2.blocks.0.Attention.lepe.dwconv.weight",
+                "stages.2.blocks.0.attention.learned_positional_encodings.convolution.weight",
+            ),
+            (
+                "layers.1.blocks.3.cnn_pos_encode.dwconv.bias",
+                "stages.1.blocks.3.input_positional_encoding.convolution.bias",
+            ),
+            (
+                "layers.0.blocks.0.ffn.dwconv.dwconv.weight",
+                "stages.0.blocks.0.mlp.dwconv.convolution.weight",
+            ),
+            ("layers.3.blocks.2.gamma_1", "stages.3.blocks.2.gamma1"),
+            (
+                "layers.0.blocks.0.Geo.decay",
+                "stages.0.blocks.0.attention.geometric_bias.spatial_decay.decay_rates",
+            ),
+            (
+                "layers.0.blocks.0.Geo.weight",
+                "stages.0.blocks.0.attention.geometric_bias.bias_weights",
+            ),
+            ("extra_norms.2.weight", "stages.3.norm.weight"),
+            ("patch_embed.proj.0.weight", "patch_embed.projection.0.weight"),
+            (
+                "layers.0.downsample.reduction.bias",
+                "stages.0.downsample.reduction.bias",
+            ),
+        ],
+    )
+    def test_translates_reference_names(self, reference_key, expected_key):
+        value = torch.zeros(1)
+        remapped = DFormerEncoder._remap_reference_keys({reference_key: value})
+        assert list(remapped.keys()) == [expected_key]
+
+    def test_load_checkpoint_raises_on_unmatched_keys(
+        self, dformer_encoder_factory, tmp_path
+    ):
+        encoder = dformer_encoder_factory()
+        state_dict = encoder.state_dict()
+        state_dict["layers.9.blocks.0.unknown_tensor"] = torch.zeros(1)
+        checkpoint_path = tmp_path / "checkpoint.pth"
+        torch.save(state_dict, checkpoint_path)
+        with pytest.raises(
+            ValueError, match="Pretrained DFormerv2 checkpoint did not load cleanly"
+        ):
+            encoder._load_checkpoint(str(checkpoint_path))
 
 
 class TestDFormerEncoderRealBuild:

@@ -146,12 +146,14 @@ class PatchMerging(nn.Module):
     Output: [B, H//2, W//2, out_dim].
     """
 
-    def __init__(self, dim: int, out_dim: int, norm_layer=nn.LayerNorm):
+    def __init__(
+        self, dim: int, out_dim: int, norm_layer=nn.LayerNorm, bias: bool = False
+    ):
         super().__init__()
         self.dim = dim
         self.out_dim = out_dim
         self.reduction = nn.Conv2d(
-            dim, out_dim, kernel_size=3, stride=2, padding=1, bias=False
+            dim, out_dim, kernel_size=3, stride=2, padding=1, bias=bias
         )
         self.norm_layer = norm_layer
         # Instantiate norm based on type

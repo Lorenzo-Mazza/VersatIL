@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from versatil.models.layers.positional_encoding.rotary import (
+    RasterRotaryPositionalEncoding2D,
     RotaryPositionalEncoding,
     RotaryPositionalEncoding1D,
     RotaryPositionalEncoding2D,
@@ -453,3 +454,34 @@ class TestRotaryPositionalEncoding2D:
         module = rotary_2d_factory(embedding_dimension=128, num_heads=4)
         head_dimension = 128 // 4
         assert module.frequencies.shape == (head_dimension,)
+
+
+@pytest.mark.unit
+class TestRasterRotaryPositionalEncoding2D:
+    def test_matches_reference_angle_construction(self):
+        embedding_dimension, num_heads = 32, 2
+        head_dimension = embedding_dimension // num_heads
+        height, width = 3, 5
+        encoding = RasterRotaryPositionalEncoding2D(
+            embedding_dimension=embedding_dimension, num_heads=num_heads
+        )
+        sine, cosine = encoding.compute_rotation_components(height=height, width=width)
+        # Reference: angle = 1/10000**linspace(0,1,d/2) repeated pairwise,
+        # rotated by the flattened raster index.
+        angle = 1.0 / (10000 ** torch.linspace(0, 1, head_dimension // 2))
+        angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
+        index = torch.arange(height * width, dtype=torch.float32)
+        expected_sine = torch.sin(index[:, None] * angle[None, :]).reshape(
+            height, width, -1
+        )
+        expected_cosine = torch.cos(index[:, None] * angle[None, :]).reshape(
+            height, width, -1
+        )
+        torch.testing.assert_close(sine, expected_sine)
+        torch.testing.assert_close(cosine, expected_cosine)
+
+    def test_same_raster_index_shares_rotation_across_rows(self):
+        encoding = RasterRotaryPositionalEncoding2D(embedding_dimension=16, num_heads=2)
+        sine, _ = encoding.compute_rotation_components(height=2, width=4)
+        wide_sine, _ = encoding.compute_rotation_components(height=1, width=8)
+        torch.testing.assert_close(sine.reshape(8, -1), wide_sine.reshape(8, -1))

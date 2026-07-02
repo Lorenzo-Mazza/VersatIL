@@ -143,6 +143,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- The DFormerv2 encoder now reproduces the reference implementation
+  exactly and loads the official pretrained checkpoints (mirrored at
+  https://huggingface.co/bbynku/DFormerv2): rotary encoding rotates by
+  flattened raster grid positions with endpoint-spaced frequencies, the
+  feed-forward network carries the reference's inner depthwise convolution,
+  FFN ratios follow the per-stage [4, 4, 3, 3] schedule, the final stage
+  uses full attention, patch merging matches the reference conv+BatchNorm,
+  and the depth map keeps its original resolution with per-block
+  interpolation. Checkpoint loading translates the reference key names and
+  raises when any tensor fails to match, instead of silently training from
+  random weights. Verified numerically: all 780 reference tensors load and
+  encoder outputs match the reference forward to float32 precision.
 - PaliGemma prefixes were scaled twice: transformers 5.x moved the Gemma
   sqrt(hidden) embedding scale into the embedding module, so the manual
   multiply on top of it blew text tokens up by the full hidden size and

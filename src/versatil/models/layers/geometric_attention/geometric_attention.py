@@ -27,6 +27,7 @@ class GeometricSelfAttention(nn.Module):
         decay_range: float = 3.0,
         depthwise_convolution_kernel_size: int = 5,
         depthwise_convolution_padding: int = 2,
+        use_raster_positions: bool = False,
     ):
         """Initializes geometric self-attention.
 
@@ -39,6 +40,8 @@ class GeometricSelfAttention(nn.Module):
             decay_range: Range of decay rates across heads.
             depthwise_convolution_kernel_size: Kernel size for depth-wise convolution, used for learned positional encodings.
             depthwise_convolution_padding: Padding for depth-wise convolution
+            use_raster_positions: Whether rotary encoding uses flattened raster
+                grid positions (the DFormerv2 reference convention).
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
@@ -78,6 +81,7 @@ class GeometricSelfAttention(nn.Module):
             num_heads=num_heads,
             initial_decay=initial_decay,
             decay_range=decay_range,
+            use_raster_positions=use_raster_positions,
         )
 
         self._initialize_parameters()

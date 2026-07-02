@@ -902,6 +902,23 @@ class TestFlatRGBEncoderMultiCamera:
         assert encoder.backbone.forward_features.call_count == 2
 
 
+NO_PREFIX_TOKEN_BACKBONES = {
+    FlatBackboneType.SIGLIP_BASE_B16_224,
+    FlatBackboneType.SIGLIP_BASE_B16_256,
+    FlatBackboneType.SIGLIP_BASE_B16_384,
+    FlatBackboneType.SIGLIP_SO400M_224,
+    FlatBackboneType.SIGLIP_SO400M_384,
+}
+
+
+def _integration_pooling_method(backbone: str) -> str:
+    """DEFAULT (CLS) pooling is rejected for backbones without a class token."""
+    no_prefix_values = {member.value for member in NO_PREFIX_TOKEN_BACKBONES}
+    if backbone in no_prefix_values:
+        return PoolingMethod.AVERAGE.value
+    return PoolingMethod.DEFAULT.value
+
+
 class TestFlatRGBEncoderIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", [b.value for b in FLAT_BACKBONES])
@@ -912,7 +929,7 @@ class TestFlatRGBEncoderIntegration:
         encoder = FlatRGBEncoder(
             input_keys="left",
             backbone=backbone,
-            pooling_method=PoolingMethod.DEFAULT.value,
+            pooling_method=_integration_pooling_method(backbone),
             pretrained=False,
             frozen=False,
         )
@@ -945,7 +962,7 @@ class TestFlatRGBEncoderIntegration:
         encoder = FlatRGBEncoder(
             input_keys="left",
             backbone=backbone,
-            pooling_method=PoolingMethod.DEFAULT.value,
+            pooling_method=_integration_pooling_method(backbone),
             pretrained=False,
             frozen=False,
         )
@@ -965,7 +982,7 @@ class TestFlatRGBEncoderIntegration:
         encoder = FlatRGBEncoder(
             input_keys="left",
             backbone=backbone,
-            pooling_method=PoolingMethod.DEFAULT.value,
+            pooling_method=_integration_pooling_method(backbone),
             intermediate_layer_index=-2,
             pretrained=False,
             frozen=False,
@@ -999,7 +1016,7 @@ class TestFlatRGBEncoderIntegration:
         encoder = FlatRGBEncoder(
             input_keys="left",
             backbone=backbone,
-            pooling_method=PoolingMethod.DEFAULT.value,
+            pooling_method=_integration_pooling_method(backbone),
             pretrained=False,
             frozen=False,
             lora_config=lora_config,
