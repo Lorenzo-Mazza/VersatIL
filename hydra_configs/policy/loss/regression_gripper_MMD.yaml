@@ -4,10 +4,10 @@ defaults:
   - mmd@loss_modules.maximum_mean_discrepancy
   - _self_
 
-_target_: versatil.metrics.composite.CompositeLoss
+_target_: versatil.metrics.losses.composite.CompositeLoss
 loss_modules:
     regression_loss:
-      _target_: versatil.metrics.components.RegressionLoss
+      _target_: versatil.metrics.losses.regression.RegressionLoss
       action_keys:
         - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
       mse_weight: 0.0
@@ -15,7 +15,7 @@ loss_modules:
       huber_weight: 0.0
 
     gripper_loss:
-      _target_: versatil.metrics.components.GripperLoss
+      _target_: versatil.metrics.losses.gripper.GripperLoss
       key: ${proprio_key:GRIPPER_STATE}
       actions_metadata: ${task.action_space.actions_metadata}
       bce_weight: 0.05
@@ -24,6 +24,6 @@ loss_modules:
             weight: 100.0
 
     trajectory_length:
-        _target_: versatil.metrics.components.TrajectoryLengthLoss
+        _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
         weight: 0.0
         action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

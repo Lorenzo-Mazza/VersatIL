@@ -7,12 +7,12 @@ defaults:
   - kl@loss_modules.moe_loss.base_loss.loss_modules.kl_divergence
   - _self_
 
-_target_: versatil.metrics.composite.CompositeLoss
+_target_: versatil.metrics.losses.composite.CompositeLoss
 loss_modules:
   moe_loss:
-    _target_: versatil.metrics.components.MoELoss
+    _target_: versatil.metrics.losses.mixture_of_experts.MoELoss
     base_loss:
-      _target_: versatil.metrics.composite.CompositeLoss
+      _target_: versatil.metrics.losses.composite.CompositeLoss
       loss_modules:
         action_nll:
           action_keys:
@@ -26,11 +26,11 @@ loss_modules:
           weight: 0.05
 
         kl_divergence:
-            _target_: versatil.metrics.components.KLDivergenceLoss
+            _target_: versatil.metrics.losses.divergence.KLDivergenceLoss
             weight: 100.0
 
         trajectory_length:
-            _target_: versatil.metrics.components.TrajectoryLengthLoss
+            _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
             weight: 0.0
             action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
 

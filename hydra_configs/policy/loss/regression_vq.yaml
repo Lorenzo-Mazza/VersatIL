@@ -4,10 +4,10 @@ defaults:
   - traj_len@loss_modules.trajectory_length
   - _self_
 
-_target_: versatil.metrics.composite.CompositeLoss
+_target_: versatil.metrics.losses.composite.CompositeLoss
 loss_modules:
     regression_loss:
-      _target_: versatil.metrics.components.RegressionLoss
+      _target_: versatil.metrics.losses.regression.RegressionLoss
       action_keys:
         - ${proprio_key:SYNTHETIC_POSITION_ACTION}
       mse_weight: 0.0
@@ -15,12 +15,12 @@ loss_modules:
       huber_weight: 0.0
 
     vq_commitment:
-        _target_: versatil.metrics.components.VQCommitmentLoss
+        _target_: versatil.metrics.losses.vector_quantization.VQCommitmentLoss
         weight: 1.0
         num_codes: ${policy.algorithm.posterior_encoder.num_codes}
         num_residual_layers: ${policy.algorithm.posterior_encoder.num_residual_layers}
 
     trajectory_length:
-        _target_: versatil.metrics.components.TrajectoryLengthLoss
+        _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
         weight: 0.0
         action_key: ${proprio_key:SYNTHETIC_POSITION_ACTION}

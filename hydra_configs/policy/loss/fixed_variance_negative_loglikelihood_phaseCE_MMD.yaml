@@ -7,12 +7,12 @@ defaults:
   - mmd@loss_modules.moe_loss.base_loss.loss_modules.maximum_mean_discrepancy
   - _self_
 
-_target_: versatil.metrics.composite.CompositeLoss
+_target_: versatil.metrics.losses.composite.CompositeLoss
 loss_modules:
   moe_loss:
-    _target_: versatil.metrics.components.MoELoss
+    _target_: versatil.metrics.losses.mixture_of_experts.MoELoss
     base_loss:
-      _target_: versatil.metrics.composite.CompositeLoss
+      _target_: versatil.metrics.losses.composite.CompositeLoss
       loss_modules:
         action_nll:
           action_keys:
@@ -29,7 +29,7 @@ loss_modules:
             weight: 10.0
 
         trajectory_length:
-            _target_: versatil.metrics.components.TrajectoryLengthLoss
+            _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
             weight: 0.0
             action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
 

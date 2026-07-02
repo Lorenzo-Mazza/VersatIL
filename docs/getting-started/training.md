@@ -210,7 +210,7 @@ that match no configured pattern are assigned to the implicit reserved group
 `unmatched`, which must not be used as a custom group name.
 
 `loss_weights` is not a flat scalar map anymore. It must match the public loss
-weight tree. For a scalar-weight leaf such as [`PriorDenoisingLoss`][versatil.metrics.components.PriorDenoisingLoss], the patch
+weight tree. For a scalar-weight leaf such as [`PriorDenoisingLoss`][versatil.metrics.losses.prior_denoising.PriorDenoisingLoss], the patch
 shape is:
 
 ```yaml

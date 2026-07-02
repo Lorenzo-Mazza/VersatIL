@@ -1,4 +1,4 @@
-"""Tests for versatil.metrics.ot_loss module (integration, real geomloss)."""
+"""Integration tests for versatil.metrics.losses.optimal_transport module."""
 
 from collections.abc import Callable
 
@@ -6,7 +6,10 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.metrics.ot_loss import LatentOptimalTransportLoss, OptimalTransportLoss
+from versatil.metrics.losses.optimal_transport import (
+    LatentOptimalTransportLoss,
+    OptimalTransportLoss,
+)
 from versatil.models.decoding.constants import LatentKey
 
 pytest.importorskip("geomloss")

@@ -85,7 +85,7 @@ policy:
           - ${mul:2.0,${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}}
           - ${mul:4.0,${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}}
       posterior_geometry:
-        _target_: versatil.metrics.components.PosteriorGeometryLoss
+        _target_: versatil.metrics.losses.latent_geometry.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
         mean_weight: 0.01
         std_weight: 0.05

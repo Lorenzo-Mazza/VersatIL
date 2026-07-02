@@ -1,4 +1,4 @@
-"""Tests for versatil.metrics.ot_loss module."""
+"""Tests for versatil.metrics.losses.optimal_transport module."""
 
 import re
 from unittest.mock import MagicMock, patch
@@ -9,7 +9,7 @@ import torch
 
 from versatil.metrics.base import LossOutput
 from versatil.metrics.constants import MetadataKey, MetricKey
-from versatil.metrics.ot_loss import (
+from versatil.metrics.losses.optimal_transport import (
     LatentOptimalTransportLoss,
     OptimalTransportLoss,
     RelaxedConditionalLatentOptimalTransportLoss,
@@ -107,7 +107,10 @@ class TestOptimalTransportLossInit:
                 weight=0.1,
             )
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_stores_weight(self, mock_init):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.weight = 0.5
@@ -115,7 +118,10 @@ class TestOptimalTransportLossInit:
         instance.time_scale = 1.0
         assert instance.weight == 0.5
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_stores_action_keys(self, mock_init):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.action_keys = ["position", "orientation"]
@@ -124,7 +130,10 @@ class TestOptimalTransportLossInit:
 
 @pytest.mark.unit
 class TestOptimalTransportLossGetRequiredKeys:
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_returns_action_keys_as_set(self, mock_init):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.action_keys = ["position", "orientation"]
@@ -134,7 +143,10 @@ class TestOptimalTransportLossGetRequiredKeys:
 
 @pytest.mark.unit
 class TestOptimalTransportLossForward:
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_raises_on_missing_prediction_key(self, mock_init, predictions_factory):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.action_keys = ["position", "orientation"]
@@ -160,7 +172,10 @@ class TestOptimalTransportLossForward:
         ):
             instance.forward(predictions=predictions, targets=targets, is_pad=None)
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_raises_on_missing_target_key(self, mock_init, predictions_factory):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.action_keys = ["position", "orientation"]
@@ -186,7 +201,10 @@ class TestOptimalTransportLossForward:
         ):
             instance.forward(predictions=predictions, targets=targets, is_pad=None)
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_concatenates_action_keys_and_time_embeddings(
         self, mock_init, predictions_factory
     ):
@@ -225,7 +243,10 @@ class TestOptimalTransportLossForward:
         assert samples_x.shape == (batch_size, horizon, action_dim + 1)
         assert samples_y.shape == (batch_size, horizon, action_dim + 1)
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_weight_scales_total_loss(self, mock_init, predictions_factory):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.action_keys = ["position"]
@@ -252,7 +273,10 @@ class TestOptimalTransportLossForward:
         ].item() == pytest.approx(expected_component)
         assert result.total_loss.item() == pytest.approx(0.5 * expected_component)
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_padding_mask_zeros_out_padded_weights(
         self, mock_init, predictions_factory
     ):
@@ -291,7 +315,10 @@ class TestOptimalTransportLossForward:
         # Valid positions should have non-zero weight
         assert torch.all(weights_x[:, :2] > 0.0)
 
-    @patch("versatil.metrics.ot_loss.OptimalTransportLoss.__init__", return_value=None)
+    @patch(
+        "versatil.metrics.losses.optimal_transport.OptimalTransportLoss.__init__",
+        return_value=None,
+    )
     def test_returns_loss_output(self, mock_init, predictions_factory):
         instance = OptimalTransportLoss.__new__(OptimalTransportLoss)
         instance.action_keys = ["position"]
@@ -332,7 +359,7 @@ class TestLatentOptimalTransportLossInit:
 @pytest.mark.unit
 class TestLatentOptimalTransportLossGetRequiredKeys:
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_returns_posterior_and_prior_keys(self, mock_init):
@@ -345,7 +372,7 @@ class TestLatentOptimalTransportLossGetRequiredKeys:
         }
 
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_returns_configured_prior_target_key(self, mock_init):
@@ -361,7 +388,7 @@ class TestLatentOptimalTransportLossGetRequiredKeys:
 @pytest.mark.unit
 class TestLatentOptimalTransportLossForward:
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_raises_on_missing_keys(self, mock_init, latent_predictions_factory):
@@ -381,7 +408,7 @@ class TestLatentOptimalTransportLossForward:
             instance.forward(predictions=predictions, targets={}, is_pad=None)
 
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_computes_sinkhorn_loss(self, mock_init, latent_predictions_factory):
@@ -404,7 +431,7 @@ class TestLatentOptimalTransportLossForward:
         assert result.total_loss.item() == pytest.approx(0.5 * ot_value)
 
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_uses_configured_prior_target_key_for_matching(
@@ -434,7 +461,7 @@ class TestLatentOptimalTransportLossForward:
         )
 
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_includes_latent_metadata(self, mock_init, latent_predictions_factory):
@@ -454,7 +481,7 @@ class TestLatentOptimalTransportLossForward:
         assert MetadataKey.PRIOR_Z.value in result.metadata
 
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_includes_optional_mu_and_logvar_metadata(
@@ -483,7 +510,7 @@ class TestLatentOptimalTransportLossForward:
         assert MetadataKey.PRIOR_LOGVAR.value in result.metadata
 
     @patch(
-        "versatil.metrics.ot_loss.LatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.LatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_omits_optional_metadata_when_not_present(
@@ -535,7 +562,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossInit:
 @pytest.mark.unit
 class TestRelaxedConditionalLatentOptimalTransportLossGetRequiredKeys:
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_returns_posterior_prior_and_condition_keys(self, mock_init):
@@ -554,7 +581,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossGetRequiredKeys:
         }
 
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_returns_configured_keys(self, mock_init):
@@ -576,7 +603,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossGetRequiredKeys:
 @pytest.mark.unit
 class TestRelaxedConditionalLatentOptimalTransportLossForward:
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_raises_on_missing_keys(self, mock_init, latent_predictions_factory):
@@ -597,7 +624,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossForward:
             instance.forward(predictions=predictions, targets={}, is_pad=None)
 
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_computes_relaxed_conditional_sinkhorn_loss(
@@ -631,7 +658,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossForward:
         assert result.total_loss.item() == pytest.approx(0.5 * ot_value)
 
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_passes_joint_state_latent_samples_to_sinkhorn(
@@ -670,7 +697,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossForward:
         )
 
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_uses_configured_prior_target_key_for_matching(
@@ -706,7 +733,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossForward:
         )
 
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_includes_condition_metadata(self, mock_init, latent_predictions_factory):
@@ -734,7 +761,7 @@ class TestRelaxedConditionalLatentOptimalTransportLossForward:
         )
 
     @patch(
-        "versatil.metrics.ot_loss.RelaxedConditionalLatentOptimalTransportLoss.__init__",
+        "versatil.metrics.losses.optimal_transport.RelaxedConditionalLatentOptimalTransportLoss.__init__",
         return_value=None,
     )
     def test_rejects_batch_size_mismatch(self, mock_init, latent_predictions_factory):

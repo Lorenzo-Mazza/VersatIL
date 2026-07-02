@@ -20,8 +20,8 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
-from versatil.metrics.components import GripperLoss
 from versatil.metrics.constants import MetadataKey
+from versatil.metrics.losses.gripper import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput

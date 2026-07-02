@@ -3,10 +3,10 @@ defaults:
   - traj_len@loss_modules.trajectory_length
   - _self_
 
-_target_: versatil.metrics.composite.CompositeLoss
+_target_: versatil.metrics.losses.composite.CompositeLoss
 loss_modules:
     regression_loss:
-      _target_: versatil.metrics.components.RegressionLoss
+      _target_: versatil.metrics.losses.regression.RegressionLoss
       action_keys:
         - ${proprio_key:EE_POS_ACTION}
       mse_weight: 0.0
@@ -14,7 +14,7 @@ loss_modules:
       huber_weight: 0.0
 
     gripper_loss:
-      _target_: versatil.metrics.components.RegressionLoss
+      _target_: versatil.metrics.losses.regression.RegressionLoss
       action_keys:
         - ${proprio_key:GRIPPER_STATE_ACTION}
       mse_weight: 0.0
@@ -22,7 +22,7 @@ loss_modules:
       huber_weight: 0.0
 
     trajectory_length:
-        _target_: versatil.metrics.components.TrajectoryLengthLoss
+        _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
         weight: 0.000
         action_key: ${proprio_key:EE_POS_ACTION}
 

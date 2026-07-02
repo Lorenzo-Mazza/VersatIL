@@ -73,7 +73,7 @@ policy:
         weight: 0.0
         action_key: ${proprio_key:EE_POS_ACTION}
       posterior_geometry:
-        _target_: versatil.metrics.components.PosteriorGeometryLoss
+        _target_: versatil.metrics.losses.latent_geometry.PosteriorGeometryLoss
         key: ${latent_key:POSTERIOR_MU}
         mean_weight: 0.01
         std_weight: 0.05

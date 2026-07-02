@@ -4,7 +4,7 @@ defaults:
   - denoising_prior@loss_modules.denoising_prior
   - _self_
 
-_target_: versatil.metrics.composite.CompositeLoss
+_target_: versatil.metrics.losses.composite.CompositeLoss
 
 loss_modules:
   token_loss:

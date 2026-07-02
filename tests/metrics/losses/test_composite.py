@@ -1,4 +1,4 @@
-"""Tests for versatil.metrics.composite module."""
+"""Tests for versatil.metrics.losses.composite module."""
 
 import warnings
 from collections.abc import Callable
@@ -9,8 +9,8 @@ import pytest
 import torch
 
 from versatil.metrics.base import BaseLoss, LossOutput
-from versatil.metrics.components import RegressionLoss
-from versatil.metrics.composite import CompositeLoss
+from versatil.metrics.losses.composite import CompositeLoss
+from versatil.metrics.losses.regression import RegressionLoss
 
 
 @pytest.fixture

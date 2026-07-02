@@ -20,8 +20,9 @@ from versatil.configs.training import (
     TrainingConfig,
 )
 from versatil.metrics.base import LossOutput, ScalarWeightedLoss
-from versatil.metrics.components import PriorDenoisingLoss, RegressionLoss
-from versatil.metrics.composite import CompositeLoss
+from versatil.metrics.losses.composite import CompositeLoss
+from versatil.metrics.losses.prior_denoising import PriorDenoisingLoss
+from versatil.metrics.losses.regression import RegressionLoss
 from versatil.models.policy import Policy
 from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
