@@ -545,6 +545,11 @@ class AutoregressiveVLADecoder(
     ) -> torch.Tensor | None:
         """Build the LM attention mask for variable-length prefix/action rows.
 
+        Note:
+            Even a fully-visible attention mask must stay explicit: None makes 
+            HF decoder layers fall back to causal attention, overriding the
+            bidirectional prefix structure.
+
         Args:
             full_padding_mask: Full sequence padding mask with shape ``(B, S)``,
                 where ``S = P_valid_max + A`` and ``True`` marks padding.
@@ -572,9 +577,6 @@ class AutoregressiveVLADecoder(
             sequence_length=sequence_length,
             device=full_padding_mask.device,
         )
-        # Even a fully-visible mask must stay explicit: None makes HF decoder
-        # layers fall back to causal attention, overriding the bidirectional
-        # prefix structure.
         return GenerativeVLM.build_additive_attention_mask(
             attention_mask=~attention_mask,
             dtype=embeddings_dtype,
