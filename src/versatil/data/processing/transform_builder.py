@@ -44,18 +44,22 @@ def _build_action_discretizer(
     device: torch.device | None,
 ) -> FastActionDiscretizer | BinnedActionDiscretizer:
     """Instantiate the configured action discretizer."""
-    if config.type == ActionDiscretizerType.FAST.value:
-        return FastActionDiscretizer(
-            use_pretrained=config.use_pretrained,
-            tokenizer_model=config.tokenizer_model,
-        )
-    if config.type == ActionDiscretizerType.BINNED.value:
-        return BinnedActionDiscretizer(
-            num_bins=config.num_bins,
-            device=device,
-            binning_strategy=config.binning_strategy,
-        )
-    raise ValueError(f"Unsupported action discretizer type: {config.type}")
+    match config.type:
+        case ActionDiscretizerType.FAST.value:
+            return FastActionDiscretizer(
+                use_pretrained=config.use_pretrained,
+                tokenizer_model=config.tokenizer_model,
+            )
+        case ActionDiscretizerType.BINNED.value:
+            return BinnedActionDiscretizer(
+                num_bins=config.num_bins,
+                device=device,
+                binning_strategy=config.binning_strategy,
+                min_value=config.min_value,
+                max_value=config.max_value,
+            )
+        case unsupported_type:
+            raise ValueError(f"Unsupported action discretizer type: {unsupported_type}")
 
 
 def _build_token_id_mapping(

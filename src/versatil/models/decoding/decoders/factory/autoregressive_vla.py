@@ -230,7 +230,9 @@ class AutoregressiveVLADecoder(
 
     def _get_action_payload_token_count(self) -> int | None:
         """Return the required action-token count before any optional EOS."""
-        if self.tokenizer is None or not self._uses_fixed_length_action_generation(
+        if self.tokenizer is None:
+            return None
+        if not self._uses_fixed_length_action_generation(
             action_tokenizer=self.tokenizer
         ):
             return None
@@ -239,7 +241,7 @@ class AutoregressiveVLADecoder(
         if time_horizon is None or action_dim is None:
             raise ValueError(
                 "AutoregressiveVLADecoder fixed-length generation requires the "
-                "binned action discretizer to know time_horizon and action_dim."
+                "action discretizer to know time_horizon and action_dim."
             )
         return int(time_horizon * action_dim)
 

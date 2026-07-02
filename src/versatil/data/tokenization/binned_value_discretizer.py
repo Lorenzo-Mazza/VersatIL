@@ -16,8 +16,6 @@ import torch
 
 from versatil.data.constants import BinningStrategy
 
-UNIFORM_BIN_RANGE: tuple[float, float] = (-1.0, 1.0)
-
 
 class BinnedValueDiscretizer:
     """Discretizer mapping continuous values to per-dimension bin IDs.
@@ -35,6 +33,8 @@ class BinnedValueDiscretizer:
         num_bins: int = 256,
         device: torch.device | None = None,
         binning_strategy: str = BinningStrategy.UNIFORM.value,
+        min_value: float = -1.0,
+        max_value: float = 1.0,
     ):
         """Initialize discretizer.
 
@@ -42,11 +42,15 @@ class BinnedValueDiscretizer:
             num_bins: Number of discrete bins per dimension.
             device: Target device for tensors. If None, uses CPU.
             binning_strategy: ``uniform`` places equal-width bins over
-                ``UNIFORM_BIN_RANGE`` and expects min-max normalized inputs.
-                ``quantile`` fits edges to the data distribution.
+                ``[min_value, max_value]`` and expects inputs normalized to
+                that range. ``quantile`` fits edges to the data distribution
+                and ignores the range bounds.
+            min_value: Lower bound of the uniform bin range.
+            max_value: Upper bound of the uniform bin range.
 
         Raises:
-            ValueError: If ``binning_strategy`` is not a known strategy.
+            ValueError: If ``binning_strategy`` is not a known strategy or the
+                range bounds are inverted.
         """
         valid_strategies = [member.value for member in BinningStrategy]
         if binning_strategy not in valid_strategies:
@@ -54,8 +58,15 @@ class BinnedValueDiscretizer:
                 f"Unknown binning_strategy: {binning_strategy}. "
                 f"Expected one of {valid_strategies}."
             )
+        if min_value >= max_value:
+            raise ValueError(
+                f"min_value must be smaller than max_value, got "
+                f"{min_value} >= {max_value}."
+            )
         self.num_bins = num_bins
         self.binning_strategy = binning_strategy
+        self.min_value = min_value
+        self.max_value = max_value
         self.device = device if device is not None else torch.device("cpu")
         self.bin_edges: torch.Tensor | None = None
         self.bin_values: torch.Tensor | None = None
@@ -75,8 +86,9 @@ class BinnedValueDiscretizer:
 
         n_samples, n_dims = normalized_data.shape
         if self.binning_strategy == BinningStrategy.UNIFORM.value:
-            range_min, range_max = UNIFORM_BIN_RANGE
-            uniform_edges = np.linspace(range_min, range_max, self.num_bins + 1)[1:-1]
+            uniform_edges = np.linspace(
+                self.min_value, self.max_value, self.num_bins + 1
+            )[1:-1]
             bin_edges = np.tile(uniform_edges, (n_dims, 1))
         else:
             quantiles = np.linspace(0, 1, self.num_bins + 1)[1:-1]
@@ -114,7 +126,7 @@ class BinnedValueDiscretizer:
         edges = self.bin_edges.cpu().numpy()
         for dim in range(n_dims):
             values = normalized_data[:, dim]
-            bin_ids = np.searchsorted(edges[dim], values, side="left")
+            bin_ids = np.searchsorted(edges[dim], values, side="right")
             sums = np.zeros(self.num_bins)
             counts = np.zeros(self.num_bins)
             np.add.at(sums, bin_ids, values)
@@ -153,8 +165,10 @@ class BinnedValueDiscretizer:
         data_flat = normalized_data.reshape(-1, original_shape[-1])
         tokens = torch.zeros_like(data_flat, dtype=torch.long)
         for dim in range(original_shape[-1]):
+            # right=True gives floor semantics: values exactly on a bin edge
+            # fall into the higher bin, matching np.digitize.
             tokens[:, dim] = torch.searchsorted(
-                self.bin_edges[dim], data_flat[:, dim].contiguous(), right=False
+                self.bin_edges[dim], data_flat[:, dim].contiguous(), right=True
             )
         return tokens.reshape(original_shape)
 
@@ -245,6 +259,8 @@ class BinnedValueDiscretizer:
         return {
             "num_bins": self.num_bins,
             "binning_strategy": self.binning_strategy,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
             "bin_edges": self.bin_edges.cpu() if self.bin_edges is not None else None,
             "bin_values": (
                 self.bin_values.cpu() if self.bin_values is not None else None
@@ -265,6 +281,8 @@ class BinnedValueDiscretizer:
         self.binning_strategy = state_dict.get(
             "binning_strategy", BinningStrategy.QUANTILE.value
         )
+        self.min_value = state_dict.get("min_value", self.min_value)
+        self.max_value = state_dict.get("max_value", self.max_value)
         self._is_fitted = state_dict["is_fitted"]
 
         if state_dict["bin_edges"] is None:

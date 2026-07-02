@@ -291,6 +291,8 @@ class TestBinnedValueDiscretizerStateDict:
         assert set(state.keys()) == {
             "num_bins",
             "binning_strategy",
+            "min_value",
+            "max_value",
             "bin_edges",
             "bin_values",
             "is_fitted",

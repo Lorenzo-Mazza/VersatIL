@@ -15,10 +15,12 @@ from versatil.configs.training import TrainingConfig, TrainingStageConfig
 from versatil.data.constants import (
     ActionDiscretizerType,
     ActionTokenIdMappingType,
+    BinningStrategy,
     ImageNormalizationType,
     ObsKey,
     ProprioKey,
 )
+from versatil.models.adaptation.constants import LoRATargetModulePreset
 from versatil.models.decoding.constants import LatentKey, TimeConditioning
 
 HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
@@ -220,7 +222,7 @@ class TestHydraComposition:
         assert openvla_preset.policy.decoder.causal_prefix is True
         assert pi0_fast_config.policy.decoder.causal_prefix is False
 
-    def test_openvla_libero_uses_prismatic_binned_language_tokens(self) -> None:
+    def test_openvla_libero_uses_prismatic_uniform_language_tokens(self) -> None:
         with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
             config = compose(
                 config_name="end_to_end_training_runs/libero_lerobot/openvla"
@@ -229,7 +231,7 @@ class TestHydraComposition:
         tokenization = config.task.dataloader.tokenization
         action_tokenizer = tokenization.action_tokenizer
 
-        assert config.task.prediction_horizon == 8
+        assert config.task.prediction_horizon == 1
         assert config.policy.encoding_pipeline.encoders == {}
         assert tokenization.tokenize_observations is True
         assert tokenization.tokenize_actions is True
@@ -241,7 +243,14 @@ class TestHydraComposition:
             action_tokenizer.action_discretizer.type
             == ActionDiscretizerType.BINNED.value
         )
+        assert (
+            action_tokenizer.action_discretizer.binning_strategy
+            == BinningStrategy.UNIFORM.value
+        )
         assert action_tokenizer.action_discretizer.num_bins == 256
+        assert action_tokenizer.action_discretizer.min_value == -1.0
+        assert action_tokenizer.action_discretizer.max_value == 1.0
+        assert action_tokenizer.max_token_len == 8
         assert (
             action_tokenizer.token_id_mapping.type
             == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
@@ -250,7 +259,15 @@ class TestHydraComposition:
             action_tokenizer.token_id_mapping.language_tokenizer_model
             == tokenization.observation_tokenizer.tokenizer_model
         )
+        assert config.policy.loss.loss_modules.token_loss.label_smoothing == 0.0
         assert action_tokenizer.token_id_mapping.num_special_tokens_to_skip == 0
+        lora_config = config.policy.decoder.vlm_backbone.lora_config
+        assert lora_config.rank == 32
+        assert lora_config.alpha == 16
+        assert lora_config.dropout == 0.0
+        assert lora_config.target_modules == LoRATargetModulePreset.ALL_LINEAR.value
+        assert lora_config.bias == "none"
+        assert lora_config.init_lora_weights == "gaussian"
 
     def test_openvla_oft_libero_uses_prismatic_l1_regression(self) -> None:
         with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):

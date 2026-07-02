@@ -45,9 +45,12 @@ class ActionDiscretizerConfig:
     use_pretrained: bool = True
     tokenizer_model: str = "physical-intelligence/fast"
     # Binned discretizer options. Uniform binning places equal-width bins
-    # over [-1, 1]; quantile binning adapts edges to the action distribution.
+    # over [min_value, max_value]; quantile binning adapts edges to the
+    # action distribution and ignores the range bounds.
     num_bins: int = 256
     binning_strategy: str = BinningStrategy.UNIFORM.value
+    min_value: float = -1.0
+    max_value: float = 1.0
 
 
 @dataclass

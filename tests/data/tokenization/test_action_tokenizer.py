@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+from scipy.fft import idct
 
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization.action_discretizer import (
@@ -19,6 +20,30 @@ from versatil.data.tokenization.action_token_id_mapping import (
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
 LANGUAGE_ACTION_TOKENIZER_MODEL = "sshleifer/tiny-gpt2"
+
+
+def expected_fast_decode(
+    decoded_tokens: str,
+    time_horizon: int,
+    action_dimension: int,
+    scale: float = 10,
+    min_token: float = 0,
+) -> np.ndarray:
+    coefficient_count = time_horizon * action_dimension
+    coefficients = (
+        np.asarray([ord(token) for token in decoded_tokens], dtype=np.float32)
+        + min_token
+    )
+    if coefficients.size < coefficient_count:
+        coefficients = np.pad(
+            coefficients,
+            (0, coefficient_count - coefficients.size),
+            mode="constant",
+            constant_values=0,
+        )
+    coefficients = coefficients[:coefficient_count]
+    coefficient_matrix = coefficients.reshape(time_horizon, action_dimension)
+    return idct(coefficient_matrix / scale, axis=0, norm="ortho")
 
 
 @pytest.fixture
@@ -687,45 +712,45 @@ class TestActionTokenizerDecodeChunk:
 
     def test_decode_chunk_strips_pad_tokens(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
-        tokenizer.action_discretizer.processor.decode.return_value = decoded_array
         tokens = torch.tensor([10, 20, 30, 0, 0, 0])
         tokenizer.decode_chunk(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args == [[10, 20, 30]]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args
+        )
+        assert call_args.args[0] == [10, 20, 30]
 
     def test_decode_chunk_strips_eos_token(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
         eos_id = tokenizer.eos_token_id
-        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
-        tokenizer.action_discretizer.processor.decode.return_value = decoded_array
         tokens = torch.tensor([10, 20, 30, eos_id, 0, 0])
         tokenizer.decode_chunk(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args == [[10, 20, 30]]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args
+        )
+        assert call_args.args[0] == [10, 20, 30]
 
     def test_decode_chunk_preserves_valid_zero_tokens_before_eos(
         self, action_tokenizer_factory
     ):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
         eos_id = tokenizer.eos_token_id
-        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
-        tokenizer.action_discretizer.processor.decode.return_value = decoded_array
         tokens = torch.tensor([0, 10, 0, 20, eos_id, 0])
         tokenizer.decode_chunk(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args == [[0, 10, 0, 20]]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args
+        )
+        assert call_args.args[0] == [0, 10, 0, 20]
 
     def test_decode_chunk_only_strips_trailing_pad_tokens_without_eos(
         self, action_tokenizer_factory
     ):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
-        tokenizer.action_discretizer.processor.decode.return_value = decoded_array
         tokens = torch.tensor([0, 10, 0, 20, 0, 0])
         tokenizer.decode_chunk(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args == [[0, 10, 0, 20]]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args
+        )
+        assert call_args.args[0] == [0, 10, 0, 20]
 
     def test_decode_chunk_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
@@ -738,27 +763,34 @@ class TestActionTokenizerDecodeChunk:
 
     def test_decode_chunk_accepts_list_input(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (1, 5, 7), dtype=np.float32
-        )
         result = tokenizer.decode_chunk([10, 20, 30])
-        np.testing.assert_array_equal(result, np.zeros((5, 7), dtype=np.float32))
+        expected = expected_fast_decode(
+            decoded_tokens="x" * 35,
+            time_horizon=5,
+            action_dimension=7,
+        )
+        np.testing.assert_allclose(result, expected)
 
     def test_decode_chunk_accepts_numpy_input(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (1, 5, 7), dtype=np.float32
-        )
         result = tokenizer.decode_chunk(np.array([10, 20, 30]))
-        np.testing.assert_array_equal(result, np.zeros((5, 7), dtype=np.float32))
+        expected = expected_fast_decode(
+            decoded_tokens="x" * 35,
+            time_horizon=5,
+            action_dimension=7,
+        )
+        np.testing.assert_allclose(result, expected)
 
-    def test_decode_chunk_raises_type_error_when_processor_returns_non_ndarray(
+    def test_decode_chunk_raises_type_error_when_bpe_returns_non_string(
         self, action_tokenizer_factory
     ):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = [[0.1, 0.2]]
+        tokenizer.action_discretizer.processor.bpe_tokenizer.decode.return_value = [
+            0.1,
+            0.2,
+        ]
         expected_message = (
-            "Expected np.ndarray from FAST processor decode, got <class 'list'>"
+            "Expected str from FAST BPE tokenizer decode, got <class 'list'>"
         )
         with pytest.raises(TypeError, match=re.escape(expected_message)):
             tokenizer.decode_chunk(torch.tensor([10, 20, 30]))
@@ -776,38 +808,35 @@ class TestActionTokenizerDecodeBatch:
 
     def test_decode_batch_strips_pad_per_sample(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (2, 5, 7), dtype=np.float32
-        )
         tokens = torch.tensor([[10, 20, 0], [30, 40, 50]])
         tokenizer.decode_batch(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args[0] == [10, 20]
-        assert call_args[1] == [30, 40, 50]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args_list
+        )
+        assert call_args[0].args[0] == [10, 20]
+        assert call_args[1].args[0] == [30, 40, 50]
 
     def test_decode_batch_strips_eos_per_sample(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
         eos_id = tokenizer.eos_token_id
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (2, 5, 7), dtype=np.float32
-        )
         tokens = torch.tensor([[10, 20, eos_id, 0], [30, eos_id, 0, 0]])
         tokenizer.decode_batch(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args[0] == [10, 20]
-        assert call_args[1] == [30]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args_list
+        )
+        assert call_args[0].args[0] == [10, 20]
+        assert call_args[1].args[0] == [30]
 
     def test_decode_batch_preserves_valid_zero_tokens(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
         eos_id = tokenizer.eos_token_id
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (2, 5, 7), dtype=np.float32
-        )
         tokens = torch.tensor([[0, 20, eos_id, 0], [30, 0, 40, 0]])
         tokenizer.decode_batch(tokens)
-        call_args = tokenizer.action_discretizer.processor.decode.call_args[0][0]
-        assert call_args[0] == [0, 20]
-        assert call_args[1] == [30, 0, 40]
+        call_args = (
+            tokenizer.action_discretizer.processor.bpe_tokenizer.decode.call_args_list
+        )
+        assert call_args[0].args[0] == [0, 20]
+        assert call_args[1].args[0] == [30, 0, 40]
 
     def test_decode_batch_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
@@ -821,21 +850,21 @@ class TestActionTokenizerDecodeBatch:
 
     def test_decode_batch_accepts_numpy_input(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (2, 5, 7), dtype=np.float32
-        )
         tokens = np.array([[10, 20, 30], [40, 50, 60]])
         result = tokenizer.decode_batch(tokens)
         assert result.shape == (2, 5, 7)
 
-    def test_decode_batch_raises_type_error_when_processor_returns_non_ndarray(
+    def test_decode_batch_raises_type_error_when_bpe_returns_non_string(
         self, action_tokenizer_factory
     ):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = [[0.1, 0.2]]
+        tokenizer.action_discretizer.processor.bpe_tokenizer.decode.return_value = [
+            0.1,
+            0.2,
+        ]
         tokens = torch.tensor([[10, 20, 30], [40, 50, 60]])
         expected_message = (
-            "Expected np.ndarray from FAST processor decode, got <class 'list'>"
+            "Expected str from FAST BPE tokenizer decode, got <class 'list'>"
         )
         with pytest.raises(TypeError, match=re.escape(expected_message)):
             tokenizer.decode_batch(tokens)
@@ -844,17 +873,11 @@ class TestActionTokenizerDecodeBatch:
 class TestActionTokenizerDecode:
     def test_decode_1d_dispatches_to_decode_chunk(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (1, 5, 7), dtype=np.float32
-        )
         result = tokenizer.decode(torch.tensor([10, 20, 30]))
         assert result.shape == (5, 7)
 
     def test_decode_2d_dispatches_to_decode_batch(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (2, 5, 7), dtype=np.float32
-        )
         tokens = torch.tensor([[10, 20, 30], [40, 50, 60]])
         result = tokenizer.decode(tokens)
         assert result.shape == (2, 5, 7)
@@ -863,9 +886,6 @@ class TestActionTokenizerDecode:
         self, action_tokenizer_factory
     ):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
-        tokenizer.action_discretizer.processor.decode.return_value = np.zeros(
-            (1, 5, 7), dtype=np.float32
-        )
         result = tokenizer.decode([10, 20, 30])
         assert result.shape == (5, 7)
 
@@ -957,6 +977,81 @@ class TestActionTokenizerBinnedDiscretizer:
         assert np.isfinite(decoded).all()
 
 
+class TestActionTokenizerUniformBinning:
+    def test_encode_decode_uses_fixed_value_space_bins(self):
+        tokenizer = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(
+                num_bins=4,
+                min_value=-1.0,
+                max_value=1.0,
+            ),
+            max_token_len=16,
+        )
+        training_data = np.array(
+            [
+                [
+                    [-1.0, 0.0, 1.0],
+                    [0.25, -0.25, 0.99],
+                ]
+            ],
+            dtype=np.float32,
+        )
+        tokenizer.fit(training_data)
+
+        result = tokenizer.encode_chunk(training_data[0])
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
+        decoded = tokenizer.decode_chunk(tokens)
+
+        assert tokens[:6].tolist() == [0, 2, 3, 2, 1, 3]
+        np.testing.assert_allclose(
+            decoded,
+            np.array(
+                [
+                    [-0.75, 0.25, 0.75],
+                    [0.25, -0.25, 0.75],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+    def test_encode_decode_preserves_binary_gripper_signs(self):
+        tokenizer = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(num_bins=256),
+            max_token_len=16,
+        )
+        training_data = np.array(
+            [
+                [
+                    [-1.0],
+                    [1.0],
+                ]
+            ],
+            dtype=np.float32,
+        )
+        tokenizer.fit(training_data)
+
+        decoded = tokenizer.decode_chunk(
+            tokenizer.encode_chunk(training_data[0])[SampleKey.TOKENIZED_ACTIONS.value]
+        )
+
+        assert np.sign(decoded[:, 0]).tolist() == [-1.0, 1.0]
+
+    def test_decode_rejects_short_generated_sequences(self):
+        tokenizer = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(num_bins=8),
+            max_token_len=64,
+        )
+        training_data = np.zeros((2, 4, 3), dtype=np.float32)
+        tokenizer.fit(training_data)
+        expected_message = (
+            "Binned action token sequence has invalid length: expected "
+            "12 tokens for shape (4, 3), got 2."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            tokenizer.decode_chunk(torch.tensor([1, 2, tokenizer.eos_token_id]))
+
+
 class TestActionTokenizerTo:
     def test_to_updates_device(self, action_tokenizer_factory, device):
         tokenizer = action_tokenizer_factory()
@@ -1022,6 +1117,28 @@ class TestActionTokenizerStateDict:
         state = tokenizer.state_dict()
         assert state["action_discretizer"]["type"] == "binned"
         assert state["action_discretizer"]["num_bins"] == 16
+        assert state["action_discretizer"]["time_horizon"] == 4
+        assert state["action_discretizer"]["action_dim"] == 3
+        assert state["token_id_mapping"]["type"] == "identity"
+        assert state["eos_token_id"] == 16
+        assert state["vocab_size"] == 17
+
+    def test_state_dict_values_for_uniform_binned_discretizer(self):
+        tokenizer = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(
+                num_bins=16,
+                min_value=-2.0,
+                max_value=2.0,
+            ),
+            max_token_len=64,
+        )
+        training_data = np.zeros((2, 4, 3), dtype=np.float32)
+        tokenizer.fit(training_data)
+        state = tokenizer.state_dict()
+        assert state["action_discretizer"]["type"] == "binned"
+        assert state["action_discretizer"]["num_bins"] == 16
+        assert state["action_discretizer"]["binner"]["min_value"] == -2.0
+        assert state["action_discretizer"]["binner"]["max_value"] == 2.0
         assert state["action_discretizer"]["time_horizon"] == 4
         assert state["action_discretizer"]["action_dim"] == 3
         assert state["token_id_mapping"]["type"] == "identity"
@@ -1095,6 +1212,35 @@ class TestActionTokenizerLoadStateDict:
             original.encode_chunk(training_data[0])[SampleKey.TOKENIZED_ACTIONS.value]
         )
         assert restored.action_discretizer.token_count == 8
+        assert restored.action_discretizer.time_horizon == 4
+        assert restored.action_discretizer.action_dim == 3
+        assert restored.vocab_size == 9
+        assert decoded.shape == training_data[0].shape
+
+    def test_load_state_dict_restores_uniform_binned_discretizer(self):
+        original = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(
+                num_bins=8,
+                min_value=-2.0,
+                max_value=2.0,
+            ),
+            max_token_len=64,
+        )
+        training_data = np.zeros((2, 4, 3), dtype=np.float32)
+        original.fit(training_data)
+        state = original.state_dict()
+        restored = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(num_bins=2),
+            max_token_len=8,
+        )
+        restored.load_state_dict(state)
+        decoded = restored.decode_chunk(
+            original.encode_chunk(training_data[0])[SampleKey.TOKENIZED_ACTIONS.value]
+        )
+        assert isinstance(restored.action_discretizer, BinnedActionDiscretizer)
+        assert restored.action_discretizer.token_count == 8
+        assert restored.action_discretizer.binner.min_value == -2.0
+        assert restored.action_discretizer.binner.max_value == 2.0
         assert restored.action_discretizer.time_horizon == 4
         assert restored.action_discretizer.action_dim == 3
         assert restored.vocab_size == 9
@@ -1598,14 +1744,7 @@ def fast_discretizer_factory(mock_auto_processor):
             del sequence
             return "x" * (discretizer.time_horizon * discretizer.action_dim)
 
-        def fake_decode(token_sequences, time_horizon: int, action_dim: int):
-            return np.zeros(
-                (len(token_sequences), time_horizon, action_dim),
-                dtype=np.float32,
-            )
-
         processor.bpe_tokenizer.decode.side_effect = fake_bpe_decode
-        processor.decode.side_effect = fake_decode
         return discretizer
 
     return factory
@@ -1659,12 +1798,15 @@ class TestFastActionDiscretizerRoundTrip:
         discretizer = fast_discretizer_factory()
         discretizer.encode(np.zeros((7, 2), dtype=np.float32))
         decoded = discretizer.decode([[1, 2, 3]])
-        assert decoded.shape == (1, 7, 2)
-        discretizer.processor.decode.assert_called_once_with(
-            [[1, 2, 3]],
+        expected = expected_fast_decode(
+            decoded_tokens="x" * 14,
             time_horizon=7,
-            action_dim=2,
+            action_dimension=2,
         )
+        assert decoded.shape == (1, 7, 2)
+        np.testing.assert_allclose(decoded[0], expected)
+        discretizer.processor.bpe_tokenizer.decode.assert_called_once_with([1, 2, 3])
+        discretizer.processor.decode.assert_not_called()
 
     def test_decode_raises_when_shape_unknown(self, fast_discretizer_factory):
         discretizer = fast_discretizer_factory()
@@ -1674,53 +1816,51 @@ class TestFastActionDiscretizerRoundTrip:
         ):
             discretizer.decode([[1, 2, 3]])
 
-    def test_decode_rejects_out_of_range_token_ids(self, fast_discretizer_factory):
+    def test_decode_clips_out_of_range_token_ids_before_bpe_decode(
+        self, fast_discretizer_factory
+    ):
         discretizer = fast_discretizer_factory(use_pretrained=True)
         discretizer.encode(np.zeros((3, 2), dtype=np.float32))
-        expected_message = (
-            "FAST token sequence 0 contains IDs outside the valid range [0, 2047]."
-        )
 
-        with pytest.raises(ValueError, match=re.escape(expected_message)):
-            discretizer.decode([[-5, 0, 99999]])
+        decoded = discretizer.decode([[-5, 0, 99999]])
 
-        discretizer.processor.bpe_tokenizer.decode.assert_not_called()
+        assert decoded.shape == (1, 3, 2)
+        discretizer.processor.bpe_tokenizer.decode.assert_called_once_with([0, 0, 2047])
 
-    def test_decode_raises_when_fast_bpe_stream_is_too_short(
+    def test_decode_pads_short_fast_bpe_stream_with_zero_coefficients(
         self, fast_discretizer_factory
     ):
         discretizer = fast_discretizer_factory(use_pretrained=True)
         discretizer.encode(np.zeros((10, 7), dtype=np.float32))
         decoded_coefficient_count = 35
-        expected_coefficient_count = 70
         discretizer.processor.bpe_tokenizer.decode.return_value = (
             "x" * decoded_coefficient_count
         )
         discretizer.processor.bpe_tokenizer.decode.side_effect = None
-        expected_message = (
-            "FAST token sequence 0 decodes to "
-            f"{decoded_coefficient_count} coefficients, expected at least "
-            f"{expected_coefficient_count} for shape "
-            "(time_horizon=10, action_dim=7). The sequence is malformed; "
-            "refusing to use FAST processor fallback actions."
+
+        decoded = discretizer.decode([[1, 2, 3]])
+        expected = expected_fast_decode(
+            decoded_tokens="x" * decoded_coefficient_count,
+            time_horizon=10,
+            action_dimension=7,
         )
 
-        with pytest.raises(ValueError, match=re.escape(expected_message)):
-            discretizer.decode([[1, 2, 3]])
-
+        np.testing.assert_allclose(decoded[0], expected)
         discretizer.processor.decode.assert_not_called()
 
-    def test_decode_accepts_extra_fast_coefficients(self, fast_discretizer_factory):
+    def test_decode_truncates_extra_fast_coefficients(self, fast_discretizer_factory):
         discretizer = fast_discretizer_factory(use_pretrained=True)
         discretizer.encode(np.zeros((3, 2), dtype=np.float32))
         discretizer.processor.bpe_tokenizer.decode.side_effect = None
         discretizer.processor.bpe_tokenizer.decode.return_value = "x" * 12
 
         decoded = discretizer.decode([[1, 2, 3]])
+        expected = expected_fast_decode(
+            decoded_tokens="x" * 12,
+            time_horizon=3,
+            action_dimension=2,
+        )
 
         assert decoded.shape == (1, 3, 2)
-        discretizer.processor.decode.assert_called_once_with(
-            [[1, 2, 3]],
-            time_horizon=3,
-            action_dim=2,
-        )
+        np.testing.assert_allclose(decoded[0], expected)
+        discretizer.processor.decode.assert_not_called()

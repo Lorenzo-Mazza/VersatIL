@@ -180,6 +180,7 @@ from versatil.data.constants import (
     ActionDiscretizerType,
     ActionTokenIdMappingType,
     BinaryGripperRange,
+    BinningStrategy,
     Cameras,
     CoordinateSystem,
     DatasetType,
@@ -496,6 +497,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("action_discretizer"):
         OmegaConf.register_resolver(
             "action_discretizer", lambda name: ActionDiscretizerType[name].value
+        )
+    if not OmegaConf.has_resolver("binning_strategy"):
+        OmegaConf.register_resolver(
+            "binning_strategy", lambda name: BinningStrategy[name].value
         )
     if not OmegaConf.has_resolver("action_token_id_mapping"):
         OmegaConf.register_resolver(

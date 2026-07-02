@@ -1,11 +1,13 @@
 """Discretizers for continuous action chunks."""
 
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
+from scipy.fft import idct
 from transformers.processing_utils import ProcessorMixin
 
 from versatil.data.constants import ActionDiscretizerType, BinningStrategy
@@ -125,60 +127,98 @@ class FastActionDiscretizer(ActionDiscretizer):
                 "FAST action discretizer shape is unknown; encode or load a fitted "
                 "discretizer before decoding"
             )
-        validated_sequences = [
-            self._validate_fast_token_sequence(
+        decoded_actions = [
+            self._decode_fast_token_sequence(
                 token_sequence=sequence,
-                sequence_index=sequence_index,
             )
-            for sequence_index, sequence in enumerate(token_sequences)
+            for sequence in token_sequences
         ]
-        decoded_actions = self.processor.decode(
-            validated_sequences,
-            time_horizon=self.time_horizon,
-            action_dim=self.action_dim,
-        )
-        if not isinstance(decoded_actions, np.ndarray):
-            raise TypeError(
-                f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
-            )
-        return decoded_actions
+        return np.stack(decoded_actions)
 
-    def _validate_fast_token_sequence(
-        self, token_sequence: list[int], sequence_index: int
-    ) -> list[int]:
-        """Validate one FAST BPE stream before processor decode."""
+    def _decode_fast_token_sequence(self, token_sequence: list[int]) -> np.ndarray:
+        """Decode one FAST BPE stream with local DCT length fix."""
         if self.processor is None:
             raise RuntimeError("FAST processor not initialized")
         if self.time_horizon is None or self.action_dim is None:
             raise RuntimeError("FAST action discretizer shape is unknown")
-        token_array = np.asarray(token_sequence)
-        if np.any(token_array < 0) or np.any(token_array >= self.token_count):
-            raise ValueError(
-                f"FAST token sequence {sequence_index} contains IDs outside "
-                f"the valid range [0, {self.token_count - 1}]."
-            )
-
         bpe_tokenizer = getattr(self.processor, "bpe_tokenizer", None)
         if bpe_tokenizer is None:
             raise RuntimeError("FAST processor does not expose a BPE tokenizer")
 
         expected_coefficient_count = self.time_horizon * self.action_dim
-        decoded_tokens = bpe_tokenizer.decode(token_sequence)
+        token_array = np.asarray(token_sequence, dtype=np.int64)
+        clipped_token_array = np.clip(token_array, 0, self.token_count - 1)
+        if not np.array_equal(clipped_token_array, token_array):
+            logging.warning(
+                "FAST token sequence contains IDs outside [0, %d]; clipping "
+                "before decode. Decoded actions may be degraded.",
+                self.token_count - 1,
+            )
+        token_array = clipped_token_array
+        decoded_tokens = bpe_tokenizer.decode(token_array.tolist())
         if not isinstance(decoded_tokens, str):
             raise TypeError(
                 f"Expected str from FAST BPE tokenizer decode, got {type(decoded_tokens)}"
             )
-        decoded_coefficient_count = len(decoded_tokens)
-        if decoded_coefficient_count < expected_coefficient_count:
-            raise ValueError(
-                f"FAST token sequence {sequence_index} decodes to "
-                f"{decoded_coefficient_count} coefficients, expected at least "
-                f"{expected_coefficient_count} for shape "
-                f"(time_horizon={self.time_horizon}, "
-                f"action_dim={self.action_dim}). The sequence is malformed; "
-                "refusing to use FAST processor fallback actions."
+        coefficients = self._decoded_tokens_to_coefficients(
+            decoded_tokens=decoded_tokens,
+            expected_coefficient_count=expected_coefficient_count,
+        )
+        coefficient_matrix = coefficients.reshape(self.time_horizon, self.action_dim)
+        return idct(
+            coefficient_matrix / self._processor_scale(),
+            axis=0,
+            norm="ortho",
+        )
+
+    def _decoded_tokens_to_coefficients(
+        self,
+        decoded_tokens: str,
+        expected_coefficient_count: int,
+    ) -> np.ndarray:
+        """Convert decoded FAST characters to a fixed-length DCT vector."""
+        min_token = self._processor_min_token()
+        coefficients = (
+            np.asarray([ord(token) for token in decoded_tokens], dtype=np.float32)
+            + min_token
+        )
+        if coefficients.size != expected_coefficient_count:
+            logging.warning(
+                "FAST token sequence decodes to %d DCT coefficients, expected "
+                "%d; %s to the expected length. Decoded actions may be "
+                "degraded.",
+                coefficients.size,
+                expected_coefficient_count,
+                "zero-padding"
+                if coefficients.size < expected_coefficient_count
+                else "truncating",
             )
-        return token_array.astype(np.int64).tolist()
+        if coefficients.size < expected_coefficient_count:
+            return np.pad(
+                coefficients,
+                (0, expected_coefficient_count - coefficients.size),
+                mode="constant",
+                constant_values=0,
+            )
+        return coefficients[:expected_coefficient_count]
+
+    def _processor_scale(self) -> float:
+        """Return the FAST processor DCT scale."""
+        if self.processor is None:
+            raise RuntimeError("FAST processor not initialized")
+        scale = getattr(self.processor, "scale", None)
+        if scale is None:
+            raise RuntimeError("FAST processor does not expose a scale")
+        return float(scale)
+
+    def _processor_min_token(self) -> float:
+        """Return the FAST processor minimum token offset."""
+        if self.processor is None:
+            raise RuntimeError("FAST processor not initialized")
+        min_token = getattr(self.processor, "min_token", None)
+        if min_token is None:
+            raise RuntimeError("FAST processor does not expose a min_token")
+        return float(min_token)
 
     def to(self, device: torch.device) -> None:
         """No-op device transfer for the processor-backed discretizer."""
@@ -226,12 +266,16 @@ class BinnedActionDiscretizer(ActionDiscretizer):
         num_bins: int = 256,
         device: torch.device | None = None,
         binning_strategy: str = BinningStrategy.UNIFORM.value,
+        min_value: float = -1.0,
+        max_value: float = 1.0,
     ):
         """Initialize per-value binning for action chunks."""
         self.binner = BinnedValueDiscretizer(
             num_bins=num_bins,
             device=device,
             binning_strategy=binning_strategy,
+            min_value=min_value,
+            max_value=max_value,
         )
         self.time_horizon: int | None = None
         self.action_dim: int | None = None
