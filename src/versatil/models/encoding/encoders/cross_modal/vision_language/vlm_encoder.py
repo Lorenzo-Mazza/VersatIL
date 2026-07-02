@@ -111,16 +111,14 @@ class VLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
         )
         self.hidden_vision_dim: int = vision_config.hidden_size
         self.hidden_language_dim: int = self.encoder.text_model.config.hidden_size
+        # DEFAULT pooling returns the HF pooler_output, which is valid for
+        # every supported tower (CLS token for CLIP, MAP head for SigLIP).
+        # vision_has_cls only matters for the token pooling heads, which must
+        # know whether a prefix token precedes the patch tokens.
         vision_has_cls = (
             hasattr(self.encoder.vision_model.embeddings, "class_embedding")
             and self.encoder.vision_model.embeddings.class_embedding is not None
         )
-        if pooling_method == PoolingMethod.DEFAULT.value and not vision_has_cls:
-            raise ValueError(
-                "DEFAULT pooling on a vision tower without a class embedding "
-                "would silently return an ordinary patch token. Use AVERAGE "
-                "or LEARNED_AGGREGATION pooling instead."
-            )
         self.vision_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.hidden_vision_dim,
