@@ -363,7 +363,7 @@ class TestFeatureProjectionForward:
             width,
         )
 
-    def test_5d_spatial_features_without_time_dim_flattens_batch_and_time(
+    def test_5d_spatial_features_without_time_dim_restore_time_dimension(
         self,
         rng: np.random.Generator,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -386,9 +386,11 @@ class TestFeatureProjectionForward:
             )
         }
         output = projection(features)
-        # Without has_time_dim, B*T stays flattened
+        # A 5D input carries a time dimension regardless of has_time_dim;
+        # folding it into the batch would leak B*T downstream.
         assert output["video_feature"].shape == (
-            batch_size * temporal_length,
+            batch_size,
+            temporal_length,
             embedding_dim,
             height,
             width,

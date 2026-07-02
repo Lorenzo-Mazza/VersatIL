@@ -47,17 +47,22 @@ class DepthAwareDecayMask(nn.Module):
 
     @staticmethod
     def compute_1d_depth_difference_matrix(
-        depth_map: torch.Tensor, axis: str
+        depth_map: torch.Tensor, axis: str, height: int, width: int
     ) -> torch.Tensor:
         """Computes depth differences along one axis.
 
         Args:
             depth_map: Depth values of shape (B, 1, H, W).
             axis: Either 'height' or 'width'.
+            height: Target height.
+            width: Target width.
 
         Returns:
             Depth differences of shape (B, secondary_length, primary_length, primary_length).
         """
+        depth_map = F.interpolate(
+            depth_map, size=(height, width), mode="bilinear", align_corners=False
+        )
         if axis == Axis.HEIGHT.value:
             depth_map = depth_map.transpose(-2, -1)
         depth_differences = depth_map[:, :, :, :, None] - depth_map[:, :, :, None, :]
@@ -87,10 +92,10 @@ class DepthAwareDecayMask(nn.Module):
         """
         if decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:
             height_depth_diffs = self.compute_1d_depth_difference_matrix(
-                depth_map, axis=Axis.HEIGHT.value
+                depth_map, axis=Axis.HEIGHT.value, height=height, width=width
             )
             width_depth_diffs = self.compute_1d_depth_difference_matrix(
-                depth_map, axis=Axis.WIDTH.value
+                depth_map, axis=Axis.WIDTH.value, height=height, width=width
             )
 
             height_mask = (

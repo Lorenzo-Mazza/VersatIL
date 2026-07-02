@@ -175,7 +175,7 @@ class TestDepthDifference1D:
             batch_size=1, height=4, width=4, near_depth=1.0, far_depth=5.0
         )
         differences = DepthAwareDecayMask.compute_1d_depth_difference_matrix(
-            depth_map=depth_map, axis=Axis.HEIGHT.value
+            depth_map=depth_map, axis=Axis.HEIGHT.value, height=4, width=4
         )
         # Height axis after transpose: shape (B, W, H, H)
         # Row 0 (near) vs row 2 (far) should have nonzero difference
@@ -189,7 +189,7 @@ class TestDepthDifference1D:
             batch_size=1, height=4, width=4, near_depth=1.0, far_depth=5.0
         )
         differences = DepthAwareDecayMask.compute_1d_depth_difference_matrix(
-            depth_map=depth_map, axis=Axis.WIDTH.value
+            depth_map=depth_map, axis=Axis.WIDTH.value, height=4, width=4
         )
         assert torch.allclose(differences, torch.zeros_like(differences))
 
@@ -202,7 +202,7 @@ class TestDepthDifference1D:
             batch_size=1, height=2, width=4, near_depth=near_depth, far_depth=far_depth
         )
         differences = DepthAwareDecayMask.compute_1d_depth_difference_matrix(
-            depth_map=depth_map, axis=Axis.WIDTH.value
+            depth_map=depth_map, axis=Axis.WIDTH.value, height=2, width=4
         )
         expected_boundary_diff = abs(far_depth - near_depth)
         # Shape: (B, H, W, W) = (1, 2, 4, 4)
@@ -227,7 +227,7 @@ class TestDepthDifference1D:
             batch_size=1, height=4, width=4, near_depth=1.0, far_depth=5.0
         )
         differences = DepthAwareDecayMask.compute_1d_depth_difference_matrix(
-            depth_map=depth_map, axis=Axis.HEIGHT.value
+            depth_map=depth_map, axis=Axis.HEIGHT.value, height=4, width=4
         )
         assert torch.allclose(differences, torch.zeros_like(differences))
 
@@ -236,7 +236,7 @@ class TestDepthDifference1D:
         height, width = 4, 6
         depth_map = depth_map_factory(batch_size=2, height=height, width=width)
         differences = DepthAwareDecayMask.compute_1d_depth_difference_matrix(
-            depth_map=depth_map, axis=axis
+            depth_map=depth_map, axis=axis, height=height, width=width
         )
         if axis == Axis.HEIGHT.value:
             # transpose(-2,-1) → (B, 1, W, H), squeeze → (B, W, H, H)
@@ -390,6 +390,22 @@ class TestDepthDecayForwardFull:
 
 
 class TestDepthDecayForwardSeparable:
+    def test_depth_map_resized_to_target_grid(
+        self, depth_decay_factory, depth_map_factory, decay_rates_factory
+    ):
+        mask = depth_decay_factory(num_heads=2)
+        depth_map = depth_map_factory(batch_size=1, height=32, width=32)
+        decay_rates = decay_rates_factory(num_heads=2)
+        height_mask, width_mask = mask(
+            depth_map=depth_map,
+            height=8,
+            width=8,
+            decay_rates=decay_rates,
+            decomposition_mode=AttentionDecompositionMode.SEPARABLE.value,
+        )
+        assert height_mask.shape == (1, 2, 8, 8, 8)
+        assert width_mask.shape == (1, 2, 8, 8, 8)
+
     def test_output_is_two_element_tuple(
         self, depth_decay_factory, depth_map_factory, decay_rates_factory
     ):

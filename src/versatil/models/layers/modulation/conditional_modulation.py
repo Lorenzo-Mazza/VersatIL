@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.gated_linear_unit import GatedLinearUnit
 
 
 class ConditionalModulation(nn.Module):
@@ -84,15 +85,23 @@ class ConditionalModulation(nn.Module):
         linear_layers = [
             m for m in self.projection.modules() if isinstance(m, nn.Linear)
         ]
+        for layer in linear_layers:
+            layer._is_modulation_layer = True
         if self.init_strategy == "zero":
-            for layer in linear_layers:
-                layer._is_modulation_layer = True
+            if isinstance(self.projection, GatedLinearUnit):
+                # Zeroing both GLU branches makes the product's gradient
+                # identically zero, freezing the modulation forever. Zeroing
+                # only the value branch keeps the initial output at zero while
+                # gradients still flow through the gate.
+                zero_layers = [self.projection.value_proj]
+            else:
+                zero_layers = linear_layers
+            for layer in zero_layers:
                 nn.init.constant_(layer.weight, 0)
                 if layer.bias is not None:
                     nn.init.constant_(layer.bias, 0)
         elif self.init_strategy == "xavier":
             for layer in linear_layers:
-                layer._is_modulation_layer = True
                 nn.init.xavier_uniform_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)

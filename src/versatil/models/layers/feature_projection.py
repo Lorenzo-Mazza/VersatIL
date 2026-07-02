@@ -183,7 +183,10 @@ class FeatureProjection(ModuleAttrMixin):
             if feature_name not in projection_dict:
                 projection_dict[feature_name] = self._create_projection_layer(feature)
             feature_projection = projection_dict[feature_name](feature)
-            if self.has_time_dim and B is not None and T is not None:
+            # Restore whenever the input was flattened: a 5D input carries a
+            # time dimension regardless of the has_time_dim flag, and folding
+            # it into the batch would leak B*T downstream.
+            if B is not None and T is not None:
                 feature_projection = feature_projection.reshape(
                     B, T, *feature_projection.shape[1:]
                 )
