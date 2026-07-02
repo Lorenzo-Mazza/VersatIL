@@ -8,8 +8,14 @@ import enum
 
 import torch
 import torch.nn as nn
+from huggingface_hub import hf_hub_download
 
 from versatil.data.constants import CameraModality
+from versatil.models.adaptation.lora import (
+    LoRAAdaptation,
+    apply_lora_config,
+    is_lora_enabled,
+)
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -41,6 +47,47 @@ class DFormerVariant(enum.StrEnum):
     SMALL = "S"
     BASE = "B"
     LARGE = "L"
+
+
+class DFormerPretrainedWeights(enum.StrEnum):
+    """Pretrained checkpoint families on the HuggingFace mirror."""
+
+    IMAGENET = "imagenet"
+    NYU = "nyu"
+    SUNRGBD = "sunrgbd"
+
+
+DFORMER_HUGGINGFACE_REPO = "bbynku/DFormerv2"
+
+DFORMER_PRETRAINED_FILENAMES = {
+    (DFormerVariant.SMALL.value, DFormerPretrainedWeights.IMAGENET.value): (
+        "DFormerv2/pretrained/DFormerv2_Small_pretrained.pth"
+    ),
+    (DFormerVariant.BASE.value, DFormerPretrainedWeights.IMAGENET.value): (
+        "DFormerv2/pretrained/DFormerv2_Base_pretrained.pth"
+    ),
+    (DFormerVariant.LARGE.value, DFormerPretrainedWeights.IMAGENET.value): (
+        "DFormerv2/pretrained/DFormerv2_Large_pretrained.pth"
+    ),
+    (DFormerVariant.SMALL.value, DFormerPretrainedWeights.NYU.value): (
+        "DFormerv2/NYU/DFormerv2_Small_NYU.pth"
+    ),
+    (DFormerVariant.BASE.value, DFormerPretrainedWeights.NYU.value): (
+        "DFormerv2/NYU/DFormerv2_Base_NYU.pth"
+    ),
+    (DFormerVariant.LARGE.value, DFormerPretrainedWeights.NYU.value): (
+        "DFormerv2/NYU/DFormerv2_Large_NYU.pth"
+    ),
+    (DFormerVariant.SMALL.value, DFormerPretrainedWeights.SUNRGBD.value): (
+        "DFormerv2/SUNRGBD/DFormerv2_Small_SUNRGBD.pth"
+    ),
+    (DFormerVariant.BASE.value, DFormerPretrainedWeights.SUNRGBD.value): (
+        "DFormerv2/SUNRGBD/DFormerv2_Base_SUNRGBD.pth"
+    ),
+    (DFormerVariant.LARGE.value, DFormerPretrainedWeights.SUNRGBD.value): (
+        "DFormerv2/SUNRGBD/DFormerv2_Large_SUNRGBD.pth"
+    ),
+}
 
 
 class DFormerStage(nn.Module):
@@ -174,9 +221,10 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str | None = None,
+        pretrained_weights: str = DFormerPretrainedWeights.IMAGENET.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         model_dtype: str | None = None,
+        lora_config: LoRAAdaptation | None = None,
     ):
         """Initialize DFormer encoder.
 
@@ -190,8 +238,13 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             initial_decay: Initial decay rate for spatial biases
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
-            checkpoint_path: Path to checkpoint for loading weights
+            pretrained_weights: Which checkpoint family to download from
+                https://huggingface.co/bbynku/DFormerv2 when ``pretrained``
+                is set: the ImageNet backbone or the NYU/SUNRGBD finetuned
+                models.
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional LoRA adapter configuration applied to the
+                stage linears.
         """
         specification = EncoderInput(
             keys=input_keys,
@@ -209,10 +262,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
                 f"Variant '{variant}' not supported. "
                 f"Choose from: {list(self.VARIANT_CONFIGS.keys())}"
             )
-        if pretrained and checkpoint_path is None:
-            raise ValueError(
-                "Pretrained=True requires a valid checkpoint_path for DFormerEncoder."
-            )
+        weights_key = (variant, DFormerPretrainedWeights(pretrained_weights).value)
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.variant = variant
         self.pooling_method = pooling_method
@@ -243,7 +293,23 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         self.pooling_head: PoolingHead | None = None
         self.output_dim: int | tuple[int, ...] = self.feature_dim
         if pretrained:
+            checkpoint_path = hf_hub_download(
+                repo_id=DFORMER_HUGGINGFACE_REPO,
+                filename=DFORMER_PRETRAINED_FILENAMES[weights_key],
+            )
             self._load_checkpoint(checkpoint_path)
+        self.lora_config = lora_config
+        self.stages = nn.ModuleList(
+            [
+                apply_lora_config(model=stage, lora_config=lora_config, frozen=frozen)
+                for stage in self.stages
+            ]
+        )
+        if is_lora_enabled(lora_config=lora_config):
+            # PEFT freezes the wrapped stages; the patch embedding sits outside
+            # them and must freeze too so only adapters train.
+            for parameter in self.patch_embed.parameters():
+                parameter.requires_grad = False
         if frozen:
             super()._freeze_weights()
         self._apply_model_dtype()
@@ -397,18 +463,26 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         remapped_state_dict = self._remap_reference_keys(cleaned_state_dict)
 
         incompatible = self.load_state_dict(remapped_state_dict, strict=False)
-        # BatchNorm batch counters have no FrozenBatchNorm2d counterpart, the
-        # reference does not norm stage-0 outputs, and the trailing LayerNorm
-        # of PatchEmbedding is unused on the progressive path.
+        # BatchNorm batch counters have no FrozenBatchNorm2d counterpart,
+        # ImageNet-pretrained checkpoints carry classification heads and a
+        # final norm this encoder does not use, and the NYU/SUNRGBD
+        # checkpoints carry segmentation decode heads.
         unexpected = [
             key
             for key in incompatible.unexpected_keys
             if not key.endswith("num_batches_tracked")
+            and not key.startswith(
+                ("head.", "aux_head.", "norm.", "proj.", "decode_head.")
+            )
         ]
+        # Stage output norms exist only in segmentation checkpoints
+        # (extra_norms); ImageNet backbones leave them at identity. The
+        # trailing LayerNorm of PatchEmbedding is unused on the progressive
+        # path.
         missing = [
             key
             for key in incompatible.missing_keys
-            if not key.startswith(("stages.0.norm.", "patch_embed.norm."))
+            if ".norm." not in key and not key.startswith("patch_embed.norm.")
         ]
         if unexpected or missing:
             raise ValueError(

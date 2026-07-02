@@ -214,8 +214,10 @@ Processes RGB and depth through parallel patch embedding streams and fuses them 
 Pretrained backbone checkpoints (S/B/L, from the official
 [DFormer repository](https://github.com/VCIP-RGBD/DFormer)) are mirrored at
 [bbynku/DFormerv2](https://huggingface.co/bbynku/DFormerv2) on the HuggingFace
-Hub. Pass the downloaded checkpoint through the encoder's `checkpoint_path`
-together with `pretrained: true`.
+Hub. With `pretrained: true` the selected checkpoint is downloaded into the
+HuggingFace cache automatically; `pretrained_weights` picks between the
+ImageNet backbone (default) and the NYU/SUNRGBD finetuned models. LoRA
+adapters can be enabled through `lora_config`, like the other encoders.
 
 #### [`GeometricRGBDEncoder`][versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder]
 

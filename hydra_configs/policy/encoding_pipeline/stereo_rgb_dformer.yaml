@@ -9,7 +9,7 @@ encoders:
       - ${cameras:LEFT}
       - ${cameras:DEPTH}
     variant: S
-    checkpoint_path: ${pretrained_dir:pretrained_dformer/DFormerv2_Small_NYU.pth}
+    pretrained_weights: ${dformer_weights:NYU}
     pretrained: true
     frozen: true
     pooling_method: none

@@ -139,7 +139,6 @@ Set only the variables for datasets you use:
 
 ```bash
 # Pretrained models directory
-VERSATIL_PRETRAINED_DIR=/path/to/pretrained_models
 
 # Raw data paths (one per dataset)
 VERSATIL_BOWEL_RETRACTION_DIR=/path/to/bowel_retraction

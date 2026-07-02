@@ -292,16 +292,6 @@ class TestPathResolvers:
             cfg = OmegaConf.create({"dir": "${cache_dir:}"})
             assert cfg.dir == str(Path.home() / ".cache" / "versatil")
 
-    def test_pretrained_dir_resolver_uses_env_variable(self):
-        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
-            cfg = OmegaConf.create({"dir": "${pretrained_dir:}"})
-            assert cfg.dir == "/models/pretrained"
-
-    def test_pretrained_dir_resolver_appends_subpath(self):
-        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
-            cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
-            assert cfg.dir == str(Path("/models/pretrained") / "resnet")
-
     def test_bowel_retraction_dir_resolver_uses_env_variable(self):
         with patch.dict(
             os.environ,

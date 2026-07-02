@@ -24,6 +24,10 @@ from versatil.models.encoding.encoders.constants import (
     LanguageEncoderType,
     PoolingMethod,
 )
+from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
+    DFormerPretrainedWeights,
+    DFormerVariant,
+)
 from versatil.models.layers.activation import ActivationFunction
 
 
@@ -62,9 +66,10 @@ class DFormerEncoderConfig(EncoderConfig):
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
-    variant: str = "S"
-    checkpoint_path: str | None = None
+    variant: str = DFormerVariant.SMALL.value
+    pretrained_weights: str = DFormerPretrainedWeights.IMAGENET.value
     pooling_method: str = PoolingMethod.NONE.value
+    lora_config: LoRAAdaptationConfig | None = None
 
 
 @dataclass

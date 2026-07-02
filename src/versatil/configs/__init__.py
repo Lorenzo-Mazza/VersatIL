@@ -224,6 +224,9 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
     RGBBackboneType,
 )
+from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
+    DFormerPretrainedWeights,
+)
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
     AttentionType,
@@ -502,6 +505,10 @@ def register_resolvers():
         OmegaConf.register_resolver(
             "binning_strategy", lambda name: BinningStrategy[name].value
         )
+    if not OmegaConf.has_resolver("dformer_weights"):
+        OmegaConf.register_resolver(
+            "dformer_weights", lambda name: DFormerPretrainedWeights[name].value
+        )
     if not OmegaConf.has_resolver("action_token_id_mapping"):
         OmegaConf.register_resolver(
             "action_token_id_mapping",
@@ -628,13 +635,6 @@ def register_resolvers():
             "cache_dir",
             lambda: os.environ.get(
                 "VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")
-            ),
-        )
-    if not OmegaConf.has_resolver("pretrained_dir"):
-        OmegaConf.register_resolver(
-            "pretrained_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_PRETRAINED_DIR", ".")) / subpath
             ),
         )
     if not OmegaConf.has_resolver("bowel_retraction_dir"):

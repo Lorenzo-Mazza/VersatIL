@@ -19,13 +19,18 @@ from versatil.data.metadata import (
     DepthCameraMetadata,
     RGBCameraMetadata,
 )
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
+    DFORMER_HUGGINGFACE_REPO,
+    DFORMER_PRETRAINED_FILENAMES,
     DFormerEncoder,
+    DFormerPretrainedWeights,
     DFormerStage,
     DFormerVariant,
 )
@@ -88,9 +93,10 @@ def dformer_encoder_factory(
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str | None = None,
+        pretrained_weights: str = DFormerPretrainedWeights.IMAGENET.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         real_build: bool = False,
+        lora_config: LoRAAdaptation | None = None,
     ) -> DFormerEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
@@ -110,8 +116,9 @@ def dformer_encoder_factory(
                     initial_decay=initial_decay,
                     pretrained=pretrained,
                     frozen=frozen,
-                    checkpoint_path=checkpoint_path,
+                    pretrained_weights=pretrained_weights,
                     pooling_method=pooling_method,
+                    lora_config=lora_config,
                 )
                 encoder.set_camera_metadata(
                     camera_metadata=rgbd_camera_metadata_factory(
@@ -139,8 +146,9 @@ def dformer_encoder_factory(
                 initial_decay=initial_decay,
                 pretrained=pretrained,
                 frozen=frozen,
-                checkpoint_path=checkpoint_path,
+                pretrained_weights=pretrained_weights,
                 pooling_method=pooling_method,
+                lora_config=lora_config,
             )
             encoder.set_camera_metadata(
                 camera_metadata=rgbd_camera_metadata_factory(
@@ -380,12 +388,38 @@ class TestDFormerEncoderInitialization:
         with expectation:
             dformer_encoder_factory(variant=variant)
 
-    def test_pretrained_without_checkpoint_raises(
+    @pytest.mark.parametrize(
+        "pretrained_weights",
+        [
+            DFormerPretrainedWeights.IMAGENET.value,
+            DFormerPretrainedWeights.NYU.value,
+            DFormerPretrainedWeights.SUNRGBD.value,
+        ],
+    )
+    def test_pretrained_downloads_selected_weights_from_hub(
         self,
         dformer_encoder_factory: Callable[..., DFormerEncoder],
+        tmp_path,
+        pretrained_weights: str,
     ):
-        with pytest.raises(ValueError, match="checkpoint_path"):
-            dformer_encoder_factory(pretrained=True, checkpoint_path=None)
+        checkpoint_path = tmp_path / "backbone.pth"
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.hf_hub_download",
+                return_value=str(checkpoint_path),
+            ) as mock_download,
+            patch.object(DFormerEncoder, "_load_checkpoint") as mock_load,
+        ):
+            dformer_encoder_factory(
+                pretrained=True, pretrained_weights=pretrained_weights
+            )
+        mock_download.assert_called_once_with(
+            repo_id=DFORMER_HUGGINGFACE_REPO,
+            filename=DFORMER_PRETRAINED_FILENAMES[
+                (DFormerVariant.SMALL.value, pretrained_weights)
+            ],
+        )
+        mock_load.assert_called_once_with(str(checkpoint_path))
 
     @pytest.mark.parametrize(
         "variant",
@@ -839,6 +873,46 @@ class TestDFormerEncoderPretrainedCheckpoint:
         assert not torch.allclose(pretrained_features, random_features, atol=1e-3)
 
 
+class TestDFormerEncoderLoRA:
+    def test_lora_wraps_stages_and_freezes_base(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        encoder = dformer_encoder_factory(real_build=True, lora_config=lora_config)
+        trainable_names = [
+            name
+            for name, parameter in encoder.named_parameters()
+            if parameter.requires_grad
+        ]
+        assert trainable_names
+        assert all("lora_" in name for name in trainable_names)
+        assert all(
+            not parameter.requires_grad
+            for parameter in encoder.patch_embed.parameters()
+        )
+
+    def test_lora_with_frozen_raises(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        with pytest.raises(ValueError, match="LoRA adaptation cannot be enabled"):
+            dformer_encoder_factory(
+                real_build=True, frozen=True, lora_config=lora_config
+            )
+
+
 class TestDFormerReferenceKeyRemap:
     @pytest.mark.parametrize(
         "reference_key, expected_key",
@@ -974,19 +1048,6 @@ class TestDFormerEncoderRealBuild:
 
         torch.save(raw_state, checkpoint_path)
         encoder._load_checkpoint(str(checkpoint_path))
-
-    @pytest.mark.unit
-    def test_pretrained_requires_checkpoint_path(
-        self,
-        dformer_encoder_factory: Callable[..., DFormerEncoder],
-    ):
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Pretrained=True requires a valid checkpoint_path for DFormerEncoder."
-            ),
-        ):
-            dformer_encoder_factory(real_build=True, pretrained=True)
 
     @pytest.mark.unit
     def test_frozen_calls_freeze_weights_on_init(

@@ -153,8 +153,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the depth map keeps its original resolution with per-block
   interpolation. Checkpoint loading translates the reference key names and
   raises when any tensor fails to match, instead of silently training from
-  random weights. Verified numerically: all 780 reference tensors load and
-  encoder outputs match the reference forward to float32 precision.
+  random weights. Checkpoints are downloaded from the HuggingFace mirror
+  automatically — ``pretrained_weights`` selects the ImageNet backbone or the
+  NYU/SUNRGBD finetuned models, replacing ``checkpoint_path`` — and LoRA
+  adapters are supported through ``lora_config``. Verified
+  numerically: all 780 reference tensors load and encoder outputs match the
+  reference forward to float32 precision.
 - PaliGemma prefixes were scaled twice: transformers 5.x moved the Gemma
   sqrt(hidden) embedding scale into the embedding module, so the manual
   multiply on top of it blew text tokens up by the full hidden size and
