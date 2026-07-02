@@ -5,7 +5,6 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -355,88 +354,11 @@ class TestLoadCompressionMetadata:
             == DeploymentBackendName.TORCH_INDUCTOR.value
         )
 
-    def test_uses_defaults_when_config_empty(self, tmp_path: Path):
+    def test_ignores_quantization_config_file(self, tmp_path: Path):
         with open(tmp_path / "compression_metadata.json", "w") as file:
             json.dump({CompressionMetadataKey.MODEL_FILE.value: "test.pt2"}, file)
         OmegaConf.save(
-            config=OmegaConf.create({}), f=tmp_path / "quantization_config.yaml"
-        )
-
-        result = load_compression_metadata(
-            metadata_path=str(tmp_path / "compression_metadata.json"),
-        )
-
-        assert result.get(CompressionMetadataKey.IS_DYNAMIC.value) is False
-        assert result.get(CompressionMetadataKey.IS_QAT.value) is False
-        assert result.get(CompressionMetadataKey.REDUCE_RANGE.value) is False
-
-    @pytest.mark.parametrize(
-        "config_dict, expected_is_dynamic, expected_is_qat, expected_reduce_range",
-        [
-            (
-                {
-                    "quantization": {
-                        "is_qat": True,
-                        "targets": [
-                            {
-                                "module_path": "",
-                                "quantize_config": {},
-                            }
-                        ],
-                    },
-                },
-                False,
-                True,
-                False,
-            ),
-            (
-                {
-                    "quantization": {
-                        "targets": [
-                            {
-                                "module_path": "decoder",
-                                "pt2e_backend": {
-                                    "is_dynamic": True,
-                                    "is_qat": False,
-                                    "reduce_range": True,
-                                },
-                            }
-                        ],
-                    },
-                },
-                True,
-                False,
-                True,
-            ),
-            (
-                {
-                    "is_qat": True,
-                    "targets": [
-                        {
-                            "module_path": "",
-                            "quantize_config": {},
-                        }
-                    ],
-                },
-                False,
-                True,
-                False,
-            ),
-        ],
-        ids=["nested_eager_workflow", "nested_pt2e_target", "workflow_only_eager"],
-    )
-    def test_extracts_quantization_flags_from_config_shapes(
-        self,
-        tmp_path: Path,
-        config_dict: dict[str, Any],
-        expected_is_dynamic: bool,
-        expected_is_qat: bool,
-        expected_reduce_range: bool,
-    ) -> None:
-        with open(tmp_path / "compression_metadata.json", "w") as file:
-            json.dump({CompressionMetadataKey.MODEL_FILE.value: "test.pt2"}, file)
-        OmegaConf.save(
-            config=OmegaConf.create(config_dict),
+            config=OmegaConf.create({"quantization": {"is_qat": True}}),
             f=tmp_path / "quantization_config.yaml",
         )
 
@@ -444,11 +366,11 @@ class TestLoadCompressionMetadata:
             metadata_path=str(tmp_path / "compression_metadata.json"),
         )
 
-        assert result[CompressionMetadataKey.IS_DYNAMIC.value] is expected_is_dynamic
-        assert result[CompressionMetadataKey.IS_QAT.value] is expected_is_qat
-        assert (
-            result[CompressionMetadataKey.REDUCE_RANGE.value] is expected_reduce_range
-        )
+        assert set(result) == {
+            CompressionMetadataKey.MODEL_FILE.value,
+            CompressionMetadataKey.ARTIFACT_FORMAT.value,
+            CompressionMetadataKey.DEPLOYMENT_BACKEND.value,
+        }
 
 
 @pytest.mark.unit

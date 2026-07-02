@@ -122,31 +122,32 @@ class QuantizationReport:
     def compute_size_reduction(self) -> dict[str, float]:
         """Compare model sizes (float32 bytes vs quantized bytes).
 
-        Counts parameter bytes for the float model and parameter + buffer
-        bytes for the quantized model (scales and zero points are stored
-        as buffers).
+        Counts parameter and buffer bytes for both models (quantization
+        scales and zero points are stored as buffers).
 
         Returns:
             Dict with "float_bytes", "quantized_bytes", "compression_ratio".
         """
-        float_bytes = sum(
-            parameter.numel() * parameter.element_size()
-            for parameter in self._float_model.parameters()
-        )
-        quantized_bytes = sum(
-            parameter.numel() * parameter.element_size()
-            for parameter in self._quantized_model.parameters()
-        )
-        quantized_bytes += sum(
-            buffer.numel() * buffer.element_size()
-            for buffer in self._quantized_model.buffers()
-        )
+        float_bytes = self._model_bytes(model=self._float_model)
+        quantized_bytes = self._model_bytes(model=self._quantized_model)
         compression_ratio = float_bytes / max(quantized_bytes, 1)
         return {
             ReportMetricKey.FLOAT_BYTES.value: float(float_bytes),
             ReportMetricKey.QUANTIZED_BYTES.value: float(quantized_bytes),
             ReportMetricKey.COMPRESSION_RATIO.value: compression_ratio,
         }
+
+    @staticmethod
+    def _model_bytes(model: nn.Module) -> int:
+        """Return the total parameter and buffer byte count of a model."""
+        parameter_bytes = sum(
+            parameter.numel() * parameter.element_size()
+            for parameter in model.parameters()
+        )
+        buffer_bytes = sum(
+            buffer.numel() * buffer.element_size() for buffer in model.buffers()
+        )
+        return parameter_bytes + buffer_bytes
 
     def compute_inference_timing(
         self,

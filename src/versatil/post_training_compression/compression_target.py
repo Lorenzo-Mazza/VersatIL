@@ -24,3 +24,21 @@ class CompressionTarget:
         self.module_path = module_path
         self.preparation = preparation
         self.pruning: list[BasePruner] = pruning or []
+
+    def overlaps(self, other: "CompressionTarget") -> bool:
+        """Return whether two targets can select the same submodule.
+
+        Args:
+            other: Target to compare against this target.
+
+        Returns:
+            Whether either target is root, both targets are the same path, or
+            one target is nested under the other.
+        """
+        if self.module_path == "" or other.module_path == "":
+            return True
+        return (
+            self.module_path == other.module_path
+            or self.module_path.startswith(other.module_path + ".")
+            or other.module_path.startswith(self.module_path + ".")
+        )

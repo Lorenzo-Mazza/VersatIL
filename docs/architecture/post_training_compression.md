@@ -166,7 +166,6 @@ granularity is expressed inside `quantization.targets`.
 checkpoint_path: ???
 checkpoint_name: last.ckpt
 output_directory: null
-device: cpu
 calibration_steps: 16
 generate_report: false
 

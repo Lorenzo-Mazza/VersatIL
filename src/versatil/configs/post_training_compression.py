@@ -101,7 +101,6 @@ class PostTrainingCompressorConfig:
     checkpoint_path: str = MISSING
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value
     output_directory: str | None = None
-    device: str = "cpu"  # Device for export and calibration ("cpu" or "cuda")
     calibration_steps: int = 32
     generate_report: bool = False
     modules: list[CompressionTargetConfig] = field(default_factory=list)

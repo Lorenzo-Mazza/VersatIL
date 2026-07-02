@@ -120,24 +120,15 @@ def save_compressed_model(
 def load_compression_metadata(metadata_path: str) -> dict[str, Any]:
     """Load compression metadata from a checkpoint directory.
 
-    Loads compression_metadata.json and optionally merges
-    quantization_config.yaml fields.
-
     Args:
         metadata_path: Path to compression_metadata.json.
 
     Returns:
-        Dict with runtime metadata + optional config fields.
+        Dict with runtime metadata, with artifact format and deployment
+        backend defaults filled in for older checkpoints.
     """
-    metadata_file = Path(metadata_path)
-    with open(metadata_file) as file:
+    with open(metadata_path) as file:
         metadata = json.load(file)
-    config_path = metadata_file.parent / CompressionFilename.QUANTIZATION_CONFIG.value
-    if config_path.exists():
-        config = OmegaConf.load(config_path)
-        config_dict = OmegaConf.to_container(config, resolve=True)
-        quantization_fields = _extract_quantization_fields(config_dict=config_dict)
-        metadata.update(quantization_fields)
     metadata.setdefault(
         CompressionMetadataKey.ARTIFACT_FORMAT.value,
         ArtifactFormat.TORCH_EXPORT_PT2.value,
@@ -148,36 +139,6 @@ def load_compression_metadata(metadata_path: str) -> dict[str, Any]:
     )
 
     return metadata
-
-
-def _extract_quantization_fields(config_dict: dict[str, Any]) -> dict[str, Any]:
-    """Extract quantization flags from a saved config dict.
-
-    Handles full compressor configs with a nested ``quantization`` block and
-    workflow configs saved directly.
-
-    Args:
-        config_dict: Resolved quantization config as a plain dict.
-
-    Returns:
-        Dict with is_dynamic, is_qat, and reduce_range values.
-    """
-    backend_keys = [
-        CompressionMetadataKey.IS_DYNAMIC.value,
-        CompressionMetadataKey.IS_QAT.value,
-        CompressionMetadataKey.REDUCE_RANGE.value,
-    ]
-    quantization_config = config_dict.get("quantization", config_dict)
-    if not isinstance(quantization_config, dict):
-        return dict.fromkeys(backend_keys, False)
-    targets = quantization_config.get("targets")
-    if isinstance(targets, list) and targets:
-        first_target = targets[0]
-        if isinstance(first_target, dict):
-            backend_config = first_target.get("pt2e_backend")
-            if isinstance(backend_config, dict):
-                return {key: backend_config.get(key, False) for key in backend_keys}
-    return {key: quantization_config.get(key, False) for key in backend_keys}
 
 
 def _get_torchao_version() -> str:

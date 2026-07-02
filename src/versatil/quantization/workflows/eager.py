@@ -226,6 +226,9 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
     def _apply_ptq(self, model: nn.Module) -> None:
         """Apply eager PTQ to targeted modules.
 
+        Linears whose ``in_features`` are incompatible with the config group
+        size are skipped when ``auto_filter_incompatible_linears`` is enabled.
+
         Args:
             model: Policy model to quantize in-place.
 
@@ -234,14 +237,18 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         """
         self.validate_targets(model=model)
         for target in self.targets:
+            selected, skipped = self._select_linear_modules(
+                model=model,
+                target=target,
+            )
+            for name, reason in skipped:
+                logger.info("Skipping PTQ module %s: %s", name, reason)
+            selected_names = set(selected)
             logger.info("quantize_() target: %s", target.label)
             quantize_(
                 model=model,
                 config=target.quantize_config,
-                filter_fn=lambda module, fqn, current=target: (
-                    current.contains_module(module_name=fqn)
-                    and isinstance(module, nn.Linear)
-                ),
+                filter_fn=lambda module, fqn, names=selected_names: fqn in names,
             )
 
     def _select_linear_modules(

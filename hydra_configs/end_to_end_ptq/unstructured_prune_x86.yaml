@@ -6,7 +6,6 @@ defaults:
 checkpoint_path: ???
 checkpoint_name: last.ckpt
 output_directory: null
-device: cpu
 calibration_steps: 16
 preparation:
   replace_frozen_batchnorm: true

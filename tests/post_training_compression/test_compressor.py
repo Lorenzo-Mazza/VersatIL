@@ -98,6 +98,69 @@ class TestPostTrainingCompressorValidate:
         assert resolved[0].module_path == ""
         compressor.validate(policy=policy_with_submodules, modules=resolved)
 
+    @pytest.mark.parametrize(
+        "first_path, second_path, expectation",
+        [
+            ("backbone", "decoder", does_not_raise()),
+            ("backbone.0", "backbone.2", does_not_raise()),
+            (
+                "backbone",
+                "backbone.0",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Compression targets overlap: 'backbone' and 'backbone.0'."
+                    ),
+                ),
+            ),
+            (
+                "decoder",
+                "decoder",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Compression targets overlap: 'decoder' and 'decoder'."
+                    ),
+                ),
+            ),
+            (
+                "",
+                "decoder",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("Compression targets overlap: '' and 'decoder'."),
+                ),
+            ),
+        ],
+        ids=[
+            "disjoint_paths",
+            "disjoint_siblings",
+            "nested_path",
+            "duplicate_path",
+            "root_overlaps_everything",
+        ],
+    )
+    def test_overlapping_module_paths_validation(
+        self,
+        policy_with_submodules,
+        compressor_factory,
+        first_path,
+        second_path,
+        expectation,
+    ):
+        compressor = compressor_factory(
+            modules=[
+                CompressionTarget(module_path=first_path),
+                CompressionTarget(module_path=second_path),
+            ],
+        )
+
+        with expectation:
+            compressor.validate(
+                policy=policy_with_submodules,
+                modules=compressor.resolve_modules(),
+            )
+
     def test_multiple_modules_with_one_invalid_path(
         self,
         policy_with_submodules,

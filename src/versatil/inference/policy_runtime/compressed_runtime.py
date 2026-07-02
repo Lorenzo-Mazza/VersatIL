@@ -77,6 +77,10 @@ class CompressedPolicyRuntime(PolicyRuntime):
             backend = self._load_backend(workflow=workflow)
             if backend is not None:
                 self._validate_device(backend=backend)
+            if workflow != QuantizationWorkflow.PT2E.value:
+                # PT2E graphs bake CPU device metadata into the export and
+                # must stay on CPU; other workflows follow the runtime device.
+                model = model.to(self.device)
             if self._compile_model and self._should_compile(
                 workflow=workflow,
                 device=self.device,

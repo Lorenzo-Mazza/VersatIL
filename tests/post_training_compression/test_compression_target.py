@@ -37,3 +37,35 @@ class TestCompressionTargetStorage:
         target = CompressionTarget(module_path="", preparation=None)
 
         assert target.preparation is None
+
+
+@pytest.mark.unit
+class TestCompressionTargetOverlaps:
+    @pytest.mark.parametrize(
+        "first_path, second_path, expected",
+        [
+            ("", "decoder", True),
+            ("decoder", "", True),
+            ("decoder", "decoder", True),
+            ("decoder", "decoder.0", True),
+            ("decoder.0", "decoder", True),
+            ("encoder", "decoder", False),
+            ("decoder.0", "decoder.1", False),
+            ("decoder", "decoder_head", False),
+        ],
+        ids=[
+            "root_first",
+            "root_second",
+            "same_path",
+            "nested_child",
+            "nested_parent",
+            "disjoint",
+            "disjoint_siblings",
+            "shared_prefix_not_nested",
+        ],
+    )
+    def test_overlap_detection(self, first_path, second_path, expected):
+        first = CompressionTarget(module_path=first_path)
+        second = CompressionTarget(module_path=second_path)
+
+        assert first.overlaps(other=second) is expected

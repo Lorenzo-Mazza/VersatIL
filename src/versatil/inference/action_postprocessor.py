@@ -116,9 +116,10 @@ class ActionPostprocessor:
             binary_range = action_meta.source_metadata.binary_gripper_range
 
         if gripper_type == GripperType.BINARY.value:
+            probability = torch.sigmoid(torch.tensor(raw_value[0])).item()
             if binary_range == BinaryGripperRange.ZERO_ONE.value:
-                return np.array([float(raw_value[0] > 0.5)])
-            return np.array([float(raw_value[0] > 0.5) * 2.0 - 1.0])
+                return np.array([float(probability > 0.5)])
+            return np.array([float(probability > 0.5) * 2.0 - 1.0])
         return raw_value
 
     @staticmethod

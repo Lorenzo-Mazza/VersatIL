@@ -866,6 +866,7 @@ class TestCompileModelFlag:
         checkpoint_path = checkpoint_directory_factory()
         mock_exported_program = MagicMock()
         raw_module = MagicMock()
+        raw_module.to.return_value = raw_module
         mock_exported_program.module.return_value = raw_module
         compiled_module = MagicMock()
 
@@ -896,6 +897,61 @@ class TestCompileModelFlag:
             assert loader._compressed_model is compiled_module
         else:
             assert loader._compressed_model is raw_module
+
+
+@pytest.mark.unit
+class TestArtifactDevicePlacement:
+    @pytest.mark.parametrize(
+        "quantization_workflow, expects_move",
+        [
+            (QuantizationWorkflow.EAGER.value, True),
+            (QuantizationWorkflow.NONE.value, True),
+            (None, True),
+            (QuantizationWorkflow.PT2E.value, False),
+        ],
+        ids=["eager_moves", "none_moves", "missing_workflow_moves", "pt2e_stays"],
+    )
+    def test_moves_pt2_module_to_device_for_non_pt2e_workflows(
+        self,
+        checkpoint_directory_factory: Callable[..., str],
+        quantization_workflow: str | None,
+        expects_move: bool,
+    ):
+        checkpoint_path = checkpoint_directory_factory(
+            quantization_workflow=quantization_workflow,
+        )
+        mock_exported_program = MagicMock()
+        raw_module = MagicMock()
+        raw_module.to.return_value = raw_module
+        mock_exported_program.module.return_value = raw_module
+        device = torch.device("cpu")
+
+        with (
+            patch(
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.export.load",
+                return_value=mock_exported_program,
+            ),
+            patch(f"{COMPRESSED_CHECKPOINT_MODULE}.torch.load", return_value={}),
+            patch.object(CompressedCheckpointLoader, "_load_training_config"),
+            patch.object(
+                CompressedCheckpointLoader,
+                "_load_tokenizer",
+                return_value=None,
+            ),
+            patch(
+                f"{COMPRESSED_RUNTIME_MODULE}.torch.compile",
+                return_value=MagicMock(),
+            ),
+        ):
+            CompressedPolicyRuntime(
+                device=device,
+                checkpoint_path=checkpoint_path,
+            )
+
+        if expects_move:
+            raw_module.to.assert_called_once_with(device)
+        else:
+            raw_module.to.assert_not_called()
 
 
 @pytest.mark.unit

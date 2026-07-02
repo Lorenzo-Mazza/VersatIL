@@ -391,6 +391,31 @@ class TestSizeReduction:
             == quantized_param_bytes + buffer_bytes
         )
 
+    def test_includes_buffers_in_float_bytes(self):
+        float_model = nn.Linear(in_features=4, out_features=2, bias=False)
+        float_model.register_buffer("running_mean", torch.zeros(4))
+
+        quantized_model = nn.Linear(in_features=4, out_features=2, bias=False)
+
+        example_inputs = (torch.zeros(1, 4),)
+
+        report = QuantizationReport(
+            float_model=float_model,
+            quantized_model=quantized_model,
+            example_inputs=example_inputs,
+            action_keys=["position"],
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
+        )
+
+        size = report.compute_size_reduction()
+
+        param_bytes = 4 * 2 * 4  # 8 params * 4 bytes
+        float_buffer_bytes = 4 * 4  # running_mean (float32)
+        assert (
+            size[ReportMetricKey.FLOAT_BYTES.value] == param_bytes + float_buffer_bytes
+        )
+        assert size[ReportMetricKey.QUANTIZED_BYTES.value] == param_bytes
+
     def test_compression_ratio_handles_zero_quantized_bytes(self):
         float_model = nn.Linear(in_features=4, out_features=2, bias=False)
 

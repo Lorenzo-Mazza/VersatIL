@@ -42,7 +42,6 @@ class PostTrainingCompressor:
         checkpoint_path: str,
         modules: list[CompressionTarget],
         preparation: PreparationConfig,
-        device: str = "cpu",
         calibration_steps: int = 32,
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
         output_directory: str | None = None,
@@ -57,10 +56,6 @@ class PostTrainingCompressor:
             checkpoint_path: Path to the training checkpoint directory.
             modules: Per-module compression schemes (empty = global).
             preparation: Global preparation settings.
-            device: Device for policy loading. Export and
-                calibration always run on CPU due to
-                torch.export device constraints. The compressed
-                output is saved on CPU regardless of this setting.
             calibration_steps: Number of calibration batches for
                 static quantization.
             checkpoint_name: Checkpoint filename inside the directory.
@@ -79,7 +74,6 @@ class PostTrainingCompressor:
         self.checkpoint_name = checkpoint_name
         self.output_directory = output_directory
         self.generate_report = generate_report
-        self.device = device
         self.calibration_steps = calibration_steps
         self.modules = modules
         self.preparation = preparation
@@ -175,14 +169,15 @@ class PostTrainingCompressor:
         ]
 
     def validate(self, policy: nn.Module, modules: list[CompressionTarget]) -> None:
-        """Validate compression target module paths.
+        """Validate compression target module paths and overlaps.
 
         Args:
             policy: The loaded policy model.
             modules: Resolved compression targets from resolve_modules().
 
         Raises:
-            ValueError: If a module_path doesn't match a submodule.
+            ValueError: If a module_path doesn't match a submodule, or if two
+                targets overlap and would compound pruning on the same module.
         """
         for module in modules:
             if module.module_path == "":
@@ -195,6 +190,13 @@ class PostTrainingCompressor:
                     f"Module path '{module.module_path}' not found in "
                     f"policy. Available top-level modules: {available}"
                 ) from error
+        for index, module in enumerate(modules):
+            for other in modules[index + 1 :]:
+                if module.overlaps(other=other):
+                    raise ValueError(
+                        "Compression targets overlap: "
+                        f"'{module.module_path}' and '{other.module_path}'."
+                    )
 
     def _prepare_and_prune(
         self,

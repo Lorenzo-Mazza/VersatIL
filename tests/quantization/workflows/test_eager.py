@@ -327,6 +327,67 @@ class TestEagerQuantizationWorkflow:
             decoder_target.quantize_config
         )
 
+    def test_ptq_filters_group_incompatible_linears(
+        self,
+        policy_with_linear_modules_factory,
+    ):
+        model = policy_with_linear_modules_factory()
+        config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=torch.int4,
+            weight_granularity=PerGroup(32),
+        )
+        target = EagerQuantizationModuleTarget(
+            module_path="",
+            quantize_config=config,
+        )
+        workflow = EagerQuantizationWorkflow(targets=[target])
+
+        with patch(f"{EAGER_WORKFLOW_MODULE}.quantize_") as quantize_mock:
+            workflow._apply_ptq(model=model)
+
+        filter_fn = quantize_mock.call_args.kwargs["filter_fn"]
+        assert filter_fn(model.encoder[0], "encoder.0") is True
+        assert filter_fn(model.decoder[0], "decoder.0") is True
+        assert filter_fn(model.decoder[1], "decoder.1") is False
+
+    def test_ptq_keeps_incompatible_linears_when_filter_disabled(
+        self,
+        policy_with_linear_modules_factory,
+    ):
+        model = policy_with_linear_modules_factory()
+        config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=torch.int4,
+            weight_granularity=PerGroup(32),
+        )
+        target = EagerQuantizationModuleTarget(
+            module_path="",
+            quantize_config=config,
+        )
+        workflow = EagerQuantizationWorkflow(
+            targets=[target],
+            auto_filter_incompatible_linears=False,
+        )
+
+        with patch(f"{EAGER_WORKFLOW_MODULE}.quantize_") as quantize_mock:
+            workflow._apply_ptq(model=model)
+
+        filter_fn = quantize_mock.call_args.kwargs["filter_fn"]
+        assert filter_fn(model.decoder[1], "decoder.1") is True
+
+    def test_ptq_does_not_raise_when_no_linear_is_eligible(self):
+        model = nn.Sequential(nn.Linear(8, 8))
+        target = EagerQuantizationModuleTarget(
+            module_path="",
+            quantize_config=Int4WeightOnlyConfig(group_size=32),
+        )
+        workflow = EagerQuantizationWorkflow(targets=[target])
+
+        with patch(f"{EAGER_WORKFLOW_MODULE}.quantize_") as quantize_mock:
+            workflow._apply_ptq(model=model)
+
+        filter_fn = quantize_mock.call_args.kwargs["filter_fn"]
+        assert filter_fn(model[0], "0") is False
+
     def test_prepare_calls_quantize_with_qat_prepare_config(
         self,
         policy_with_linear_modules_factory,

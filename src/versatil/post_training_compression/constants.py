@@ -41,9 +41,6 @@ class CompressionMetadataKey(StrEnum):
     TRAINING_CHECKPOINT_PATH = "training_checkpoint_path"
     QUANTIZATION_WORKFLOW = "quantization_workflow"
     DENOISING_THRESHOLDS = "denoising_thresholds"
-    IS_DYNAMIC = "is_dynamic"
-    IS_QAT = "is_qat"
-    REDUCE_RANGE = "reduce_range"
 
 
 class CompressionFilename(StrEnum):

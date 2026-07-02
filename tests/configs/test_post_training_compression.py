@@ -72,23 +72,19 @@ class TestExecutorchXNNPACKBackendConfig:
 
 @pytest.mark.unit
 class TestPostTrainingCompressorConfig:
-    @pytest.mark.parametrize("device", ["cpu", "cuda"])
     @pytest.mark.parametrize("calibration_steps", [64, 256])
-    def test_stores_configuration(self, device, calibration_steps):
+    def test_stores_configuration(self, calibration_steps):
         config = PostTrainingCompressorConfig(
             checkpoint_path="/tmp/ckpt",
-            device=device,
             calibration_steps=calibration_steps,
         )
 
         assert config.checkpoint_path == "/tmp/ckpt"
-        assert config.device == device
         assert config.calibration_steps == calibration_steps
 
     def test_omegaconf_roundtrip(self):
         config = PostTrainingCompressorConfig(
             checkpoint_path="/tmp/ckpt",
-            device="cpu",
             calibration_steps=64,
         )
 
