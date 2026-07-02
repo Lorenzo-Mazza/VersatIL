@@ -545,6 +545,20 @@ class TestActionTokenizerEncodeChunk:
         assert torch.equal(result[SampleKey.TOKENIZED_ACTIONS.value], expected_tokens)
         assert torch.equal(result[SampleKey.IS_PAD_ACTION.value], expected_mask)
 
+    def test_encode_chunk_with_pad_mask_preserves_decode_shape(
+        self, action_tokenizer_factory, action_chunk_factory, pad_mask_factory
+    ):
+        tokenizer = action_tokenizer_factory(max_token_len=8)
+        tokenizer.action_discretizer.processor.side_effect = lambda x: [[10, 20]]
+        chunk = action_chunk_factory(time_horizon=5, action_dimension=7)
+        pad_mask = pad_mask_factory(total=5, num_valid=2)
+
+        result = tokenizer.encode_chunk(chunk, is_pad_mask=pad_mask)
+        decoded = tokenizer.decode_chunk(result[SampleKey.TOKENIZED_ACTIONS.value])
+
+        assert tokenizer.action_discretizer.time_horizon == 5
+        assert decoded.shape == (5, 7)
+
     def test_encode_chunk_raises_when_tokens_do_not_fit_with_eos(
         self, action_tokenizer_factory, action_chunk_factory
     ):
@@ -1736,8 +1750,16 @@ class TestActionTokenizerIntegrationLanguageMapping:
 def fast_discretizer_factory(mock_auto_processor):
     """Factory for a FastActionDiscretizer with mocked BPE decoding."""
 
-    def factory(use_pretrained: bool = True) -> FastActionDiscretizer:
-        discretizer = FastActionDiscretizer(use_pretrained=use_pretrained)
+    def factory(
+        use_pretrained: bool = True,
+        time_horizon: int | None = None,
+        action_dim: int | None = None,
+    ) -> FastActionDiscretizer:
+        discretizer = FastActionDiscretizer(
+            use_pretrained=use_pretrained,
+            time_horizon=time_horizon,
+            action_dim=action_dim,
+        )
         processor = discretizer.processor
 
         def fake_bpe_decode(sequence):
@@ -1756,6 +1778,21 @@ class TestFastActionDiscretizerShapeTracking:
         discretizer.encode(np.zeros((4, 3), dtype=np.float32))
         assert discretizer.time_horizon == 4
         assert discretizer.action_dim == 3
+
+    def test_constructor_stores_chunk_shape(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory(
+            use_pretrained=True, time_horizon=5, action_dim=7
+        )
+        assert discretizer.time_horizon == 5
+        assert discretizer.action_dim == 7
+
+    def test_encode_does_not_overwrite_known_shape(self, fast_discretizer_factory):
+        discretizer = fast_discretizer_factory()
+        discretizer.encode(np.zeros((5, 7), dtype=np.float32))
+        # A padded chunk arrives with its padded rows already dropped.
+        discretizer.encode(np.zeros((2, 7), dtype=np.float32))
+        assert discretizer.time_horizon == 5
+        assert discretizer.action_dim == 7
 
     def test_state_dict_serializes_shape_from_discretizer(
         self, fast_discretizer_factory
@@ -1807,6 +1844,36 @@ class TestFastActionDiscretizerRoundTrip:
         np.testing.assert_allclose(decoded[0], expected)
         discretizer.processor.bpe_tokenizer.decode.assert_called_once_with([1, 2, 3])
         discretizer.processor.decode.assert_not_called()
+
+    def test_encode_padded_chunk_keeps_full_horizon_decode_shape(
+        self, fast_discretizer_factory
+    ):
+        discretizer = fast_discretizer_factory(
+            use_pretrained=True, time_horizon=5, action_dim=7
+        )
+        # Padded rows are dropped before encode, producing a short chunk that
+        # must not shrink the decode shape.
+        discretizer.encode(np.zeros((2, 7), dtype=np.float32))
+
+        decoded = discretizer.decode([[1, 2, 3]])
+
+        assert decoded.shape == (1, 5, 7)
+
+    def test_state_dict_round_trip_preserves_constructor_shape(
+        self, fast_discretizer_factory
+    ):
+        trained = fast_discretizer_factory(
+            use_pretrained=True, time_horizon=5, action_dim=7
+        )
+        state = trained.state_dict()
+
+        loaded = fast_discretizer_factory(use_pretrained=True)
+        loaded.load_state_dict(state)
+        decoded = loaded.decode([[10, 20]])
+
+        assert loaded.time_horizon == 5
+        assert loaded.action_dim == 7
+        assert decoded.shape == (1, 5, 7)
 
     def test_decode_raises_when_shape_unknown(self, fast_discretizer_factory):
         discretizer = fast_discretizer_factory()

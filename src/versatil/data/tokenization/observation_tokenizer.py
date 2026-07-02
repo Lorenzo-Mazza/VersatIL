@@ -25,6 +25,26 @@ from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscr
 from versatil.data.tokenization.huggingface import load_huggingface_tokenizer
 
 
+def _is_nested_language_list(value: Any) -> bool:
+    """Return whether a value is a batched language list of shape (B, T)."""
+    return isinstance(value, list) and len(value) > 0 and isinstance(value[0], list)
+
+
+def _flatten_time_dim(value: Any) -> Any:
+    """Flatten the time dimension of one observation value env-major.
+
+    Tensors of shape (B, T, ...) become (B*T, ...) and nested language lists
+    of shape (B, T) become flat lists of length B*T, both ordered env-major,
+    timestep-minor so tensor rows and language entries stay paired. Other
+    values pass through unchanged.
+    """
+    if isinstance(value, torch.Tensor) and value.ndim >= 3:
+        return value.reshape(-1, *value.shape[2:])
+    if _is_nested_language_list(value):
+        return [item for sublist in value for item in sublist]
+    return value
+
+
 class ObservationTokenizer:
     """Tokenizes multiple observation keys into a unified prompt.
 
@@ -159,29 +179,20 @@ class ObservationTokenizer:
         if has_time_dim:
             batch_size = first_tensor.shape[0]
             time_steps = first_tensor.shape[1]
-            observations = {
-                k: v.reshape(-1, *v.shape[2:]) if isinstance(v, torch.Tensor) else v
-                for k, v in observations.items()
-            }
-        elif not has_time_dim:
+        else:
             first_nested_list = next(
-                (
-                    v
-                    for v in observations.values()
-                    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list)
-                ),
+                (v for v in observations.values() if _is_nested_language_list(v)),
                 None,
             )
             if first_nested_list is not None:
                 has_time_dim = True
                 batch_size = len(first_nested_list)
                 time_steps = len(first_nested_list[0])
-                observations = {
-                    k: [item for sublist in v for item in sublist]
-                    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list)
-                    else v
-                    for k, v in observations.items()
-                }
+        if has_time_dim:
+            observations = {
+                key: _flatten_time_dim(value=value)
+                for key, value in observations.items()
+            }
 
         prompts = self._build_prompts(observations)
         tokenized = self.language_tokenizer(

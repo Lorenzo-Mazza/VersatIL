@@ -23,6 +23,7 @@ from versatil.data.metadata import (
     ObservationMetadata,
     OnTheFlyActionMetadata,
     PositionObservationMetadata,
+    PrecomputedActionMetadata,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform_builder import TransformBuilder
@@ -981,6 +982,39 @@ class TestCreateNormalizerAndTokenizer:
         stats = normalizer["position"].get_input_stats()
         assert stats["max"].item() < 900.0
 
+    def test_precomputed_action_episode_final_rows_included_in_stats(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+        rng: np.random.Generator,
+    ):
+        action_metadata = precomputed_action_metadata_factory(
+            storage_dimension=1,
+            prediction_dimension=1,
+        )
+        precomputed_actions = rng.uniform(-0.5, 0.5, (10, 1)).astype(np.float32)
+        # The first episode's final row holds the dataset maximum. It is a
+        # valid precomputed training target and must be covered by the stats.
+        precomputed_actions[4] = 999.0
+
+        builder = transform_builder_factory(
+            actions_metadata={"action": action_metadata},
+            replay_buffer_data={"action": precomputed_actions},
+            n_steps=10,
+            episode_ends=np.array([5, 10]),
+        )
+        builder.action_processor.compute_sample_actions.return_value = (
+            {"action": precomputed_actions[:9]},
+            {"action": action_metadata},
+        )
+
+        normalizer, _ = builder.create_normalizer_and_tokenizer()
+
+        # Winsorization clips the extreme, but the fitted max must still be
+        # far above the sub-unit bulk of the data.
+        stats = normalizer["action"].get_input_stats()
+        assert stats["max"].item() > 900.0
+
     def test_unselected_episodes_are_excluded_from_fitted_statistics(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -1138,6 +1172,51 @@ class TestCreateTokenizer:
             observation_tokenizer=None,
             action_tokenizer=mock_action_instance,
         )
+
+    def test_pretrained_fast_discretizer_records_chunk_shape(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+        rng: np.random.Generator,
+    ):
+        mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = True
+
+        mock_config = MagicMock()
+        mock_config.tokenize_observations = False
+        mock_config.tokenize_actions = True
+        mock_config.action_tokenizer.action_discretizer.type = (
+            ActionDiscretizerType.FAST.value
+        )
+        mock_config.action_tokenizer.action_discretizer.use_pretrained = True
+        mock_config.action_tokenizer.action_discretizer.tokenizer_model = (
+            "physical-intelligence/fast"
+        )
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
+
+        builder = transform_builder_factory(
+            tokenization_config=mock_config,
+            prediction_horizon=4,
+        )
+        action_meta = {"action": precomputed_action_metadata_factory()}
+        action_data = {"action": rng.standard_normal((9, 3)).astype(np.float32)}
+
+        with (
+            patch("versatil.data.tokenization.action_discretizer.load_fast_processor"),
+            patch(
+                "versatil.data.processing.transform_builder.ActionTokenizer",
+                return_value=mock_action_instance,
+            ) as mock_action_class,
+            patch("versatil.data.processing.transform_builder.Tokenizer"),
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data=action_data, action_meta=action_meta
+            )
+
+        action_discretizer = mock_action_class.call_args.kwargs["action_discretizer"]
+        assert action_discretizer.time_horizon == 4
+        assert action_discretizer.action_dim == 3
 
     def test_creates_action_tokenizer_with_uniform_binned_discretizer(
         self,

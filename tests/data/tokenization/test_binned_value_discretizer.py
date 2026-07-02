@@ -1,6 +1,7 @@
 """Tests for versatil.data.tokenization.binned_value_discretizer."""
 
 import re
+from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
 
 import numpy as np
@@ -32,6 +33,30 @@ class TestBinnedValueDiscretizerInit:
     def test_is_fitted_false_before_fitting(self, binned_value_discretizer_factory):
         tokenizer = binned_value_discretizer_factory()
         assert tokenizer._is_fitted is False
+
+    @pytest.mark.parametrize(
+        "num_bins, expectation",
+        [
+            (
+                1,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("num_bins must be at least 2, got 1."),
+                ),
+            ),
+            (
+                0,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("num_bins must be at least 2, got 0."),
+                ),
+            ),
+            (2, does_not_raise()),
+        ],
+    )
+    def test_num_bins_validation(self, num_bins, expectation):
+        with expectation:
+            BinnedValueDiscretizer(num_bins=num_bins)
 
 
 class TestBinnedValueDiscretizerFit:
@@ -201,6 +226,41 @@ class TestBinnedValueDiscretizerDecode:
         decoded = tokenizer.decode(tokens)
         assert decoded.dtype == torch.float32
         assert decoded.shape == (2, 3)
+
+    @pytest.mark.parametrize(
+        "binning_strategy",
+        [BinningStrategy.UNIFORM.value, BinningStrategy.QUANTILE.value],
+    )
+    def test_two_bins_fit_encode_decode_round_trip(
+        self, binned_value_discretizer_factory, rng, binning_strategy
+    ):
+        tokenizer = binned_value_discretizer_factory(
+            num_bins=2, binning_strategy=binning_strategy
+        )
+        tokenizer.fit(rng.uniform(-1, 1, (100, 2)).astype(np.float32))
+
+        probe = torch.tensor([[-0.9, 0.9], [0.9, -0.9]])
+        tokens = tokenizer.encode(probe)
+        decoded = tokenizer.decode(tokens)
+
+        assert tokens.min().item() >= 0
+        assert tokens.max().item() <= 1
+        edge = tokenizer.bin_edges[0, 0]
+        assert decoded[0, 0] < edge < decoded[1, 0]
+
+    def test_two_uniform_bins_decode_to_quarter_range_centers(
+        self, binned_value_discretizer_factory, rng
+    ):
+        tokenizer = binned_value_discretizer_factory(
+            num_bins=2, binning_strategy=BinningStrategy.UNIFORM.value
+        )
+        tokenizer.fit(rng.uniform(-1, 1, (50, 1)).astype(np.float32))
+
+        probe = torch.tensor([[-0.9], [0.9]])
+        decoded = tokenizer.decode(tokenizer.encode(probe))
+
+        # Uniform two-bin centers over [-1, 1] sit at -0.5 and 0.5.
+        torch.testing.assert_close(decoded, torch.tensor([[-0.5], [0.5]]))
 
     def test_encode_decode_roundtrip_approximate(
         self, fitted_binned_value_discretizer_factory, rng

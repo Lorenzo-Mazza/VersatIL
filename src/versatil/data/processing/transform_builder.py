@@ -42,13 +42,26 @@ from versatil.data.tokenization.tokenizer import Tokenizer
 def _build_action_discretizer(
     config: ActionDiscretizerConfig,
     device: torch.device | None,
+    time_horizon: int | None = None,
+    action_dim: int | None = None,
 ) -> FastActionDiscretizer | BinnedActionDiscretizer:
-    """Instantiate the configured action discretizer."""
+    """Instantiate the configured action discretizer.
+
+    Args:
+        config: Discretizer configuration.
+        device: Target device for discretizer tensors.
+        time_horizon: Action-chunk time horizon. Pretrained FAST discretizers
+            skip fitting, so the decode shape must be provided up front.
+        action_dim: Total tokenized action dimension, with the same purpose
+            as ``time_horizon``.
+    """
     match config.type:
         case ActionDiscretizerType.FAST.value:
             return FastActionDiscretizer(
                 use_pretrained=config.use_pretrained,
                 tokenizer_model=config.tokenizer_model,
+                time_horizon=time_horizon,
+                action_dim=action_dim,
             )
         case ActionDiscretizerType.BINNED.value:
             return BinnedActionDiscretizer(
@@ -221,9 +234,18 @@ class TransformBuilder:
         if self._selected_step_mask is not None:
             valid_mask &= self._selected_step_mask[: len(valid_mask)]
         valid_action_data = {key: data[valid_mask] for key, data in action_data.items()}
+        # On-the-fly actions at episode-final rows straddle episode boundaries
+        # and must stay out of the fitted statistics. Precomputed actions are
+        # valid training targets there, so their stats cover every selected row.
+        stats_action_data = {
+            key: self._select_step_rows(array=action_source_data[key])
+            if action_meta[key].is_precomputed
+            else data
+            for key, data in valid_action_data.items()
+        }
 
         normalizer = self._create_normalizer(
-            action_data=valid_action_data,
+            action_data=stats_action_data,
             action_meta=action_meta,
             device=device,
         )
@@ -569,10 +591,22 @@ class TransformBuilder:
                     "action_tokenizer config must be provided when tokenize_actions=True"
                 )
 
+            # Pretrained discretizers skip fitting, so the decode chunk shape
+            # must be recorded here or it would never be persisted. The
+            # tokenized dimension mirrors the encode-time filter below.
+            tokenized_action_dim = sum(
+                action_data[key].shape[-1]
+                for key, meta in action_meta.items()
+                if meta.is_numerical and meta.requires_prediction_head
+            )
             action_tokenizer = ActionTokenizer(
                 action_discretizer=_build_action_discretizer(
-                    action_config.action_discretizer,
+                    config=action_config.action_discretizer,
                     device=device,
+                    time_horizon=self.prediction_horizon,
+                    action_dim=tokenized_action_dim
+                    if tokenized_action_dim > 0
+                    else None,
                 ),
                 token_id_mapping=_build_token_id_mapping(
                     action_config.token_id_mapping

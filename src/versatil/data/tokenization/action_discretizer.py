@@ -72,15 +72,28 @@ class FastActionDiscretizer(ActionDiscretizer):
         self,
         use_pretrained: bool = True,
         tokenizer_model: str = "physical-intelligence/fast",
+        time_horizon: int | None = None,
+        action_dim: int | None = None,
     ):
-        """Initialize FAST processor metadata and optional pretrained assets."""
+        """Initialize FAST processor metadata and optional pretrained assets.
+
+        Args:
+            use_pretrained: Whether to use the pretrained FAST processor
+                instead of fitting a local one.
+            tokenizer_model: HuggingFace model ID or local directory path.
+            time_horizon: Action-chunk time horizon used to shape decoded
+                actions. Required for pretrained processors, which skip fit;
+                fit overwrites it for local processors.
+            action_dim: Action dimension used to shape decoded actions, with
+                the same semantics as ``time_horizon``.
+        """
         self.use_pretrained = use_pretrained
         self.tokenizer_model = tokenizer_model
         self.processor: ProcessorMixin | None = load_fast_processor(tokenizer_model)
         self._token_count = 2048 if use_pretrained else 1024
         self._is_fitted = use_pretrained
-        self.time_horizon: int | None = None
-        self.action_dim: int | None = None
+        self.time_horizon = time_horizon
+        self.action_dim = action_dim
 
     @property
     def token_count(self) -> int:
@@ -111,11 +124,18 @@ class FastActionDiscretizer(ActionDiscretizer):
         self._is_fitted = True
 
     def encode(self, action_chunk: np.ndarray) -> list[int]:
-        """Encode one chunk with shape (time_horizon, action_dim)."""
+        """Encode one chunk with shape (time_horizon, action_dim).
+
+        The chunk shape only seeds the decode shape when it is still unknown:
+        padded chunks arrive with their padded rows already dropped, so a
+        known time horizon must never be overwritten by a shorter chunk.
+        """
         if self.processor is None:
             raise RuntimeError("FAST processor not initialized")
-        self.time_horizon = action_chunk.shape[-2]
-        self.action_dim = action_chunk.shape[-1]
+        if self.time_horizon is None:
+            self.time_horizon = action_chunk.shape[-2]
+        if self.action_dim is None:
+            self.action_dim = action_chunk.shape[-1]
         return self.processor(action_chunk)[0]
 
     def decode(self, token_sequences: list[list[int]]) -> np.ndarray:
@@ -237,13 +257,22 @@ class FastActionDiscretizer(ActionDiscretizer):
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        """Load FAST discretizer state."""
+        """Load FAST discretizer state.
+
+        States saved before the chunk shape was persisted carry None for
+        ``time_horizon``/``action_dim``; those keep any values already set on
+        this instance instead of erasing them.
+        """
         self.use_pretrained = state_dict["use_pretrained"]
         self.tokenizer_model = state_dict.get("tokenizer_model", self.tokenizer_model)
         self._token_count = state_dict.get("token_count", self._token_count)
         self._is_fitted = state_dict["is_fitted"]
-        self.time_horizon = state_dict.get("time_horizon")
-        self.action_dim = state_dict.get("action_dim")
+        loaded_time_horizon = state_dict.get("time_horizon")
+        if loaded_time_horizon is not None:
+            self.time_horizon = loaded_time_horizon
+        loaded_action_dim = state_dict.get("action_dim")
+        if loaded_action_dim is not None:
+            self.action_dim = loaded_action_dim
 
     def save_pretrained(self, path: Path) -> None:
         """Save fitted local FAST processor assets."""

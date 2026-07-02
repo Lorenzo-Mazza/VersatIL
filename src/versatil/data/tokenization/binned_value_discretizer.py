@@ -49,9 +49,11 @@ class BinnedValueDiscretizer:
             max_value: Upper bound of the uniform bin range.
 
         Raises:
-            ValueError: If ``binning_strategy`` is not a known strategy or the
-                range bounds are inverted.
+            ValueError: If ``num_bins`` is below 2, ``binning_strategy`` is
+                not a known strategy, or the range bounds are inverted.
         """
+        if num_bins < 2:
+            raise ValueError(f"num_bins must be at least 2, got {num_bins}.")
         valid_strategies = [member.value for member in BinningStrategy]
         if binning_strategy not in valid_strategies:
             raise ValueError(
@@ -217,6 +219,10 @@ class BinnedValueDiscretizer:
     def _geometric_bin_centers(self, dim: int) -> torch.Tensor:
         """Compute geometric bin centers for a given dimension.
 
+        With two bins there is a single edge and no edge spacing to
+        extrapolate from, so the centers sit a quarter of the configured
+        range width on each side of the edge (the exact uniform-bin centers).
+
         Args:
             dim: Dimension index.
 
@@ -225,6 +231,12 @@ class BinnedValueDiscretizer:
         """
         edges = self.bin_edges[dim]
         bin_centers = torch.zeros(self.num_bins, device=self.device)
+
+        if self.num_bins == 2:
+            half_bin_width = (self.max_value - self.min_value) / 4
+            bin_centers[0] = edges[0] - half_bin_width
+            bin_centers[1] = edges[0] + half_bin_width
+            return bin_centers
 
         bin_centers[0] = edges[0] - (edges[1] - edges[0]) / 2
         bin_centers[-1] = edges[-1] + (edges[-1] - edges[-2]) / 2

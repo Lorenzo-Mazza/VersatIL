@@ -541,6 +541,53 @@ class TestObservationTokenizerTokenize:
         tokens = result[SampleKey.TOKENIZED_OBSERVATIONS.value]
         assert tokens.shape == (batch_size, time_steps, max_token_len)
 
+    @pytest.mark.parametrize("language_first", [True, False])
+    def test_tokenize_mixed_batched_language_and_tensor_pairs_rows(
+        self,
+        mock_obs_auto_tokenizer,
+        observation_tokenizer_factory,
+        mock_language_tokenizer_result,
+        language_first,
+    ):
+        batch_size, time_steps, max_token_len = 2, 3, 8
+        proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        mock_tok = mock_obs_auto_tokenizer.return_value
+        mock_tok.return_value = mock_language_tokenizer_result(
+            batch_size=batch_size * time_steps, max_length=max_token_len
+        )
+        tokenizer = observation_tokenizer_factory(
+            observation_keys=[ObsKey.LANGUAGE.value, proprio_key],
+            bin_continuous_data=False,
+            max_token_len=max_token_len,
+        )
+        tokenizer._is_fitted = True
+        language = [
+            [f"instruction {env_index}" for _ in range(time_steps)]
+            for env_index in range(batch_size)
+        ]
+        values = torch.arange(batch_size * time_steps, dtype=torch.float32).reshape(
+            batch_size, time_steps, 1
+        )
+        if language_first:
+            observations = {ObsKey.LANGUAGE.value: language, proprio_key: values}
+        else:
+            observations = {proprio_key: values, ObsKey.LANGUAGE.value: language}
+
+        result = tokenizer.tokenize(observations)
+
+        tokens = result[SampleKey.TOKENIZED_OBSERVATIONS.value]
+        is_pad = result[SampleKey.IS_PAD_OBSERVATION.value]
+        assert tokens.shape == (batch_size, time_steps, max_token_len)
+        assert is_pad.shape == (batch_size, time_steps, max_token_len)
+        prompts = mock_tok.call_args.args[0]
+        assert len(prompts) == batch_size * time_steps
+        for env_index in range(batch_size):
+            for step_index in range(time_steps):
+                prompt = prompts[env_index * time_steps + step_index]
+                value = float(env_index * time_steps + step_index)
+                assert f"instruction {env_index}" in prompt
+                assert f"{value:.3f}" in prompt
+
     def test_tokenize_computes_pad_mask_from_pad_token_id_when_attention_mask_missing(
         self,
         mock_obs_auto_tokenizer,
