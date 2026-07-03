@@ -1225,6 +1225,30 @@ class TestSmolVLADecoderCaching:
         assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
         assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
 
+    def test_encoder_cache_skips_prefix_rebuild(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # The prefix depends only on the observation; with the cache hot the
+        # vision tower must not run again on every denoising step.
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        actions = noisy_actions_factory()
+        features = prefix_features_factory()
+
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)
+        assert decoder._build_prefix.call_count == 1
+
+        decoder.enable_encoder_cache()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        assert decoder._build_prefix.call_count == 2
+
     def test_cached_forwards_are_self_consistent(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],

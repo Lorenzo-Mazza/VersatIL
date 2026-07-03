@@ -132,17 +132,61 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
         )
         self.vlm_backbone: GenerativeVLM = vlm_backbone
         self._encoder_cache_enabled = False
+        self._encoder_cache_suppressed = False
         self._prefix_cache: ConditioningCache | None = None
+        self._prefix_inputs_cache: tuple[torch.Tensor, torch.Tensor] | None = None
 
     def enable_encoder_cache(self) -> None:
         """Enable reusable VLM prefix caching for inference."""
+        if self._encoder_cache_suppressed:
+            return
         self._encoder_cache_enabled = True
         self._prefix_cache = None
+        self._prefix_inputs_cache = None
 
     def disable_encoder_cache(self) -> None:
         """Disable reusable VLM prefix caching and clear stored cache."""
+        if self._encoder_cache_suppressed:
+            return
         self._encoder_cache_enabled = False
         self._prefix_cache = None
+        self._prefix_inputs_cache = None
+
+    @property
+    def encoder_cache_enabled(self) -> bool:
+        """Whether VLM prefix caching is currently enabled."""
+        return self._encoder_cache_enabled
+
+    def set_encoder_cache_suppressed(self, suppressed: bool) -> None:
+        """Freeze or unfreeze the cache toggles during attribution.
+
+        Args:
+            suppressed: While True, enable/disable calls are ignored.
+        """
+        self._encoder_cache_suppressed = suppressed
+
+    def _build_prefix_cached(
+        self,
+        features: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build the VLM prefix, reusing it across denoising steps.
+
+        The prefix depends only on the observation, so with the encoder cache
+        enabled the vision tower and language embedding run once per
+        prediction instead of once per denoising step.
+
+        Args:
+            features: Raw observation features for the VLM backbone.
+
+        Returns:
+            Tuple of prefix embeddings and prefix padding mask.
+        """
+        if self._encoder_cache_enabled and self._prefix_inputs_cache is not None:
+            return self._prefix_inputs_cache
+        prefix = self._build_prefix(features=features)
+        if self._encoder_cache_enabled:
+            self._prefix_inputs_cache = prefix
+        return prefix
 
     def set_vlm_backbone(self, vlm_backbone: GenerativeVLM) -> None:
         """Attach a VLM backbone and initialize architecture-specific layers.

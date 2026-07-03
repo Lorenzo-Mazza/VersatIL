@@ -152,6 +152,19 @@ class TinyContinuousDecoder(nn.Module):
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         self.normalizer = normalizer
 
+    @property
+    def encoder_cache_enabled(self) -> bool:
+        return False
+
+    def enable_encoder_cache(self) -> None:
+        pass
+
+    def disable_encoder_cache(self) -> None:
+        pass
+
+    def set_encoder_cache_suppressed(self, suppressed: bool) -> None:
+        pass
+
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
         self.tokenizer = tokenizer
 
@@ -192,6 +205,19 @@ class TinyVLMContinuousDecoder(nn.Module):
 
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         self.normalizer = normalizer
+
+    @property
+    def encoder_cache_enabled(self) -> bool:
+        return False
+
+    def enable_encoder_cache(self) -> None:
+        pass
+
+    def disable_encoder_cache(self) -> None:
+        pass
+
+    def set_encoder_cache_suppressed(self, suppressed: bool) -> None:
+        pass
 
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
         self.tokenizer = tokenizer

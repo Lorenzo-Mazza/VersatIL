@@ -205,7 +205,9 @@ class Pi0Decoder(BaseInterleavedVLMDecoder):
         if self.expert_layers is None or self.expert_final_normalization is None:
             raise RuntimeError("build_action_expert() must be called before forward().")
         actions = self._require_forward_actions(actions=actions)
-        prefix_embeddings, prefix_padding_mask = self._build_prefix(features=features)
+        prefix_embeddings, prefix_padding_mask = self._build_prefix_cached(
+            features=features
+        )
         timestep = self._get_forward_timestep(features=features)
         expert_hidden, adaptive_norm_conditioning = (
             self._embed_timestep_conditioned_action_suffix(

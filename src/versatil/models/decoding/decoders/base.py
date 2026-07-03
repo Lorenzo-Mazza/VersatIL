@@ -198,6 +198,19 @@ class ActionDecoder(ModuleAttrMixin, ABC):
     def disable_encoder_cache(self) -> None:
         """No-op. Override in decoders that support encoder caching."""
 
+    @property
+    def encoder_cache_enabled(self) -> bool:
+        """Whether an encoder cache is currently enabled."""
+        return False
+
+    def set_encoder_cache_suppressed(self, suppressed: bool) -> None:
+        """No-op. Override in decoders that support encoder caching.
+
+        Args:
+            suppressed: While True, cache toggles must not change cache state;
+                attribution uses this to re-run forwards without caching.
+        """
+
     @abstractmethod
     def forward(
         self,
