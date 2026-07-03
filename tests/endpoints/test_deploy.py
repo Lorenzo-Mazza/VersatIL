@@ -1,19 +1,19 @@
-"""Tests for versatil.endpoints.test module."""
+"""Tests for versatil.endpoints.deploy module."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
-from versatil.endpoints.test import main
+from versatil.endpoints.deploy import main
 
 
 @pytest.mark.unit
-@patch("versatil.endpoints.test.InferenceClient")
-@patch("versatil.endpoints.test.SocketActionTransport")
-@patch("versatil.endpoints.test.SocketObservationTransport")
-@patch("versatil.endpoints.test.load_policy")
-@patch("versatil.endpoints.test.parse_args")
+@patch("versatil.endpoints.deploy.InferenceClient")
+@patch("versatil.endpoints.deploy.SocketActionTransport")
+@patch("versatil.endpoints.deploy.SocketObservationTransport")
+@patch("versatil.endpoints.deploy.load_policy")
+@patch("versatil.endpoints.deploy.parse_args")
 def test_main_creates_policy_loader_with_parsed_args(
     mock_parse_args,
     mock_load_policy,
@@ -66,11 +66,11 @@ def test_main_creates_policy_loader_with_parsed_args(
 
 
 @pytest.mark.unit
-@patch("versatil.endpoints.test.InferenceClient")
-@patch("versatil.endpoints.test.SocketActionTransport")
-@patch("versatil.endpoints.test.SocketObservationTransport")
-@patch("versatil.endpoints.test.load_policy")
-@patch("versatil.endpoints.test.parse_args")
+@patch("versatil.endpoints.deploy.InferenceClient")
+@patch("versatil.endpoints.deploy.SocketActionTransport")
+@patch("versatil.endpoints.deploy.SocketObservationTransport")
+@patch("versatil.endpoints.deploy.load_policy")
+@patch("versatil.endpoints.deploy.parse_args")
 def test_main_defaults_to_cuda_when_available(
     mock_parse_args,
     mock_load_policy,
@@ -92,7 +92,7 @@ def test_main_defaults_to_cuda_when_available(
     )
     mock_client_class.return_value = MagicMock()
 
-    with patch("versatil.endpoints.test.torch.cuda.is_available", return_value=False):
+    with patch("versatil.endpoints.deploy.torch.cuda.is_available", return_value=False):
         main()
 
     device_used = mock_load_policy.call_args.kwargs["device"]
@@ -100,11 +100,11 @@ def test_main_defaults_to_cuda_when_available(
 
 
 @pytest.mark.unit
-@patch("versatil.endpoints.test.InferenceClient")
-@patch("versatil.endpoints.test.SocketActionTransport")
-@patch("versatil.endpoints.test.SocketObservationTransport")
-@patch("versatil.endpoints.test.load_policy")
-@patch("versatil.endpoints.test.parse_args")
+@patch("versatil.endpoints.deploy.InferenceClient")
+@patch("versatil.endpoints.deploy.SocketActionTransport")
+@patch("versatil.endpoints.deploy.SocketObservationTransport")
+@patch("versatil.endpoints.deploy.load_policy")
+@patch("versatil.endpoints.deploy.parse_args")
 def test_main_calls_shutdown_even_on_keyboard_interrupt(
     mock_parse_args,
     mock_load_policy,
