@@ -10,7 +10,7 @@ from transformers import PretrainedConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders.factory.openvla_oft import (
     JOINT_ACTION_HEAD_KEY,
     OpenVLAOFTDecoder,
@@ -296,7 +296,7 @@ class TestOpenVLAOFTDecoderPrefix:
         decoder = openvla_oft_decoder_factory(input_keys=[])
         features = {
             CAMERA_KEY: torch.zeros(BATCH_SIZE, 3, 16, 16),
-            DecoderOutputKey.TIMESTEP.value: torch.zeros(BATCH_SIZE),
+            AlgorithmContextKey.TIMESTEP.value: torch.zeros(BATCH_SIZE),
         }
         appended_tokens = torch.ones(
             BATCH_SIZE,
@@ -313,7 +313,7 @@ class TestOpenVLAOFTDecoderPrefix:
         ) as append_spy:
             prefix_tokens, prefix_mask = decoder._build_denoising_prefix(
                 features=features,
-                timestep=features[DecoderOutputKey.TIMESTEP.value],
+                timestep=features[AlgorithmContextKey.TIMESTEP.value],
             )
 
         expected_features = {CAMERA_KEY: features[CAMERA_KEY]}
@@ -525,7 +525,7 @@ class TestOpenVLAOFTDecoderPrefix:
         decoder = openvla_oft_decoder_factory(input_keys=[])
         features = {
             CAMERA_KEY: torch.zeros(BATCH_SIZE, 3, 16, 16),
-            DecoderOutputKey.TIMESTEP.value: torch.zeros(BATCH_SIZE),
+            AlgorithmContextKey.TIMESTEP.value: torch.zeros(BATCH_SIZE),
         }
         expected_message = (
             "OpenVLAOFTDecoder with denoising algorithm requires "
@@ -542,7 +542,7 @@ class TestOpenVLAOFTDecoderPrefix:
         decoder = openvla_oft_decoder_factory(input_keys=[])
         features = {
             CAMERA_KEY: torch.zeros(BATCH_SIZE, 3, 16, 16),
-            DecoderOutputKey.TIMESTEP.value: torch.ones(BATCH_SIZE),
+            AlgorithmContextKey.TIMESTEP.value: torch.ones(BATCH_SIZE),
         }
         actions = {
             "position_action": torch.zeros(

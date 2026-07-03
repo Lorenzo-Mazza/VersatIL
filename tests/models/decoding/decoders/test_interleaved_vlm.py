@@ -10,7 +10,10 @@ from transformers import PretrainedConfig
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    TimeConditioning,
+)
 from versatil.models.decoding.decoders.interleaved_vlm import (
     BaseInterleavedVLMDecoder,
     InterleavedLayerType,
@@ -743,7 +746,7 @@ class TestBaseInterleavedVLMForwardHelpers:
         timestep = torch.tensor([0.25, 0.75])
 
         result = decoder._get_forward_timestep(
-            features={DecoderOutputKey.TIMESTEP.value: timestep}
+            features={AlgorithmContextKey.TIMESTEP.value: timestep}
         )
 
         assert torch.equal(result, timestep)
@@ -754,7 +757,7 @@ class TestBaseInterleavedVLMForwardHelpers:
     ) -> None:
         decoder = interleaved_decoder_factory()
         expected_message = (
-            f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+            f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
             "The algorithm should inject timesteps into features."
         )
 

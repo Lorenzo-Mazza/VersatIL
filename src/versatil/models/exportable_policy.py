@@ -32,7 +32,7 @@ class ExportablePolicy(nn.Module):
             algorithm: The policy's decoding algorithm.
             decoder: The policy's action decoder.
             observation_keys: Sorted list of observation dict keys.
-            action_keys: Sorted list of action output keys.
+            action_keys: Action output keys in action-space metadata order.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline

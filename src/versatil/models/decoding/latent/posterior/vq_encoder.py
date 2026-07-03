@@ -14,7 +14,10 @@ import torch
 from torch import nn
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    LatentKey,
+)
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
@@ -218,7 +221,7 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
+        input_observations[AlgorithmContextKey.CLASS_TOKEN.value] = cls_embedding
 
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations

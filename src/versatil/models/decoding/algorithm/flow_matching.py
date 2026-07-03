@@ -4,7 +4,11 @@ import torch
 
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DecoderOutputKey,
+    ODESolver,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.layers.denoising.conditional_flow_matching import (
     ConditionalFlowMatcher,
@@ -76,7 +80,7 @@ class VelocityWrapper:
         network_time = 1.0 - time if self.reverse_convention else time
         features_with_time = {
             **self.features,
-            DecoderOutputKey.TIMESTEP.value: network_time,
+            AlgorithmContextKey.TIMESTEP.value: network_time,
         }
         velocities = self.network(
             features=features_with_time, actions=current_trajectory
@@ -237,13 +241,13 @@ class FlowMatching(DecodingAlgorithm):
             interpolated_actions[key] = x_t
             target_velocities[key] = u_t
 
-        features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: times}
+        features_with_time = {**features, AlgorithmContextKey.TIMESTEP.value: times}
         predictions = network(features=features_with_time, actions=interpolated_actions)
         return {
             **predictions,
             DecoderOutputKey.TARGET_VELOCITY.value: target_velocities,
             DecoderOutputKey.NOISE.value: noise,
-            DecoderOutputKey.TIMESTEP.value: times,
+            AlgorithmContextKey.TIMESTEP.value: times,
             SampleKey.IS_PAD_ACTION.value: is_pad,
         }
 

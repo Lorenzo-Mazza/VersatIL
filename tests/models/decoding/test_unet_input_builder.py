@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.unet_input_builder import UNetInputBuilder
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
@@ -264,11 +264,11 @@ class TestUNetInputBuilderCLSToken:
         )
         cls_features = flat_feature_factory(
             feature_dim=embedding_dimension,
-            feature_keys=[DecoderOutputKey.CLASS_TOKEN.value],
+            feature_keys=[AlgorithmContextKey.CLASS_TOKEN.value],
         )
         features.update(cls_features)
         aaa_value = features["aaa_feature"]
-        cls_value = cls_features[DecoderOutputKey.CLASS_TOKEN.value]
+        cls_value = cls_features[AlgorithmContextKey.CLASS_TOKEN.value]
         result = builder(features)
         assert isinstance(result, torch.Tensor)
         # Concatenated along dim=-1: aaa_feature (64) + cls_token (64) = 128

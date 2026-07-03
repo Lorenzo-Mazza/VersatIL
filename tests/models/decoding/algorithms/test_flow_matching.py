@@ -15,7 +15,11 @@ from versatil.models.decoding.algorithm.flow_matching import (
     FlowMatching,
     VelocityWrapper,
 )
-from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DecoderOutputKey,
+    ODESolver,
+)
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 
 
@@ -251,7 +255,7 @@ class TestFlowMatchingForward:
             "position_action",
             DecoderOutputKey.TARGET_VELOCITY.value,
             DecoderOutputKey.NOISE.value,
-            DecoderOutputKey.TIMESTEP.value,
+            AlgorithmContextKey.TIMESTEP.value,
             SampleKey.IS_PAD_ACTION.value,
         }
         assert set(result.keys()) == expected_keys
@@ -303,9 +307,9 @@ class TestFlowMatchingForward:
         mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
         result = fm.forward(network=mock_network, features=features, actions=actions)
         features_passed = mock_network.call_args.kwargs["features"]
-        timestep_in_features = features_passed[DecoderOutputKey.TIMESTEP.value]
+        timestep_in_features = features_passed[AlgorithmContextKey.TIMESTEP.value]
         assert torch.equal(
-            timestep_in_features, result[DecoderOutputKey.TIMESTEP.value]
+            timestep_in_features, result[AlgorithmContextKey.TIMESTEP.value]
         )
         assert timestep_in_features.shape == (2,)
 
@@ -327,7 +331,7 @@ class TestFlowMatchingForward:
         result = fm.forward(network=mock_network, features=features, actions=actions)
         interpolated = mock_network.call_args.kwargs["actions"]["position_action"]
         noise = result[DecoderOutputKey.NOISE.value]["position_action"]
-        times = result[DecoderOutputKey.TIMESTEP.value].reshape(-1, 1, 1)
+        times = result[AlgorithmContextKey.TIMESTEP.value].reshape(-1, 1, 1)
         # sigma=0 straight bridge: x_t = t * x1 + (1 - t) * x0
         expected = times * actions["position_action"] + (1 - times) * noise
         assert torch.allclose(interpolated, expected, atol=1e-5)
@@ -381,7 +385,7 @@ class TestFlowMatchingForward:
         )
         mock_network.return_value = {key: torch.zeros(2, 8, 3) for key in action_keys}
         result = fm.forward(network=mock_network, features=features, actions=actions)
-        times = result[DecoderOutputKey.TIMESTEP.value].reshape(-1, 1, 1)
+        times = result[AlgorithmContextKey.TIMESTEP.value].reshape(-1, 1, 1)
         target_velocity = result[DecoderOutputKey.TARGET_VELOCITY.value]
         noise = result[DecoderOutputKey.NOISE.value]
         interpolated = mock_network.call_args.kwargs["actions"]
@@ -618,7 +622,7 @@ class TestVelocityWrapper:
         time = torch.tensor([0.3, 0.3])
         wrapper(state, time)
         call_kwargs = wrapper.network.call_args.kwargs
-        passed_time = call_kwargs["features"][DecoderOutputKey.TIMESTEP.value]
+        passed_time = call_kwargs["features"][AlgorithmContextKey.TIMESTEP.value]
         assert torch.allclose(passed_time, time)
 
     def test_reverse_convention_flips_timestep(
@@ -630,7 +634,7 @@ class TestVelocityWrapper:
         time = torch.tensor([0.3, 0.3])
         wrapper(state, time)
         call_kwargs = wrapper.network.call_args.kwargs
-        passed_time = call_kwargs["features"][DecoderOutputKey.TIMESTEP.value]
+        passed_time = call_kwargs["features"][AlgorithmContextKey.TIMESTEP.value]
         assert torch.allclose(passed_time, 1.0 - time)
 
     def test_reverse_convention_negates_velocity(

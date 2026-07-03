@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.positional_encoding.base import (
@@ -1008,10 +1008,10 @@ class TestTransformerInputBuilderCLSToken:
         )
         cls_features = flat_feature_factory(
             feature_dim=embedding_dimension,
-            feature_keys=[DecoderOutputKey.CLASS_TOKEN.value],
+            feature_keys=[AlgorithmContextKey.CLASS_TOKEN.value],
         )
         features.update(cls_features)
-        cls_value = cls_features[DecoderOutputKey.CLASS_TOKEN.value]
+        cls_value = cls_features[AlgorithmContextKey.CLASS_TOKEN.value]
         tokens, _, _ = builder(features)
         assert isinstance(tokens, torch.Tensor)
         # 2 flat features: aaa_feature (1 token) + cls_token (1 token appended at end)
@@ -1039,10 +1039,10 @@ class TestTransformerInputBuilderCLSToken:
         )
         cls_features = flat_feature_factory(
             feature_dim=embedding_dimension,
-            feature_keys=[DecoderOutputKey.CLASS_TOKEN.value],
+            feature_keys=[AlgorithmContextKey.CLASS_TOKEN.value],
         )
         features.update(cls_features)
-        cls_value = cls_features[DecoderOutputKey.CLASS_TOKEN.value]
+        cls_value = cls_features[AlgorithmContextKey.CLASS_TOKEN.value]
         tokens, _, _ = builder(features)
         assert isinstance(tokens, torch.Tensor)
         # Spatial tokens (H*W) + CLS token (1) appended at end

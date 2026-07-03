@@ -5,7 +5,7 @@ from collections.abc import Mapping
 import torch
 
 from versatil.models.decoding.action_heads.base import BaseActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 
 
 def validate_noisy_action_tensors(
@@ -131,27 +131,27 @@ def extract_timestep_conditioning(
     Raises:
         ValueError: If the timestep key is missing or has an invalid shape, batch size, or device.
     """
-    if DecoderOutputKey.TIMESTEP.value not in features:
+    if AlgorithmContextKey.TIMESTEP.value not in features:
         raise ValueError(
-            f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+            f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
             "The algorithm should inject timesteps into features."
         )
-    timesteps = features[DecoderOutputKey.TIMESTEP.value]
+    timesteps = features[AlgorithmContextKey.TIMESTEP.value]
     if timesteps.ndim == 2 and timesteps.shape[-1] == 1:
         timesteps = timesteps.squeeze(-1)
     if timesteps.ndim != 1:
         raise ValueError(
-            f"'{DecoderOutputKey.TIMESTEP.value}' must have shape "
+            f"'{AlgorithmContextKey.TIMESTEP.value}' must have shape "
             f"(B,) or (B, 1), got {timesteps.shape}."
         )
     if timesteps.shape[0] != batch_size:
         raise ValueError(
-            f"'{DecoderOutputKey.TIMESTEP.value}' batch size must match "
+            f"'{AlgorithmContextKey.TIMESTEP.value}' batch size must match "
             f"actions batch size {batch_size}, got {timesteps.shape[0]}."
         )
     if timesteps.device != action_device:
         raise ValueError(
-            f"'{DecoderOutputKey.TIMESTEP.value}' must be on the same device "
+            f"'{AlgorithmContextKey.TIMESTEP.value}' must be on the same device "
             f"as actions, got {timesteps.device} and {action_device}."
         )
     return timesteps
@@ -171,5 +171,5 @@ def filter_timestep_feature(
     return {
         key: value
         for key, value in features.items()
-        if key != DecoderOutputKey.TIMESTEP.value
+        if key != AlgorithmContextKey.TIMESTEP.value
     }

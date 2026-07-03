@@ -15,7 +15,10 @@ from transformers import (
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    TimeConditioning,
+)
 from versatil.models.decoding.decoders import interleaved_vlm as interleaved_vlm_module
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.pi0 import Pi0Decoder
@@ -217,7 +220,7 @@ def prefix_features_factory(
             ),
         }
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
             )
         if include_proprioceptive:
@@ -261,7 +264,7 @@ def raw_vlm_features_factory(
             ),
         }
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
             )
         return features
@@ -498,7 +501,7 @@ class TestPi0DecoderForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features "
                 "dict. The algorithm should inject timesteps into features."
             ),
         ):
@@ -666,9 +669,13 @@ class TestPi0DecoderBehavior:
         )
         decoder.eval()
         features_low = prefix_features_factory()
-        features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
+        features_low[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.01
+        )
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
+        features_high[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.99
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -690,9 +697,13 @@ class TestPi0DecoderBehavior:
         )
         decoder.eval()
         features_low = prefix_features_factory()
-        features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
+        features_low[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.01
+        )
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
+        features_high[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.99
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -710,8 +721,8 @@ class TestPi0DecoderBehavior:
         decoder.eval()
         features_a = prefix_features_factory()
         features_b = prefix_features_factory()
-        features_b[DecoderOutputKey.TIMESTEP.value] = features_a[
-            DecoderOutputKey.TIMESTEP.value
+        features_b[AlgorithmContextKey.TIMESTEP.value] = features_a[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         actions = noisy_actions_factory()
         with torch.no_grad():
@@ -849,8 +860,8 @@ class TestPi0DecoderCaching:
             output_a = decoder(features=features_a, actions=actions)
         # With cache, different prefix is ignored
         features_b = prefix_features_factory()
-        features_b[DecoderOutputKey.TIMESTEP.value] = features_a[
-            DecoderOutputKey.TIMESTEP.value
+        features_b[AlgorithmContextKey.TIMESTEP.value] = features_a[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         with torch.no_grad():
             output_stale = decoder(features=features_b, actions=actions)

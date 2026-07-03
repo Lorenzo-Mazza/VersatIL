@@ -1020,10 +1020,10 @@ class TestOutputKeyContracts:
             prediction_horizon=8,
         )
 
-        assert decoder.get_prediction_output_keys() == {
+        assert decoder.get_prediction_output_keys() == [
             "position_action",
             "gripper_action",
-        }
+        ]
 
 
 @pytest.mark.unit

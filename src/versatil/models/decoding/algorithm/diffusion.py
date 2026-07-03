@@ -20,6 +20,7 @@ import torch
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
     BetaSchedule,
     DecoderOutputKey,
     PredictionType,
@@ -154,7 +155,7 @@ class Diffusion(DecodingAlgorithm):
             )
 
         # Add timesteps to features for eventual conditioning
-        features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timesteps}
+        features_with_time = {**features, AlgorithmContextKey.TIMESTEP.value: timesteps}
 
         predictions = network(features=features_with_time, actions=noisy_actions)
         if self.prediction_type == PredictionType.EPSILON.value:
@@ -180,7 +181,7 @@ class Diffusion(DecodingAlgorithm):
             DecoderOutputKey.TARGET_DIFFUSION.value: target,
             DecoderOutputKey.NOISE.value: noise,
             SampleKey.IS_PAD_ACTION.value: is_pad,
-            DecoderOutputKey.TIMESTEP.value: timesteps,
+            AlgorithmContextKey.TIMESTEP.value: timesteps,
         }
 
     @property
@@ -236,7 +237,10 @@ class Diffusion(DecodingAlgorithm):
         for t in self.noise_scheduler.timesteps:
             # Expand timestep to batch dimension
             timestep = t.unsqueeze(0).expand(batch_size).to(device)
-            features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timestep}
+            features_with_time = {
+                **features,
+                AlgorithmContextKey.TIMESTEP.value: timestep,
+            }
             model_output = network(features=features_with_time, actions=noisy_actions)
             for key in noisy_actions:
                 if key in model_output:

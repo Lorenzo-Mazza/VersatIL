@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.conditional_action_unet import (
     ConditionalActionUNet,
@@ -222,7 +222,7 @@ class TestConditionalActionUNetForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             ),
         ):
@@ -316,12 +316,12 @@ class TestConditionalActionUNetForward:
         decoder = unet_decoder_factory()
         decoder.eval()
         features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        timestep = features[AlgorithmContextKey.TIMESTEP.value]
         actions = noisy_actions_factory()
         with torch.no_grad():
             decoder(features=features, actions=actions)
             decoder(features=features, actions=actions)
-        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
+        assert features[AlgorithmContextKey.TIMESTEP.value] is timestep
 
     def test_with_multiple_action_heads(
         self,
@@ -380,11 +380,11 @@ class TestConditionalActionUNetForward:
         decoder = unet_decoder_factory()
         decoder.eval()
         features_t0 = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(
+        features_t0[AlgorithmContextKey.TIMESTEP.value] = torch.zeros(
             BATCH_SIZE, dtype=torch.long
         )
         features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
-        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full(
+        features_t99[AlgorithmContextKey.TIMESTEP.value] = torch.full(
             (BATCH_SIZE,), 99, dtype=torch.long
         )
         actions = noisy_actions_factory()

@@ -155,8 +155,8 @@ class TinyContinuousDecoder(nn.Module):
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
         self.tokenizer = tokenizer
 
-    def get_prediction_output_keys(self) -> set[str]:
-        return {self.prediction_key}
+    def get_prediction_output_keys(self) -> list[str]:
+        return [self.prediction_key]
 
     def forward(
         self,
@@ -196,8 +196,8 @@ class TinyVLMContinuousDecoder(nn.Module):
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
         self.tokenizer = tokenizer
 
-    def get_prediction_output_keys(self) -> set[str]:
-        return {self.prediction_key}
+    def get_prediction_output_keys(self) -> list[str]:
+        return [self.prediction_key]
 
     def forward(
         self,

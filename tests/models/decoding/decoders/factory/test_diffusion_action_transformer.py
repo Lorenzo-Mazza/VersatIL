@@ -10,7 +10,10 @@ import torch
 
 from versatil.models.decoding.action_heads.conditional import ConditionalActionHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, DiTType
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DiTType,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.diffusion_action_transformer import (
     DiffusionActionTransformer,
@@ -296,7 +299,7 @@ class TestDiffusionActionTransformerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             ),
         ):
@@ -310,7 +313,7 @@ class TestDiffusionActionTransformerForward:
     ):
         decoder = diffusion_transformer_factory(input_keys=["rgb_features"])
         features = {
-            DecoderOutputKey.TIMESTEP.value: torch.from_numpy(
+            AlgorithmContextKey.TIMESTEP.value: torch.from_numpy(
                 rng.standard_normal((BATCH_SIZE,)).astype(np.float32)
             ),
         }
@@ -384,8 +387,8 @@ class TestDiffusionActionTransformerForward:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        features[DecoderOutputKey.TIMESTEP.value] = features[
-            DecoderOutputKey.TIMESTEP.value
+        features[AlgorithmContextKey.TIMESTEP.value] = features[
+            AlgorithmContextKey.TIMESTEP.value
         ].unsqueeze(-1)
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
@@ -404,12 +407,12 @@ class TestDiffusionActionTransformerForward:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        timestep = features[AlgorithmContextKey.TIMESTEP.value]
         actions = noisy_actions_factory()
         with torch.no_grad():
             decoder(features=features, actions=actions)
             decoder(features=features, actions=actions)
-        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
+        assert features[AlgorithmContextKey.TIMESTEP.value] is timestep
 
     def test_with_multiple_action_heads(
         self,
@@ -467,9 +470,11 @@ class TestDiffusionActionTransformerForward:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(BATCH_SIZE)
+        features_t0[AlgorithmContextKey.TIMESTEP.value] = torch.zeros(BATCH_SIZE)
         features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
-        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 99.0)
+        features_t99[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 99.0
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_t0 = decoder(features=features_t0, actions=actions)

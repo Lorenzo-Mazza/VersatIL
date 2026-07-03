@@ -9,7 +9,7 @@ import torch
 
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization import ActionTokenizer, Tokenizer
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
@@ -142,7 +142,7 @@ def spatial_features_with_timestep_factory(
             feature_keys=feature_keys,
         )
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.standard_normal((batch_size,)).astype(np.float32)
             )
         return features
@@ -172,7 +172,7 @@ def flat_features_with_timestep_factory(
         if include_timestep:
             if timestep_shape is None:
                 timestep_shape = (batch_size,)
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.integers(low=0, high=100, size=timestep_shape).astype(np.int64)
             )
         return features

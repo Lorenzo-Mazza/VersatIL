@@ -90,6 +90,15 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- `Policy.output_keys` and `ActionDecoder.get_prediction_output_keys` return
+  action keys in action-space metadata order instead of alphabetically; that
+  order is the canonical action-key ordering for exported policies and
+  compressed-artifact metadata. Existing compressed checkpoints reconstruct
+  outputs from their own persisted key lists and are unaffected.
+- `AlgorithmContextKey` now holds the keys algorithms inject into the decoder
+  feature dict as inputs (`timestep`, `cls_token`), split out of
+  `DecoderOutputKey`, which keeps genuine outputs only. String values are
+  unchanged.
 - Public parameter names standardized on explicit long forms across layers,
   decoders, encoders, configs, and YAMLs: `embedding_dimension`,
   `number_of_heads`, `input_dimension`, `hidden_dimension(s)`,

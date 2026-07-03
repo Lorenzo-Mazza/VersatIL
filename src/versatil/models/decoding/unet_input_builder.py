@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.feature_projection import FeatureProjection
 
@@ -95,7 +95,7 @@ class UNetInputBuilder(nn.Module):
             else:
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
-            if DecoderOutputKey.CLASS_TOKEN.value in name:
+            if AlgorithmContextKey.CLASS_TOKEN.value in name:
                 cls_token = feature_embedding
             else:
                 flat_features_list.append(feature_embedding)

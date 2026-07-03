@@ -9,8 +9,8 @@ import torch.nn as nn
 
 from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
     BetaSchedule,
-    DecoderOutputKey,
     DenoisingAlgorithm,
     LatentKey,
     ODESolver,
@@ -353,7 +353,7 @@ class DiTPrior(PriorLatentEncoder):
         """
         latent_token = self.latent_input_proj(noisy_latent)  # (B, D)
         input_obs = observations.copy()
-        input_obs[DecoderOutputKey.CLASS_TOKEN.value] = latent_token
+        input_obs[AlgorithmContextKey.CLASS_TOKEN.value] = latent_token
         tokens, positional_encoding, padding_mask = self.input_builder(
             input_obs
         )  # (B, T+1, D)

@@ -12,7 +12,10 @@ from typing import Any
 import torch
 from torch import nn
 
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    LatentKey,
+)
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.posterior.vq_encoder import VQPosteriorEncoder
 from versatil.models.decoding.latent.prior.state_condition_pool import (
@@ -256,7 +259,7 @@ class CodebookPrior(PriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
+        input_observations[AlgorithmContextKey.CLASS_TOKEN.value] = cls_embedding
 
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations

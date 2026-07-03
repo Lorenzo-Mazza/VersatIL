@@ -14,7 +14,7 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import (
     ActionHeadLayout,
-    DecoderOutputKey,
+    AlgorithmContextKey,
     TimeConditioning,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
@@ -567,17 +567,17 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
 
         Args:
             features: Feature dictionary expected to contain
-                ``DecoderOutputKey.TIMESTEP.value`` with shape ``(batch_size,)``.
+                ``AlgorithmContextKey.TIMESTEP.value`` with shape ``(batch_size,)``.
 
         Returns:
             Timestep tensor with shape ``(batch_size,)``.
         """
-        if DecoderOutputKey.TIMESTEP.value not in features:
+        if AlgorithmContextKey.TIMESTEP.value not in features:
             raise ValueError(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             )
-        return features[DecoderOutputKey.TIMESTEP.value]
+        return features[AlgorithmContextKey.TIMESTEP.value]
 
     def _project_expert_actions(
         self,

@@ -11,7 +11,7 @@ from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders import interleaved_vlm as interleaved_vlm_module
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.smolvla import (
@@ -224,7 +224,7 @@ def prefix_features_factory(
             ),
         }
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
             )
         if include_padding_mask:
@@ -262,7 +262,7 @@ def raw_vlm_features_factory(
             ),
         }
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
             )
         return features
@@ -493,7 +493,7 @@ class TestSmolVLADecoderForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features "
                 "dict. The algorithm should inject timesteps into features."
             ),
         ):
@@ -629,9 +629,13 @@ class TestSmolVLADecoderBehavior:
         decoder = initialized_decoder_factory()
         decoder.eval()
         features_low = prefix_features_factory()
-        features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
+        features_low[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.01
+        )
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
+        features_high[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.99
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -649,8 +653,8 @@ class TestSmolVLADecoderBehavior:
         decoder.eval()
         features_a = prefix_features_factory()
         features_b = prefix_features_factory()
-        features_b[DecoderOutputKey.TIMESTEP.value] = features_a[
-            DecoderOutputKey.TIMESTEP.value
+        features_b[AlgorithmContextKey.TIMESTEP.value] = features_a[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         actions = noisy_actions_factory()
         with torch.no_grad():
@@ -1083,8 +1087,8 @@ class TestSmolVLADecoderRoPERouting:
         features_long = prefix_features_factory(
             sequence_length=PREFIX_SEQUENCE_LENGTH * 2
         )
-        features_long[DecoderOutputKey.TIMESTEP.value] = features_short[
-            DecoderOutputKey.TIMESTEP.value
+        features_long[AlgorithmContextKey.TIMESTEP.value] = features_short[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         with patch.object(
             decoder, "_run_training_forward", wraps=decoder._run_training_forward
@@ -1161,8 +1165,8 @@ class TestSmolVLADecoderCaching:
         with torch.no_grad():
             output_first = decoder(features=features_first, actions=actions)
         features_different_prefix = prefix_features_factory()
-        features_different_prefix[DecoderOutputKey.TIMESTEP.value] = features_first[
-            DecoderOutputKey.TIMESTEP.value
+        features_different_prefix[AlgorithmContextKey.TIMESTEP.value] = features_first[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         with torch.no_grad():
             output_with_stale_cache = decoder(

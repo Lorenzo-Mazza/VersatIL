@@ -223,13 +223,13 @@ class TestInputOutputKeys:
             "gripper": MagicMock(),
             "orientation": MagicMock(),
         }
-        decoder.get_prediction_output_keys.return_value = {
+        decoder.get_prediction_output_keys.return_value = [
             "position",
             "gripper",
             "orientation",
-        }
+        ]
         policy = policy_factory(decoder=decoder)
-        assert policy.output_keys == ["gripper", "orientation", "position"]
+        assert policy.output_keys == ["position", "gripper", "orientation"]
 
 
 class TestSetNormalizer:

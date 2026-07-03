@@ -108,10 +108,16 @@ class ActionHeadLayout(enum.StrEnum):
     VOCABULARY = "vocabulary"
 
 
-class DecoderOutputKey(enum.StrEnum):
-    """Keys for decoder outputs and intermediate features."""
+class AlgorithmContextKey(enum.StrEnum):
+    """Keys the algorithm injects into the decoder feature dict as inputs."""
 
     TIMESTEP = "timestep"
+    CLASS_TOKEN = "cls_token"
+
+
+class DecoderOutputKey(enum.StrEnum):
+    """Keys for decoder outputs."""
+
     TARGET_DIFFUSION = "target_diffusion"
     NOISE = "noise"
     TARGET_VELOCITY = "target_velocity"
@@ -125,6 +131,5 @@ class DecoderOutputKey(enum.StrEnum):
     LATENT_CODES = "latent_codes"
     ACTION_LOGITS = "action_logits"
     PREDICTED_ACTION_TOKENS = "pred_action_tokens"
-    CLASS_TOKEN = "cls_token"
     MEAN = "mean"
     LOGVAR = "logvar"

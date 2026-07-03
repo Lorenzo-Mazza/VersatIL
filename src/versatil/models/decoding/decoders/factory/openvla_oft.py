@@ -6,7 +6,10 @@ import torch.nn as nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.base import BaseActionHead
-from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
+from versatil.models.decoding.constants import (
+    ActionHeadLayout,
+    AlgorithmContextKey,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.decoders.llm_prefix_suffix_attention import (
     LLMPrefixSuffixAttentionMixin,
@@ -371,7 +374,7 @@ class OpenVLAOFTDecoder(
         actions: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         """Predict a continuous action chunk from a VLM prefix."""
-        if DecoderOutputKey.TIMESTEP.value in features:
+        if AlgorithmContextKey.TIMESTEP.value in features:
             self._validate_context_capacity(
                 vlm_backbone=self.vlm_backbone,
                 includes_denoising_timestep=True,

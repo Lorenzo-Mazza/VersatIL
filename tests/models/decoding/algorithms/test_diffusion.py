@@ -13,6 +13,7 @@ from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.diffusion import Diffusion
 from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
     BetaSchedule,
     DecoderOutputKey,
     PredictionType,
@@ -156,7 +157,7 @@ class TestDiffusionForward:
             "position_action",
             DecoderOutputKey.TARGET_DIFFUSION.value,
             DecoderOutputKey.NOISE.value,
-            DecoderOutputKey.TIMESTEP.value,
+            AlgorithmContextKey.TIMESTEP.value,
             SampleKey.IS_PAD_ACTION.value,
         }
         assert set(result.keys()) == expected_keys
@@ -261,10 +262,10 @@ class TestDiffusionForward:
         mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
         result = diff.forward(network=mock_network, features=features, actions=actions)
         features_passed = mock_network.call_args.kwargs["features"]
-        timestep_in_features = features_passed[DecoderOutputKey.TIMESTEP.value]
+        timestep_in_features = features_passed[AlgorithmContextKey.TIMESTEP.value]
         assert timestep_in_features.shape == (2,)
         assert torch.equal(
-            timestep_in_features, result[DecoderOutputKey.TIMESTEP.value]
+            timestep_in_features, result[AlgorithmContextKey.TIMESTEP.value]
         )
 
     def test_velocity_target_uses_scheduler_get_velocity(
@@ -294,7 +295,7 @@ class TestDiffusionForward:
             )
         target = result[DecoderOutputKey.TARGET_DIFFUSION.value]
         noise = result[DecoderOutputKey.NOISE.value]
-        timesteps = result[DecoderOutputKey.TIMESTEP.value]
+        timesteps = result[AlgorithmContextKey.TIMESTEP.value]
         get_velocity_spy.assert_called_once()
         call_kwargs = get_velocity_spy.call_args.kwargs
         assert torch.equal(call_kwargs["sample"], actions["position_action"])
@@ -495,7 +496,7 @@ class TestDiffusionPredict:
         )
         diff.predict(network=mock_network, features=features)
         timestep_passed = mock_network.call_args.kwargs["features"][
-            DecoderOutputKey.TIMESTEP.value
+            AlgorithmContextKey.TIMESTEP.value
         ]
         assert timestep_passed.shape == (2,)
         assert torch.equal(timestep_passed, timestep_passed[0].expand(2))

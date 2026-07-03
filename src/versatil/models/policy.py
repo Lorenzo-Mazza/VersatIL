@@ -125,8 +125,8 @@ class Policy(nn.Module):
 
     @property
     def output_keys(self) -> list[str]:
-        """Sorted action keys the policy produces as output."""
-        return sorted(self.decoder.get_prediction_output_keys())
+        """Action keys the policy produces, in action-space metadata order."""
+        return list(self.decoder.get_prediction_output_keys())
 
     def _decoder_observation_keys(self) -> set[str]:
         """Return raw observation keys directly consumed by the decoder."""

@@ -12,7 +12,11 @@ import torch.nn as nn
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DecoderOutputKey,
+    LatentKey,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.gpt_action_transformer import (
     GPTActionTransformer,
@@ -442,7 +446,7 @@ class TestGPTActionTransformerForward:
         features = {
             "validated_feature": torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION),
             LatentKey.POSTERIOR_MU.value: torch.zeros(BATCH_SIZE, 4),
-            DecoderOutputKey.TIMESTEP.value: torch.ones(BATCH_SIZE),
+            AlgorithmContextKey.TIMESTEP.value: torch.ones(BATCH_SIZE),
         }
         actions = tokenized_actions_factory(
             batch_size=BATCH_SIZE,

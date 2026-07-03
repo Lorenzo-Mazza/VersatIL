@@ -242,9 +242,13 @@ class ActionDecoder(ModuleAttrMixin, ABC):
                     return set()
                 return set(self.action_space.predicted_action_keys)
 
-    def get_prediction_output_keys(self) -> set[str]:
-        """Return action keys produced by policy inference after postprocessing."""
-        return set(self.action_space.predicted_action_keys)
+    def get_prediction_output_keys(self) -> list[str]:
+        """Return predicted action keys in action-space metadata order.
+
+        The order is the canonical action-key ordering: exported policies and
+        compressed-artifact metadata index output tensors by it.
+        """
+        return list(self.action_space.predicted_action_keys)
 
     @property
     def action_dim(self) -> int:

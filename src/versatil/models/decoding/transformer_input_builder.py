@@ -14,7 +14,7 @@ import torch
 from torch import nn
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.dynamic_feature_embedding import DynamicFeatureEmbedding
 from versatil.models.layers.feature_projection import FeatureProjection
@@ -307,7 +307,7 @@ class TransformerInputBuilder(nn.Module):
                 spatial_tokens_list.append(token_embeddings)
                 spatial_mask_list.append(reshaped_mask)
             else:
-                if DecoderOutputKey.CLASS_TOKEN.value in name:
+                if AlgorithmContextKey.CLASS_TOKEN.value in name:
                     cls_token = token_embeddings
                     cls_token_padding_mask = reshaped_mask
                 else:
