@@ -322,3 +322,84 @@ class TestPrecomputedPrimaryJointAttentionForward:
                 conditioning_cache=conditioning_cache,
                 hidden_states_primary=primary,
             )
+
+
+class TestPrecomputedPrimaryJointAttentionRoPE:
+    def test_query_key_norm_applied_before_rope(
+        self,
+        precomputed_joint_attention_factory: Callable[
+            ..., PrecomputedPrimaryJointAttention
+        ],
+        precomputed_secondary_qkv_factory: Callable,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        # A learned per-channel scale after the rotation would break RoPE's
+        # relative-position guarantee, so norm must run first.
+        attention = precomputed_joint_attention_factory(use_query_key_norm=True)
+        call_order: list[str] = []
+        original_norm = attention.query_key_norm_primary.forward
+        attention.query_key_norm_primary.forward = lambda queries, keys: (
+            call_order.append("norm"),
+            original_norm(queries, keys),
+        )[1]
+        secondary_qkv = precomputed_secondary_qkv_factory(
+            batch_size=1, sequence_length=6
+        )
+        primary = sequence_tensor_factory(
+            batch_size=1,
+            sequence_length=4,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+
+        with unittest.mock.patch(
+            "versatil.models.layers.transformer.attention."
+            "precomputed_joint_attention.apply_rope_positional_encoding",
+            side_effect=lambda queries, keys, positional_encoding, cache_position: (
+                call_order.append("rope"),
+                (queries, keys),
+            )[1],
+        ):
+            attention(
+                conditioning_cache=secondary_qkv,
+                hidden_states_primary=primary,
+                positional_encoding_primary=unittest.mock.MagicMock(),
+            )
+
+        assert call_order.index("norm") < call_order.index("rope")
+
+    def test_fallback_rope_continues_after_secondary_prefix(
+        self,
+        precomputed_joint_attention_factory: Callable[
+            ..., PrecomputedPrimaryJointAttention
+        ],
+        precomputed_secondary_qkv_factory: Callable,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        # The secondary prefix already occupies positions [0, S); rotating the
+        # live primary tokens from 0 would collide with those positions.
+        attention = precomputed_joint_attention_factory(use_query_key_norm=False)
+        secondary_length = 6
+        secondary_qkv = precomputed_secondary_qkv_factory(
+            batch_size=1, sequence_length=secondary_length
+        )
+        primary = sequence_tensor_factory(
+            batch_size=1,
+            sequence_length=4,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+
+        with unittest.mock.patch(
+            "versatil.models.layers.transformer.attention."
+            "precomputed_joint_attention.apply_rope_positional_encoding",
+            side_effect=lambda queries, keys, positional_encoding, cache_position: (
+                queries,
+                keys,
+            ),
+        ) as rope_mock:
+            attention(
+                conditioning_cache=secondary_qkv,
+                hidden_states_primary=primary,
+                positional_encoding_primary=unittest.mock.MagicMock(),
+            )
+
+        assert rope_mock.call_args.kwargs["cache_position"] == secondary_length
