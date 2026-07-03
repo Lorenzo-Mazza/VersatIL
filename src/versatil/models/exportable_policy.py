@@ -87,7 +87,18 @@ class ExportablePolicy(nn.Module):
 
         Returns:
             ExportablePolicy wrapping the policy's components.
+
+        Raises:
+            ValueError: If the policy predicts action tokens; exported
+                forward passes return raw tensors and never detokenize, so
+                the exported outputs would not match the action space.
         """
+        if policy.decoder.requires_tokenized_actions:
+            raise ValueError(
+                "Policies with tokenized-action decoders cannot be exported: "
+                "the exported forward returns raw action tokens without "
+                "detokenization."
+            )
         return cls(
             encoding_pipeline=policy.encoding_pipeline,
             algorithm=policy.algorithm,

@@ -324,6 +324,17 @@ class TestMoEDecoderInitialization:
         assert isinstance(decoder.expert_decoders, nn.ModuleList)
         assert len(decoder.expert_decoders) == num_experts
 
+    def test_gating_keys_declared_in_decoder_input(
+        self,
+        moe_decoder_factory: Callable[..., MoEDecoder],
+    ):
+        decoder = moe_decoder_factory(
+            gating_feature_key=GATING_FEATURE_KEY,
+            inference_gating_key=INFERENCE_GATING_KEY,
+        )
+        assert GATING_FEATURE_KEY in decoder.decoder_input.keys
+        assert INFERENCE_GATING_KEY in decoder.decoder_input.keys
+
     def test_action_heads_alias_first_expert_heads(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],

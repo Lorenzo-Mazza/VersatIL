@@ -1,6 +1,7 @@
 """Mixture of Experts (MoE) decoder for action prediction."""
 
 import copy
+from dataclasses import replace
 
 import torch
 import torch.nn as nn
@@ -34,9 +35,26 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             base_expert=base_expert, num_experts=num_experts
         )
         self.action_head_layout = base_expert.action_head_layout
+        gating_keys = [gating_feature_key]
+        if (
+            inference_gating_key is not None
+            and inference_gating_key != gating_feature_key
+        ):
+            gating_keys.append(inference_gating_key)
+        moe_input = replace(
+            base_expert.decoder_input,
+            keys=[
+                *base_expert.decoder_input.keys,
+                *[
+                    key
+                    for key in gating_keys
+                    if key not in base_expert.decoder_input.keys
+                ],
+            ],
+        )
         ActionDecoder.__init__(
             self,
-            decoder_input=base_expert.decoder_input,
+            decoder_input=moe_input,
             observation_space=base_expert.observation_space,
             action_space=base_expert.action_space,
             action_heads=dict(base_expert.action_heads),
@@ -60,6 +78,7 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_normalization=gating_normalization,
         )
         self.expert_decoders = nn.ModuleList(expert_list)
+        self._base_expert_input_keys = set(base_expert.decoder_input.keys)
         self.num_experts = num_experts
         self.gating_feature_key = gating_feature_key
         self.inference_gating_key = (
@@ -145,7 +164,9 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_feature
         )  # (B, num_experts)
         expert_features = {
-            key: value for key, value in features.items() if key != gating_key
+            key: value
+            for key, value in features.items()
+            if key != gating_key or key in self._base_expert_input_keys
         }
         expert_outputs = [
             expert(expert_features, actions) for expert in self.expert_decoders

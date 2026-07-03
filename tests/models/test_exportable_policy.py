@@ -76,6 +76,7 @@ def from_policy_factory(
         )
         decoder = MagicMock()
         decoder.decoder_input.needs_raw_observations = False
+        decoder.requires_tokenized_actions = False
         decoder.action_heads = nn.ModuleDict(
             {key: nn.Identity() for key in action_keys}
         )
@@ -281,6 +282,13 @@ class TestFromPolicy:
         exportable = ExportablePolicy.from_policy(policy=policy)
 
         assert set(exportable.observation_keys) == expected
+
+    def test_tokenized_action_policy_raises(self, from_policy_factory):
+        policy = from_policy_factory(action_keys=["position"])
+        policy.decoder.requires_tokenized_actions = True
+
+        with pytest.raises(ValueError, match="tokenized-action decoders"):
+            ExportablePolicy.from_policy(policy=policy)
 
     def test_keys_are_sorted(self, from_policy_factory):
         policy = from_policy_factory(

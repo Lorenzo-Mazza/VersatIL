@@ -467,6 +467,12 @@ Fixes:
 
 Extensions:
 
+- Exportable autoregressive VLA decoders: export the single-step forward over a
+  preallocated static KV cache, drive generation from a thin runtime loop
+  (fixed max_tokens, mask after EOS), and reimplement FAST inverse-DCT
+  detokenization in torch. Until then ExportablePolicy.from_policy raises for
+  tokenized-action decoders.
+
 - Re-integrate distributed training with the current workspace.
 - Migrate from MkDocs to [ProperDocs](https://properdocs.org/) before MkDocs 2.0 breaks all plugins/themes.
 - Integrate a history buffer of proprioceptive observations only, with uniform masking against causal confusion (https://arxiv.org/pdf/1905.11979).
