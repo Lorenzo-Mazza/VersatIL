@@ -51,7 +51,7 @@ dependencies = [
   "torchvision",
   "tqdm==4.67.1",
   "transformers==5.9.0",
-  "tso-robotics-sockets",
+  "tso-robotics-sockets>=0.2.0",
   "versatil-constants==0.2.1",
   "wandb==0.22.3",
   "zarr==3.1.3",

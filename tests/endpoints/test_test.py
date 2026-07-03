@@ -32,6 +32,7 @@ def test_main_creates_policy_loader_with_parsed_args(
         timing_log=True,
         update_frequency=10.0,
         max_steps=100,
+        request_timeout=2.5,
     )
     mock_client = MagicMock()
     mock_client_class.return_value = mock_client
@@ -47,10 +48,12 @@ def test_main_creates_policy_loader_with_parsed_args(
     mock_obs_transport_class.assert_called_once_with(
         server_address="10.0.0.1",
         server_port=5556,
+        request_timeout_seconds=2.5,
     )
     mock_action_transport_class.assert_called_once_with(
         server_address="10.0.0.1",
         server_port=5556,
+        request_timeout_seconds=2.5,
     )
     mock_client_class.assert_called_once()
     call_kwargs = mock_client_class.call_args.kwargs

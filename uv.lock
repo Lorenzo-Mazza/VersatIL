@@ -3715,16 +3715,16 @@ wheels = [
 
 [[package]]
 name = "tso-robotics-sockets"
-version = "0.1.1"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "pyzmq" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/f9/2cbd592915f2f440cceb553436e46c068f7aec25a99a62b44540f83c4689/tso_robotics_sockets-0.1.1.tar.gz", hash = "sha256:2f98ad72bd0f5282031035669c3b984d186809b40b3c12bd30c19faa543c7824", size = 12609, upload-time = "2026-03-15T18:41:41.048Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/4b/30412f9cca2030ef7472751aab12cc5344176bdf9e2ce9d305cceeb3c1f7/tso_robotics_sockets-0.2.0.tar.gz", hash = "sha256:9435231e3b7c6f7dbb5a626a3528fcf4cbc5754e04576a565655cdf02b8d443d", size = 13754, upload-time = "2026-07-03T11:28:10.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/e5/cab5d542ea14334d08d984f323f95ba5c8719686fff80e4a27971b785f64/tso_robotics_sockets-0.1.1-py3-none-any.whl", hash = "sha256:38dbee4532b7a34e9111aedbbb5162cace3f8876e1aa0fc5486f98898fa27442", size = 11259, upload-time = "2026-03-15T18:41:39.974Z" },
+    { url = "https://files.pythonhosted.org/packages/31/3e/c964783f4448967f6c1c1e8b2eb180eabbde42c8887cefb7c57de28bedd7/tso_robotics_sockets-0.2.0-py3-none-any.whl", hash = "sha256:fa6e1a054e8448306f867f4c4676d8d08ebffcd7018ac037e0907163ef965607", size = 11752, upload-time = "2026-07-03T11:28:09.413Z" },
 ]
 
 [[package]]
@@ -3934,7 +3934,7 @@ requires-dist = [
     { name = "torchvision", marker = "extra == 'cpu'", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "versatil", extra = "cpu" } },
     { name = "tqdm", specifier = "==4.67.1" },
     { name = "transformers", specifier = "==5.9.0" },
-    { name = "tso-robotics-sockets" },
+    { name = "tso-robotics-sockets", specifier = ">=0.2.0" },
     { name = "versatil-constants", specifier = "==0.2.1" },
     { name = "wandb", specifier = "==0.22.3" },
     { name = "zarr", specifier = "==3.1.3" },

@@ -19,15 +19,21 @@ class SocketObservationTransport:
         self,
         server_address: str = "127.0.0.1",
         server_port: int = 5555,
+        request_timeout_seconds: float | None = None,
     ):
         """Initialize socket observation transport.
 
         Args:
             server_address: Address of the environment server.
             server_port: Port of the environment server.
+            request_timeout_seconds: Per-request timeout after which receive
+                raises ``TimeoutError`` instead of blocking forever on a dead
+                server. ``None`` keeps the fully blocking behavior.
         """
         self.socket = SocketClient(
-            server_address=server_address, server_port=server_port
+            server_address=server_address,
+            server_port=server_port,
+            request_timeout_seconds=request_timeout_seconds,
         )
 
     def receive(self, requested_keys: list[str], compression_type: str) -> dict:
@@ -81,15 +87,21 @@ class SocketActionTransport:
         self,
         server_address: str = "127.0.0.1",
         server_port: int = 5555,
+        request_timeout_seconds: float | None = None,
     ):
         """Initialize socket action transport.
 
         Args:
             server_address: Address of the environment server.
             server_port: Port of the environment server.
+            request_timeout_seconds: Per-request timeout after which send
+                raises ``TimeoutError`` instead of blocking forever on a dead
+                server. ``None`` keeps the fully blocking behavior.
         """
         self.socket = SocketClient(
-            server_address=server_address, server_port=server_port
+            server_address=server_address,
+            server_port=server_port,
+            request_timeout_seconds=request_timeout_seconds,
         )
 
     def send(self, actions: dict, action_metadata: dict) -> dict:

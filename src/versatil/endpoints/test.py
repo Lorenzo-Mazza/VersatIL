@@ -96,6 +96,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable torch.compile model optimization.",
     )
+    parser.add_argument(
+        "--request_timeout",
+        type=float,
+        default=None,
+        help=(
+            "Per-request transport timeout in seconds; requests raise "
+            "TimeoutError instead of blocking forever on a dead server. "
+            "Requires tso-robotics-sockets >= 0.2.0."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -166,10 +176,12 @@ def main() -> None:
     observation_transport = SocketObservationTransport(
         server_address=args.model_server_address,
         server_port=args.model_server_port,
+        request_timeout_seconds=args.request_timeout,
     )
     action_transport = SocketActionTransport(
         server_address=args.model_server_address,
         server_port=args.model_server_port,
+        request_timeout_seconds=args.request_timeout,
     )
 
     client = InferenceClient(
