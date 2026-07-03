@@ -96,6 +96,19 @@ class InferenceClient:
             if action_execution_horizon is not None
             else policy_runtime.prediction_horizon
         )
+        if (
+            self.action_execution_horizon > 1
+            and policy_runtime.observation_horizon > 1
+            and not temporal_aggregation
+        ):
+            logging.warning(
+                "Executing %d actions per observation with observation_horizon=%d: "
+                "the policy's history will hold frames %d steps apart, while "
+                "training windows are contiguous.",
+                self.action_execution_horizon,
+                policy_runtime.observation_horizon,
+                self.action_execution_horizon,
+            )
         if self.action_execution_horizon > policy_runtime.prediction_horizon:
             raise ValueError(
                 f"action_execution_horizon ({self.action_execution_horizon}) cannot exceed "
@@ -190,27 +203,13 @@ class InferenceClient:
         """
         step_start = time.time() if self.timing_log else None
 
-        response = self.observation_transport.receive(
-            requested_keys=self.all_observation_keys,
-            compression_type=self.compression_type,
-        )
-        status = self._check_status(response=response)
-        if status != EpisodeStatus.CONTINUE.value:
-            return status
-
         if self.timing_log:
             preprocessing_start = time.time()
 
-        self._handle_reset_signal(response=response)
-        per_environment_observations = self.observation_preprocessor.parse_response(
-            response=response
-        )
-        self._update_environment_states(
-            per_environment_observations=per_environment_observations
-        )
-        self._remove_inactive_environments(
-            per_environment_observations=per_environment_observations
-        )
+        status = self._ingest_observation()
+        if status != EpisodeStatus.CONTINUE.value:
+            return status
+
         if self.timing_log:
             preprocessing_duration = time.time() - preprocessing_start
             inference_start = time.time()
@@ -255,6 +254,31 @@ class InferenceClient:
         self.timestep += 1
 
         return EpisodeStatus.CONTINUE.value
+
+    def _ingest_observation(self) -> str:
+        """Receive one observation and update per-environment buffers.
+
+        Returns:
+            Episode status string; buffers are only updated on ``CONTINUE``.
+        """
+        response = self.observation_transport.receive(
+            requested_keys=self.all_observation_keys,
+            compression_type=self.compression_type,
+        )
+        status = self._check_status(response=response)
+        if status != EpisodeStatus.CONTINUE.value:
+            return status
+        self._handle_reset_signal(response=response)
+        per_environment_observations = self.observation_preprocessor.parse_response(
+            response=response
+        )
+        self._update_environment_states(
+            per_environment_observations=per_environment_observations
+        )
+        self._remove_inactive_environments(
+            per_environment_observations=per_environment_observations
+        )
+        return status
 
     def reset(self) -> None:
         """Reset all environment states for a new episode."""

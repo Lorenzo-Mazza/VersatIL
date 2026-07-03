@@ -1,5 +1,6 @@
 """Tests for versatil.inference.inference_client module."""
 
+import logging
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -1435,6 +1436,106 @@ class TestStepOrchestration:
                 call.kwargs.get("actions") if call.kwargs else call[1]["actions"]
             )
             assert 0 in sent_actions
+
+    def _make_history_client(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+        observation_horizon: int,
+    ) -> InferenceClient:
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            state_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=3,
+            observation_horizon=observation_horizon,
+        )
+        policy_loader.run_inference.return_value = {
+            "position": torch.from_numpy(
+                rng.standard_normal((1, 3, 3)).astype(np.float32)
+            ),
+        }
+        client = InferenceClient(
+            policy_runtime=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": torch.from_numpy(
+                rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+            ),
+        }
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.1, 0.2, 0.3],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {
+            "position": {"dimension": 3},
+        }
+        return client
+
+    def test_warns_on_history_gap_with_chunked_execution(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            state_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=3,
+            observation_horizon=2,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            InferenceClient(
+                policy_runtime=policy_loader,
+                observation_transport=mock_observation_transport,
+                action_transport=mock_action_transport,
+                action_execution_horizon=3,
+            )
+
+        assert any(
+            "training windows are contiguous" in record.message
+            for record in caplog.records
+        )
+
+    def test_chunk_execution_reads_one_observation_per_prediction(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        client = self._make_history_client(
+            mock_policy_loader_factory,
+            mock_observation_transport,
+            mock_action_transport,
+            rng,
+            observation_horizon=1,
+        )
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        client.step()
+
+        assert mock_action_transport.send.call_count == 3
+        assert mock_observation_transport.receive.call_count == 1
 
     def test_step_calls_pipeline_in_correct_order(
         self,
