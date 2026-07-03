@@ -12,9 +12,9 @@ class DynamicFeatureEmbedding(ModuleAttrMixin):
     embeddings dynamically from the state dict.
     """
 
-    def __init__(self, embedding_dim: int):
+    def __init__(self, embedding_dimension: int):
         super().__init__()
-        self.embedding_dim = embedding_dim
+        self.embedding_dimension = embedding_dimension
         self.embeddings = nn.ParameterDict()
 
     def _load_from_state_dict(
@@ -62,7 +62,7 @@ class DynamicFeatureEmbedding(ModuleAttrMixin):
                 torch.randn(
                     1,
                     1,
-                    self.embedding_dim,
+                    self.embedding_dimension,
                     device=device,
                     dtype=self.dtype,
                 )

@@ -110,7 +110,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         self,
         input_keys: str | list[str],
         condition_key: str,
-        condition_dim: int,
+        conditioning_dimension: int,
         backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
@@ -124,7 +124,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         Args:
             input_keys: Camera observation keys.
             condition_key: Key for the conditioning feature tensor.
-            condition_dim: Dimensionality of the conditioning feature.
+            conditioning_dimension: Dimensionality of the conditioning feature.
             backbone: timm ResNet model name.
             pooling_method: Feature pooling strategy.
             batch_norm_handling: How to handle batch normalization layers.
@@ -146,7 +146,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         )
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.condition_key = condition_key
-        self.condition_dim = condition_dim
+        self.conditioning_dimension = conditioning_dimension
         self.batch_norm_handling = batch_norm_handling
         self.backbone_name = backbone
         self.pooling_method = pooling_method
@@ -263,7 +263,11 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         blocks = nn.ModuleList()
         blocks.append(
             FiLMedResBlock(
-                self.in_channels, out_channels, self.condition_dim, stride, downsample
+                self.in_channels,
+                out_channels,
+                self.conditioning_dimension,
+                stride,
+                downsample,
             )
         )
         self.in_channels = out_channels
@@ -271,7 +275,10 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         for _ in range(1, num_blocks):
             blocks.append(
                 FiLMedResBlock(
-                    self.in_channels, out_channels, self.condition_dim, stride=1
+                    self.in_channels,
+                    out_channels,
+                    self.conditioning_dimension,
+                    stride=1,
                 )
             )
 
@@ -403,7 +410,9 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         )
         with torch.no_grad():
             mock_input = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
-            mock_condition = torch.zeros(1, self.condition_dim, dtype=probe_dtype)
+            mock_condition = torch.zeros(
+                1, self.conditioning_dimension, dtype=probe_dtype
+            )
             features = self.backbone(mock_input, mock_condition)
             _, _, spatial_height, spatial_width = features.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)

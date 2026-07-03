@@ -3,11 +3,11 @@ defaults:
   - _self_
 
 joint_action:
-  input_dim: ${mul:${action_space_prediction_dimension:${task.action_space}},4096}
+  input_dimension: ${mul:${action_space_prediction_dimension:${task.action_space}},4096}
   blocks:
     - _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
-      input_dim: ${...input_dim}
-      hidden_dims:
+      input_dimension: ${...input_dimension}
+      hidden_dimensions:
         - 4096
       output_dim: null
       activation: ${activation_function:RELU}
@@ -16,8 +16,8 @@ joint_action:
     - _target_: versatil.models.decoding.action_heads.blocks.ResidualBlock
       block:
         _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
-        input_dim: 4096
-        hidden_dims:
+        input_dimension: 4096
+        hidden_dimensions:
           - 4096
         output_dim: null
         activation: ${activation_function:RELU}
@@ -27,8 +27,8 @@ joint_action:
     - _target_: versatil.models.decoding.action_heads.blocks.ResidualBlock
       block:
         _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
-        input_dim: 4096
-        hidden_dims:
+        input_dimension: 4096
+        hidden_dimensions:
           - 4096
         output_dim: null
         activation: ${activation_function:RELU}
@@ -36,4 +36,4 @@ joint_action:
         normalization: true
       dropout: 0.0
     - _target_: versatil.models.decoding.action_heads.blocks.LayerNormBlock
-      input_dim: 4096
+      input_dimension: 4096

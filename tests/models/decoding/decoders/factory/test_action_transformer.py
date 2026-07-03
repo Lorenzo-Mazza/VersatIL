@@ -73,7 +73,7 @@ def action_transformer_factory(
         )
         action_heads = action_heads_factory(
             action_space=action_space,
-            input_dim=embedding_dimension,
+            input_dimension=embedding_dimension,
         )
         observation_space = mock_observation_space_factory()
         return ActionTransformer(

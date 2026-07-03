@@ -159,8 +159,8 @@ class TransformerMixin:
             self.positional_encoding = create_positional_encoding(
                 encoding_type=positional_encoding_type,
                 embedding_dimension=embedding_dimension,
-                maximum_length=maximum_sequence_length,
-                num_heads=number_of_heads,
+                maximum_sequence_length=maximum_sequence_length,
+                number_of_heads=number_of_heads,
             )
 
     def _apply_positional_encoding(

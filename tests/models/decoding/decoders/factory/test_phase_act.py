@@ -70,9 +70,9 @@ def lazy_moe_head_factory(
     """Factory for lazy-initialized MoEHead (no num_experts set yet)."""
 
     def factory(
-        input_dim: int = EMBEDDING_DIMENSION,
+        input_dimension: int = EMBEDDING_DIMENSION,
     ) -> MoEHead:
-        base_expert = action_head_factory(input_dim=input_dim)
+        base_expert = action_head_factory(input_dimension=input_dimension)
         return MoEHead(base_expert=base_expert)
 
     return factory
@@ -100,8 +100,8 @@ def phase_act_factory(
             num_phases=num_phases,
         )
         observation_space = mock_observation_space_factory()
-        phase_head = action_head_factory(input_dim=embedding_dimension)
-        moe_position_head = lazy_moe_head_factory(input_dim=embedding_dimension)
+        phase_head = action_head_factory(input_dimension=embedding_dimension)
+        moe_position_head = lazy_moe_head_factory(input_dimension=embedding_dimension)
         action_heads = {
             TSOObsKey.PHASE_LABEL.value: phase_head,
             "position_action": moe_position_head,
@@ -192,8 +192,8 @@ class TestPhaseACTInitialization:
     ):
         action_space = phase_action_space_factory()
         observation_space = mock_observation_space_factory()
-        phase_head = action_head_factory(input_dim=EMBEDDING_DIMENSION)
-        position_head = action_head_factory(input_dim=EMBEDDING_DIMENSION)
+        phase_head = action_head_factory(input_dimension=EMBEDDING_DIMENSION)
+        position_head = action_head_factory(input_dimension=EMBEDDING_DIMENSION)
         action_heads = {
             TSOObsKey.PHASE_LABEL.value: phase_head,
             "position_action": position_head,

@@ -16,13 +16,13 @@ def latent_standardizer_factory() -> Callable[..., LatentStandardizer]:
     def factory(
         latent_dimension: int = 3,
         enabled: bool = True,
-        eps: float = 1e-6,
+        epsilon: float = 1e-6,
         require_fitted: bool = False,
     ) -> LatentStandardizer:
         return LatentStandardizer(
             latent_dimension=latent_dimension,
             enabled=enabled,
-            eps=eps,
+            epsilon=epsilon,
             require_fitted=require_fitted,
         )
 

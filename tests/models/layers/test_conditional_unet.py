@@ -259,7 +259,7 @@ class TestConditionalUnet1DForward:
         timesteps = timestep_factory(batch_size=batch_size)
         global_conditioning = condition_factory(
             batch_size=batch_size,
-            condition_dim=global_conditioning_dimension,
+            conditioning_dimension=global_conditioning_dimension,
         )
         with torch.no_grad():
             output = module(
@@ -340,7 +340,7 @@ class TestConditionalUnet1DForward:
         )
         global_conditioning = condition_factory(
             batch_size=batch_size,
-            condition_dim=global_conditioning_dimension,
+            conditioning_dimension=global_conditioning_dimension,
         )
         with torch.no_grad():
             output = module(
@@ -465,11 +465,11 @@ class TestConditionalUnet1DConditioning:
         timesteps = timestep_factory(batch_size=batch_size)
         global_conditioning_a = condition_factory(
             batch_size=batch_size,
-            condition_dim=global_conditioning_dimension,
+            conditioning_dimension=global_conditioning_dimension,
         )
         global_conditioning_b = condition_factory(
             batch_size=batch_size,
-            condition_dim=global_conditioning_dimension,
+            conditioning_dimension=global_conditioning_dimension,
         )
         with torch.no_grad():
             output_a = module(

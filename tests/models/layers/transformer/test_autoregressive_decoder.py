@@ -84,13 +84,6 @@ class TestGPTDecoderInitialization:
         decoder = gpt_decoder_factory(number_of_layers=3)
         assert len(decoder.layers) == 3
 
-    def test_layers_are_autoregressive(
-        self, gpt_decoder_factory: Callable[..., GPTDecoder]
-    ):
-        decoder = gpt_decoder_factory(number_of_layers=2)
-        for layer in decoder.layers:
-            assert layer.autoregressive is True
-
     def test_no_positional_encoding_by_default(
         self, gpt_decoder_factory: Callable[..., GPTDecoder]
     ):

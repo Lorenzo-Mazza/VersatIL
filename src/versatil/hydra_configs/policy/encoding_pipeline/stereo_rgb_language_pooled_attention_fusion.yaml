@@ -39,5 +39,5 @@ fusion_stages:
     context_features:
       - instruction_language
     output_name: fused_visual
-    hidden_dim: 256
-    num_heads: 4
+    hidden_dimension: 256
+    number_of_heads: 4

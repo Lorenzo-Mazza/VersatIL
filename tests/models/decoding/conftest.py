@@ -282,11 +282,11 @@ def action_head_factory() -> Callable[..., ActionHead]:
     """Factory for ActionHead instances."""
 
     def factory(
-        input_dim: int = 64,
+        input_dimension: int = 64,
         blocks: list | None = None,
         output_dim: int | None = None,
     ) -> ActionHead:
-        head = ActionHead(input_dim=input_dim, blocks=blocks)
+        head = ActionHead(input_dimension=input_dimension, blocks=blocks)
         if output_dim is not None:
             head.set_output_dim(output_dim)
         return head
@@ -299,14 +299,14 @@ def conditional_action_head_factory() -> Callable[..., ConditionalActionHead]:
     """Factory for ConditionalActionHead instances."""
 
     def factory(
-        input_dim: int = 64,
-        condition_dim: int = 64,
+        input_dimension: int = 64,
+        conditioning_dimension: int = 64,
         blocks: list[torch.nn.Module] | None = None,
         output_dim: int | None = None,
     ) -> ConditionalActionHead:
         head = ConditionalActionHead(
-            input_dim=input_dim,
-            condition_dim=condition_dim,
+            input_dimension=input_dimension,
+            conditioning_dimension=conditioning_dimension,
             blocks=blocks,
         )
         if output_dim is not None:
@@ -321,14 +321,14 @@ def gaussian_head_factory() -> Callable[..., GaussianHead]:
     """Factory for GaussianHead instances."""
 
     def factory(
-        input_dim: int = 64,
+        input_dimension: int = 64,
         blocks: list | None = None,
         min_logvar: float = -10.0,
         max_logvar: float = 4.0,
         output_dim: int | None = None,
     ) -> GaussianHead:
         head = GaussianHead(
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             blocks=blocks,
             min_logvar=min_logvar,
             max_logvar=max_logvar,
@@ -348,12 +348,12 @@ def action_heads_factory(
 
     def factory(
         action_space: MagicMock,
-        input_dim: int = 64,
+        input_dimension: int = 64,
     ) -> dict[str, ActionHead]:
         heads = {}
         for key, meta in action_space.actions_metadata.items():
             if meta.requires_prediction_head:
-                heads[key] = action_head_factory(input_dim=input_dim)
+                heads[key] = action_head_factory(input_dimension=input_dimension)
         return heads
 
     return factory

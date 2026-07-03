@@ -85,8 +85,8 @@ class SmolVLM(HuggingFaceGenerativeVLM):
     def _scale_language_embeddings(
         self, language_embeddings: torch.Tensor
     ) -> torch.Tensor:
-        """Scale language embeddings by sqrt(hidden_dim) to match SmolVLM convention."""
-        return language_embeddings * math.sqrt(self.hidden_dim)
+        """Scale language embeddings by sqrt(hidden_dimension) to match SmolVLM convention."""
+        return language_embeddings * math.sqrt(self.hidden_dimension)
 
     def _embed_images(
         self, inputs: dict[str, torch.Tensor], batch_size: int
@@ -94,8 +94,8 @@ class SmolVLM(HuggingFaceGenerativeVLM):
         """Stack all cameras along num_images dim and encode in a single call.
 
         Stacks N camera images into (B, N, C, H, W), passes through the vision
-        encoder which returns (B*N, tokens_per_camera, hidden_dim), then reshapes
-        back to (B, N*tokens_per_camera, hidden_dim).
+        encoder which returns (B*N, tokens_per_camera, hidden_dimension), then reshapes
+        back to (B, N*tokens_per_camera, hidden_dimension).
 
         Args:
             inputs: Dict with camera images as (B, C, H, W) per camera key.
@@ -103,7 +103,7 @@ class SmolVLM(HuggingFaceGenerativeVLM):
 
         Returns:
             ([embeddings], [pad_mask]) where embeddings is
-            (B, N*tokens_per_camera, hidden_dim) and pad_mask is
+            (B, N*tokens_per_camera, hidden_dimension) and pad_mask is
             (B, N*tokens_per_camera).
         """
         camera_images = []
@@ -118,12 +118,12 @@ class SmolVLM(HuggingFaceGenerativeVLM):
         num_cameras = len(self.camera_keys)
         pixel_values = torch.stack(camera_images, dim=1)  # (B, num_cameras, C, H, W)
         image_features = self.vlm.get_image_features(pixel_values)
-        # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dim)
+        # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dimension)
         image_embeddings = image_features.pooler_output
-        # SmolVLM convention: scale image embeddings by sqrt(hidden_dim) to match
+        # SmolVLM convention: scale image embeddings by sqrt(hidden_dimension) to match
         # the magnitude of the language-model token embeddings.
         image_embeddings = image_embeddings * math.sqrt(image_embeddings.shape[-1])
-        # Merge camera and token dims back into batch: (B, num_cameras * tokens_per_camera, hidden_dim)
+        # Merge camera and token dims back into batch: (B, num_cameras * tokens_per_camera, hidden_dimension)
         tokens_per_camera = image_embeddings.shape[1]
         image_embeddings = image_embeddings.reshape(
             batch_size, num_cameras * tokens_per_camera, image_embeddings.shape[2]

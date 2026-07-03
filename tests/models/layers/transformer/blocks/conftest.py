@@ -43,7 +43,7 @@ def ada_norm_no_gate(
     ada_norm_factory: Callable[..., AdaNorm],
 ) -> AdaNorm:
     return ada_norm_factory(
-        condition_dim=EMBEDDING_DIMENSION,
+        conditioning_dimension=EMBEDDING_DIMENSION,
         feature_dim=EMBEDDING_DIMENSION,
         use_gate=False,
     )
@@ -54,7 +54,7 @@ def ada_norm_with_gate(
     ada_norm_factory: Callable[..., AdaNorm],
 ) -> AdaNorm:
     return ada_norm_factory(
-        condition_dim=EMBEDDING_DIMENSION,
+        conditioning_dimension=EMBEDDING_DIMENSION,
         feature_dim=EMBEDDING_DIMENSION,
         use_gate=True,
     )

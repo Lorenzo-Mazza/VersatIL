@@ -117,7 +117,7 @@ class AutoregressiveVLADecoder(
             deterministic=deterministic,
         )
         self.vlm_backbone = vlm_backbone
-        self.language_hidden_dimension = int(vlm_backbone.hidden_dim)
+        self.language_hidden_dimension = int(vlm_backbone.hidden_dimension)
         self.to(self.device)
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None) -> None:

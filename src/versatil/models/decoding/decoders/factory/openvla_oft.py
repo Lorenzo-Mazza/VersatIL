@@ -86,7 +86,7 @@ class OpenVLAOFTDecoder(
         self.min_period = min_period
         self.max_period = max_period
         self.causal_prefix = False
-        self.language_hidden_dimension = int(vlm_backbone.hidden_dim)
+        self.language_hidden_dimension = int(vlm_backbone.hidden_dimension)
         action_projection_input_dimension = (
             self._resolve_action_projection_input_dimension(
                 action_space=action_space,
@@ -153,9 +153,9 @@ class OpenVLAOFTDecoder(
     ) -> None:
         """Validate that action heads consume the decoder action embeddings."""
         mismatched_input_dimensions = {
-            action_key: action_head.input_dim
+            action_key: action_head.input_dimension
             for action_key, action_head in self.action_heads.items()
-            if action_head.input_dim != expected_input_dimension
+            if action_head.input_dimension != expected_input_dimension
         }
         if not mismatched_input_dimensions:
             return
@@ -163,7 +163,7 @@ class OpenVLAOFTDecoder(
         if self.slots_per_action_dimension:
             expected_rule = (
                 "slots_per_action_dimension=True uses one slot per action scalar, "
-                "so the joint action head input_dim must equal action_dim * "
+                "so the joint action head input_dimension must equal action_dim * "
                 "language_hidden_dimension "
                 f"({self.action_dim} * {self.language_hidden_dimension} = "
                 f"{expected_input_dimension})."
@@ -171,11 +171,11 @@ class OpenVLAOFTDecoder(
         else:
             expected_rule = (
                 "slots_per_action_dimension=False uses one slot per timestep, "
-                "so the joint action head input_dim must equal "
+                "so the joint action head input_dimension must equal "
                 f"language_hidden_dimension ({expected_input_dimension})."
             )
         raise ValueError(
-            "OpenVLAOFTDecoder action head input_dim mismatch. "
+            "OpenVLAOFTDecoder action head input_dimension mismatch. "
             f"{expected_rule} Got {mismatched_input_dimensions}."
         )
 

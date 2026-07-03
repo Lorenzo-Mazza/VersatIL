@@ -63,7 +63,7 @@ def lact_decoder_factory(
         observation_space = mock_observation_space_factory()
         action_heads = action_heads_factory(
             action_space=action_space,
-            input_dim=embedding_dimension,
+            input_dimension=embedding_dimension,
         )
         return LACT(
             input_keys=input_keys,
@@ -161,11 +161,11 @@ class TestLACTInitialization:
         decoder = lact_decoder_factory(latent_dimension=latent_dimension)
         first_layer = decoder.action_decoder.layers[0]
         assert (
-            first_layer.self_attention_block.normalization.condition_dim
+            first_layer.self_attention_block.normalization.conditioning_dimension
             == latent_dimension
         )
         assert (
-            first_layer.feedforward_block.normalization.condition_dim
+            first_layer.feedforward_block.normalization.conditioning_dimension
             == latent_dimension
         )
 

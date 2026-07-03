@@ -24,7 +24,7 @@ from versatil.models.layers.transformer.positional_encoding import (
 def rope_encoding() -> RotaryPositionalEncoding1D:
     return RotaryPositionalEncoding1D(
         embedding_dimension=32,
-        num_heads=4,
+        number_of_heads=4,
     )
 
 
@@ -58,7 +58,7 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.SINUSOIDAL.value,
             embedding_dimension=32,
-            maximum_length=128,
+            maximum_sequence_length=128,
         )
         # Sinusoidal produces position-dependent additive encoding
         input_tensor = torch.zeros(1, 5, 32)
@@ -71,7 +71,7 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.LEARNED.value,
             embedding_dimension=32,
-            maximum_length=128,
+            maximum_sequence_length=128,
         )
         # Learned encoding produces additive positional encoding
         input_tensor = torch.zeros(1, 5, 32)
@@ -82,8 +82,8 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
         )
         # RoPE produces sine/cosine rotation components
         sine, cosine = encoding.compute_rotation_components(seq_len=5)
@@ -93,13 +93,13 @@ class TestCreatePositionalEncoding:
     def test_rope_without_num_heads_raises(self):
         with pytest.raises(
             ValueError,
-            match=re.escape("num_heads is required for RoPE positional encoding"),
+            match=re.escape("number_of_heads is required for RoPE positional encoding"),
         ):
             create_positional_encoding(
                 encoding_type=PositionalEncodingType.ROPE.value,
                 embedding_dimension=32,
-                maximum_length=128,
-                num_heads=None,
+                maximum_sequence_length=128,
+                number_of_heads=None,
             )
 
     def test_unsupported_type_raises(self):
@@ -113,22 +113,22 @@ class TestCreatePositionalEncoding:
             create_positional_encoding(
                 encoding_type="invalid_type",
                 embedding_dimension=32,
-                maximum_length=128,
+                maximum_sequence_length=128,
             )
 
     def test_rope_different_base_frequency_produces_different_rotations(self):
         encoding_a = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             base_frequency=5000.0,
         )
         encoding_b = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             base_frequency=10000.0,
         )
         sine_a, _ = encoding_a.compute_rotation_components(seq_len=5)
@@ -139,8 +139,8 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             learnable_frequencies=True,
         )
         # Learnable frequencies appear in the parameter list for optimizer
@@ -151,8 +151,8 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             learnable_frequencies=False,
         )
         # Non-learnable: gradient computation is disabled
@@ -218,7 +218,7 @@ class TestApplyRopePositionalEncoding:
         queries, keys = query_key_factory()
         sinusoidal = SinusoidalPositionalEncoding1D(
             embedding_dimension=32,
-            maximum_length=128,
+            maximum_sequence_length=128,
         )
         rotated_queries, rotated_keys = apply_rope_positional_encoding(
             queries=queries,

@@ -158,7 +158,7 @@ class TestDiTBlockForward:
         timesteps = continuous_timestep_factory(batch_size=2)
         encoder_cache = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         encoder_output_mean, decoder_output, conditioning = block(
             decoder_hidden_states=decoder_hidden,

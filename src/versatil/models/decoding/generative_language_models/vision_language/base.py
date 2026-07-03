@@ -352,10 +352,10 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
             return self._assemble_multimodal_embeddings(inputs=inputs)
         flattened, batch_size, temporal_length = temporal
         prefix, padding_mask = self._assemble_multimodal_embeddings(inputs=flattened)
-        sequence_length, hidden_dim = prefix.shape[1], prefix.shape[2]
+        sequence_length, hidden_dimension = prefix.shape[1], prefix.shape[2]
         # (B*T, S, D) -> (B, T*S, D)
         prefix = prefix.reshape(
-            batch_size, temporal_length * sequence_length, hidden_dim
+            batch_size, temporal_length * sequence_length, hidden_dimension
         )
         padding_mask = padding_mask.reshape(
             batch_size, temporal_length * sequence_length
@@ -399,7 +399,7 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
 
     def get_backbone_hidden_dim(self) -> int:
         """Return the VLM language model hidden dimension."""
-        return self.hidden_dim
+        return self.hidden_dimension
 
     def get_text_config(self) -> PretrainedConfig:
         """Return the VLM language model configuration."""

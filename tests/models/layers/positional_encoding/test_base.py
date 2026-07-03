@@ -114,14 +114,14 @@ class TestPositionalEncoding1DInit:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "maximum_length must be set when precompute_encodings=True"
+                "maximum_sequence_length must be set when precompute_encodings=True"
             ),
         ):
             SinusoidalPositionalEncoding1D(
                 embedding_dimension=64,
                 position_source=PositionSource.TENSOR_INDICES.value,
                 precompute_encodings=True,
-                maximum_length=None,
+                maximum_sequence_length=None,
             )
 
     def test_precompute_false_with_none_maximum_length_succeeds(self):
@@ -129,18 +129,18 @@ class TestPositionalEncoding1DInit:
             embedding_dimension=64,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=False,
-            maximum_length=None,
+            maximum_sequence_length=None,
         )
-        assert module.maximum_length is None
+        assert module.maximum_sequence_length is None
 
     def test_scalar_source_with_none_maximum_length_succeeds(self):
         module = SinusoidalPositionalEncoding1D(
             embedding_dimension=64,
             position_source=PositionSource.SCALAR.value,
             precompute_encodings=True,
-            maximum_length=None,
+            maximum_sequence_length=None,
         )
-        assert module.maximum_length is None
+        assert module.maximum_sequence_length is None
 
 
 class TestPositionalEncoding1DForward:
@@ -156,7 +156,7 @@ class TestPositionalEncoding1DForward:
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         tensor = sequence_tensor_factory(
             batch_size=batch_size,
@@ -234,7 +234,7 @@ class TestPositionalEncoding1DForward:
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         tensor = sequence_tensor_factory(
             batch_size=3,
@@ -261,7 +261,7 @@ class TestPositionalEncoding1DForward:
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=precompute_encodings,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         full_tensor = sequence_tensor_factory(
             batch_size=2,
@@ -292,7 +292,7 @@ class TestPositionalEncoding1DForward:
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         tensor = sequence_tensor_factory(
             batch_size=2,
@@ -309,13 +309,13 @@ class TestPositionalEncoding1DForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 64
-        maximum_length = 16
-        sequence_length = maximum_length + 4
+        maximum_sequence_length = 16
+        sequence_length = maximum_sequence_length + 4
         module = sinusoidal_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=True,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         tensor = sequence_tensor_factory(
             batch_size=2,
@@ -326,8 +326,8 @@ class TestPositionalEncoding1DForward:
             ValueError,
             match=re.escape(
                 f"Requested positions [0, {sequence_length}) exceed "
-                f"precomputed maximum_length {maximum_length}. "
-                f"Increase maximum_length."
+                f"precomputed maximum_sequence_length {maximum_sequence_length}. "
+                f"Increase maximum_sequence_length."
             ),
         ):
             module(tensor)
@@ -338,14 +338,14 @@ class TestPositionalEncoding1DForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 64
-        maximum_length = 16
+        maximum_sequence_length = 16
         sequence_length = 4
         offset = 14
         module = sinusoidal_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
             precompute_encodings=True,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         tensor = sequence_tensor_factory(
             batch_size=2,
@@ -356,8 +356,8 @@ class TestPositionalEncoding1DForward:
             ValueError,
             match=re.escape(
                 f"Requested positions [{offset}, {offset + sequence_length}) exceed "
-                f"precomputed maximum_length {maximum_length}. "
-                f"Increase maximum_length."
+                f"precomputed maximum_sequence_length {maximum_sequence_length}. "
+                f"Increase maximum_sequence_length."
             ),
         ):
             module(tensor, offset=offset)

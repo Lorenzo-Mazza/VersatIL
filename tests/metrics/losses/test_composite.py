@@ -73,9 +73,9 @@ def dummy_targets() -> dict[str, torch.Tensor]:
 class _ParametricLoss(BaseLoss):
     """Minimal parametric BaseLoss for composite-parameter tests."""
 
-    def __init__(self, input_dim: int = 3, output_dim: int = 1) -> None:
+    def __init__(self, input_dimension: int = 3, output_dim: int = 1) -> None:
         super().__init__()
-        self.projection = torch.nn.Linear(input_dim, output_dim, bias=False)
+        self.projection = torch.nn.Linear(input_dimension, output_dim, bias=False)
 
     def get_required_keys(self) -> set[str]:
         return {"input"}
@@ -95,8 +95,8 @@ class _ParametricLoss(BaseLoss):
 
 @pytest.fixture
 def parametric_loss_factory() -> Callable[..., _ParametricLoss]:
-    def factory(input_dim: int = 3, output_dim: int = 1) -> _ParametricLoss:
-        return _ParametricLoss(input_dim=input_dim, output_dim=output_dim)
+    def factory(input_dimension: int = 3, output_dim: int = 1) -> _ParametricLoss:
+        return _ParametricLoss(input_dimension=input_dimension, output_dim=output_dim)
 
     return factory
 
@@ -280,7 +280,7 @@ class TestCompositeLossParameters:
         self,
         parametric_loss_factory: Callable[..., _ParametricLoss],
     ):
-        parametric = parametric_loss_factory(input_dim=4, output_dim=2)
+        parametric = parametric_loss_factory(input_dimension=4, output_dim=2)
         composite = CompositeLoss(loss_modules={"param": parametric})
 
         composite_parameters = list(composite.parameters())
@@ -293,7 +293,7 @@ class TestCompositeLossParameters:
         parametric_loss_factory: Callable[..., _ParametricLoss],
         rng: np.random.Generator,
     ):
-        parametric = parametric_loss_factory(input_dim=3, output_dim=1)
+        parametric = parametric_loss_factory(input_dimension=3, output_dim=1)
         composite = CompositeLoss(loss_modules={"param": parametric})
 
         input_data = rng.standard_normal((2, 3)).astype(np.float32)

@@ -86,8 +86,8 @@ def diffusion_transformer_factory(
         if action_heads is None:
             action_heads = {
                 "joint_action": conditional_action_head_factory(
-                    input_dim=embedding_dimension,
-                    condition_dim=embedding_dimension,
+                    input_dimension=embedding_dimension,
+                    conditioning_dimension=embedding_dimension,
                 )
             }
         observation_space = mock_observation_space_factory()
@@ -228,7 +228,7 @@ class TestDiffusionActionTransformerInitialization:
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
-        head = ActionHead(input_dim=EMBEDDING_DIMENSION)
+        head = ActionHead(input_dimension=EMBEDDING_DIMENSION)
         action_heads = {"joint_action": head}
         with pytest.raises(
             ValueError,

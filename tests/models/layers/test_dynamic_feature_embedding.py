@@ -13,22 +13,24 @@ def dynamic_feature_embedding_factory() -> Callable[..., DynamicFeatureEmbedding
     """Factory for DynamicFeatureEmbedding instances."""
 
     def factory(
-        embedding_dim: int = 64,
+        embedding_dimension: int = 64,
     ) -> DynamicFeatureEmbedding:
-        return DynamicFeatureEmbedding(embedding_dim=embedding_dim)
+        return DynamicFeatureEmbedding(embedding_dimension=embedding_dimension)
 
     return factory
 
 
 class TestDynamicFeatureEmbeddingInitialization:
-    @pytest.mark.parametrize("embedding_dim", [32, 128])
+    @pytest.mark.parametrize("embedding_dimension", [32, 128])
     def test_stores_embedding_dim(
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
-        embedding_dim: int,
+        embedding_dimension: int,
     ):
-        module = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
-        assert module.embedding_dim == embedding_dim
+        module = dynamic_feature_embedding_factory(
+            embedding_dimension=embedding_dimension
+        )
+        assert module.embedding_dimension == embedding_dimension
 
     def test_starts_with_empty_embeddings(
         self,
@@ -58,15 +60,17 @@ class TestDynamicFeatureEmbeddingForward:
         assert torch.equal(first, second)
         assert len(module.embeddings) == 1
 
-    @pytest.mark.parametrize("embedding_dim", [32, 128])
+    @pytest.mark.parametrize("embedding_dimension", [32, 128])
     def test_output_shape(
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
-        embedding_dim: int,
+        embedding_dimension: int,
     ):
-        module = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        module = dynamic_feature_embedding_factory(
+            embedding_dimension=embedding_dimension
+        )
         output = module(name="test_feature", device=torch.device("cpu"))
-        assert output.shape == (1, 1, embedding_dim)
+        assert output.shape == (1, 1, embedding_dimension)
 
     def test_replaces_dots_in_keys(
         self,
@@ -113,15 +117,19 @@ class TestDynamicFeatureEmbeddingLoadFromStateDict:
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
     ):
-        embedding_dim = 64
+        embedding_dimension = 64
         # Create source module with embeddings
-        source = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        source = dynamic_feature_embedding_factory(
+            embedding_dimension=embedding_dimension
+        )
         source(name="rgb_features", device=torch.device("cpu"))
         source(name="depth_features", device=torch.device("cpu"))
         state_dict = source.state_dict()
 
         # Load into fresh module that has no embeddings
-        target = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        target = dynamic_feature_embedding_factory(
+            embedding_dimension=embedding_dimension
+        )
         assert len(target.embeddings) == 0
         target.load_state_dict(state_dict)
         assert "rgb_features" in target.embeddings
@@ -131,12 +139,16 @@ class TestDynamicFeatureEmbeddingLoadFromStateDict:
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
     ):
-        embedding_dim = 32
-        source = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        embedding_dimension = 32
+        source = dynamic_feature_embedding_factory(
+            embedding_dimension=embedding_dimension
+        )
         source(name="test_feat", device=torch.device("cpu"))
         state_dict = source.state_dict()
 
-        target = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        target = dynamic_feature_embedding_factory(
+            embedding_dimension=embedding_dimension
+        )
         target.load_state_dict(state_dict)
         torch.testing.assert_close(
             target.embeddings["test_feat"],
@@ -147,9 +159,9 @@ class TestDynamicFeatureEmbeddingLoadFromStateDict:
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
     ):
-        source = dynamic_feature_embedding_factory(embedding_dim=32)
+        source = dynamic_feature_embedding_factory(embedding_dimension=32)
         source(name="test_feat", device=torch.device("cpu"))
-        target = dynamic_feature_embedding_factory(embedding_dim=32).to(
+        target = dynamic_feature_embedding_factory(embedding_dimension=32).to(
             dtype=torch.float64
         )
         target.load_state_dict(source.state_dict())

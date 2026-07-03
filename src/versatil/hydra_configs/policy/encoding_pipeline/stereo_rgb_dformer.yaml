@@ -29,4 +29,4 @@ fusion_stages:
       - dformer_rgbd
       - right_rgb
     output_name: visual_features
-    hidden_dim: 256
+    hidden_dimension: 256

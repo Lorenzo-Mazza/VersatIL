@@ -109,7 +109,6 @@ class GPTDecoder(TransformerMixin, nn.Module):
                     use_cross_attention=use_cross_attention,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
-                    autoregressive=True,
                 )
                 for _ in range(number_of_layers)
             ]
@@ -142,7 +141,7 @@ class GPTDecoder(TransformerMixin, nn.Module):
             layers=initialize_generation_cache(
                 batch_size=batch_size,
                 num_layers=self.number_of_layers,
-                num_heads=self.number_of_key_value_heads,
+                number_of_heads=self.number_of_key_value_heads,
                 head_dimension=self.head_dimension,
                 device=device,
                 dtype=dtype,

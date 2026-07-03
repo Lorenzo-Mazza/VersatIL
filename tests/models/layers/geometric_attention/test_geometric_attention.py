@@ -9,7 +9,7 @@ from versatil.models.layers.constants import AttentionDecompositionMode
 
 class TestGeometricSelfAttentionConfiguration:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
-    @pytest.mark.parametrize("num_heads", [4, 8])
+    @pytest.mark.parametrize("number_of_heads", [4, 8])
     @pytest.mark.parametrize(
         "decomposition_mode",
         [
@@ -21,16 +21,16 @@ class TestGeometricSelfAttentionConfiguration:
         self,
         geometric_attention_factory,
         embedding_dimension,
-        num_heads,
+        number_of_heads,
         decomposition_mode,
     ):
         attention = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             decomposition_mode=decomposition_mode,
         )
         assert attention.embedding_dimension == embedding_dimension
-        assert attention.num_heads == num_heads
+        assert attention.number_of_heads == number_of_heads
         assert attention.decomposition_mode == decomposition_mode
 
     @pytest.mark.parametrize("value_dimension_factor", [1, 2])
@@ -38,14 +38,16 @@ class TestGeometricSelfAttentionConfiguration:
         self, geometric_attention_factory, value_dimension_factor
     ):
         embedding_dimension = 32
-        num_heads = 4
+        number_of_heads = 4
         attention = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             value_dimension_factor=value_dimension_factor,
         )
-        expected_key_dim = embedding_dimension // num_heads
-        expected_value_dim = (embedding_dimension * value_dimension_factor) // num_heads
+        expected_key_dim = embedding_dimension // number_of_heads
+        expected_value_dim = (
+            embedding_dimension * value_dimension_factor
+        ) // number_of_heads
         assert attention.head_dimension_key == expected_key_dim
         assert attention.head_dimension_value == expected_value_dim
 
@@ -53,11 +55,11 @@ class TestGeometricSelfAttentionConfiguration:
         self, geometric_attention_factory
     ):
         embedding_dimension = 64
-        num_heads = 8
+        number_of_heads = 8
         attention = geometric_attention_factory(
-            embedding_dimension=embedding_dimension, num_heads=num_heads
+            embedding_dimension=embedding_dimension, number_of_heads=number_of_heads
         )
-        expected_scaling = (embedding_dimension // num_heads) ** -0.5
+        expected_scaling = (embedding_dimension // number_of_heads) ** -0.5
         assert abs(attention.attention_scaling - expected_scaling) < 1e-6
 
 
@@ -100,7 +102,7 @@ class TestGeometricSelfAttentionProjections:
 
 class TestGeometricSelfAttentionForward:
     @pytest.mark.parametrize(
-        "batch_size, height, width, embedding_dimension, num_heads",
+        "batch_size, height, width, embedding_dimension, number_of_heads",
         [(2, 4, 6, 32, 4), (1, 3, 3, 64, 8)],
     )
     def test_output_shape_matches_input(
@@ -112,11 +114,11 @@ class TestGeometricSelfAttentionForward:
         height,
         width,
         embedding_dimension,
-        num_heads,
+        number_of_heads,
     ):
         attention = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
         )
         input_tensor = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -145,7 +147,7 @@ class TestGeometricSelfAttentionForward:
         batch_size, height, width, embedding_dimension = 2, 4, 4, 32
         attention = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             decomposition_mode=decomposition_mode,
         )
         input_tensor = nhwc_tensor_factory(
@@ -163,7 +165,7 @@ class TestGeometricSelfAttentionForward:
     ):
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         attention = geometric_attention_factory(
-            embedding_dimension=embedding_dimension, num_heads=4
+            embedding_dimension=embedding_dimension, number_of_heads=4
         )
         input_tensor = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -190,7 +192,7 @@ class TestGeometricSelfAttentionForward:
     ):
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         attention = geometric_attention_factory(
-            embedding_dimension=embedding_dimension, num_heads=4
+            embedding_dimension=embedding_dimension, number_of_heads=4
         )
         depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
@@ -216,7 +218,7 @@ class TestGeometricSelfAttentionForward:
     ):
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         attention = geometric_attention_factory(
-            embedding_dimension=embedding_dimension, num_heads=4
+            embedding_dimension=embedding_dimension, number_of_heads=4
         )
         input_tensor = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -244,7 +246,7 @@ class TestSeparableAttentionHeadIndependence:
     ):
         attention = geometric_attention_factory(
             decomposition_mode=AttentionDecompositionMode.SEPARABLE.value,
-            num_heads=4,
+            number_of_heads=4,
         )
         batch_size, height, width = 1, 6, 5
         key_dim = attention.head_dimension_key
@@ -253,7 +255,7 @@ class TestSeparableAttentionHeadIndependence:
 
         def random_tensor(head_dim: int) -> torch.Tensor:
             data = rng.standard_normal(
-                (batch_size, attention.num_heads, height, width, head_dim)
+                (batch_size, attention.number_of_heads, height, width, head_dim)
             )
             return torch.from_numpy(data.astype(np.float32))
 
@@ -288,7 +290,7 @@ class TestGeometricSelfAttentionDepthAwareness:
     ):
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         attention = geometric_attention_factory(
-            embedding_dimension=embedding_dimension, num_heads=4
+            embedding_dimension=embedding_dimension, number_of_heads=4
         )
         attention.eval()
 
@@ -318,16 +320,16 @@ class TestGeometricSelfAttentionDepthAwareness:
         self, geometric_attention_factory, nhwc_tensor_factory, depth_map_factory
     ):
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
-        num_heads = 4
+        number_of_heads = 4
 
         attention_full = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             decomposition_mode=AttentionDecompositionMode.FULL.value,
         )
         attention_separable = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             decomposition_mode=AttentionDecompositionMode.SEPARABLE.value,
         )
 
@@ -355,12 +357,12 @@ class TestGeometricSelfAttentionDepthAwareness:
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         attention_factor_1 = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             value_dimension_factor=1,
         )
         attention_factor_2 = geometric_attention_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             value_dimension_factor=2,
         )
         # Output shape should be the same regardless of factor

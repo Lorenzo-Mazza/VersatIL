@@ -13,9 +13,9 @@ class AttentionFusion(SequentialFusion):
         self,
         input_features: list[str],
         output_name: str,
-        hidden_dim: int,
+        hidden_dimension: int,
         input_feature_query: str | None = None,
-        num_heads: int = 8,
+        number_of_heads: int = 8,
         dropout: float = 0.1,
         use_residual: bool = True,
         use_norm: bool = True,
@@ -24,9 +24,9 @@ class AttentionFusion(SequentialFusion):
         Args:
             input_features: List of feature names to fuse.
             output_name: Name of the output fused feature.
-            hidden_dim: Dimension to project each input feature to before fusion.
+            hidden_dimension: Dimension to project each input feature to before fusion.
             input_feature_query: Name of the feature to use as query in cross-attention. If None, uses the first feature.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             dropout: Dropout rate for attention weights.
             use_residual: Whether to add a residual connection from the input to the output.
             use_norm: Whether to apply layer normalization after projection and before fusion.
@@ -34,18 +34,21 @@ class AttentionFusion(SequentialFusion):
         super().__init__(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         self.use_residual = use_residual
         self.use_norm = use_norm
         self.attention = nn.MultiheadAttention(
-            hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True
+            hidden_dimension,
+            num_heads=number_of_heads,
+            dropout=dropout,
+            batch_first=True,
         )
         self.input_feature_query = input_feature_query
         self.norms: nn.ModuleList | None = None
         if self.use_norm:
             self.norms = nn.ModuleList(
-                [nn.LayerNorm(self.hidden_dim) for _ in input_features]
+                [nn.LayerNorm(self.hidden_dimension) for _ in input_features]
             )
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
@@ -55,7 +58,7 @@ class AttentionFusion(SequentialFusion):
                 [B, T, D_i] (flat with time), or [B, D_i] (flat).
 
         Returns:
-            Fused features [B, T, hidden_dim] or [B, hidden_dim]
+            Fused features [B, T, hidden_dimension] or [B, hidden_dimension]
         """
         if self.projections is None:
             raise RuntimeError("Projections must be set up before forward pass")
@@ -101,9 +104,9 @@ class AttentionFusion(SequentialFusion):
 
     def get_output_specification(self) -> FeatureMetadata:
         """Get output specification."""
-        dimension: tuple[int, ...] = (self.hidden_dim,)
+        dimension: tuple[int, ...] = (self.hidden_dimension,)
         if self._output_feature_type == FeatureType.SEQUENTIAL.value:
-            dimension = (self._output_sequence_length, self.hidden_dim)
+            dimension = (self._output_sequence_length, self.hidden_dimension)
         return FeatureMetadata(
             key=self.output_name,
             feature_type=self._output_feature_type,

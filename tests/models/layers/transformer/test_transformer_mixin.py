@@ -392,8 +392,8 @@ class TestSetupPositionalEncoding:
             mock_create.assert_called_once_with(
                 encoding_type=encoding_type,
                 embedding_dimension=32,
-                maximum_length=128,
-                num_heads=4,
+                maximum_sequence_length=128,
+                number_of_heads=4,
             )
             assert mixin.positional_encoding is mock_create.return_value
 

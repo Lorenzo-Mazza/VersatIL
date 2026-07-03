@@ -38,7 +38,7 @@ CAMERA_KEY = "agentview"
 def vlm_backbone_factory() -> Callable[..., MagicMock]:
     def factory() -> MagicMock:
         vlm_backbone = MagicMock(spec=GenerativeVLM)
-        vlm_backbone.hidden_dim = LANGUAGE_HIDDEN_DIMENSION
+        vlm_backbone.hidden_dimension = LANGUAGE_HIDDEN_DIMENSION
         vlm_backbone.total_image_tokens = 2
         vlm_backbone.max_text_length = PREFIX_TOKEN_LENGTH
         vlm_backbone.get_text_config.return_value = PretrainedConfig(
@@ -103,7 +103,9 @@ def openvla_oft_decoder_factory(
                 else LANGUAGE_HIDDEN_DIMENSION
             )
         action_heads = {
-            JOINT_ACTION_HEAD_KEY: action_head_factory(input_dim=action_head_input_dim)
+            JOINT_ACTION_HEAD_KEY: action_head_factory(
+                input_dimension=action_head_input_dim
+            )
         }
         return OpenVLAOFTDecoder(
             action_heads=action_heads,
@@ -155,9 +157,9 @@ class TestOpenVLAOFTDecoderInitialization:
         openvla_oft_decoder_factory: Callable[..., OpenVLAOFTDecoder],
     ) -> None:
         expected_message = (
-            "OpenVLAOFTDecoder action head input_dim mismatch. "
+            "OpenVLAOFTDecoder action head input_dimension mismatch. "
             "slots_per_action_dimension=True uses one slot per action scalar, "
-            "so the joint action head input_dim must equal action_dim * "
+            "so the joint action head input_dimension must equal action_dim * "
             "language_hidden_dimension (3 * 16 = 48). "
             "Got {'joint_action': 16}."
         )
@@ -170,9 +172,9 @@ class TestOpenVLAOFTDecoderInitialization:
         openvla_oft_decoder_factory: Callable[..., OpenVLAOFTDecoder],
     ) -> None:
         expected_message = (
-            "OpenVLAOFTDecoder action head input_dim mismatch. "
+            "OpenVLAOFTDecoder action head input_dimension mismatch. "
             "slots_per_action_dimension=False uses one slot per timestep, "
-            "so the joint action head input_dim must equal "
+            "so the joint action head input_dimension must equal "
             "language_hidden_dimension (16). "
             "Got {'joint_action': 48}."
         )
@@ -801,7 +803,7 @@ def test_forward_runs_real_tiny_vlm_and_joint_oft_head(
     vlm_backbone = tiny_prismatic_vlm_factory()
     action_space = mock_action_space_factory(position_dim=ACTION_DIMENSION)
     action_head = action_head_factory(
-        input_dim=ACTION_DIMENSION * LANGUAGE_HIDDEN_DIMENSION
+        input_dimension=ACTION_DIMENSION * LANGUAGE_HIDDEN_DIMENSION
     )
     decoder = OpenVLAOFTDecoder(
         action_heads={JOINT_ACTION_HEAD_KEY: action_head},

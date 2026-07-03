@@ -19,9 +19,9 @@ def token_factory(
     def factory(
         batch_size: int = 2,
         sequence_length: int = 4,
-        embedding_dim: int = 32,
+        embedding_dimension: int = 32,
     ) -> torch.Tensor:
-        shape = (batch_size, sequence_length, embedding_dim)
+        shape = (batch_size, sequence_length, embedding_dimension)
         return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
 
     return factory

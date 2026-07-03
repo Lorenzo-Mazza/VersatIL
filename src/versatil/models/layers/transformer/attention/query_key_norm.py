@@ -34,8 +34,12 @@ class QueryKeyNorm(nn.Module):
             epsilon: Small constant for numerical stability.
         """
         super().__init__()
-        self.query_norm = RMSNorm(head_dimension, eps=epsilon, elementwise_affine=True)
-        self.key_norm = RMSNorm(head_dimension, eps=epsilon, elementwise_affine=True)
+        self.query_norm = RMSNorm(
+            head_dimension, epsilon=epsilon, elementwise_affine=True
+        )
+        self.key_norm = RMSNorm(
+            head_dimension, epsilon=epsilon, elementwise_affine=True
+        )
 
     def forward(
         self,
@@ -45,8 +49,8 @@ class QueryKeyNorm(nn.Module):
         """Apply RMSNorm to query and key tensors.
 
         Args:
-            query: Query tensor (B, num_heads, sequence_length, head_dimension).
-            key: Key tensor (B, num_heads, sequence_length, head_dimension).
+            query: Query tensor (B, number_of_heads, sequence_length, head_dimension).
+            key: Key tensor (B, number_of_heads, sequence_length, head_dimension).
 
         Returns:
             Tuple of normalized (query, key) tensors with same shapes.

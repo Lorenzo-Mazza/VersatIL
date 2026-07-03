@@ -128,9 +128,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             # Models like ALBERT use factorized embeddings where
             # embedding_size != hidden_size
             if hasattr(self.config, "embedding_size"):
-                embedding_dim = self.config.embedding_size
+                embedding_dimension = self.config.embedding_size
             elif hasattr(self.config, "hidden_size"):
-                embedding_dim = self.config.hidden_size
+                embedding_dimension = self.config.hidden_size
             else:
                 raise ValueError(
                     f"Config for {self.model_name} has neither "
@@ -138,7 +138,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
                 )
             self.encoder = nn.Embedding(
                 num_embeddings=self.config.vocab_size,
-                embedding_dim=embedding_dim,
+                embedding_dim=embedding_dimension,
             )
             if self.pretrained:
                 temp_model = AutoModel.from_pretrained(

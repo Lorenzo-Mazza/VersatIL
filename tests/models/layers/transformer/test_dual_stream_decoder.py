@@ -152,7 +152,7 @@ class TestDualStreamBidirectionalDecoderInitialization:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         _, output_no_pos = decoder_no_pos(
             hidden_states_observation=observation,
@@ -206,7 +206,7 @@ class TestDualStreamBidirectionalDecoderInitialization:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         _, output_no_pos = decoder_no_pos(
             hidden_states_observation=observation,
@@ -333,7 +333,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=batch_size,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         output_obs, output_act = decoder(
             hidden_states_observation=observation,
@@ -369,11 +369,11 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning_a = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         conditioning_b = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         output_obs_a, output_act_a = decoder(
             hidden_states_observation=observation,
@@ -419,7 +419,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         _, output_act_one = decoder_one_layer(
             hidden_states_observation=observation,
@@ -458,7 +458,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         output_obs_original, output_act_original = decoder(
             hidden_states_observation=observation,
@@ -516,7 +516,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         output_obs, output_act = decoder(
             hidden_states_observation=observation,
@@ -551,7 +551,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         output_obs, output_act = decoder(
             hidden_states_observation=observation,
@@ -589,7 +589,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         _, output_no_mask = decoder(
             hidden_states_observation=observation,
@@ -633,7 +633,7 @@ class TestDualStreamBidirectionalDecoderForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
         )
         observation.requires_grad_(True)
         action.requires_grad_(True)

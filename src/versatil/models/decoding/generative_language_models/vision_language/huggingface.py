@@ -72,7 +72,7 @@ class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
             frozen=frozen,
         )
         self.image_size: int = config.vision_config.image_size
-        self.hidden_dim: int = config.text_config.hidden_size
+        self.hidden_dimension: int = config.text_config.hidden_size
         self.num_image_tokens_per_camera: int = self._compute_num_image_tokens(
             config=config
         )

@@ -45,7 +45,7 @@ class GenerationCache:
 def initialize_generation_cache(
     batch_size: int,
     num_layers: int,
-    num_heads: int,
+    number_of_heads: int,
     head_dimension: int,
     device: torch.device | str,
     dtype: torch.dtype = torch.float32,
@@ -58,7 +58,7 @@ def initialize_generation_cache(
     Args:
         batch_size: Batch size.
         num_layers: Number of decoder layers.
-        num_heads: Number of K/V attention heads per layer.
+        number_of_heads: Number of K/V attention heads per layer.
         head_dimension: Dimension per attention head.
         device: Device to allocate tensors on.
         dtype: Data type for cache tensors.
@@ -70,10 +70,20 @@ def initialize_generation_cache(
     for _ in range(num_layers):
         cache = GenerationLayerCache(
             keys=torch.empty(
-                batch_size, num_heads, 0, head_dimension, device=device, dtype=dtype
+                batch_size,
+                number_of_heads,
+                0,
+                head_dimension,
+                device=device,
+                dtype=dtype,
             ),
             values=torch.empty(
-                batch_size, num_heads, 0, head_dimension, device=device, dtype=dtype
+                batch_size,
+                number_of_heads,
+                0,
+                head_dimension,
+                device=device,
+                dtype=dtype,
             ),
         )
         caches.append(cache)
@@ -91,8 +101,8 @@ def update_generation_layer_cache(
 
     Args:
         cache: Existing layer cache.
-        new_keys: New keys to append (B, num_heads, new_len, head_dim).
-        new_values: New values to append (B, num_heads, new_len, head_dim).
+        new_keys: New keys to append (B, number_of_heads, new_len, head_dim).
+        new_values: New values to append (B, number_of_heads, new_len, head_dim).
 
     Returns:
         New GenerationLayerCache with accumulated K/V.

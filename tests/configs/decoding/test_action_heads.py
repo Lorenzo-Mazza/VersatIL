@@ -29,33 +29,35 @@ class TestActionHeadBlockConfig:
 @pytest.mark.unit
 class TestLayerNormBlockConfig:
     def test_target_points_to_layer_norm_block(self) -> None:
-        config = LayerNormBlockConfig(input_dim=256)
+        config = LayerNormBlockConfig(input_dimension=256)
         assert config._target_ == "versatil.models.decoding.action_heads.LayerNormBlock"
 
     def test_stores_input_dim(self) -> None:
-        config = LayerNormBlockConfig(input_dim=128)
-        assert config.input_dim == 128
+        config = LayerNormBlockConfig(input_dimension=128)
+        assert config.input_dimension == 128
 
 
 @pytest.mark.unit
 class TestMLPBlockConfig:
     def test_target_points_to_mlp_block(self):
-        config = MLPBlockConfig(input_dim=256)
+        config = MLPBlockConfig(input_dimension=256)
         assert config._target_ == "versatil.models.decoding.action_heads.MLPBlock"
 
-    @pytest.mark.parametrize("input_dim", [128, 512])
+    @pytest.mark.parametrize("input_dimension", [128, 512])
     @pytest.mark.parametrize("dropout", [0.0, 0.2])
     @pytest.mark.parametrize("normalization", [True, False])
-    def test_stores_configuration(self, input_dim, dropout, normalization):
+    def test_stores_configuration(self, input_dimension, dropout, normalization):
         config = MLPBlockConfig(
-            input_dim=input_dim, dropout=dropout, normalization=normalization
+            input_dimension=input_dimension,
+            dropout=dropout,
+            normalization=normalization,
         )
-        assert config.input_dim == input_dim
+        assert config.input_dimension == input_dimension
         assert config.dropout == dropout
         assert config.normalization == normalization
 
     def test_inherits_from_action_head_block_config(self):
-        config = MLPBlockConfig(input_dim=256)
+        config = MLPBlockConfig(input_dimension=256)
         assert isinstance(config, ActionHeadBlockConfig)
 
 
@@ -66,19 +68,19 @@ class TestAttentionBlockConfig:
         assert config._target_ == "versatil.models.decoding.action_heads.AttentionBlock"
 
     @pytest.mark.parametrize("embedding_dimension", [128, 512])
-    @pytest.mark.parametrize("num_heads", [4, 8])
-    def test_stores_configuration(self, embedding_dimension, num_heads):
+    @pytest.mark.parametrize("number_of_heads", [4, 8])
+    def test_stores_configuration(self, embedding_dimension, number_of_heads):
         config = AttentionBlockConfig(
-            embedding_dimension=embedding_dimension, num_heads=num_heads
+            embedding_dimension=embedding_dimension, number_of_heads=number_of_heads
         )
         assert config.embedding_dimension == embedding_dimension
-        assert config.num_heads == num_heads
+        assert config.number_of_heads == number_of_heads
 
 
 @pytest.mark.unit
 class TestResidualBlockConfig:
     def test_target_points_to_residual_block(self):
-        config = ResidualBlockConfig(block=MLPBlockConfig(input_dim=256))
+        config = ResidualBlockConfig(block=MLPBlockConfig(input_dimension=256))
         assert config._target_ == "versatil.models.decoding.action_heads.ResidualBlock"
 
     def test_block_required(self):
@@ -89,64 +91,66 @@ class TestResidualBlockConfig:
 @pytest.mark.unit
 class TestAdaNormBlockConfig:
     def test_target_points_to_adanorm_block(self) -> None:
-        config = AdaNormBlockConfig(input_dim=256, condition_dim=128)
+        config = AdaNormBlockConfig(input_dimension=256, conditioning_dimension=128)
         assert config._target_ == "versatil.models.decoding.action_heads.AdaNormBlock"
 
-    @pytest.mark.parametrize("input_dim", [128, 512])
-    @pytest.mark.parametrize("condition_dim", [64, 256])
+    @pytest.mark.parametrize("input_dimension", [128, 512])
+    @pytest.mark.parametrize("conditioning_dimension", [64, 256])
     def test_stores_configuration(
         self,
-        input_dim: int,
-        condition_dim: int,
+        input_dimension: int,
+        conditioning_dimension: int,
     ) -> None:
         config = AdaNormBlockConfig(
-            input_dim=input_dim,
-            condition_dim=condition_dim,
+            input_dimension=input_dimension,
+            conditioning_dimension=conditioning_dimension,
         )
-        assert config.input_dim == input_dim
-        assert config.condition_dim == condition_dim
+        assert config.input_dimension == input_dimension
+        assert config.conditioning_dimension == conditioning_dimension
 
 
 @pytest.mark.unit
 class TestActionHeadConfig:
     def test_target_points_to_action_head(self):
-        config = ActionHeadConfig(input_dim=256)
+        config = ActionHeadConfig(input_dimension=256)
         assert config._target_ == "versatil.models.decoding.action_heads.ActionHead"
 
     def test_input_dim_required(self):
         config = ActionHeadConfig()
-        assert config.input_dim == MISSING
+        assert config.input_dimension == MISSING
 
     def test_blocks_default_to_none(self):
-        config = ActionHeadConfig(input_dim=256)
+        config = ActionHeadConfig(input_dimension=256)
         assert config.blocks is None
 
 
 @pytest.mark.unit
 class TestConditionalActionHeadConfig:
     def test_target_points_to_conditional_action_head(self) -> None:
-        config = ConditionalActionHeadConfig(input_dim=256, condition_dim=128)
+        config = ConditionalActionHeadConfig(
+            input_dimension=256, conditioning_dimension=128
+        )
         assert (
             config._target_
             == "versatil.models.decoding.action_heads.ConditionalActionHead"
         )
 
     def test_condition_dim_required(self) -> None:
-        config = ConditionalActionHeadConfig(input_dim=256)
-        assert config.condition_dim == MISSING
+        config = ConditionalActionHeadConfig(input_dimension=256)
+        assert config.conditioning_dimension == MISSING
 
 
 @pytest.mark.unit
 class TestGaussianHeadConfig:
     def test_target_points_to_gaussian_head(self):
-        config = GaussianHeadConfig(input_dim=256)
+        config = GaussianHeadConfig(input_dimension=256)
         assert config._target_ == "versatil.models.decoding.action_heads.GaussianHead"
 
     @pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
     @pytest.mark.parametrize("max_logvar", [4.0, 2.0])
     def test_stores_logvar_bounds(self, min_logvar, max_logvar):
         config = GaussianHeadConfig(
-            input_dim=256, min_logvar=min_logvar, max_logvar=max_logvar
+            input_dimension=256, min_logvar=min_logvar, max_logvar=max_logvar
         )
         assert config.min_logvar == min_logvar
         assert config.max_logvar == max_logvar
@@ -188,17 +192,17 @@ class TestMixtureOfExpertsHeadConfig:
 @pytest.mark.unit
 class TestActionHeadInstantiation:
     def test_action_head_instantiates(self):
-        config = ActionHeadConfig(input_dim=64)
+        config = ActionHeadConfig(input_dimension=64)
         instance = instantiate(config)
-        assert instance.input_dim == 64
+        assert instance.input_dimension == 64
 
     def test_gaussian_head_instantiates(self):
-        config = GaussianHeadConfig(input_dim=64, min_logvar=-5.0, max_logvar=2.0)
+        config = GaussianHeadConfig(input_dimension=64, min_logvar=-5.0, max_logvar=2.0)
         instance = instantiate(config)
         assert instance.min_logvar == -5.0
         assert instance.max_logvar == 2.0
 
     def test_mlp_block_instantiates(self):
-        config = MLPBlockConfig(input_dim=64, hidden_dims=[128, 64])
+        config = MLPBlockConfig(input_dimension=64, hidden_dimensions=[128, 64])
         instance = instantiate(config)
-        assert instance.input_dim == 64
+        assert instance.input_dimension == 64

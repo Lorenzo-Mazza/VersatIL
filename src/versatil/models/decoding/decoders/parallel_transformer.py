@@ -59,7 +59,7 @@ class BaseParallelTransformerDecoder(ActionDecoder):
             flat_positional_encoding_type=flat_positional_encoding_type,
         )
         return TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
+            embedding_dimension=self.embedding_dimension,
             has_time_dim=self.observation_horizon > 1,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=self.embedding_dimension,

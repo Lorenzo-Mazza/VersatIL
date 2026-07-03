@@ -64,8 +64,8 @@ class BaseMixtureOfExperts(nn.Module):
         self.gating_network: nn.Sequential | None
         if self.has_gating_network:
             self.gating_network = self._build_gating_network(
-                input_dim=gating_input_dim,
-                hidden_dims=gating_hidden_dims,
+                input_dimension=gating_input_dim,
+                hidden_dimensions=gating_hidden_dims,
                 activation=gating_activation_function,
                 dropout=gating_dropout,
                 normalization=gating_normalization,
@@ -84,8 +84,8 @@ class BaseMixtureOfExperts(nn.Module):
 
     def _build_gating_network(
         self,
-        input_dim: int,
-        hidden_dims: list[int] | None,
+        input_dimension: int,
+        hidden_dimensions: list[int] | None,
         activation: str,
         dropout: float,
         normalization: bool,
@@ -94,8 +94,8 @@ class BaseMixtureOfExperts(nn.Module):
         """Build gating network for computing routing weights.
 
         Args:
-            input_dim: Input feature dimension
-            hidden_dims: List of hidden layer dimensions (defaults to [input_dim // 2])
+            input_dimension: Input feature dimension
+            hidden_dimensions: List of hidden layer dimensions (defaults to [input_dimension // 2])
             activation: Activation function name for gating network
             dropout: Dropout rate between layers
             normalization: Whether to apply layer normalization before MLP
@@ -104,14 +104,14 @@ class BaseMixtureOfExperts(nn.Module):
         Returns:
             Sequential module containing normalization (optional) and MLP
         """
-        if hidden_dims is None or len(hidden_dims) == 0:
-            hidden_dims = [input_dim // 2]
+        if hidden_dimensions is None or len(hidden_dimensions) == 0:
+            hidden_dimensions = [input_dimension // 2]
         layers: list[nn.Module] = []
         if normalization:
-            layers.append(nn.LayerNorm(input_dim))
+            layers.append(nn.LayerNorm(input_dimension))
         mlp = MLP(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=hidden_dimensions,
             output_dim=self.num_experts,
             activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,

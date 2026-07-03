@@ -423,7 +423,7 @@ class TestPrismaticVLMInitialization:
         )
         assert backbone.llm_backbone_id == PrismaticLLMBackboneType.LLAMA2_7B_PURE.value
         assert backbone.image_size == 224
-        assert backbone.hidden_dim == HIDDEN_DIMENSION
+        assert backbone.hidden_dimension == HIDDEN_DIMENSION
         assert backbone.max_text_length == MAX_TEXT_LENGTH
         assert backbone.num_image_tokens_per_camera == NUM_PATCHES
         assert backbone.total_image_tokens == NUM_PATCHES
@@ -1193,7 +1193,7 @@ def test_default_prismatic_model_loads_real_weights(
     )
     assert backbone.llm_backbone_id == PrismaticLLMBackboneType.LLAMA2_7B_PURE.value
     assert backbone.image_size == 224
-    assert backbone.hidden_dim == 4096
+    assert backbone.hidden_dimension == 4096
     assert backbone.num_image_tokens_per_camera > 0
     assert backbone.get_vocab_size() % PRISMATIC_PAD_TO_MULTIPLE_OF == 0
     assert not next(backbone.parameters()).requires_grad

@@ -109,7 +109,7 @@ class TestConditionalCNNEncoderConfig:
             input_keys=["left"],
             backbone="timm/resnet18.a1_in1k",
             condition_key="language",
-            condition_dim=512,
+            conditioning_dimension=512,
         )
         assert (
             config._target_
@@ -121,14 +121,14 @@ class TestConditionalCNNEncoderConfig:
             input_keys=["left"], backbone="timm/resnet18.a1_in1k"
         )
         assert config.condition_key == MISSING
-        assert config.condition_dim == MISSING
+        assert config.conditioning_dimension == MISSING
 
     def test_inherits_from_image_encoder_config(self):
         config = ConditionalCNNEncoderConfig(
             input_keys=["left"],
             backbone="timm/resnet18.a1_in1k",
             condition_key="language",
-            condition_dim=512,
+            conditioning_dimension=512,
         )
         assert isinstance(config, ImageEncoderConfig)
 
@@ -138,7 +138,7 @@ class TestConditionalCNNEncoderConfig:
             input_keys=["left"],
             backbone="timm/resnet18.a1_in1k",
             condition_key="language",
-            condition_dim=512,
+            conditioning_dimension=512,
             lora_config=lora_config,
         )
         assert config.lora_config is lora_config
@@ -351,7 +351,7 @@ class TestEncoderTargetResolutionIntegration:
                     input_keys=["left"],
                     backbone="timm/resnet18.a1_in1k",
                     condition_key="lang",
-                    condition_dim=512,
+                    conditioning_dimension=512,
                 ),
                 "ConditionalCNNEncoder",
             ),

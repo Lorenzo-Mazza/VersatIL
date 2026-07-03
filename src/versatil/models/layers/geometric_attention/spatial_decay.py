@@ -12,26 +12,28 @@ class SpatialDecayMask(nn.Module):
     """
 
     def __init__(
-        self, num_heads: int, initial_decay: float = 5.0, decay_range: float = 3.0
+        self, number_of_heads: int, initial_decay: float = 5.0, decay_range: float = 3.0
     ):
         """Initializes spatial decay mask generator.
 
         Args:
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             initial_decay: Initial decay rate.
             decay_range: Range of decay rates across heads.
         """
         super().__init__()
-        self.num_heads = num_heads
+        self.number_of_heads = number_of_heads
 
         decay_rates = self._compute_per_head_decay(
-            num_heads=num_heads, initial_decay=initial_decay, decay_range=decay_range
+            number_of_heads=number_of_heads,
+            initial_decay=initial_decay,
+            decay_range=decay_range,
         )
         self.register_buffer("decay_rates", decay_rates)
 
     @staticmethod
     def _compute_per_head_decay(
-        num_heads: int, initial_decay: float, decay_range: float
+        number_of_heads: int, initial_decay: float, decay_range: float
     ) -> torch.Tensor:
         """Computes per-head decay rates.
 
@@ -40,15 +42,15 @@ class SpatialDecayMask(nn.Module):
         - Some heads attend globally (small decay)
 
         Args:
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             initial_decay: Starting decay value.
             decay_range: Range of decay across heads.
 
         Returns:
-            Decay rates of shape (num_heads,).
+            Decay rates of shape (number_of_heads,).
         """
-        head_indices = torch.arange(num_heads, dtype=torch.float)
-        decay_offsets = decay_range * head_indices / num_heads
+        head_indices = torch.arange(number_of_heads, dtype=torch.float)
+        decay_offsets = decay_range * head_indices / number_of_heads
         decay_rates = torch.log(1 - 2 ** (-initial_decay - decay_offsets))
         return decay_rates
 
@@ -102,8 +104,8 @@ class SpatialDecayMask(nn.Module):
             decomposition_mode: Whether to generate full or separable masks.
 
         Returns:
-            If FULL: Single mask of shape (num_heads, H*W, H*W).
-            If SEPARABLE: Tuple of (height_mask, width_mask) each (num_heads, H, H) and (num_heads, W, W).
+            If FULL: Single mask of shape (number_of_heads, H*W, H*W).
+            If SEPARABLE: Tuple of (height_mask, width_mask) each (number_of_heads, H, H) and (number_of_heads, W, W).
         """
         if decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:
             height_distances = self.compute_1d_distance_matrix(height)

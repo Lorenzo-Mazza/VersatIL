@@ -162,7 +162,7 @@ class TestConditionalActionUNetInitialization:
     ):
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
         observation_space = mock_observation_space_factory()
-        head_with_blocks = ActionHead(input_dim=EMBEDDING_DIMENSION)
+        head_with_blocks = ActionHead(input_dimension=EMBEDDING_DIMENSION)
         head_with_blocks.blocks = torch.nn.ModuleList(
             [torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)]
         )

@@ -38,13 +38,13 @@ class PositionalEncoding(abc.ABC, nn.Module):
         self,
         embedding_dimension: int,
         precompute_encodings: bool = True,
-        maximum_length: int | None = 5000,
+        maximum_sequence_length: int | None = 5000,
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
         super().__init__()
         self.embedding_dimension = embedding_dimension
-        self.maximum_length = maximum_length
+        self.maximum_sequence_length = maximum_sequence_length
         self.precompute_encodings = precompute_encodings
         self.mlp_network = (
             None  # An extra learnable MLP layer after positional encoding.
@@ -52,8 +52,8 @@ class PositionalEncoding(abc.ABC, nn.Module):
         if mlp_hidden_dimensions:
             activation = mlp_activation if mlp_activation is not None else nn.SiLU
             self.mlp_network = MLP(
-                input_dim=embedding_dimension,
-                hidden_dims=mlp_hidden_dimensions[:-1],
+                input_dimension=embedding_dimension,
+                hidden_dimensions=mlp_hidden_dimensions[:-1],
                 output_dim=mlp_hidden_dimensions[-1],
                 activation_function=activation,
             )
@@ -76,7 +76,7 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
         embedding_dimension: int,
         position_source: str = PositionSource.TENSOR_INDICES.value,
         precompute_encodings: bool = True,
-        maximum_length: int | None = 5000,
+        maximum_sequence_length: int | None = 5000,
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
@@ -84,7 +84,7 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
         super().__init__(
             embedding_dimension=embedding_dimension,
             precompute_encodings=precompute_encodings,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
@@ -92,16 +92,16 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
             precompute_encodings
             and self.position_source == PositionSource.TENSOR_INDICES.value
         ):
-            if self.maximum_length is None:
+            if self.maximum_sequence_length is None:
                 raise ValueError(
-                    "maximum_length must be set when precompute_encodings=True"
+                    "maximum_sequence_length must be set when precompute_encodings=True"
                 )
             precomputed_encodings = self._compute_encodings(
-                torch.arange(self.maximum_length).float()
+                torch.arange(self.maximum_sequence_length).float()
             )
             self.register_buffer(
                 "precomputed_encodings", precomputed_encodings.unsqueeze(0)
-            )  # [1, maximum_length, embedding_dimension]
+            )  # [1, maximum_sequence_length, embedding_dimension]
 
     def forward(self, input_tensor: torch.Tensor, offset: int = 0) -> torch.Tensor:
         """Compute positional encodings for input tensor.
@@ -125,13 +125,13 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
             seq_len = input_tensor.size(1)
             if self.precompute_encodings:
                 if (
-                    self.maximum_length is not None
-                    and offset + seq_len > self.maximum_length
+                    self.maximum_sequence_length is not None
+                    and offset + seq_len > self.maximum_sequence_length
                 ):
                     raise ValueError(
                         f"Requested positions [{offset}, {offset + seq_len}) exceed "
-                        f"precomputed maximum_length {self.maximum_length}. "
-                        f"Increase maximum_length."
+                        f"precomputed maximum_sequence_length {self.maximum_sequence_length}. "
+                        f"Increase maximum_sequence_length."
                     )
                 encodings = self.precomputed_encodings[
                     :, offset : offset + seq_len, :

@@ -18,13 +18,13 @@ def glu_factory(request: pytest.FixtureRequest) -> Callable[..., GatedLinearUnit
     variant_class = request.param
 
     def factory(
-        input_dim: int = 32,
-        hidden_dim: int = 64,
+        input_dimension: int = 32,
+        hidden_dimension: int = 64,
         bias: bool = False,
     ) -> GatedLinearUnit:
         return variant_class(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
+            input_dimension=input_dimension,
+            hidden_dimension=hidden_dimension,
             bias=bias,
         )
 
@@ -32,25 +32,27 @@ def glu_factory(request: pytest.FixtureRequest) -> Callable[..., GatedLinearUnit
 
 
 class TestGatedLinearUnitInitialization:
-    @pytest.mark.parametrize("input_dim", [16, 64])
-    @pytest.mark.parametrize("hidden_dim", [32, 128])
+    @pytest.mark.parametrize("input_dimension", [16, 64])
+    @pytest.mark.parametrize("hidden_dimension", [32, 128])
     def test_stores_configuration(
         self,
         glu_factory: Callable[..., GatedLinearUnit],
-        input_dim: int,
-        hidden_dim: int,
+        input_dimension: int,
+        hidden_dimension: int,
     ):
-        module = glu_factory(input_dim=input_dim, hidden_dim=hidden_dim)
-        assert module.gate_proj.in_features == input_dim
-        assert module.gate_proj.out_features == hidden_dim
-        assert module.value_proj.in_features == input_dim
-        assert module.value_proj.out_features == hidden_dim
+        module = glu_factory(
+            input_dimension=input_dimension, hidden_dimension=hidden_dimension
+        )
+        assert module.gate_proj.in_features == input_dimension
+        assert module.gate_proj.out_features == hidden_dimension
+        assert module.value_proj.in_features == input_dimension
+        assert module.value_proj.out_features == hidden_dimension
 
     def test_is_registered_as_nn_module(
         self,
         glu_factory: Callable[..., GatedLinearUnit],
     ):
-        module = glu_factory(input_dim=32, hidden_dim=64)
+        module = glu_factory(input_dimension=32, hidden_dimension=64)
         param_names = [name for name, _ in module.named_parameters()]
         assert "gate_proj.weight" in param_names
         assert "value_proj.weight" in param_names
@@ -61,7 +63,7 @@ class TestGatedLinearUnitInitialization:
         glu_factory: Callable[..., GatedLinearUnit],
         bias: bool,
     ):
-        module = glu_factory(input_dim=32, hidden_dim=64, bias=bias)
+        module = glu_factory(input_dimension=32, hidden_dimension=64, bias=bias)
         param_names = {name for name, _ in module.named_parameters()}
         if bias:
             assert "gate_proj.bias" in param_names
@@ -73,45 +75,49 @@ class TestGatedLinearUnitInitialization:
 
 class TestGatedLinearUnitForward:
     @pytest.mark.parametrize(
-        "input_dim, hidden_dim",
+        "input_dimension, hidden_dimension",
         [(16, 32), (64, 128)],
     )
     def test_output_shape_2d(
         self,
         glu_factory: Callable[..., GatedLinearUnit],
         flat_tensor_factory: Callable[..., torch.Tensor],
-        input_dim: int,
-        hidden_dim: int,
+        input_dimension: int,
+        hidden_dimension: int,
     ):
-        module = glu_factory(input_dim=input_dim, hidden_dim=hidden_dim)
-        tensor = flat_tensor_factory(batch_size=4, feature_dimension=input_dim)
+        module = glu_factory(
+            input_dimension=input_dimension, hidden_dimension=hidden_dimension
+        )
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=input_dimension)
         output = module(tensor)
-        assert output.shape == (4, hidden_dim)
+        assert output.shape == (4, hidden_dimension)
 
     @pytest.mark.parametrize(
-        "input_dim, hidden_dim",
+        "input_dimension, hidden_dimension",
         [(16, 32), (64, 128)],
     )
     def test_output_shape_3d(
         self,
         glu_factory: Callable[..., GatedLinearUnit],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        input_dim: int,
-        hidden_dim: int,
+        input_dimension: int,
+        hidden_dimension: int,
     ):
-        module = glu_factory(input_dim=input_dim, hidden_dim=hidden_dim)
+        module = glu_factory(
+            input_dimension=input_dimension, hidden_dimension=hidden_dimension
+        )
         tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=5, embedding_dimension=input_dim
+            batch_size=2, sequence_length=5, embedding_dimension=input_dimension
         )
         output = module(tensor)
-        assert output.shape == (2, 5, hidden_dim)
+        assert output.shape == (2, 5, hidden_dimension)
 
     def test_output_is_differentiable(
         self,
         glu_factory: Callable[..., GatedLinearUnit],
         flat_tensor_factory: Callable[..., torch.Tensor],
     ):
-        module = glu_factory(input_dim=32, hidden_dim=64)
+        module = glu_factory(input_dimension=32, hidden_dimension=64)
         tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         tensor.requires_grad_(True)
         output = module(tensor)
@@ -127,7 +133,7 @@ class TestGatedLinearUnitForward:
         flat_tensor_factory: Callable[..., torch.Tensor],
         bias: bool,
     ):
-        module = glu_factory(input_dim=32, hidden_dim=64, bias=bias)
+        module = glu_factory(input_dimension=32, hidden_dimension=64, bias=bias)
         tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = module(tensor)
         assert output.shape == (4, 64)
@@ -145,15 +151,15 @@ class TestGateActivationVariants:
         variant_class: type[GatedLinearUnit],
         expected_activation: type[nn.Module],
     ):
-        module = variant_class(input_dim=32, hidden_dim=64)
+        module = variant_class(input_dimension=32, hidden_dimension=64)
         assert type(module.gate_activation) is expected_activation
 
     def test_different_gate_activations_produce_different_outputs(
         self,
         flat_tensor_factory: Callable[..., torch.Tensor],
     ):
-        swiglu = SwiGLU(input_dim=32, hidden_dim=64)
-        geglu = GeGLU(input_dim=32, hidden_dim=64)
+        swiglu = SwiGLU(input_dimension=32, hidden_dimension=64)
+        geglu = GeGLU(input_dimension=32, hidden_dimension=64)
         geglu.gate_proj.weight.data.copy_(swiglu.gate_proj.weight.data)
         geglu.value_proj.weight.data.copy_(swiglu.value_proj.weight.data)
         tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)

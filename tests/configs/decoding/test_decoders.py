@@ -361,12 +361,12 @@ class TestPi0DecoderConfig:
 @pytest.mark.unit
 class TestDecoderInstantiation:
     ACTION_LOGITS_HEAD = {
-        DecoderOutputKey.ACTION_LOGITS.value: ActionHeadConfig(input_dim=256)
+        DecoderOutputKey.ACTION_LOGITS.value: ActionHeadConfig(input_dimension=256)
     }
     CONDITIONAL_JOINT_HEAD = {
         "joint_action": ConditionalActionHeadConfig(
-            input_dim=512,
-            condition_dim=512,
+            input_dimension=512,
+            conditioning_dimension=512,
         )
     }
 

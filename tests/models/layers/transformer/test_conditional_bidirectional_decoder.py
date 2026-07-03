@@ -287,7 +287,7 @@ class TestConditionalBidirectionalDecoderForward:
             conditioning_cache = decoder.precompute_conditioning_kv(
                 encoded_features=memory_for_cache
             )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         with expectation:
             decoder(
                 hidden_states=hidden_states,
@@ -319,7 +319,7 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         output = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -348,8 +348,8 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=16)
-        condition_b = condition_factory(batch_size=2, condition_dim=16)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=16)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=16)
         output_a = decoder(
             hidden_states=hidden_states,
             condition=condition_a,
@@ -387,8 +387,8 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=16)
-        condition_b = condition_factory(batch_size=2, condition_dim=16)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=16)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=16)
         output_a = decoder(
             hidden_states=hidden_states,
             condition=condition_a,
@@ -424,7 +424,7 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=1, sequence_length=6, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=1, condition_dim=16)
+        condition = condition_factory(batch_size=1, conditioning_dimension=16)
         output_original = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -468,7 +468,7 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         query_mask = padding_mask_factory(
             batch_size=2, sequence_length=4, padded_positions=[[2, 3], []]
         )
@@ -507,7 +507,7 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         memory_mask = padding_mask_factory(
             batch_size=2, sequence_length=6, padded_positions=[[4, 5], []]
         )
@@ -542,7 +542,7 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         memory_a = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
@@ -588,7 +588,7 @@ class TestConditionalBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         output = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -617,7 +617,7 @@ class TestConditionalBidirectionalDecoderSelfAttentionOnly:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -646,8 +646,8 @@ class TestConditionalBidirectionalDecoderSelfAttentionOnly:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=32)
-        condition_b = condition_factory(batch_size=2, condition_dim=32)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=32)
         output_a = decoder(hidden_states=hidden_states, condition=condition_a)
         output_b = decoder(hidden_states=hidden_states, condition=condition_b)
         assert not torch.allclose(output_a, output_b, atol=1e-5)
@@ -672,7 +672,7 @@ class TestConditionalBidirectionalDecoderSelfAttentionOnly:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         mask = padding_mask_factory(
             batch_size=2, sequence_length=4, padded_positions=[[2, 3], []]
         )
@@ -751,7 +751,7 @@ class TestConditionalBidirectionalDecoderPrecomputeConditioningKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         output_uncached = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -796,7 +796,7 @@ class TestConditionalBidirectionalDecoderFinalNormalization:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output_with = decoder_with(hidden_states=hidden_states, condition=condition)
         output_without = decoder_without(
             hidden_states=hidden_states, condition=condition
@@ -824,7 +824,7 @@ class TestConditionalBidirectionalDecoderFinalNormalization:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=32)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=32)
         condition_b = condition_a * 10.0
         output_a = decoder(hidden_states=hidden_states, condition=condition_a)
         output_b = decoder(hidden_states=hidden_states, condition=condition_b)
@@ -859,7 +859,7 @@ class TestConditionalBidirectionalDecoderFinalNormalization:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         output_with = decoder_with_ca(
             hidden_states=hidden_states,
             condition=condition,

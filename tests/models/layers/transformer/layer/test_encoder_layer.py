@@ -31,7 +31,7 @@ def encoder_layer_factory() -> Callable[..., TransformerEncoderLayer]:
         attention_type: str = AttentionType.MULTI_HEAD.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        condition_dim: int | None = None,
+        conditioning_dimension: int | None = None,
         use_gating: bool = False,
     ) -> TransformerEncoderLayer:
         return TransformerEncoderLayer(
@@ -46,7 +46,7 @@ def encoder_layer_factory() -> Callable[..., TransformerEncoderLayer]:
             attention_type=attention_type,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            conditioning_dimension=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             use_gating=use_gating,
         )
 
@@ -249,15 +249,15 @@ class TestTransformerEncoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             normalization_type=NormalizationType.RMS_NORM.value,
-            condition_dim=32,
+            conditioning_dimension=32,
             dropout=0.0,
         )
         reinit_modulation_layers(layer)
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning_a = condition_factory(batch_size=2, condition_dim=32)
-        conditioning_b = condition_factory(batch_size=2, condition_dim=32)
+        conditioning_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        conditioning_b = condition_factory(batch_size=2, conditioning_dimension=32)
         output_a = layer(hidden_states=hidden_states, conditioning=conditioning_a)
         output_b = layer(hidden_states=hidden_states, conditioning=conditioning_b)
         assert not torch.allclose(output_a, output_b)
@@ -272,7 +272,7 @@ class TestTransformerEncoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             normalization_type=NormalizationType.RMS_NORM.value,
-            condition_dim=32,
+            conditioning_dimension=32,
             use_gating=True,
             dropout=0.0,
         )
@@ -280,7 +280,7 @@ class TestTransformerEncoderLayerConditioning:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        conditioning = condition_factory(batch_size=2, conditioning_dimension=32)
         output = layer(hidden_states=hidden_states, conditioning=conditioning)
         # With gating at zero init, gate=0 → output = input
         assert torch.allclose(output, hidden_states, atol=1e-6)
@@ -301,7 +301,7 @@ class TestTransformerEncoderLayerConditioning:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning = condition_factory(batch_size=2, condition_dim=16)
+        conditioning = condition_factory(batch_size=2, conditioning_dimension=16)
         output_with_cond = layer(hidden_states=hidden_states, conditioning=conditioning)
         output_without_cond = layer(hidden_states=hidden_states)
         assert torch.allclose(output_with_cond, output_without_cond)
@@ -316,14 +316,14 @@ class TestTransformerEncoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             normalization_type=NormalizationType.RMS_NORM.value,
-            condition_dim=32,
+            conditioning_dimension=32,
             dropout=0.0,
         )
         reinit_modulation_layers(layer)
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        conditioning = condition_factory(batch_size=2, conditioning_dimension=32)
         conditioning.requires_grad_(True)
         output = layer(hidden_states=hidden_states, conditioning=conditioning)
         output.sum().backward()

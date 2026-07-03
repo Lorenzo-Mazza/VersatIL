@@ -38,11 +38,6 @@ class TestPolicyConfig:
         config = PolicyConfig()
         assert config.loss == MISSING
 
-    @pytest.mark.parametrize("validate_loss_keys", [True, False])
-    def test_stores_validate_loss_keys(self, validate_loss_keys):
-        config = PolicyConfig(validate_loss_keys=validate_loss_keys)
-        assert config.validate_loss_keys == validate_loss_keys
-
     def test_metadata_passthrough_defaults_to_empty_dict(self):
         config = PolicyConfig()
         assert config.metadata_passthrough == {}
@@ -61,7 +56,6 @@ class TestPolicyConfig:
             "device",
             "loss",
             "metadata_passthrough",
-            "validate_loss_keys",
         }
         assert expected == field_names
 

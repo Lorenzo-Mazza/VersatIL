@@ -51,7 +51,7 @@ class TestUnconditionedNormForward:
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         _, gate_no_cond = norm(x=tensor, condition=None)
         _, gate_with_cond = norm(x=tensor, condition=condition)
         assert torch.equal(gate_no_cond, torch.ones(1, dtype=tensor.dtype))
@@ -67,7 +67,7 @@ class TestUnconditionedNormForward:
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=16)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=16)
         condition_b = condition_a * 10.0
         output_none, _ = norm(x=tensor, condition=None)
         output_a, _ = norm(x=tensor, condition=condition_a)

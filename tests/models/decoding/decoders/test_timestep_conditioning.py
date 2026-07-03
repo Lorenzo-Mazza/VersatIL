@@ -30,7 +30,7 @@ def timestep_action_heads_factory(
     def factory(output_dim: int = ACTION_DIMENSION) -> dict[str, ActionHead]:
         return {
             "position_action": action_head_factory(
-                input_dim=EMBEDDING_DIMENSION,
+                input_dimension=EMBEDDING_DIMENSION,
                 output_dim=output_dim,
             )
         }

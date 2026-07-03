@@ -23,6 +23,3 @@ class PolicyConfig:
     device: str = "${experiment.device}"
     loss: CompositeLossConfig = MISSING
     metadata_passthrough: dict[str, dict[str, str]] = field(default_factory=dict)
-    validate_loss_keys: bool = (
-        True  # Whether to validate loss keys against action space
-    )

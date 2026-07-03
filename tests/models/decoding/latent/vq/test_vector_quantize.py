@@ -13,14 +13,14 @@ from versatil.models.decoding.latent.vq.vector_quantize import VectorQuantize
 def vq_factory() -> Callable[..., VectorQuantize]:
 
     def factory(
-        input_dim: int = 8,
+        input_dimension: int = 8,
         code_dim: int = 8,
         num_codes: int = 4,
         ema_decay: float = 0.99,
         kmeans_init: bool = False,
     ) -> VectorQuantize:
         return VectorQuantize(
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             code_dim=code_dim,
             num_codes=num_codes,
             ema_decay=ema_decay,
@@ -33,7 +33,7 @@ def vq_factory() -> Callable[..., VectorQuantize]:
 class TestVectorQuantizeInit:
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        "input_dim, code_dim, expect_projection",
+        "input_dimension, code_dim, expect_projection",
         [
             (16, 16, False),
             (32, 8, True),
@@ -44,33 +44,33 @@ class TestVectorQuantizeInit:
     def test_projection_creation(
         self,
         vq_factory: Callable[..., VectorQuantize],
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         expect_projection: bool,
     ) -> None:
-        vq = vq_factory(input_dim=input_dim, code_dim=code_dim)
+        vq = vq_factory(input_dimension=input_dimension, code_dim=code_dim)
         has_projection = not isinstance(vq.project_in, torch.nn.Identity)
         assert has_projection == expect_projection
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        "input_dim, code_dim, num_codes, expected_message",
+        "input_dimension, code_dim, num_codes, expected_message",
         [
-            (0, 8, 4, "input_dim must be positive, got 0."),
+            (0, 8, 4, "input_dimension must be positive, got 0."),
             (8, 0, 4, "code_dim must be positive, got 0."),
             (8, 8, 0, "num_codes must be positive, got 0."),
         ],
     )
     def test_rejects_invalid_configuration(
         self,
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         num_codes: int,
         expected_message: str,
     ) -> None:
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             VectorQuantize(
-                input_dim=input_dim,
+                input_dimension=input_dimension,
                 code_dim=code_dim,
                 num_codes=num_codes,
             )
@@ -78,23 +78,25 @@ class TestVectorQuantizeInit:
 
 class TestVectorQuantizeForward:
     @pytest.mark.unit
-    @pytest.mark.parametrize("input_dim, code_dim", [(8, 8), (16, 4), (4, 16)])
+    @pytest.mark.parametrize("input_dimension, code_dim", [(8, 8), (16, 4), (4, 16)])
     @pytest.mark.parametrize("num_codes", [2, 8])
     @pytest.mark.parametrize("batch_size", [1, 12])
     def test_output_shapes(
         self,
         vq_factory: Callable[..., VectorQuantize],
         z_e_factory: Callable[..., torch.Tensor],
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         num_codes: int,
         batch_size: int,
     ) -> None:
-        vq = vq_factory(input_dim=input_dim, code_dim=code_dim, num_codes=num_codes)
+        vq = vq_factory(
+            input_dimension=input_dimension, code_dim=code_dim, num_codes=num_codes
+        )
         vq.eval()
-        z_e = z_e_factory(batch_size=batch_size, dim=input_dim)
+        z_e = z_e_factory(batch_size=batch_size, dim=input_dimension)
         z_q, indices, z_e_projected, z_q_code = vq(z_e)
-        assert z_q.shape == (batch_size, input_dim)
+        assert z_q.shape == (batch_size, input_dimension)
         assert indices.shape == (batch_size,)
         assert z_e_projected.shape == (batch_size, code_dim)
         assert z_q_code.shape == (batch_size, code_dim)
@@ -107,7 +109,7 @@ class TestVectorQuantizeForward:
         z_e_factory: Callable[..., torch.Tensor],
         num_codes: int,
     ) -> None:
-        vq = vq_factory(input_dim=8, code_dim=8, num_codes=num_codes)
+        vq = vq_factory(input_dimension=8, code_dim=8, num_codes=num_codes)
         vq.eval()
         z_e = z_e_factory(batch_size=8, dim=8)
         z_e.requires_grad_(True)
@@ -124,7 +126,7 @@ class TestVectorQuantizeForward:
         z_e_factory: Callable[..., torch.Tensor],
         num_codes: int,
     ) -> None:
-        vq = vq_factory(input_dim=8, code_dim=8, num_codes=num_codes)
+        vq = vq_factory(input_dimension=8, code_dim=8, num_codes=num_codes)
         vq.eval()
         z_e = z_e_factory(batch_size=8, dim=8)
         z_q, indices, _, _ = vq(z_e)
@@ -137,13 +139,13 @@ class TestVectorQuantizeForward:
         vq_factory: Callable[..., VectorQuantize],
         z_e_factory: Callable[..., torch.Tensor],
     ) -> None:
-        vq = vq_factory(input_dim=16, code_dim=4, num_codes=4)
+        vq = vq_factory(input_dimension=16, code_dim=4, num_codes=4)
         vq.eval()
         z_e = z_e_factory(batch_size=4, dim=16)
         _, _, z_e_projected, _ = vq(z_e)
-        # z_e_projected lives in code_dim space, not input_dim space
+        # z_e_projected lives in code_dim space, not input_dimension space
         assert z_e_projected.shape == (4, 4)
-        # z_q is back in input_dim space via project_out
+        # z_q is back in input_dimension space via project_out
         z_q, _, _, _ = vq(z_e)
         assert z_q.shape == (4, 16)
         # projected values differ from raw input (projection is not identity)
@@ -157,7 +159,7 @@ class TestVectorQuantizeForward:
         z_e_factory: Callable[..., torch.Tensor],
         num_codes: int,
     ) -> None:
-        vq = vq_factory(input_dim=8, code_dim=8, num_codes=num_codes)
+        vq = vq_factory(input_dimension=8, code_dim=8, num_codes=num_codes)
         vq.eval()
         z_e = z_e_factory(batch_size=8, dim=8)
         z_e.requires_grad_(True)
@@ -181,7 +183,7 @@ class TestVectorQuantizeForward:
         # With a fresh codebook (kmeans_init=False, default random init), the
         # hard-quantized codebook vector should almost surely differ from the
         # continuous pre-quantization embedding.
-        vq = vq_factory(input_dim=8, code_dim=8, num_codes=4, kmeans_init=False)
+        vq = vq_factory(input_dimension=8, code_dim=8, num_codes=4, kmeans_init=False)
         vq.eval()
         z_e = z_e_factory(batch_size=16, dim=8)
         _, _, z_e_projected, z_q_code = vq(z_e)

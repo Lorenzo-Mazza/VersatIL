@@ -120,7 +120,7 @@ python -m versatil.endpoints.post_training_compress \
     generate_report=true
 
 # Run compressed model inference
-python -m versatil.endpoints.test \
+python -m versatil.endpoints.deploy \
     --checkpoint_path /path/to/checkpoint/compressed/<timestamp> \
     --device cpu \
     --model_server_address 10.0.0.1 \
@@ -478,7 +478,7 @@ Extensions:
   But the Metadata objects at Task Runtime don't need things like storage key and some other properties actually differ (e.g. image size)
 - **PolicyAssembler: Replace Hydra cross-tree interpolation with Python wiring**:
   - **Problem**: Configs are coupled to the tree shape via `${task.observation_space}`, `${policy.device}`, etc. Every config knows its position in the hierarchy. This prevents config reuse (e.g., teacher-student with two policies), isolated testing, and hierarchy restructuring.
-  - **Solution**: Slim configs to intrinsic parameters only (decoder config has `embedding_dim`, not `observation_space`). A `PolicyAssembler` class in `src/versatil/assembly.py` wires shared dependencies via Python:
+  - **Solution**: Slim configs to intrinsic parameters only (decoder config has `embedding_dimension`, not `observation_space`). A `PolicyAssembler` class in `src/versatil/assembly.py` wires shared dependencies via Python:
     ```python
     class PolicyAssembler:
         def assemble(self, policy_config, task, device) -> Policy:

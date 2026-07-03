@@ -96,7 +96,7 @@ class DFormerStage(nn.Module):
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         num_blocks: int,
         decomposition_mode: AttentionDecompositionMode,
         drop_path_rate: float = 0.0,
@@ -113,7 +113,7 @@ class DFormerStage(nn.Module):
 
         Args:
             embedding_dimension: Feature dimension for this stage
-            num_heads: Number of attention heads
+            number_of_heads: Number of attention heads
             num_blocks: Number of geometric attention blocks in this stage
             decomposition_mode: Attention computation strategy (full or separable)
             drop_path_rate: Stochastic depth rate
@@ -136,7 +136,7 @@ class DFormerStage(nn.Module):
                 GeometricAttentionEncoderBlock(
                     decomposition_mode=decomposition_mode,
                     embedding_dimension=embedding_dimension,
-                    num_heads=num_heads,
+                    number_of_heads=number_of_heads,
                     ffn_dimension=embedding_dimension * ffn_expansion_factor,
                     drop_path_rate=drop_path_rate,
                     use_layer_scale=use_layer_scale,
@@ -188,7 +188,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         DFormerVariant.SMALL.value: {
             "embed_dims": [64, 128, 256, 512],
             "depths": [3, 4, 18, 4],
-            "num_heads": [4, 4, 8, 16],
+            "number_of_heads": [4, 4, 8, 16],
             "decay_ranges": [4, 4, 6, 6],
             "ffn_ratios": [4, 4, 3, 3],
             "use_layer_scales": [False, False, False, False],
@@ -196,7 +196,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         DFormerVariant.BASE.value: {
             "embed_dims": [80, 160, 320, 512],
             "depths": [4, 8, 25, 8],
-            "num_heads": [5, 5, 10, 16],
+            "number_of_heads": [5, 5, 10, 16],
             "decay_ranges": [5, 5, 6, 6],
             "ffn_ratios": [4, 4, 3, 3],
             "use_layer_scales": [False, False, True, True],
@@ -204,7 +204,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         DFormerVariant.LARGE.value: {
             "embed_dims": [112, 224, 448, 640],
             "depths": [4, 8, 25, 8],
-            "num_heads": [7, 7, 14, 20],
+            "number_of_heads": [7, 7, 14, 20],
             "decay_ranges": [6, 6, 6, 6],
             "ffn_ratios": [4, 4, 3, 3],
             "use_layer_scales": [False, False, True, True],
@@ -270,7 +270,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         config = self.VARIANT_CONFIGS[variant]
         self.embed_dims: list[int] = config["embed_dims"]
         self.depths: list[int] = config["depths"]
-        self.num_heads: list[int] = config["num_heads"]
+        self.number_of_heads: list[int] = config["number_of_heads"]
         self.decay_ranges: list[int] = config["decay_ranges"]
         self.ffn_ratios: list[int] = config["ffn_ratios"]
         self.use_layer_scales: list[bool] = config["use_layer_scales"]
@@ -356,7 +356,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             )
             stage = DFormerStage(
                 embedding_dimension=self.embed_dims[stage_idx],
-                num_heads=self.num_heads[stage_idx],
+                number_of_heads=self.number_of_heads[stage_idx],
                 num_blocks=self.depths[stage_idx],
                 decomposition_mode=stage_decomposition_mode,
                 drop_path_rate=sum(stage_drop_paths) / len(stage_drop_paths),

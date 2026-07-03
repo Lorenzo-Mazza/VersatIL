@@ -156,7 +156,7 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
         self.build_action_expert(
             vlm_layers=vlm_backbone.layers,
             rotary_emb=vlm_backbone.rotary_embedding,
-            vlm_hidden_dimension=vlm_backbone.hidden_dim,
+            vlm_hidden_dimension=vlm_backbone.hidden_dimension,
             vlm_text_config=vlm_backbone.text_config,
         )
 
@@ -249,12 +249,12 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
     ) -> None:
         """Validate that the joint action head consumes expert hidden states."""
         joint_action_head = self._single_action_head()
-        if joint_action_head.input_dim == expected_input_dimension:
+        if joint_action_head.input_dimension == expected_input_dimension:
             return
         raise ValueError(
-            f"{type(self).__name__} joint action head input_dim must equal "
+            f"{type(self).__name__} joint action head input_dimension must equal "
             f"expert hidden dimension {expected_input_dimension}, got "
-            f"{joint_action_head.input_dim}."
+            f"{joint_action_head.input_dimension}."
         )
 
     @staticmethod

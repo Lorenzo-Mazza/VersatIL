@@ -46,7 +46,7 @@ CAMERA_KEY = "agentview"
 def vlm_backbone_factory() -> Callable[..., MagicMock]:
     def factory() -> MagicMock:
         vlm_backbone = MagicMock(spec=GenerativeVLM)
-        vlm_backbone.hidden_dim = LANGUAGE_HIDDEN_DIMENSION
+        vlm_backbone.hidden_dimension = LANGUAGE_HIDDEN_DIMENSION
         vlm_backbone.input_specification = InputSpecification(
             keys=[
                 CAMERA_KEY,

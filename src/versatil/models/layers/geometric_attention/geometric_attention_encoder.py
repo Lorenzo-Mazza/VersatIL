@@ -53,7 +53,7 @@ class GeometricAttentionEncoderBlock(nn.Module):
         self,
         decomposition_mode: AttentionDecompositionMode,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         ffn_dimension: int,
         drop_path_rate: float = 0.0,
         use_layer_scale: bool = False,
@@ -73,7 +73,7 @@ class GeometricAttentionEncoderBlock(nn.Module):
         Args:
             decomposition_mode: Attention mode (full or separable).
             embedding_dimension: Feature dimension.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             ffn_dimension: Hidden dimension for the fully-connected layer that follows the self-attention layer.
             drop_path_rate: Stochastic depth rate.
             use_layer_scale: Whether to use layer scaling.
@@ -100,7 +100,7 @@ class GeometricAttentionEncoderBlock(nn.Module):
 
         self.attention = GeometricSelfAttention(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             value_dimension_factor=value_dimension_factor,
             decomposition_mode=decomposition_mode.value,
             initial_decay=initial_decay,
@@ -119,8 +119,8 @@ class GeometricAttentionEncoderBlock(nn.Module):
             )
         else:
             self.mlp = MLP(
-                input_dim=embedding_dimension,
-                hidden_dims=[ffn_dimension],
+                input_dimension=embedding_dimension,
+                hidden_dimensions=[ffn_dimension],
                 output_dim=embedding_dimension,
                 activation_function=nn.GELU,
                 dropout=0.0,

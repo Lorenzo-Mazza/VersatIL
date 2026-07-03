@@ -289,19 +289,19 @@ class TestHydraComposition:
         assert decoder.causal_action_slots is True
         assert list(decoder.action_heads.keys()) == ["joint_action"]
         action_head = decoder.action_heads.joint_action
-        assert action_head.input_dim == 28672
+        assert action_head.input_dimension == 28672
         assert len(action_head.blocks) == 4
         assert (
             action_head.blocks[0]._target_
             == "versatil.models.decoding.action_heads.blocks.MLPBlock"
         )
-        assert action_head.blocks[0].input_dim == 28672
-        assert list(action_head.blocks[0].hidden_dims) == [4096]
+        assert action_head.blocks[0].input_dimension == 28672
+        assert list(action_head.blocks[0].hidden_dimensions) == [4096]
         assert (
             action_head.blocks[-1]._target_
             == "versatil.models.decoding.action_heads.blocks.LayerNormBlock"
         )
-        assert action_head.blocks[-1].input_dim == 4096
+        assert action_head.blocks[-1].input_dimension == 4096
         assert "BehavioralCloning" in config.policy.algorithm._target_
         assert loss_modules.regression_loss.mse_weight == 0.0
         assert loss_modules.regression_loss.l1_weight == 1.0

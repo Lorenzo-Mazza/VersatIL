@@ -131,7 +131,7 @@ ResNet with FiLM (Feature-wise Linear Modulation) conditioning. Each residual bl
 ConditionalCNNEncoder(
     input_keys="left",
     condition_key="language_encoder_language",  # Feature from language encoder
-    condition_dim=768,
+    conditioning_dimension=768,
     backbone="timm/resnet18.a1_in1k",
     pooling_method="spatial_softmax",
 )
@@ -172,7 +172,7 @@ Multiple proprioceptive keys are concatenated along the last dimension before en
 ProprioceptiveEncoder(
     input_keys=["proprio_robot_frame", "gripper_state_obs"],
     output_dim=64,
-    hidden_dims=[128],
+    hidden_dimensions=[128],
     activation="relu",
 )
 ```
@@ -231,7 +231,7 @@ Single-layer geometry-aware RGBD encoder. A lightweight alternative to DFormerV2
 GeometricRGBDEncoder(
     input_keys=["left", "depth"],
     embedding_dimension=512,
-    num_heads=8,
+    number_of_heads=8,
     decomposition_mode="separable",
 )
 ```
@@ -375,16 +375,16 @@ Fusion modules combine features from multiple encoders into a single representat
 
 ### [`ConcatFusion`][versatil.models.encoding.fusion.concat.ConcatFusion]
 
-Projects each input feature to a shared `hidden_dim`, then concatenates along the last dimension.
+Projects each input feature to a shared `hidden_dimension`, then concatenates along the last dimension.
 
-- **Output dimension:** `hidden_dim * num_inputs`
+- **Output dimension:** `hidden_dimension * num_inputs`
 - **Feature type:** FLAT or SEQUENTIAL (preserves input structure)
 
 ```python
 ConcatFusion(
     input_features=["left_encoder_rgb", "right_encoder_rgb"],
     output_name="fused_visual",
-    hidden_dim=256,
+    hidden_dimension=256,
 )
 # Output dim: 256 * 2 = 512
 ```
@@ -400,7 +400,7 @@ Projects, concatenates, then applies an MLP for non-linear fusion.
 MLPFusion(
     input_features=["rgb_encoder_rgb", "state_encoder_proprio"],
     output_name="fused_obs",
-    hidden_dim=256,
+    hidden_dimension=256,
     mlp_hidden_dims=[512, 256],
     activation_name="gelu",
     dropout=0.1,
@@ -412,16 +412,16 @@ MLPFusion(
 
 Projects features to a shared dimension and applies multi-head cross-attention. One feature serves as the query, the rest as key-value pairs.
 
-- **Output dimension:** `hidden_dim`
+- **Output dimension:** `hidden_dimension`
 - **Feature type:** FLAT or SEQUENTIAL
 
 ```python
 AttentionFusion(
     input_features=["left_encoder_rgb", "right_encoder_rgb", "depth_encoder_depth"],
     output_name="fused_visual",
-    hidden_dim=256,
+    hidden_dimension=256,
     input_feature_query="left_encoder_rgb",  # Uses left camera as query
-    num_heads=8,
+    number_of_heads=8,
     use_residual=True,
     use_norm=True,
 )

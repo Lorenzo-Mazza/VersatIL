@@ -29,7 +29,7 @@ class FeatureProjection(ModuleAttrMixin):
 
     Example:
         ```
-        feature_projection = FeatureProjection(embedding_dim=256)
+        feature_projection = FeatureProjection(embedding_dimension=256)
         >>> flat_features = {
         ...     "language": torch.randn(8, 64),
         ...     "proprio": torch.randn(8, 128),
@@ -42,17 +42,17 @@ class FeatureProjection(ModuleAttrMixin):
 
     def __init__(
         self,
-        embedding_dim: int,
+        embedding_dimension: int,
         has_time_dim: bool = False,
     ):
         """Initialize feature projection module.
 
         Args:
-            embedding_dim: Target embedding dimension for all features
+            embedding_dimension: Target embedding dimension for all features
             has_time_dim: Whether features may have a time dimension (default: False)
         """
         super().__init__()
-        self.embedding_dim = embedding_dim
+        self.embedding_dimension = embedding_dimension
         self.has_time_dim = has_time_dim
         # These two dicts are doing exactly the same mathematical operation. But using linear projections
         # for spatial features would require transposing the tensors,  so we use conv2d instead.
@@ -135,18 +135,18 @@ class FeatureProjection(ModuleAttrMixin):
         """Create projection layer for feature."""
         if len(feature.shape) < 4:  # flat (B, C) or sequential (B, T, C)
             channel_dim = feature.shape[-1]
-            if channel_dim == self.embedding_dim:
+            if channel_dim == self.embedding_dimension:
                 return nn.Identity()
-            layer: nn.Module = nn.Linear(channel_dim, self.embedding_dim)
+            layer: nn.Module = nn.Linear(channel_dim, self.embedding_dimension)
             return layer.to(device=self.device, dtype=self.dtype)
         else:
             if len(feature.shape) == 4:  # spatial (B, C, H, W)
                 channel_dim = feature.shape[1]
             else:
                 raise ValueError(f"Unsupported feature shape: {feature.shape}")
-            if channel_dim == self.embedding_dim:
+            if channel_dim == self.embedding_dimension:
                 return nn.Identity()
-            layer = nn.Conv2d(channel_dim, self.embedding_dim, kernel_size=1)
+            layer = nn.Conv2d(channel_dim, self.embedding_dimension, kernel_size=1)
             return layer.to(device=self.device, dtype=self.dtype)
 
     def forward(

@@ -27,7 +27,7 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
         temperature: float = 10000.0,
         position_source: str = PositionSource.TENSOR_INDICES.value,
         precompute_encodings: bool = True,
-        maximum_length: int | None = 5000,
+        maximum_sequence_length: int | None = 5000,
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
@@ -41,7 +41,7 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
             temperature: Base temperature for geometric frequency spacing.
             position_source: Source used to derive positions.
             precompute_encodings: Whether to cache tensor-index encodings.
-            maximum_length: Maximum length for cached tensor-index encodings.
+            maximum_sequence_length: Maximum length for cached tensor-index encodings.
             mlp_hidden_dimensions: Optional post-encoding MLP dimensions.
             mlp_activation: Optional post-encoding MLP activation.
 
@@ -79,7 +79,7 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
             embedding_dimension=embedding_dimension,
             position_source=position_source,
             precompute_encodings=precompute_encodings,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
@@ -116,7 +116,7 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
             embedding_dimension=embedding_dimension,
             temperature=temperature,
             precompute_encodings=True,
-            maximum_length=number_of_positions,
+            maximum_sequence_length=number_of_positions,
             mlp_hidden_dimensions=None,
         )
         dummy_input = torch.zeros(1, number_of_positions, embedding_dimension)
@@ -214,7 +214,7 @@ class PeriodInterpolationPositionalEncoding1D(PositionalEncoding1D):
             embedding_dimension=embedding_dimension,
             position_source=position_source,
             precompute_encodings=False,
-            maximum_length=None,
+            maximum_sequence_length=None,
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )

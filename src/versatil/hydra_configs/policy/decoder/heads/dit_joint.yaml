@@ -3,10 +3,10 @@ defaults:
   - _self_
 
 joint_action:
-  input_dim: ${policy.decoder.embedding_dimension}
-  condition_dim: ${policy.decoder.embedding_dimension}
+  input_dimension: ${policy.decoder.embedding_dimension}
+  conditioning_dimension: ${policy.decoder.embedding_dimension}
   blocks:
     - _target_: versatil.models.decoding.action_heads.blocks.AdaNormBlock
-      input_dim: ${...input_dim}
-      condition_dim: ${...condition_dim}
+      input_dimension: ${...input_dimension}
+      conditioning_dimension: ${...conditioning_dimension}
       activation: ${activation_function:SILU}

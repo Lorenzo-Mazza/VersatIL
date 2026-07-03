@@ -245,7 +245,7 @@ class TestGenerativeVLMStaticMethods:
         hidden = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SEQUENCE_LENGTH,
-            embedding_dimension=vlm_backbone.hidden_dim,
+            embedding_dimension=vlm_backbone.hidden_dimension,
         )
         position_ids = position_ids_factory()
         cos, sin = GenerativeVLM.compute_rope(
@@ -270,7 +270,7 @@ class TestGenerativeVLMStaticMethods:
         hidden = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SEQUENCE_LENGTH,
-            embedding_dimension=vlm_backbone.hidden_dim,
+            embedding_dimension=vlm_backbone.hidden_dimension,
         )
         key, value = GenerativeVLM.extract_key_value(
             vlm_layer=layer,
@@ -294,7 +294,7 @@ class TestGenerativeVLMStaticMethods:
         hidden = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SEQUENCE_LENGTH,
-            embedding_dimension=vlm_backbone.hidden_dim,
+            embedding_dimension=vlm_backbone.hidden_dimension,
         )
         position_ids = position_ids_factory()
         key, value = GenerativeVLM.extract_key_value_with_rope(
@@ -326,7 +326,7 @@ class TestGenerativeVLMStaticMethods:
         hidden = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SEQUENCE_LENGTH,
-            embedding_dimension=vlm_backbone.hidden_dim,
+            embedding_dimension=vlm_backbone.hidden_dimension,
         )
         position_ids = position_ids_factory()
         query, key, value = GenerativeVLM.extract_query_key_value(
@@ -374,7 +374,7 @@ class TestGenerativeVLMStaticMethods:
         residual = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SEQUENCE_LENGTH,
-            embedding_dimension=vlm_backbone.hidden_dim,
+            embedding_dimension=vlm_backbone.hidden_dimension,
         )
         attention_output = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
@@ -413,7 +413,7 @@ class TestGenerativeVLMStaticMethods:
         hidden = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SEQUENCE_LENGTH,
-            embedding_dimension=vlm_backbone.hidden_dim,
+            embedding_dimension=vlm_backbone.hidden_dimension,
         )
         position_ids = position_ids_factory()
         key_with_rope, value_from_kv = GenerativeVLM.extract_key_value_with_rope(

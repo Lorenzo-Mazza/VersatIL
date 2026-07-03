@@ -1182,7 +1182,7 @@ def _make_smolvla_real_policy(
         input_keys=[],
         action_space=action_space,
         action_heads={
-            "joint_action": ActionHead(input_dim=SMOLVLA_EXPERT_HIDDEN_DIMENSION)
+            "joint_action": ActionHead(input_dimension=SMOLVLA_EXPERT_HIDDEN_DIMENSION)
         },
         observation_space=observation_space,
         observation_horizon=temporal_length,

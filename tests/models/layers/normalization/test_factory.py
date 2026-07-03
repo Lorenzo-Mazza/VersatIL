@@ -77,20 +77,22 @@ class TestCreateNormalizationLayer:
         normalization_type: str,
     ):
         dimension = 64
-        condition_dim = 32
+        conditioning_dimension = 32
         layer = create_normalization_layer(
             normalization_type=normalization_type,
             dimension=dimension,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         tensor = norm_input_factory(batch_size=2, channels=dimension)
-        condition = condition_factory(batch_size=2, condition_dim=condition_dim)
+        condition = condition_factory(
+            batch_size=2, conditioning_dimension=conditioning_dimension
+        )
         output, _ = layer(tensor, condition)
         assert output.shape == tensor.shape
         assert torch.all(torch.isfinite(output))
 
     @pytest.mark.parametrize(
-        "normalization_type, condition_dim, expectation",
+        "normalization_type, conditioning_dimension, expectation",
         [
             (NormalizationType.LAYER_NORM.value, 32, does_not_raise()),
             (NormalizationType.RMS_NORM.value, 32, does_not_raise()),
@@ -101,14 +103,14 @@ class TestCreateNormalizationLayer:
     def test_condition_dim_combinations(
         self,
         normalization_type: str,
-        condition_dim: int | None,
+        conditioning_dimension: int | None,
         expectation,
     ):
         with expectation:
             create_normalization_layer(
                 normalization_type=normalization_type,
                 dimension=64,
-                condition_dim=condition_dim,
+                conditioning_dimension=conditioning_dimension,
             )
 
     def test_invalid_type_raises_with_supported_types_message(self):
@@ -135,7 +137,7 @@ class TestCreateNormalizationLayer:
         layer = create_normalization_layer(
             normalization_type=normalization_type,
             dimension=64,
-            condition_dim=32,
+            conditioning_dimension=32,
         )
         assert len(list(layer.norm.parameters())) == 0
 
@@ -168,7 +170,7 @@ class TestCreateNormalizationLayer:
 
 class TestCreateBlockNormalization:
     @pytest.mark.parametrize(
-        "normalization_type, condition_dim, use_gating, expected_type",
+        "normalization_type, conditioning_dimension, use_gating, expected_type",
         [
             (NormalizationType.RMS_NORM.value, 32, False, AdaNorm),
             (NormalizationType.LAYER_NORM.value, 32, True, AdaNorm),
@@ -185,14 +187,14 @@ class TestCreateBlockNormalization:
     def test_creates_correct_normalization_type(
         self,
         normalization_type: str,
-        condition_dim: int | None,
+        conditioning_dimension: int | None,
         use_gating: bool,
         expected_type: type,
     ):
         norm = create_block_normalization(
             normalization_type=normalization_type,
             dimension=64,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             use_gating=use_gating,
         )
         assert isinstance(norm, expected_type)
@@ -216,17 +218,19 @@ class TestCreateBlockNormalization:
         condition_factory: Callable[..., torch.Tensor],
     ):
         dimension = 32
-        condition_dim = 16
+        conditioning_dimension = 16
         norm = create_block_normalization(
             normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             init_strategy="xavier",
         )
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=dimension
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=condition_dim)
+        condition_a = condition_factory(
+            batch_size=2, conditioning_dimension=conditioning_dimension
+        )
         condition_b = condition_a * 5.0
         output_a, gate_a = norm(x=tensor, condition=condition_a)
         output_b, gate_b = norm(x=tensor, condition=condition_b)
@@ -246,7 +250,7 @@ class TestCreateBlockNormalization:
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=dimension
         )
-        condition = condition_factory(batch_size=2, condition_dim=16)
+        condition = condition_factory(batch_size=2, conditioning_dimension=16)
         output_no_cond, gate_no_cond = norm(x=tensor, condition=None)
         output_with_cond, gate_with_cond = norm(x=tensor, condition=condition)
         assert torch.allclose(output_no_cond, output_with_cond)
@@ -259,18 +263,20 @@ class TestCreateBlockNormalization:
         condition_factory: Callable[..., torch.Tensor],
     ):
         dimension = 32
-        condition_dim = 16
+        conditioning_dimension = 16
         norm = create_block_normalization(
             normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             use_gating=True,
             init_strategy="zero",
         )
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=dimension
         )
-        condition = condition_factory(batch_size=2, condition_dim=condition_dim)
+        condition = condition_factory(
+            batch_size=2, conditioning_dimension=conditioning_dimension
+        )
         _, gate = norm(x=tensor, condition=condition)
         assert torch.allclose(gate, torch.zeros_like(gate), atol=1e-6)
 
@@ -280,18 +286,20 @@ class TestCreateBlockNormalization:
         condition_factory: Callable[..., torch.Tensor],
     ):
         dimension = 32
-        condition_dim = 16
+        conditioning_dimension = 16
         norm = create_block_normalization(
             normalization_type=NormalizationType.LAYER_NORM.value,
             dimension=dimension,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             use_gating=False,
             init_strategy="zero",
         )
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=dimension
         )
-        condition = condition_factory(batch_size=2, condition_dim=condition_dim)
+        condition = condition_factory(
+            batch_size=2, conditioning_dimension=conditioning_dimension
+        )
         _, gate = norm(x=tensor, condition=condition)
         assert torch.allclose(gate, torch.ones_like(gate))
 
@@ -301,23 +309,25 @@ class TestCreateBlockNormalization:
         condition_factory: Callable[..., torch.Tensor],
     ):
         dimension = 64
-        condition_dim = 32
+        conditioning_dimension = 32
         zero_norm = create_block_normalization(
             normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             init_strategy="zero",
         )
         xavier_norm = create_block_normalization(
             normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             init_strategy="xavier",
         )
         tensor = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=dimension
         )
-        condition = condition_factory(batch_size=2, condition_dim=condition_dim)
+        condition = condition_factory(
+            batch_size=2, conditioning_dimension=conditioning_dimension
+        )
         output_zero, _ = zero_norm(x=tensor, condition=condition)
         output_xavier, _ = xavier_norm(x=tensor, condition=condition)
         # Zero-init modulation is identity (scale=1, shift=0), xavier is not

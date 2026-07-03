@@ -15,13 +15,13 @@ from versatil.models.decoding.latent.vq.residual_vq import ResidualVQ
 def residual_vq_factory() -> Callable[..., ResidualVQ]:
 
     def factory(
-        input_dim: int = 8,
+        input_dimension: int = 8,
         code_dim: int = 8,
         num_codes: int = 4,
         num_layers: int = 1,
     ) -> ResidualVQ:
         return ResidualVQ(
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             code_dim=code_dim,
             num_codes=num_codes,
             num_layers=num_layers,
@@ -59,7 +59,7 @@ def mock_vq_posterior_factory(
     ) -> MagicMock:
         mock = MagicMock(spec=VQPosteriorEncoder)
         mock.residual_vq = residual_vq_factory(
-            input_dim=code_dim,
+            input_dimension=code_dim,
             code_dim=code_dim,
             num_codes=num_codes,
             num_layers=num_layers,

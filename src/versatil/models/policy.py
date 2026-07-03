@@ -78,7 +78,6 @@ class Policy(nn.Module):
         loss: BaseLoss,
         device: str,
         metadata_passthrough: dict[str, dict[str, str]] | None = None,
-        validate_loss_keys: bool = True,
     ) -> None:
         """Initialize policy.
 
@@ -94,8 +93,6 @@ class Policy(nn.Module):
             device: Device to run on.
             metadata_passthrough: Mapping from source dictionaries to metadata
                 keys for logging/visualization.
-            validate_loss_keys: Unused policy-constructor parameter. Loss-key
-                validation is handled before policy instantiation.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline

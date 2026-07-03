@@ -50,7 +50,7 @@ def test_algorithm_deepcopy_rewires_prior_to_copied_codebook(
     prior = uniform_prior_factory(latent_dimension=8)
     posterior = _PosteriorOwner(
         ResidualVQ(
-            input_dim=8,
+            input_dimension=8,
             code_dim=8,
             num_codes=prior.num_codes,
             num_layers=prior.num_residual_layers,

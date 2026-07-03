@@ -120,7 +120,6 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
                     use_cross_attention=use_cross_attention,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
-                    autoregressive=False,
                     conditioning_dimension=conditioning_dimension,
                     use_gating=use_gating,
                     cross_attention_conditioning_dimension=cross_attention_conditioning_dimension,
@@ -139,7 +138,7 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
                 or normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=final_condition_dim,
+                conditioning_dimension=final_condition_dim,
             )
         self.apply(self._init_weights)
 

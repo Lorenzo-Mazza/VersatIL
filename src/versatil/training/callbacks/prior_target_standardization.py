@@ -269,7 +269,7 @@ class PriorTargetStandardizationCallback(Callback):
             )
         mean = sum_latents / count
         variance = (sum_squared_latents / count) - mean.square()
-        std = variance.clamp(min=standardizer.eps**2).sqrt()
+        std = variance.clamp(min=standardizer.epsilon**2).sqrt()
         return mean, std, int(count.item())
 
     @staticmethod

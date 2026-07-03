@@ -73,7 +73,7 @@ class TestFeedforwardBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         output_without = block(hidden_states=hidden_states)
         output_with = block(hidden_states=hidden_states, conditioning=conditioning)
@@ -101,10 +101,10 @@ class TestFeedforwardBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning_a = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         conditioning_b = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         output_a = block(hidden_states=hidden_states, conditioning=conditioning_a)
         output_b = block(hidden_states=hidden_states, conditioning=conditioning_b)

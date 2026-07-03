@@ -20,7 +20,7 @@ class GeometricSelfAttention(nn.Module):
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         value_dimension_factor: int = 1,
         decomposition_mode: str = AttentionDecompositionMode.FULL.value,
         initial_decay: float = 5.0,
@@ -33,7 +33,7 @@ class GeometricSelfAttention(nn.Module):
 
         Args:
             embedding_dimension: Embedding dimension.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             value_dimension_factor: Factor to expand value dimension.
             decomposition_mode: Full or separable attention computation.
             initial_decay: Initial spatial decay rate.
@@ -45,14 +45,14 @@ class GeometricSelfAttention(nn.Module):
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
-        self.num_heads = num_heads
+        self.number_of_heads = number_of_heads
         self.value_dimension_factor = value_dimension_factor
         self.decomposition_mode = decomposition_mode
 
-        self.head_dimension_key = embedding_dimension // num_heads
+        self.head_dimension_key = embedding_dimension // number_of_heads
         self.head_dimension_value = (
             embedding_dimension * value_dimension_factor
-        ) // num_heads
+        ) // number_of_heads
         self.attention_scaling = self.head_dimension_key**-0.5
 
         self.query_projection = nn.Linear(
@@ -78,7 +78,7 @@ class GeometricSelfAttention(nn.Module):
 
         self.geometric_bias = GeometricAttentionBias(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             initial_decay=initial_decay,
             decay_range=decay_range,
             use_raster_positions=use_raster_positions,
@@ -106,15 +106,15 @@ class GeometricSelfAttention(nn.Module):
         """Computes full 2D attention over all spatial positions.
 
         Args:
-            query: Query tensor (B, num_heads, H, W, head_dim).
-            key: Key tensor (B, num_heads, H, W, head_dim).
-            value: Value tensor (B, num_heads, H, W, head_dim_value).
+            query: Query tensor (B, number_of_heads, H, W, head_dim).
+            key: Key tensor (B, number_of_heads, H, W, head_dim).
+            value: Value tensor (B, number_of_heads, H, W, head_dim_value).
             sine: Sine components for rotation.
             cosine: Cosine components for rotation.
-            attention_bias: Geometric bias (B or 1, num_heads, H*W, H*W).
+            attention_bias: Geometric bias (B or 1, number_of_heads, H*W, H*W).
 
         Returns:
-            Attention output (B, H, W, embedding_dim * value_factor).
+            Attention output (B, H, W, embedding_dimension * value_factor).
         """
         batch_size, _, height, width, _ = query.shape
 
@@ -153,16 +153,16 @@ class GeometricSelfAttention(nn.Module):
         """Computes separable attention (horizontal then vertical).
 
         Args:
-            query: Query tensor (B, num_heads, H, W, head_dim).
-            key: Key tensor (B, num_heads, H, W, head_dim).
-            value: Value tensor (B, num_heads, H, W, head_dim_value).
+            query: Query tensor (B, number_of_heads, H, W, head_dim).
+            key: Key tensor (B, number_of_heads, H, W, head_dim).
+            value: Value tensor (B, number_of_heads, H, W, head_dim_value).
             sine: Sine components for rotation.
             cosine: Cosine components for rotation.
             height_bias: Height attention bias.
             width_bias: Width attention bias.
 
         Returns:
-            Attention output (B, H, W, embedding_dim * value_factor).
+            Attention output (B, H, W, embedding_dimension * value_factor).
         """
         batch_size, _, height, width, _ = query.shape
 
@@ -175,7 +175,7 @@ class GeometricSelfAttention(nn.Module):
 
         query_width = query_rotated.transpose(1, 2)
         key_width = key_rotated.transpose(1, 2)
-        value_height_first = value.transpose(1, 2)  # (B, H, num_heads, W, dv)
+        value_height_first = value.transpose(1, 2)  # (B, H, number_of_heads, W, dv)
 
         attention_scores_width = torch.matmul(query_width, key_width.transpose(-1, -2))
         attention_scores_width = attention_scores_width + width_bias.transpose(1, 2)
@@ -217,17 +217,17 @@ class GeometricSelfAttention(nn.Module):
         key = key * self.attention_scaling
 
         query = query.view(
-            batch_size, height, width, self.num_heads, self.head_dimension_key
+            batch_size, height, width, self.number_of_heads, self.head_dimension_key
         )
         query = query.permute(0, 3, 1, 2, 4)
 
         key = key.view(
-            batch_size, height, width, self.num_heads, self.head_dimension_key
+            batch_size, height, width, self.number_of_heads, self.head_dimension_key
         )
         key = key.permute(0, 3, 1, 2, 4)
 
         value = value.view(
-            batch_size, height, width, self.num_heads, self.head_dimension_value
+            batch_size, height, width, self.number_of_heads, self.head_dimension_value
         )
         value = value.permute(0, 3, 1, 2, 4)
 

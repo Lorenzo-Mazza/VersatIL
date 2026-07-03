@@ -146,14 +146,14 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             )
 
         self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
+            embedding_dimension=self.embedding_dimension,
             has_time_dim=self.observation_horizon > 1,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=self.embedding_dimension, normalize=True
             ),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension,
-                maximum_length=1000,
+                maximum_sequence_length=1000,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
@@ -253,7 +253,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         encoder_output = self.transformer_encoder(
             hidden_states=hidden_states,
             padding_mask=padding_mask,
-        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dimension)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = self._bound_mu(latent_stats)  # (B, latent_dim)

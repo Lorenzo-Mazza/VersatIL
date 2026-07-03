@@ -3,5 +3,5 @@ defaults:
   - _self_
 
 joint_action:
-  input_dim: ${policy.decoder.expert_hidden_size}
+  input_dimension: ${policy.decoder.expert_hidden_size}
   blocks: null

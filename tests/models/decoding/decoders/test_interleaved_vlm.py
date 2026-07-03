@@ -155,7 +155,7 @@ def fake_vlm_backbone_factory() -> Callable[..., MagicMock]:
         backbone.input_specification = InputSpecification(keys=raw_input_keys)
         backbone.layers = torch.nn.ModuleList()
         backbone.rotary_embedding = _FakeRotaryEmbedding()
-        backbone.hidden_dim = hidden_dimension
+        backbone.hidden_dimension = hidden_dimension
         backbone.text_config = PretrainedConfig()
         return backbone
 
@@ -203,7 +203,7 @@ def interleaved_decoder_factory(
             input_keys=input_keys,
             action_space=action_space,
             action_heads={
-                "joint_action": action_head_factory(input_dim=HIDDEN_DIMENSION)
+                "joint_action": action_head_factory(input_dimension=HIDDEN_DIMENSION)
             },
             observation_space=mock_observation_space_factory(),
             observation_horizon=1,
@@ -277,7 +277,7 @@ class TestBaseInterleavedVLMDecoderWiring:
 
         assert decoder.action_input_projection.in_features == 3
         assert decoder.action_input_projection.out_features == HIDDEN_DIMENSION
-        assert decoder._single_action_head().input_dim == HIDDEN_DIMENSION
+        assert decoder._single_action_head().input_dimension == HIDDEN_DIMENSION
         assert decoder._single_action_head().output_dim == 3
         assert (
             decoder.time_conditioning_input.in_features
@@ -766,7 +766,7 @@ class TestBaseInterleavedVLMForwardHelpers:
         interleaved_decoder_factory: Callable[..., _TestInterleavedDecoder],
     ) -> None:
         decoder = interleaved_decoder_factory()
-        joint_head = ActionHead(input_dim=HIDDEN_DIMENSION)
+        joint_head = ActionHead(input_dimension=HIDDEN_DIMENSION)
         joint_head.set_output_dim(3)
         decoder.action_heads.clear()
         decoder.action_heads["joint_action"] = joint_head

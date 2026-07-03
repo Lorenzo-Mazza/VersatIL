@@ -16,7 +16,7 @@ encoders:
     input_keys:
     - ${cameras:LEFT}
     condition_key: "instruction_language"
-    condition_dim: 768
+    conditioning_dimension: 768
     backbone: ${rgb_backbone:RESNET18}
     pretrained: true
     frozen: false
@@ -27,7 +27,7 @@ encoders:
     input_keys:
     - ${cameras:RIGHT}
     condition_key: "instruction_language"
-    condition_dim: 768
+    conditioning_dimension: 768
     backbone: ${rgb_backbone:RESNET18}
     pretrained: true
     frozen: false

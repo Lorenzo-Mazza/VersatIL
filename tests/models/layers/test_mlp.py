@@ -15,15 +15,15 @@ def mlp_factory() -> Callable[..., MLP]:
     """Factory for MLP instances."""
 
     def factory(
-        input_dim: int = 32,
-        hidden_dims: list[int] | None = None,
+        input_dimension: int = 32,
+        hidden_dimensions: list[int] | None = None,
         output_dim: int | None = None,
         activation_function: type[nn.Module] = nn.GELU,
         dropout: float = 0.0,
     ) -> MLP:
         return MLP(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=hidden_dimensions,
             output_dim=output_dim,
             activation_function=activation_function,
             dropout=dropout,
@@ -37,14 +37,14 @@ class TestMLPInitialization:
         self,
         mlp_factory: Callable[..., MLP],
     ):
-        mlp = mlp_factory(input_dim=32, hidden_dims=[64], output_dim=16)
+        mlp = mlp_factory(input_dimension=32, hidden_dimensions=[64], output_dim=16)
         # Functional: layers can be iterated and produce the expected sequence
         layer_types = [type(layer).__name__ for layer in mlp.layers]
         assert layer_types[0] == "Linear"
         assert layer_types[-1] == "Linear"
 
     @pytest.mark.parametrize(
-        "hidden_dims, expected_linear_count",
+        "hidden_dimensions, expected_linear_count",
         [
             (None, 0),
             ([64], 1),
@@ -54,10 +54,10 @@ class TestMLPInitialization:
     def test_creates_correct_number_of_hidden_layers(
         self,
         mlp_factory: Callable[..., MLP],
-        hidden_dims: list[int] | None,
+        hidden_dimensions: list[int] | None,
         expected_linear_count: int,
     ):
-        mlp = mlp_factory(input_dim=32, hidden_dims=hidden_dims)
+        mlp = mlp_factory(input_dimension=32, hidden_dimensions=hidden_dimensions)
         linear_layers = [layer for layer in mlp.layers if isinstance(layer, nn.Linear)]
         assert len(linear_layers) == expected_linear_count
 
@@ -75,8 +75,8 @@ class TestMLPInitialization:
         expected_extra_linear: int,
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64],
+            input_dimension=32,
+            hidden_dimensions=[64],
             output_dim=output_dim,
         )
         linear_layers = [layer for layer in mlp.layers if isinstance(layer, nn.Linear)]
@@ -88,8 +88,8 @@ class TestMLPInitialization:
         mlp_factory: Callable[..., MLP],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64, 128],
+            input_dimension=32,
+            hidden_dimensions=[64, 128],
             dropout=0.1,
         )
         dropout_layers = [
@@ -102,8 +102,8 @@ class TestMLPInitialization:
         mlp_factory: Callable[..., MLP],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64, 128],
+            input_dimension=32,
+            hidden_dimensions=[64, 128],
             dropout=0.0,
         )
         dropout_layers = [
@@ -114,7 +114,7 @@ class TestMLPInitialization:
 
 class TestMLPForward:
     @pytest.mark.parametrize(
-        "input_dim, hidden_dims, output_dim, expected_output_dim",
+        "input_dimension, hidden_dimensions, output_dim, expected_output_dim",
         [
             (32, [64], 16, 16),
             (32, [64, 128], 8, 8),
@@ -126,17 +126,17 @@ class TestMLPForward:
         self,
         mlp_factory: Callable[..., MLP],
         flat_tensor_factory: Callable[..., torch.Tensor],
-        input_dim: int,
-        hidden_dims: list[int] | None,
+        input_dimension: int,
+        hidden_dimensions: list[int] | None,
         output_dim: int | None,
         expected_output_dim: int,
     ):
         mlp = mlp_factory(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=hidden_dimensions,
             output_dim=output_dim,
         )
-        tensor = flat_tensor_factory(batch_size=4, feature_dimension=input_dim)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=input_dimension)
         output = mlp(tensor)
         assert output.shape == (4, expected_output_dim)
 
@@ -145,7 +145,7 @@ class TestMLPForward:
         mlp_factory: Callable[..., MLP],
         flat_tensor_factory: Callable[..., torch.Tensor],
     ):
-        mlp = mlp_factory(input_dim=32, hidden_dims=None, output_dim=None)
+        mlp = mlp_factory(input_dimension=32, hidden_dimensions=None, output_dim=None)
         tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = mlp(tensor)
         assert output.shape == (4, 32)
@@ -166,8 +166,8 @@ class TestMLPForward:
         activation_function: type[nn.Module],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64],
+            input_dimension=32,
+            hidden_dimensions=[64],
             output_dim=16,
             activation_function=activation_function,
         )
@@ -181,8 +181,8 @@ class TestMLPForward:
         flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64],
+            input_dimension=32,
+            hidden_dimensions=[64],
             output_dim=16,
             dropout=0.5,
         )
@@ -199,8 +199,8 @@ class TestMLPWithSwiGLU:
         flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64],
+            input_dimension=32,
+            hidden_dimensions=[64],
             output_dim=16,
             activation_function=SwiGLU,
         )
@@ -213,8 +213,8 @@ class TestMLPWithSwiGLU:
         mlp_factory: Callable[..., MLP],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64],
+            input_dimension=32,
+            hidden_dimensions=[64],
             activation_function=SwiGLU,
         )
         # SwiGLU replaces the Linear+Activation pair, so no separate nn.Linear for hidden
@@ -233,8 +233,8 @@ class TestMLPWithSwiGLU:
         flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(
-            input_dim=32,
-            hidden_dims=[64, 32],
+            input_dimension=32,
+            hidden_dimensions=[64, 32],
             output_dim=16,
             activation_function=SwiGLU,
         )

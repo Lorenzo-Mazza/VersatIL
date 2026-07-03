@@ -11,12 +11,12 @@ class ConcatFusion(SequentialFusion):
         self,
         input_features: list[str],
         output_name: str,
-        hidden_dim: int,
+        hidden_dimension: int,
     ):
         super().__init__(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
@@ -25,7 +25,7 @@ class ConcatFusion(SequentialFusion):
             features: List of sequence features [B, T, D_i] or [B, D_i]
 
         Returns:
-            Fused features [B, T, hidden_dim] or [B, hidden_dim]
+            Fused features [B, T, hidden_dimension] or [B, hidden_dimension]
         """
         if self.projections is None:
             raise RuntimeError("Projections must be set up before forward pass")
@@ -36,7 +36,7 @@ class ConcatFusion(SequentialFusion):
 
     def get_output_specification(self) -> FeatureMetadata:
         """Get output specification."""
-        output_dim = self.hidden_dim * len(self.input_features)
+        output_dim = self.hidden_dimension * len(self.input_features)
         dimension: tuple[int, ...] = (output_dim,)
         if self._output_feature_type == FeatureType.SEQUENTIAL.value:
             dimension = (self._output_sequence_length, output_dim)

@@ -195,14 +195,14 @@ class TestComputeRoutingWeights:
         batch_size: int,
         num_experts: int,
     ):
-        input_dim = 64
+        input_dimension = 64
         moe = moe_factory(
             num_experts=num_experts,
-            gating_input_dim=input_dim,
+            gating_input_dim=input_dimension,
         )
         gating_feature = input_tensor_factory(
             batch_size=batch_size,
-            input_dimension=input_dim,
+            input_dimension=input_dimension,
         )
         weights = moe.compute_routing_weights(features=gating_feature)
         assert weights.shape == (batch_size, num_experts)
@@ -212,9 +212,9 @@ class TestComputeRoutingWeights:
         moe_factory: Callable[..., BaseMixtureOfExperts],
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
-        input_dim = 64
-        moe = moe_factory(gating_input_dim=input_dim)
-        gating_feature = input_tensor_factory(input_dimension=input_dim)
+        input_dimension = 64
+        moe = moe_factory(gating_input_dim=input_dimension)
+        gating_feature = input_tensor_factory(input_dimension=input_dimension)
         weights = moe.compute_routing_weights(features=gating_feature)
         sums = weights.sum(dim=-1)
         assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5)
@@ -225,19 +225,19 @@ class TestComputeRoutingWeights:
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
         num_experts = 4
-        input_dim = 64
+        input_dimension = 64
         gating_feature = input_tensor_factory(
             batch_size=2,
-            input_dimension=input_dim,
+            input_dimension=input_dimension,
         )
         moe_low_temp = moe_factory(
             num_experts=num_experts,
-            gating_input_dim=input_dim,
+            gating_input_dim=input_dimension,
             temperature=0.1,
         )
         moe_high_temp = moe_factory(
             num_experts=num_experts,
-            gating_input_dim=input_dim,
+            gating_input_dim=input_dimension,
             temperature=100.0,
         )
         # Copy gating network weights so both see the same logits

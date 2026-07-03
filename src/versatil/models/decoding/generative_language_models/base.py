@@ -26,7 +26,7 @@ class CausalLanguageModelOutput:
 class GenerativeLanguageModel(ModuleAttrMixin, abc.ABC):
     """Base class for generative language models."""
 
-    hidden_dim: int
+    hidden_dimension: int
 
     def __init__(
         self,

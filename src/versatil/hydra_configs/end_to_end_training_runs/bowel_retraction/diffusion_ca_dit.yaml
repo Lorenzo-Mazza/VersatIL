@@ -30,5 +30,4 @@ policy:
   prediction_horizon: ${task.prediction_horizon}
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
-  validate_loss_keys: true
 

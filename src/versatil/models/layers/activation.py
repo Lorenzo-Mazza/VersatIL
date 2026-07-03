@@ -27,8 +27,8 @@ class ActivationFunction(enum.StrEnum):
     def to_torch_activation(self) -> type[nn.Module]:
         """Convert to corresponding PyTorch activation module.
 
-        Gated activations (SwiGLU, GeGLU) require ``input_dim`` and
-        ``hidden_dim`` constructor args. Standard activations are zero-arg.
+        Gated activations (SwiGLU, GeGLU) require ``input_dimension`` and
+        ``hidden_dimension`` constructor args. Standard activations are zero-arg.
         """
         mapping = {
             ActivationFunction.RELU.value: nn.ReLU,

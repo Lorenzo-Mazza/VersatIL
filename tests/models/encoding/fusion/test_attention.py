@@ -32,9 +32,9 @@ def attention_fusion_factory() -> Callable[..., AttentionFusion]:
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "attention_fused",
-        hidden_dim: int = 32,
+        hidden_dimension: int = 32,
         input_feature_query: str | None = None,
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         dropout: float = 0.0,
         use_residual: bool = True,
         use_norm: bool = True,
@@ -44,9 +44,9 @@ def attention_fusion_factory() -> Callable[..., AttentionFusion]:
         return AttentionFusion(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             input_feature_query=input_feature_query,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             dropout=dropout,
             use_residual=use_residual,
             use_norm=use_norm,
@@ -61,12 +61,12 @@ class TestAttentionFusionInitialization:
         attention_fusion_factory: Callable[..., AttentionFusion],
     ):
         module = attention_fusion_factory()
-        assert hasattr(module, "hidden_dim")
+        assert hasattr(module, "hidden_dimension")
         assert hasattr(module, "projections")
         assert hasattr(module, "setup")
         assert hasattr(module, "get_output_specification")
 
-    @pytest.mark.parametrize("hidden_dim", [32, 128])
+    @pytest.mark.parametrize("hidden_dimension", [32, 128])
     @pytest.mark.parametrize("output_name", ["attention_fused", "my_attn"])
     @pytest.mark.parametrize("use_residual", [True, False])
     @pytest.mark.parametrize("use_norm", [True, False])
@@ -74,20 +74,20 @@ class TestAttentionFusionInitialization:
     def test_stores_configuration(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
-        hidden_dim: int,
+        hidden_dimension: int,
         output_name: str,
         use_residual: bool,
         use_norm: bool,
         input_feature_query: str | None,
     ):
         module = attention_fusion_factory(
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             output_name=output_name,
             use_residual=use_residual,
             use_norm=use_norm,
             input_feature_query=input_feature_query,
         )
-        assert module.hidden_dim == hidden_dim
+        assert module.hidden_dimension == hidden_dimension
         assert module.output_name == output_name
         assert module.use_residual is use_residual
         assert module.use_norm is use_norm
@@ -141,10 +141,10 @@ class TestAttentionFusionForward:
         time_steps: int | None,
     ):
         batch_size = 2
-        hidden_dim = 32
+        hidden_dimension = 32
         module = attention_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         module.setup(
             feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
@@ -163,9 +163,9 @@ class TestAttentionFusionForward:
         ]
         output = module(features)
         if time_steps is not None:
-            assert output.shape == (batch_size, time_steps, hidden_dim)
+            assert output.shape == (batch_size, time_steps, hidden_dimension)
         else:
-            assert output.shape == (batch_size, hidden_dim)
+            assert output.shape == (batch_size, hidden_dimension)
 
     def test_sequential_features_with_time_dimension(
         self,
@@ -174,10 +174,10 @@ class TestAttentionFusionForward:
     ):
         # The pipeline runs fusion before its T=1 squeeze, so sequential
         # features arrive as (B, T, S, D).
-        batch_size, time_steps, sequence_length, hidden_dim = 2, 1, 8, 32
+        batch_size, time_steps, sequence_length, hidden_dimension = 2, 1, 8, 32
         module = attention_fusion_factory(
             input_features=["tokens_a", "tokens_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         module.setup(
             feature_registry=_make_registry(
@@ -200,35 +200,40 @@ class TestAttentionFusionForward:
             ),
         ]
         output = module(features)
-        assert output.shape == (batch_size, time_steps, sequence_length, hidden_dim)
+        assert output.shape == (
+            batch_size,
+            time_steps,
+            sequence_length,
+            hidden_dimension,
+        )
         specification = module.get_output_specification()
-        assert specification.dimension == (sequence_length, hidden_dim)
+        assert specification.dimension == (sequence_length, hidden_dimension)
 
     def test_single_feature_returns_projected_query(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         module = attention_fusion_factory(
             input_features=["only_feat"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             use_norm=False,
         )
         module.setup(feature_registry=_make_registry({"only_feat": (64,)}))
         features = [input_tensor_factory(input_dimension=64)]
         output = module(features)
-        assert output.shape == (2, hidden_dim)
+        assert output.shape == (2, hidden_dimension)
 
     def test_query_feature_selection(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         module = attention_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             input_feature_query="feat_b",
         )
         module.setup(
@@ -239,7 +244,7 @@ class TestAttentionFusionForward:
             input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
-        assert output.shape == (2, hidden_dim)
+        assert output.shape == (2, hidden_dimension)
 
     @pytest.mark.parametrize("use_residual", [True, False])
     def test_residual_connection_toggle(
@@ -248,10 +253,10 @@ class TestAttentionFusionForward:
         input_tensor_factory: Callable[..., torch.Tensor],
         use_residual: bool,
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         module = attention_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             use_residual=use_residual,
         )
         module.setup(
@@ -262,7 +267,7 @@ class TestAttentionFusionForward:
             input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
-        assert output.shape == (2, hidden_dim)
+        assert output.shape == (2, hidden_dimension)
 
     @pytest.mark.parametrize("use_norm", [True, False])
     def test_norm_toggle(
@@ -271,10 +276,10 @@ class TestAttentionFusionForward:
         input_tensor_factory: Callable[..., torch.Tensor],
         use_norm: bool,
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         module = attention_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             use_norm=use_norm,
         )
         module.setup(
@@ -285,17 +290,17 @@ class TestAttentionFusionForward:
             input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
-        assert output.shape == (2, hidden_dim)
+        assert output.shape == (2, hidden_dimension)
 
     def test_three_features_fused(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         module = attention_fusion_factory(
             input_features=["feat_a", "feat_b", "feat_c"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         module.setup(
             feature_registry=_make_registry(
@@ -308,7 +313,7 @@ class TestAttentionFusionForward:
             input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
-        assert output.shape == (2, hidden_dim)
+        assert output.shape == (2, hidden_dimension)
 
     def test_norms_none_with_use_norm_true_raises(
         self,
@@ -336,15 +341,15 @@ class TestAttentionFusionForward:
 
 
 class TestAttentionFusionGetOutputSpecification:
-    @pytest.mark.parametrize("hidden_dim", [32, 128])
+    @pytest.mark.parametrize("hidden_dimension", [32, 128])
     def test_output_dim_equals_hidden_dim(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
-        hidden_dim: int,
+        hidden_dimension: int,
     ):
-        module = attention_fusion_factory(hidden_dim=hidden_dim)
+        module = attention_fusion_factory(hidden_dimension=hidden_dimension)
         spec = module.get_output_specification()
-        assert spec.dimension[0] == hidden_dim
+        assert spec.dimension[0] == hidden_dimension
 
     def test_output_name_matches(
         self,

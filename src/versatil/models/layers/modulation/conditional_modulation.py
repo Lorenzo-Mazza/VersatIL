@@ -25,7 +25,7 @@ class ConditionalModulation(nn.Module):
 
     def __init__(
         self,
-        condition_dim: int,
+        conditioning_dimension: int,
         feature_dim: int,
         use_shift: bool = True,
         use_gate: bool = False,
@@ -36,7 +36,7 @@ class ConditionalModulation(nn.Module):
         """Initialize conditional modulation.
 
         Args:
-            condition_dim: Dimension of conditioning vector.
+            conditioning_dimension: Dimension of conditioning vector.
             feature_dim: Dimension of features to modulate.
             use_shift: Whether to include shift (beta) or just scale (gamma).
             use_gate: Whether to include gate output.
@@ -67,12 +67,12 @@ class ConditionalModulation(nn.Module):
         activation_enum = ActivationFunction(activation)
         if activation_enum.is_gated:
             self.projection = activation_enum.to_torch_activation()(
-                input_dim=condition_dim, hidden_dim=self.output_dim
+                input_dimension=conditioning_dimension, hidden_dimension=self.output_dim
             )
         else:
             self.projection = nn.Sequential(
                 activation_enum.to_torch_activation()(),
-                nn.Linear(condition_dim, self.output_dim),
+                nn.Linear(conditioning_dimension, self.output_dim),
             )
         self.init_parameters()
 
@@ -118,7 +118,7 @@ class ConditionalModulation(nn.Module):
                 - CNN: (B, C, H, W)
                 - Transformer: (B, S, D)
                 - Conv1D: (B, C, T) when ``feature_axis=1``
-            condition: Conditioning vector (B, condition_dim).
+            condition: Conditioning vector (B, conditioning_dimension).
 
         Returns:
             Tuple of (modulated features, gate). Gate is a learned tensor

@@ -31,8 +31,8 @@ def mocked_block_conditional_head_factory(
     """Factory for conditional action heads with mocked conditional blocks."""
 
     def factory(
-        input_dim: int = 64,
-        condition_dim: int = 16,
+        input_dimension: int = 64,
+        conditioning_dimension: int = 16,
         block_count: int = 0,
         block_output_dim: int = 64,
     ) -> ConditionalActionHead:
@@ -41,8 +41,8 @@ def mocked_block_conditional_head_factory(
             for _ in range(block_count)
         ]
         return ConditionalActionHead(
-            input_dim=input_dim,
-            condition_dim=condition_dim,
+            input_dimension=input_dimension,
+            conditioning_dimension=conditioning_dimension,
             blocks=blocks,
         )
 
@@ -53,17 +53,17 @@ def mocked_block_conditional_head_factory(
 def test_conditional_action_head_stores_configuration(
     mocked_block_conditional_head_factory: Callable[..., ConditionalActionHead],
 ) -> None:
-    input_dim = 32
-    condition_dim = 12
+    input_dimension = 32
+    conditioning_dimension = 12
     head = mocked_block_conditional_head_factory(
-        input_dim=input_dim,
-        condition_dim=condition_dim,
+        input_dimension=input_dimension,
+        conditioning_dimension=conditioning_dimension,
         block_count=2,
-        block_output_dim=input_dim,
+        block_output_dim=input_dimension,
     )
 
-    assert head.input_dim == input_dim
-    assert head.condition_dim == condition_dim
+    assert head.input_dimension == input_dimension
+    assert head.conditioning_dimension == conditioning_dimension
     assert len(head.blocks) == 2
 
 
@@ -74,7 +74,9 @@ class TestConditionalActionHeadForward:
         mocked_block_conditional_head_factory: Callable[..., ConditionalActionHead],
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ) -> None:
-        head = mocked_block_conditional_head_factory(input_dim=64, condition_dim=16)
+        head = mocked_block_conditional_head_factory(
+            input_dimension=64, conditioning_dimension=16
+        )
         action_embedding = embedding_tensor_factory(embedding_dimension=64)
         condition = torch.zeros(action_embedding.shape[0], 16)
 
@@ -89,24 +91,24 @@ class TestConditionalActionHeadForward:
         conditional_block_factory: Callable[..., MagicMock],
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ) -> None:
-        input_dim = 64
+        input_dimension = 64
         output_dim = 3
-        first_block_output = torch.full((2, 8, input_dim), fill_value=1.0)
-        second_block_output = torch.full((2, 8, input_dim), fill_value=2.0)
+        first_block_output = torch.full((2, 8, input_dimension), fill_value=1.0)
+        second_block_output = torch.full((2, 8, input_dimension), fill_value=2.0)
         projected_output = torch.full((2, 8, output_dim), fill_value=3.0)
-        first_block = conditional_block_factory(output_dim=input_dim)
-        second_block = conditional_block_factory(output_dim=input_dim)
+        first_block = conditional_block_factory(output_dim=input_dimension)
+        second_block = conditional_block_factory(output_dim=input_dimension)
         first_block.return_value = first_block_output
         second_block.return_value = second_block_output
         output_projection = MagicMock(spec=nn.Module)
         output_projection.return_value = projected_output
         head = ConditionalActionHead(
-            input_dim=input_dim,
-            condition_dim=16,
+            input_dimension=input_dimension,
+            conditioning_dimension=16,
             blocks=[first_block, second_block],
         )
         head.output_proj = output_projection
-        action_embedding = embedding_tensor_factory(embedding_dimension=input_dim)
+        action_embedding = embedding_tensor_factory(embedding_dimension=input_dimension)
         condition = torch.ones(action_embedding.shape[0], 16)
 
         result = head(action_embedding=action_embedding, condition=condition)

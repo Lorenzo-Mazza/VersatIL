@@ -136,7 +136,9 @@ def smolvla_decoder_factory(
             VLM_HIDDEN_DIMENSION * expert_width_multiplier
         )
         action_heads = {
-            "joint_action": action_head_factory(input_dim=action_head_input_dimension)
+            "joint_action": action_head_factory(
+                input_dimension=action_head_input_dimension
+            )
         }
         return SmolVLADecoder(
             input_keys=input_keys,
@@ -363,7 +365,7 @@ class TestSmolVLADecoderSetBackbone:
     ):
         decoder = initialized_decoder_factory()
         action_head = next(iter(decoder.action_heads.values()))
-        assert action_head.input_dim == EXPERT_HIDDEN_SIZE
+        assert action_head.input_dimension == EXPERT_HIDDEN_SIZE
         assert action_head.output_dim == POSITION_DIM
 
     @pytest.mark.parametrize(

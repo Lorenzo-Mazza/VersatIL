@@ -17,6 +17,6 @@ encoders:
     input_keys:
       - ${synthetic_obs_key:CONTEXT}
     output_dim: 32
-    hidden_dims: [32]
+    hidden_dimensions: [32]
 
 fusion_stages: []

@@ -128,7 +128,7 @@ def pi0_decoder_factory(
         action_space = mock_action_space_factory(position_dim=position_dim)
         observation_space = mock_observation_space_factory()
         action_heads = {
-            key: action_head_factory(input_dim=expert_hidden_size)
+            key: action_head_factory(input_dimension=expert_hidden_size)
             for key in action_space.actions_metadata
         }
         return Pi0Decoder(

@@ -52,7 +52,7 @@ class ConcreteSequentialFusion(SequentialFusion):
         return torch.cat(projected, dim=-1)
 
     def get_output_specification(self) -> FeatureMetadata:
-        output_dim = self.hidden_dim * len(self.input_features)
+        output_dim = self.hidden_dimension * len(self.input_features)
         dimension: tuple[int, ...] = (output_dim,)
         if self._output_feature_type == FeatureType.SEQUENTIAL.value:
             dimension = (self._output_sequence_length, output_dim)
@@ -104,14 +104,14 @@ def sequential_fusion_factory() -> Callable[..., ConcreteSequentialFusion]:
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "fused_output",
-        hidden_dim: int = 64,
+        hidden_dimension: int = 64,
     ) -> ConcreteSequentialFusion:
         if input_features is None:
             input_features = ["rgb_features", "depth_features"]
         return ConcreteSequentialFusion(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
 
     return factory
@@ -119,22 +119,9 @@ def sequential_fusion_factory() -> Callable[..., ConcreteSequentialFusion]:
 
 class TestFusionInputDataclass:
     @pytest.mark.parametrize("input_features", [["rgb", "depth"], ["a", "b", "c"]])
-    @pytest.mark.parametrize("required_count", [1, 3])
-    @pytest.mark.parametrize("max_count", [None, 5])
-    def test_stores_configuration(
-        self,
-        input_features: list[str],
-        required_count: int,
-        max_count: int | None,
-    ):
-        spec = FusionInput(
-            input_features=input_features,
-            required_count=required_count,
-            max_count=max_count,
-        )
+    def test_stores_configuration(self, input_features: list[str]):
+        spec = FusionInput(input_features=input_features)
         assert spec.input_features == input_features
-        assert spec.required_count == required_count
-        assert spec.max_count == max_count
 
 
 class TestFusionModuleInitialization:
@@ -233,22 +220,22 @@ class TestSequentialFusionInitialization:
             ["feat_a", "feat_b", "feat_c"],
         ],
     )
-    @pytest.mark.parametrize("hidden_dim", [64, 128])
+    @pytest.mark.parametrize("hidden_dimension", [64, 128])
     @pytest.mark.parametrize("output_name", ["fused_output", "seq_fused"])
     def test_stores_configuration(
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
         input_features: list[str],
-        hidden_dim: int,
+        hidden_dimension: int,
         output_name: str,
     ):
         module = sequential_fusion_factory(
             input_features=input_features,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             output_name=output_name,
         )
         assert module.input_features == input_features
-        assert module.hidden_dim == hidden_dim
+        assert module.hidden_dimension == hidden_dimension
         assert module.output_name == output_name
         assert module.projections is None
 
@@ -264,15 +251,15 @@ class TestSequentialFusionInitialization:
 
 
 class TestSequentialFusionSetupLayers:
-    @pytest.mark.parametrize("hidden_dim", [32, 128])
+    @pytest.mark.parametrize("hidden_dimension", [32, 128])
     def test_creates_projection_per_input_feature(
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
-        hidden_dim: int,
+        hidden_dimension: int,
     ):
         module = sequential_fusion_factory(
             input_features=["feat_a", "feat_b", "feat_c"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         registry = _make_feature_registry(
             {"feat_a": (64,), "feat_b": (128,), "feat_c": (256,)}
@@ -281,7 +268,7 @@ class TestSequentialFusionSetupLayers:
         assert module.projections is not None
         assert len(module.projections) == 3
         for proj in module.projections:
-            assert proj.out_features == hidden_dim
+            assert proj.out_features == hidden_dimension
 
     def test_projection_input_dims_match_feature_dims(
         self,
@@ -301,7 +288,7 @@ class TestSequentialFusionSetupLayers:
     ):
         module = sequential_fusion_factory(
             input_features=["seq_feat"],
-            hidden_dim=32,
+            hidden_dimension=32,
         )
         registry = {
             "seq_feat": FeatureMetadata(
@@ -411,10 +398,10 @@ class TestSequentialFusionForward:
         input_tensor_factory: Callable[..., torch.Tensor],
         time_steps: int | None,
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         module = sequential_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         registry = _make_feature_registry({"feat_a": (64,), "feat_b": (128,)})
         module.setup(feature_registry=registry)
@@ -428,6 +415,6 @@ class TestSequentialFusionForward:
         output = module(features)
         batch_size = 2
         if time_steps is not None:
-            assert output.shape == (batch_size, time_steps, hidden_dim * 2)
+            assert output.shape == (batch_size, time_steps, hidden_dimension * 2)
         else:
-            assert output.shape == (batch_size, hidden_dim * 2)
+            assert output.shape == (batch_size, hidden_dimension * 2)

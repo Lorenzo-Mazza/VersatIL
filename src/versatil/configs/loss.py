@@ -251,7 +251,7 @@ class PosteriorGeometryLossConfig(BaseLossConfig):
     max_std_weight: float = 0.0
     max_std: float = 2.0
     covariance_weight: float = 0.0
-    eps: float = 1e-6
+    epsilon: float = 1e-6
 
 
 @dataclass

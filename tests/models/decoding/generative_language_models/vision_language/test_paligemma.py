@@ -209,7 +209,7 @@ class TestPaliGemmaVLMInitialization:
             pretrained=False,
             frozen=frozen,
         )
-        assert backbone.hidden_dim == HIDDEN_DIM
+        assert backbone.hidden_dimension == HIDDEN_DIM
         assert backbone.image_size == IMAGE_SIZE
         assert backbone.max_text_length == MAX_TEXT_LENGTH
         assert backbone.num_image_tokens_per_camera == NUM_IMAGE_TOKENS
@@ -752,7 +752,7 @@ class TestPaliGemmaVLMIntegration:
             output = backbone(inputs=inputs)
         fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
         assert fused.shape[0] == batch_size
-        assert fused.shape[-1] == backbone.hidden_dim
+        assert fused.shape[-1] == backbone.hidden_dimension
         if lora_enabled:
             trainable_parameter_names = [
                 name
@@ -814,12 +814,12 @@ class TestPaliGemmaVLMIntegration:
         backbone = real_paligemma_backbone(model_dtype=PrecisionType.FP32.value)
         layers = backbone.get_backbone_layers()
         assert len(layers) > 0
-        hidden = torch.zeros(1, 1, backbone.hidden_dim)
+        hidden = torch.zeros(1, 1, backbone.hidden_dimension)
         position_ids = torch.zeros(1, 1, dtype=torch.long)
         cos, sin = backbone.get_rotary_embedding()(hidden, position_ids)
         assert cos.shape[0] == hidden.shape[0]
         assert sin.shape[0] == hidden.shape[0]
-        assert backbone.get_backbone_hidden_dim() == backbone.hidden_dim
+        assert backbone.get_backbone_hidden_dim() == backbone.hidden_dimension
 
     @pytest.mark.integration
     def test_real_model_explainability_target_captures_image_tokens(
@@ -868,7 +868,7 @@ class TestPaliGemmaVLMIntegration:
         assert image_tokens.shape == (
             batch_size,
             backbone.num_image_tokens_per_camera,
-            backbone.hidden_dim,
+            backbone.hidden_dimension,
         )
         assert target.patch_grid == (4, 4)
 

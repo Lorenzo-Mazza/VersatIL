@@ -22,20 +22,20 @@ class TestFusionConfig:
         assert config._target_ == MISSING
         assert config.input_features == MISSING
         assert config.output_name == MISSING
-        assert config.hidden_dim == MISSING
+        assert config.hidden_dimension == MISSING
 
 
 @pytest.mark.unit
 class TestConcatFusionConfig:
     def test_target_points_to_concat_fusion(self):
         config = ConcatFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dim=256
+            input_features=["a", "b"], output_name="fused", hidden_dimension=256
         )
         assert config._target_ == "versatil.models.encoding.fusion.concat.ConcatFusion"
 
     def test_inherits_from_fusion_config(self):
         config = ConcatFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dim=256
+            input_features=["a", "b"], output_name="fused", hidden_dimension=256
         )
         assert isinstance(config, FusionConfig)
 
@@ -44,24 +44,24 @@ class TestConcatFusionConfig:
 class TestAttentionFusionConfig:
     def test_target_points_to_attention_fusion(self):
         config = AttentionFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dim=256
+            input_features=["a", "b"], output_name="fused", hidden_dimension=256
         )
         assert (
             config._target_
             == "versatil.models.encoding.fusion.attention.AttentionFusion"
         )
 
-    @pytest.mark.parametrize("num_heads", [4, 8])
+    @pytest.mark.parametrize("number_of_heads", [4, 8])
     @pytest.mark.parametrize("dropout", [0.0, 0.1])
-    def test_stores_configuration(self, num_heads, dropout):
+    def test_stores_configuration(self, number_of_heads, dropout):
         config = AttentionFusionConfig(
             input_features=["a", "b"],
             output_name="fused",
-            hidden_dim=256,
-            num_heads=num_heads,
+            hidden_dimension=256,
+            number_of_heads=number_of_heads,
             dropout=dropout,
         )
-        assert config.num_heads == num_heads
+        assert config.number_of_heads == number_of_heads
         assert config.dropout == dropout
 
 
@@ -71,7 +71,7 @@ class TestMLPFusionConfig:
         config = MLPFusionConfig(
             input_features=["a", "b"],
             output_name="fused",
-            hidden_dim=256,
+            hidden_dimension=256,
             mlp_hidden_dims=[128],
         )
         assert config._target_ == "versatil.models.encoding.fusion.mlp.MLPFusion"
@@ -80,7 +80,7 @@ class TestMLPFusionConfig:
         config = MLPFusionConfig(
             input_features=["a", "b"],
             output_name="fused",
-            hidden_dim=256,
+            hidden_dimension=256,
             mlp_hidden_dims=[128],
         )
         assert config.activation_name == ActivationFunction.GELU.value
@@ -90,7 +90,7 @@ class TestMLPFusionConfig:
 class TestSpatialFusionConfig:
     def test_target_points_to_spatial_fusion(self):
         config = SpatialFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dim=256
+            input_features=["a", "b"], output_name="fused", hidden_dimension=256
         )
         assert (
             config._target_ == "versatil.models.encoding.fusion.spatial.SpatialFusion"
@@ -98,7 +98,7 @@ class TestSpatialFusionConfig:
 
     def test_concat_dim_default_is_width_string(self):
         config = SpatialFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dim=256
+            input_features=["a", "b"], output_name="fused", hidden_dimension=256
         )
         assert config.concat_dim == ConcatDimension.WIDTH.value
 
@@ -109,28 +109,28 @@ class TestFusionInstantiation:
         config = ConcatFusionConfig(
             input_features=["rgb", "depth"],
             output_name="fused",
-            hidden_dim=256,
+            hidden_dimension=256,
         )
         instance = instantiate(config)
         assert instance.output_name == "fused"
-        assert instance.hidden_dim == 256
+        assert instance.hidden_dimension == 256
 
     def test_attention_fusion_instantiates(self):
         config = AttentionFusionConfig(
             input_features=["rgb", "depth"],
             output_name="fused",
-            hidden_dim=256,
-            num_heads=8,
+            hidden_dimension=256,
+            number_of_heads=8,
         )
         instance = instantiate(config)
-        assert instance.hidden_dim == 256
+        assert instance.hidden_dimension == 256
 
     def test_mlp_fusion_instantiates(self):
         config = MLPFusionConfig(
             input_features=["rgb", "depth"],
             output_name="fused",
-            hidden_dim=256,
+            hidden_dimension=256,
             mlp_hidden_dims=[512, 256],
         )
         instance = instantiate(config)
-        assert instance.hidden_dim == 256
+        assert instance.hidden_dimension == 256

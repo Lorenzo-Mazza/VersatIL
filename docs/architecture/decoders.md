@@ -249,7 +249,7 @@ The default head. A linear projection from decoder embedding dimension to action
 ```python
 class ActionHead(BaseActionHead):
     def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
-        # (B, prediction_horizon, embedding_dim) -> (B, prediction_horizon, action_dim)
+        # (B, prediction_horizon, embedding_dimension) -> (B, prediction_horizon, action_dim)
 ```
 
 ### [`GaussianHead`][versatil.models.decoding.action_heads.gaussian.GaussianHead]
@@ -275,7 +275,7 @@ class ConditionalActionHead(BaseActionHead):
         action_embedding: torch.Tensor,
         condition: torch.Tensor,
     ) -> torch.Tensor:
-        # (B, prediction_horizon, input_dim), (B, condition_dim) -> (B, prediction_horizon, action_dim)
+        # (B, prediction_horizon, input_dimension), (B, conditioning_dimension) -> (B, prediction_horizon, action_dim)
 ```
 
 ### [`MoEHead`][versatil.models.decoding.action_heads.moe.MoEHead] (Mixture of Experts)
@@ -316,10 +316,10 @@ Action heads support composable building blocks inserted before the final projec
 
 ```python
 ActionHead(
-    input_dim=256,
+    input_dimension=256,
     blocks=[
-        MLPBlock(input_dim=256, hidden_dims=[512], output_dim=256),
-        AttentionBlock(embedding_dimension=256, num_heads=8),
+        MLPBlock(input_dimension=256, hidden_dimensions=[512], output_dim=256),
+        AttentionBlock(embedding_dimension=256, number_of_heads=8),
     ],
 )
 ```

@@ -12,14 +12,14 @@ class DepthAwareDecayMask(nn.Module):
     depth differences between positions.
     """
 
-    def __init__(self, num_heads: int):
+    def __init__(self, number_of_heads: int):
         """Initializes depth-aware decay mask.
 
         Args:
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
         """
         super().__init__()
-        self.num_heads = num_heads
+        self.number_of_heads = number_of_heads
 
     @staticmethod
     def compute_depth_difference_matrix(
@@ -83,11 +83,11 @@ class DepthAwareDecayMask(nn.Module):
             depth_map: Depth map of shape (B, 1, H, W).
             height: Target height.
             width: Target width.
-            decay_rates: Per-head decay rates of shape (num_heads,).
+            decay_rates: Per-head decay rates of shape (number_of_heads,).
             decomposition_mode: Whether to generate full or separable masks.
 
         Returns:
-            If FULL: Single mask of shape (B, num_heads, H*W, H*W).
+            If FULL: Single mask of shape (B, number_of_heads, H*W, H*W).
             If SEPARABLE: Tuple of (height_mask, width_mask).
         """
         if decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:

@@ -38,37 +38,6 @@ class LossOutput:
             result[key] = value.item() if isinstance(value, torch.Tensor) else value
         return result
 
-    def __add__(self, other: "LossOutput") -> "LossOutput":
-        """Add two LossOutput objects component-wise.
-
-        Args:
-            other: Another LossOutput instance
-
-        Returns:
-            New LossOutput with summed losses
-        """
-        if not isinstance(other, LossOutput):
-            raise TypeError(f"Cannot add LossOutput with {type(other)}")
-
-        new_total = self.total_loss + other.total_loss
-        new_components = {}
-
-        all_keys = set(self.component_losses.keys()) | set(
-            other.component_losses.keys()
-        )
-        device = self.total_loss.device
-        zero = torch.tensor(0.0, device=device)
-        for key in all_keys:
-            val1 = self.component_losses.get(key, zero)
-            val2 = other.component_losses.get(key, zero)
-            new_components[key] = val1 + val2
-
-        return LossOutput(
-            total_loss=new_total,
-            component_losses=new_components,
-            metadata={**self.metadata, **other.metadata},
-        )
-
 
 def _merge_weights(
     existing_weights: WeightsDictionary,

@@ -11,19 +11,19 @@ class ConditionalActionHead(BaseActionHead):
 
     def __init__(
         self,
-        input_dim: int,
-        condition_dim: int,
+        input_dimension: int,
+        conditioning_dimension: int,
         blocks: list[ConditionalActionHeadBlock] | None = None,
     ) -> None:
         """Initialize the conditional action head.
 
         Args:
-            input_dim: Input action-token embedding dimension.
-            condition_dim: Conditioning vector dimension.
+            input_dimension: Input action-token embedding dimension.
+            conditioning_dimension: Conditioning vector dimension.
             blocks: Conditional blocks applied before the output projection.
         """
-        super().__init__(input_dim=input_dim, blocks=blocks)
-        self.condition_dim = condition_dim
+        super().__init__(input_dimension=input_dimension, blocks=blocks)
+        self.conditioning_dimension = conditioning_dimension
 
     def forward(
         self,
@@ -34,8 +34,8 @@ class ConditionalActionHead(BaseActionHead):
 
         Args:
             action_embedding: Action-token embeddings with shape
-                ``(B, prediction_horizon, input_dim)``.
-            condition: Conditioning tensor with shape ``(B, condition_dim)``.
+                ``(B, prediction_horizon, input_dimension)``.
+            condition: Conditioning tensor with shape ``(B, conditioning_dimension)``.
 
         Returns:
             Action predictions with shape

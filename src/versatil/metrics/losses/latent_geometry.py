@@ -118,7 +118,7 @@ class PosteriorGeometryLoss(BaseLoss):
         max_std_weight: float = 0.0,
         max_std: float = 2.0,
         covariance_weight: float = 0.0,
-        eps: float = 1e-6,
+        epsilon: float = 1e-6,
     ):
         """Initialize posterior geometry loss.
 
@@ -130,15 +130,15 @@ class PosteriorGeometryLoss(BaseLoss):
             max_std_weight: Weight for hinge penalty above ``max_std``.
             max_std: Maximum tolerated per-dimension standard deviation.
             covariance_weight: Weight for off-diagonal covariance penalty.
-            eps: Numerical epsilon for standard deviation.
+            epsilon: Numerical epsilon for standard deviation.
         """
         super().__init__()
         if target_std <= 0.0:
             raise ValueError(f"target_std must be positive, got {target_std}.")
         if max_std <= 0.0:
             raise ValueError(f"max_std must be positive, got {max_std}.")
-        if eps <= 0.0:
-            raise ValueError(f"eps must be positive, got {eps}.")
+        if epsilon <= 0.0:
+            raise ValueError(f"epsilon must be positive, got {epsilon}.")
         self.key = key
         self.mean_weight = mean_weight
         self.std_weight = std_weight
@@ -146,7 +146,7 @@ class PosteriorGeometryLoss(BaseLoss):
         self.max_std_weight = max_std_weight
         self.max_std = max_std
         self.covariance_weight = covariance_weight
-        self.eps = eps
+        self.epsilon = epsilon
 
     @property
     def weights(self) -> WeightsDictionary:
@@ -192,7 +192,7 @@ class PosteriorGeometryLoss(BaseLoss):
         batch_size, latent_dimension = latent_vectors.shape
         mean = latent_vectors.mean(dim=0)
         centered = latent_vectors - mean
-        standard_deviation = torch.sqrt(centered.square().mean(dim=0) + self.eps)
+        standard_deviation = torch.sqrt(centered.square().mean(dim=0) + self.epsilon)
 
         mean_loss = mean.square().mean()
         std_loss = (standard_deviation - self.target_std).square().mean()

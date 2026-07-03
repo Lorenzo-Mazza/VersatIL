@@ -38,7 +38,6 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
         use_cross_attention: bool = True,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        autoregressive: bool = True,
         conditioning_dimension: int | None = None,
         use_gating: bool = False,
         cross_attention_normalization_type: str | None = None,
@@ -57,7 +56,6 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
             use_cross_attention=use_cross_attention,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            autoregressive=autoregressive,
             conditioning_dimension=conditioning_dimension,
             use_gating=use_gating,
             cross_attention_normalization_type=cross_attention_normalization_type,
@@ -134,7 +132,6 @@ class TestTransformerDecoderLayerForward:
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=False,
-            autoregressive=True,
             dropout=0.0,
         )
         layer.eval()
@@ -218,7 +215,6 @@ class TestTransformerDecoderLayerForward:
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=True,
-            autoregressive=True,
             dropout=0.0,
         )
         layer.eval()
@@ -432,8 +428,8 @@ class TestTransformerDecoderLayerConditioning:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning_a = condition_factory(batch_size=2, condition_dim=32)
-        conditioning_b = condition_factory(batch_size=2, condition_dim=32)
+        conditioning_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        conditioning_b = condition_factory(batch_size=2, conditioning_dimension=32)
         output_a, _ = layer(hidden_states=hidden_states, conditioning=conditioning_a)
         output_b, _ = layer(hidden_states=hidden_states, conditioning=conditioning_b)
         assert not torch.allclose(output_a, output_b)
@@ -457,7 +453,7 @@ class TestTransformerDecoderLayerConditioning:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        conditioning = condition_factory(batch_size=2, conditioning_dimension=32)
         output, _ = layer(hidden_states=hidden_states, conditioning=conditioning)
         assert torch.allclose(output, hidden_states, atol=1e-6)
 
@@ -478,7 +474,7 @@ class TestTransformerDecoderLayerConditioning:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning = condition_factory(batch_size=2, condition_dim=16)
+        conditioning = condition_factory(batch_size=2, conditioning_dimension=16)
         output_with_cond, _ = layer(
             hidden_states=hidden_states, conditioning=conditioning
         )
@@ -506,8 +502,8 @@ class TestTransformerDecoderLayerConditioning:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        conditioning_a = condition_factory(batch_size=2, condition_dim=32)
-        conditioning_b = condition_factory(batch_size=2, condition_dim=32)
+        conditioning_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        conditioning_b = condition_factory(batch_size=2, conditioning_dimension=32)
         output_a, _ = layer(
             hidden_states=hidden_states,
             encoded_features=memory,
@@ -549,7 +545,8 @@ class TestTransformerDecoderLayerConditioning:
             # Second call is cross-attention normalization
             cross_attention_call = mock_factory.call_args_list[1]
             assert (
-                cross_attention_call.kwargs["condition_dim"] == expected_condition_dim
+                cross_attention_call.kwargs["conditioning_dimension"]
+                == expected_condition_dim
             )
 
     def test_conditioning_gradient_flows_through_modulation(
@@ -570,7 +567,7 @@ class TestTransformerDecoderLayerConditioning:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        conditioning = condition_factory(batch_size=2, conditioning_dimension=32)
         conditioning.requires_grad_(True)
         output, _ = layer(hidden_states=hidden_states, conditioning=conditioning)
         output.sum().backward()

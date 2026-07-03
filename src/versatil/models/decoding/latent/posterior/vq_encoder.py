@@ -118,14 +118,14 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
             )
 
         self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=embedding_dimension,
+            embedding_dimension=embedding_dimension,
             has_time_dim=observation_horizon > 1,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=embedding_dimension, normalize=True
             ),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=embedding_dimension,
-                maximum_length=1000,
+                maximum_sequence_length=1000,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
@@ -134,7 +134,7 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
         self.latent_projection = nn.Linear(embedding_dimension, self.code_dim)
 
         self.residual_vq = ResidualVQ(
-            input_dim=self.code_dim,
+            input_dimension=self.code_dim,
             code_dim=self.code_dim,
             num_codes=num_codes,
             num_layers=num_residual_layers,

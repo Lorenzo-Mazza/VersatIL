@@ -13,7 +13,7 @@ class MLPFusion(SequentialFusion):
         self,
         input_features: list[str],
         output_name: str,
-        hidden_dim: int,
+        hidden_dimension: int,
         mlp_hidden_dims: list[int],
         activation_name: str = ActivationFunction.GELU.value,
         dropout: float = 0.1,
@@ -22,7 +22,7 @@ class MLPFusion(SequentialFusion):
         Args:
             input_features: List of feature names to fuse.
             output_name: Name of the output fused feature.
-            hidden_dim: Dimension to project each input feature to before fusion.
+            hidden_dimension: Dimension to project each input feature to before fusion.
             mlp_hidden_dims: List of hidden layer dimensions for the MLP.
             activation_name: Name of the activation function to use in the MLP.
             dropout: Dropout rate for the MLP.
@@ -30,11 +30,11 @@ class MLPFusion(SequentialFusion):
         super().__init__(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         self.mlp = MLP(
-            input_dim=hidden_dim * len(input_features),
-            hidden_dims=mlp_hidden_dims,
+            input_dimension=hidden_dimension * len(input_features),
+            hidden_dimensions=mlp_hidden_dims,
             activation_function=ActivationFunction(
                 activation_name
             ).to_torch_activation(),

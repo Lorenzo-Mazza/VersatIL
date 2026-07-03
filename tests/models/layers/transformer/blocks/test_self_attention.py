@@ -55,7 +55,7 @@ class TestSelfAttentionBlockForward:
         layer_caches = initialize_generation_cache(
             batch_size=2,
             num_layers=1,
-            num_heads=NUMBER_OF_HEADS,
+            number_of_heads=NUMBER_OF_HEADS,
             head_dimension=head_dimension,
             device=torch.device("cpu"),
         )
@@ -88,10 +88,10 @@ class TestSelfAttentionBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning_a = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         conditioning_b = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         output_a, _ = block(hidden_states=hidden_states, conditioning=conditioning_a)
         output_b, _ = block(hidden_states=hidden_states, conditioning=conditioning_b)
@@ -117,7 +117,7 @@ class TestSelfAttentionBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         output, _ = block(hidden_states=hidden_states, conditioning=conditioning)
         assert torch.allclose(output, hidden_states, atol=1e-6)

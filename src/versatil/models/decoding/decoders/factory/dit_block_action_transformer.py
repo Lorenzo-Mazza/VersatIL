@@ -138,17 +138,17 @@ class DiTBlockActionTransformer(BaseParallelTransformerDecoder):
     def _validate_conditional_action_head(self) -> None:
         """Validate the conditional action-head dimensions."""
         action_head = self._conditional_action_head()
-        if action_head.input_dim != self.embedding_dimension:
+        if action_head.input_dimension != self.embedding_dimension:
             raise ValueError(
-                f"{type(self).__name__} action head input_dim must equal "
+                f"{type(self).__name__} action head input_dimension must equal "
                 f"embedding_dimension {self.embedding_dimension}, got "
-                f"{action_head.input_dim}."
+                f"{action_head.input_dimension}."
             )
-        if action_head.condition_dim != self.embedding_dimension:
+        if action_head.conditioning_dimension != self.embedding_dimension:
             raise ValueError(
-                f"{type(self).__name__} action head condition_dim must equal "
+                f"{type(self).__name__} action head conditioning_dimension must equal "
                 f"embedding_dimension {self.embedding_dimension}, got "
-                f"{action_head.condition_dim}."
+                f"{action_head.conditioning_dimension}."
             )
 
     def _build_transformer_components(self) -> None:
@@ -175,9 +175,9 @@ class DiTBlockActionTransformer(BaseParallelTransformerDecoder):
             use_gating=self.use_gating,
         )
         self.noisy_input_projection = MLP(
-            input_dim=self.action_space.get_total_action_dim(),
+            input_dimension=self.action_space.get_total_action_dim(),
             output_dim=self.embedding_dimension,
-            hidden_dims=[self.embedding_dimension, self.embedding_dimension],
+            hidden_dimensions=[self.embedding_dimension, self.embedding_dimension],
             activation_function=ActivationFunction(
                 self.activation
             ).to_torch_activation(),

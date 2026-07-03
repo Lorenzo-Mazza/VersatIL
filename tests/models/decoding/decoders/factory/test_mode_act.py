@@ -96,7 +96,7 @@ def mode_act_factory(
         )
         action_heads = action_heads_factory(
             action_space=action_space,
-            input_dim=embedding_dimension,
+            input_dimension=embedding_dimension,
         )
         observation_space = mock_observation_space_factory()
         return MixtureOfDensitiesActionTransformer(
@@ -176,7 +176,7 @@ def gaussian_mode_act_factory(
         for key, meta in action_space.actions_metadata.items():
             if meta.requires_prediction_head:
                 action_heads[key] = gaussian_head_factory(
-                    input_dim=embedding_dimension,
+                    input_dimension=embedding_dimension,
                 )
         observation_space = mock_observation_space_factory()
         return MixtureOfDensitiesActionTransformer(

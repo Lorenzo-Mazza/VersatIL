@@ -39,7 +39,7 @@ def light_geometric_encoder_factory(
     def factory(
         input_keys: str | list[str] | None = None,
         embedding_dimension: int = 32,
-        num_heads: int = 2,
+        number_of_heads: int = 2,
         ffn_dimension: int = 64,
         decomposition_mode: str = AttentionDecompositionMode.SEPARABLE.value,
         initial_decay: float = 2.0,
@@ -55,7 +55,7 @@ def light_geometric_encoder_factory(
         encoder = GeometricRGBDEncoder(
             input_keys=input_keys,
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             ffn_dimension=ffn_dimension,
             decomposition_mode=decomposition_mode,
             initial_decay=initial_decay,
@@ -388,7 +388,7 @@ class TestGeometricRGBDEncoderIntegration:
         encoder = GeometricRGBDEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             embedding_dimension=32,
-            num_heads=2,
+            number_of_heads=2,
             ffn_dimension=64,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
@@ -417,7 +417,7 @@ class TestGeometricRGBDEncoderIntegration:
         encoder = GeometricRGBDEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             embedding_dimension=32,
-            num_heads=2,
+            number_of_heads=2,
             ffn_dimension=64,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
@@ -447,7 +447,7 @@ class TestGeometricRGBDEncoderIntegration:
         encoder = GeometricRGBDEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             embedding_dimension=32,
-            num_heads=2,
+            number_of_heads=2,
             ffn_dimension=64,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
@@ -476,7 +476,7 @@ class TestGeometricRGBDEncoderModelDtype:
             GeometricRGBDEncoder(
                 input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
                 embedding_dimension=32,
-                num_heads=2,
+                number_of_heads=2,
                 ffn_dimension=64,
                 patch_size=16,
                 pretrained=False,

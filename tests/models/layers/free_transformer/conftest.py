@@ -50,7 +50,6 @@ def latent_conditioned_decoder_layer_factory() -> Callable[
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        autoregressive: bool = True,
     ) -> LatentConditionedDecoderLayer:
         return LatentConditionedDecoderLayer(
             embedding_dimension=embedding_dimension,
@@ -65,7 +64,6 @@ def latent_conditioned_decoder_layer_factory() -> Callable[
             attention_type=attention_type,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            autoregressive=autoregressive,
         )
 
     return factory

@@ -91,7 +91,7 @@ class TestPosteriorGeometryLossGetRequiredKeys:
 @pytest.mark.unit
 class TestPosteriorGeometryLossInitialization:
     @pytest.mark.parametrize(
-        "target_std, max_std, eps, expectation",
+        "target_std, max_std, epsilon, expectation",
         [
             (1.0, 2.0, 1e-6, does_not_raise()),
             (
@@ -118,7 +118,7 @@ class TestPosteriorGeometryLossInitialization:
                 0.0,
                 pytest.raises(
                     ValueError,
-                    match=re.escape("eps must be positive, got 0.0."),
+                    match=re.escape("epsilon must be positive, got 0.0."),
                 ),
             ),
         ],
@@ -127,14 +127,14 @@ class TestPosteriorGeometryLossInitialization:
         self,
         target_std: float,
         max_std: float,
-        eps: float,
+        epsilon: float,
         expectation: AbstractContextManager,
     ):
         with expectation:
             PosteriorGeometryLoss(
                 target_std=target_std,
                 max_std=max_std,
-                eps=eps,
+                epsilon=epsilon,
             )
 
 
@@ -157,7 +157,7 @@ class TestPosteriorGeometryLossForward:
             max_std_weight=1.0,
             max_std=2.0,
             covariance_weight=1.0,
-            eps=1e-6,
+            epsilon=1e-6,
         )
         output = loss(predictions, {})
         assert output.total_loss.item() == pytest.approx(0.0, abs=1e-5)

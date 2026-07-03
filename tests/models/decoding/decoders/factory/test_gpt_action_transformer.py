@@ -74,7 +74,7 @@ def gpt_transformer_factory(
         observation_space = mock_observation_space_factory()
         action_heads = {
             DecoderOutputKey.ACTION_LOGITS.value: action_head_factory(
-                input_dim=embedding_dimension
+                input_dimension=embedding_dimension
             )
         }
         return GPTActionTransformer(
@@ -189,7 +189,7 @@ class TestGPTActionTransformerInitialization:
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
         observation_space = mock_observation_space_factory()
         wrong_action_heads = {
-            "wrong_key": action_head_factory(input_dim=EMBEDDING_DIMENSION)
+            "wrong_key": action_head_factory(input_dimension=EMBEDDING_DIMENSION)
         }
         with pytest.raises(
             ValueError,

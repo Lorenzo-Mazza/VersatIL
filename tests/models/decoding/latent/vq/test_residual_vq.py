@@ -18,14 +18,14 @@ def mock_vq_layer_output_factory(
 
     def factory(
         batch_size: int = 4,
-        input_dim: int = 8,
+        input_dimension: int = 8,
         code_dim: int | None = None,
         num_codes: int = 4,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if code_dim is None:
-            code_dim = input_dim
+            code_dim = input_dimension
         z_q = torch.from_numpy(
-            rng.standard_normal((batch_size, input_dim)).astype(np.float32)
+            rng.standard_normal((batch_size, input_dimension)).astype(np.float32)
         )
         indices = torch.from_numpy(
             rng.integers(0, num_codes, size=(batch_size,)).astype(np.int64)
@@ -45,27 +45,31 @@ class TestResidualVQInit:
     @pytest.mark.unit
     @pytest.mark.parametrize("num_layers", [1, 2, 4])
     def test_creates_correct_number_of_layers(self, num_layers: int) -> None:
-        rvq = ResidualVQ(input_dim=8, code_dim=8, num_codes=4, num_layers=num_layers)
+        rvq = ResidualVQ(
+            input_dimension=8, code_dim=8, num_codes=4, num_layers=num_layers
+        )
         assert len(rvq.layers) == num_layers
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        "input_dim, code_dim, num_codes",
+        "input_dimension, code_dim, num_codes",
         [(8, 8, 4), (16, 4, 32)],
     )
     def test_stores_configuration(
-        self, input_dim: int, code_dim: int, num_codes: int
+        self, input_dimension: int, code_dim: int, num_codes: int
     ) -> None:
-        rvq = ResidualVQ(input_dim=input_dim, code_dim=code_dim, num_codes=num_codes)
-        assert rvq.input_dim == input_dim
+        rvq = ResidualVQ(
+            input_dimension=input_dimension, code_dim=code_dim, num_codes=num_codes
+        )
+        assert rvq.input_dimension == input_dimension
         assert rvq.code_dim == code_dim
         assert rvq.num_codes == num_codes
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        "input_dim, code_dim, num_codes, num_layers, expected_message",
+        "input_dimension, code_dim, num_codes, num_layers, expected_message",
         [
-            (0, 8, 4, 1, "input_dim must be positive, got 0."),
+            (0, 8, 4, 1, "input_dimension must be positive, got 0."),
             (8, 0, 4, 1, "code_dim must be positive, got 0."),
             (8, 8, 0, 1, "num_codes must be positive, got 0."),
             (8, 8, 4, 0, "num_layers must be positive, got 0."),
@@ -73,7 +77,7 @@ class TestResidualVQInit:
     )
     def test_rejects_invalid_configuration(
         self,
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         num_codes: int,
         num_layers: int,
@@ -81,7 +85,7 @@ class TestResidualVQInit:
     ) -> None:
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             ResidualVQ(
-                input_dim=input_dim,
+                input_dimension=input_dimension,
                 code_dim=code_dim,
                 num_codes=num_codes,
                 num_layers=num_layers,
@@ -95,12 +99,14 @@ class TestResidualVQForward:
         z_e_factory: Callable[..., torch.Tensor],
         mock_vq_layer_output_factory: Callable,
     ) -> None:
-        rvq = ResidualVQ(input_dim=8, code_dim=8, num_codes=4, num_layers=2)
+        rvq = ResidualVQ(input_dimension=8, code_dim=8, num_codes=4, num_layers=2)
         z_e = z_e_factory(batch_size=4, dim=8)
 
         for layer in rvq.layers:
             layer.forward = MagicMock(
-                return_value=mock_vq_layer_output_factory(batch_size=4, input_dim=8)
+                return_value=mock_vq_layer_output_factory(
+                    batch_size=4, input_dimension=8
+                )
             )
 
         rvq(z_e)
@@ -114,11 +120,11 @@ class TestResidualVQForward:
         z_e_factory: Callable[..., torch.Tensor],
         mock_vq_layer_output_factory: Callable,
     ) -> None:
-        rvq = ResidualVQ(input_dim=8, code_dim=8, num_codes=4, num_layers=2)
+        rvq = ResidualVQ(input_dimension=8, code_dim=8, num_codes=4, num_layers=2)
         z_e = z_e_factory(batch_size=4, dim=8)
 
-        output_0 = mock_vq_layer_output_factory(batch_size=4, input_dim=8)
-        output_1 = mock_vq_layer_output_factory(batch_size=4, input_dim=8)
+        output_0 = mock_vq_layer_output_factory(batch_size=4, input_dimension=8)
+        output_1 = mock_vq_layer_output_factory(batch_size=4, input_dimension=8)
         rvq.layers[0].forward = MagicMock(return_value=output_0)
         rvq.layers[1].forward = MagicMock(return_value=output_1)
 
@@ -134,11 +140,11 @@ class TestResidualVQForward:
         z_e_factory: Callable[..., torch.Tensor],
         mock_vq_layer_output_factory: Callable,
     ) -> None:
-        rvq = ResidualVQ(input_dim=8, code_dim=8, num_codes=4, num_layers=2)
+        rvq = ResidualVQ(input_dimension=8, code_dim=8, num_codes=4, num_layers=2)
         z_e = z_e_factory(batch_size=4, dim=8)
 
-        output_0 = mock_vq_layer_output_factory(batch_size=4, input_dim=8)
-        output_1 = mock_vq_layer_output_factory(batch_size=4, input_dim=8)
+        output_0 = mock_vq_layer_output_factory(batch_size=4, input_dimension=8)
+        output_1 = mock_vq_layer_output_factory(batch_size=4, input_dimension=8)
         rvq.layers[0].forward = MagicMock(return_value=output_0)
         rvq.layers[1].forward = MagicMock(return_value=output_1)
 
@@ -153,12 +159,16 @@ class TestResidualVQForward:
         mock_vq_layer_output_factory: Callable,
         num_layers: int,
     ) -> None:
-        rvq = ResidualVQ(input_dim=8, code_dim=8, num_codes=4, num_layers=num_layers)
+        rvq = ResidualVQ(
+            input_dimension=8, code_dim=8, num_codes=4, num_layers=num_layers
+        )
         z_e = z_e_factory(batch_size=4, dim=8)
 
         for layer in rvq.layers:
             layer.forward = MagicMock(
-                return_value=mock_vq_layer_output_factory(batch_size=4, input_dim=8)
+                return_value=mock_vq_layer_output_factory(
+                    batch_size=4, input_dimension=8
+                )
             )
 
         _, all_indices, z_e_per_layer, z_q_per_layer = rvq(z_e)
@@ -173,10 +183,10 @@ class TestResidualVQForward:
         z_e_factory: Callable[..., torch.Tensor],
         mock_vq_layer_output_factory: Callable,
     ) -> None:
-        rvq = ResidualVQ(input_dim=8, code_dim=8, num_codes=4, num_layers=2)
+        rvq = ResidualVQ(input_dimension=8, code_dim=8, num_codes=4, num_layers=2)
         z_e = z_e_factory(batch_size=4, dim=8)
-        output_0 = mock_vq_layer_output_factory(batch_size=4, input_dim=8)
-        output_1 = mock_vq_layer_output_factory(batch_size=4, input_dim=8)
+        output_0 = mock_vq_layer_output_factory(batch_size=4, input_dimension=8)
+        output_1 = mock_vq_layer_output_factory(batch_size=4, input_dimension=8)
         rvq.layers[0].forward = MagicMock(return_value=output_0)
         rvq.layers[1].forward = MagicMock(return_value=output_1)
 
@@ -191,27 +201,27 @@ class TestResidualVQForward:
 class TestResidualVQForwardIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize("num_layers", [1, 2, 3])
-    @pytest.mark.parametrize("input_dim, code_dim", [(8, 8), (16, 4)])
+    @pytest.mark.parametrize("input_dimension, code_dim", [(8, 8), (16, 4)])
     @pytest.mark.parametrize("batch_size", [1, 10])
     def test_output_shapes(
         self,
         z_e_factory: Callable[..., torch.Tensor],
         num_layers: int,
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         batch_size: int,
     ) -> None:
         rvq = ResidualVQ(
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             code_dim=code_dim,
             num_codes=4,
             num_layers=num_layers,
             kmeans_init=False,
         )
         rvq.eval()
-        z_e = z_e_factory(batch_size=batch_size, dim=input_dim)
+        z_e = z_e_factory(batch_size=batch_size, dim=input_dimension)
         z_q, all_indices, z_e_per_layer, z_q_per_layer = rvq(z_e)
-        assert z_q.shape == (batch_size, input_dim)
+        assert z_q.shape == (batch_size, input_dimension)
         assert len(all_indices) == num_layers
         for indices in all_indices:
             assert indices.shape == (batch_size,)
@@ -223,7 +233,7 @@ class TestResidualVQForwardIntegration:
         self, z_e_factory: Callable[..., torch.Tensor]
     ) -> None:
         rvq = ResidualVQ(
-            input_dim=8,
+            input_dimension=8,
             code_dim=8,
             num_codes=4,
             num_layers=1,
@@ -242,7 +252,7 @@ class TestResidualVQForwardIntegration:
         self, z_e_factory: Callable[..., torch.Tensor], num_layers: int
     ) -> None:
         rvq = ResidualVQ(
-            input_dim=8,
+            input_dimension=8,
             code_dim=8,
             num_codes=4,
             num_layers=num_layers,
@@ -263,7 +273,7 @@ class TestResidualVQForwardIntegration:
         num_layers: int,
     ) -> None:
         rvq = ResidualVQ(
-            input_dim=8,
+            input_dimension=8,
             code_dim=8,
             num_codes=4,
             num_layers=num_layers,
@@ -288,7 +298,7 @@ class TestResidualVQDecodeFromIndices:
         num_layers: int,
     ) -> None:
         rvq = ResidualVQ(
-            input_dim=8,
+            input_dimension=8,
             code_dim=8,
             num_codes=4,
             num_layers=num_layers,
@@ -301,22 +311,22 @@ class TestResidualVQDecodeFromIndices:
         assert torch.allclose(z_q_forward, z_q_decoded, atol=1e-6)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("input_dim, code_dim", [(8, 8), (16, 4)])
+    @pytest.mark.parametrize("input_dimension, code_dim", [(8, 8), (16, 4)])
     def test_output_shape(
         self,
         z_e_factory: Callable[..., torch.Tensor],
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
     ) -> None:
         rvq = ResidualVQ(
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             code_dim=code_dim,
             num_codes=4,
             num_layers=2,
             kmeans_init=False,
         )
         rvq.eval()
-        z_e = z_e_factory(batch_size=6, dim=input_dim)
+        z_e = z_e_factory(batch_size=6, dim=input_dimension)
         _, all_indices, _, _ = rvq(z_e)
         z_q_decoded = rvq.decode_from_indices(all_indices)
-        assert z_q_decoded.shape == (6, input_dim)
+        assert z_q_decoded.shape == (6, input_dimension)

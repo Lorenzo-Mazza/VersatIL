@@ -99,6 +99,6 @@ class PriorLatentEncoder(ModuleAttrMixin, abc.ABC):
             observations: Optional dictionary of conditioning features
 
         Returns:
-            Sampled latent embeddings, shape (batch_size, embedding_dim)
+            Sampled latent embeddings, shape (batch_size, embedding_dimension)
         """
         raise NotImplementedError

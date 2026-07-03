@@ -122,11 +122,11 @@ class PrismaticVLM(GenerativeVLM):
             llm_backbone_id=self.llm_backbone_id,
             attention_type=attention_type,
         )
-        self.hidden_dim = int(self.language_model.config.hidden_size)
+        self.hidden_dimension = int(self.language_model.config.hidden_size)
         self.projector = self._build_projector(
             arch_specifier=self.arch_specifier,
             vision_dimension=self.vision_embedding_dimension,
-            language_dimension=self.hidden_dim,
+            language_dimension=self.hidden_dimension,
         )
         self.max_text_length = (
             max_text_length

@@ -152,8 +152,8 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
         self._build_transformer_components()
         self._build_mixture_heads()
         self._build_gating_network(
-            input_dim=embedding_dimension,
-            hidden_dims=gating_hidden_dims,
+            input_dimension=embedding_dimension,
+            hidden_dimensions=gating_hidden_dims,
             activation=gating_activation,
             dropout=gating_dropout,
             normalization=gating_normalization,
@@ -214,8 +214,8 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
 
     def _build_gating_network(
         self,
-        input_dim: int,
-        hidden_dims: list[int] | None,
+        input_dimension: int,
+        hidden_dimensions: list[int] | None,
         activation: str,
         dropout: float,
         normalization: bool,
@@ -223,22 +223,22 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
         """Build gating MLP for computing mixture weights.
 
         Args:
-            input_dim: Input feature dimension.
-            hidden_dims: List of hidden layer dimensions.
+            input_dimension: Input feature dimension.
+            hidden_dimensions: List of hidden layer dimensions.
             activation: Activation function name.
             dropout: Dropout rate.
             normalization: Whether to apply layer normalization before MLP.
         """
-        if hidden_dims is None or len(hidden_dims) == 0:
-            hidden_dims = [input_dim // 2]
+        if hidden_dimensions is None or len(hidden_dimensions) == 0:
+            hidden_dimensions = [input_dimension // 2]
 
         layers: list[nn.Module] = []
         if normalization:
-            layers.append(nn.LayerNorm(input_dim))
+            layers.append(nn.LayerNorm(input_dimension))
 
         gating_mlp = MLP(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=hidden_dimensions,
             output_dim=self.num_mixture_components,
             activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,
@@ -494,7 +494,7 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
         """Apply K mixture heads to action embeddings and stack outputs.
 
         Args:
-            action_embeddings: (B, T, embedding_dim)
+            action_embeddings: (B, T, embedding_dimension)
 
         Returns:
             Dictionary with stacked outputs. For GaussianHead:

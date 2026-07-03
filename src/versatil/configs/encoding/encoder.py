@@ -81,7 +81,7 @@ class GeometricRGBDEncoderConfig(EncoderConfig):
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
     embedding_dimension: int = 512
-    num_heads: int = 8
+    number_of_heads: int = 8
     ffn_dimension: int = 2048
     patch_size: int = 16
     pooling_method: str = PoolingMethod.AVERAGE.value
@@ -95,7 +95,7 @@ class ProprioEncoderConfig(EncoderConfig):
         "versatil.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder"
     )
     output_dim: int = 128
-    hidden_dims: list[int] | None = None
+    hidden_dimensions: list[int] | None = None
     activation: str = ActivationFunction.RELU.value
     dropout: float = 0.1
 
@@ -169,7 +169,7 @@ class ConditionalCNNEncoderConfig(ImageEncoderConfig):
         "versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder"
     )
     condition_key: str = MISSING
-    condition_dim: int = MISSING
+    conditioning_dimension: int = MISSING
     pooling_method: str = PoolingMethod.NONE.value
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
     lora_config: LoRAAdaptationConfig | None = None

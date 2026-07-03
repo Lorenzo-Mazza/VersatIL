@@ -82,7 +82,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         mock_vlm.model.connector = nn.Identity()
 
         mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
-        # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dim)
+        # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dimension)
         mock_image_output.pooler_output = torch.zeros(
             batch_size * num_cameras, NUM_IMAGE_TOKENS, HIDDEN_DIM
         )
@@ -185,7 +185,7 @@ def _setup_mock_vlm_for_batch(
     num_cameras = len(backbone.camera_keys)
     total_image_tokens = backbone.total_image_tokens
     mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
-    # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dim)
+    # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dimension)
     mock_image_output.pooler_output = torch.zeros(
         effective_batch_size * num_cameras,
         backbone.num_image_tokens_per_camera,
@@ -229,7 +229,7 @@ class TestSmolVLMInitialization:
             pretrained=False,
             frozen=frozen,
         )
-        assert backbone.hidden_dim == HIDDEN_DIM
+        assert backbone.hidden_dimension == HIDDEN_DIM
         assert backbone.image_size == IMAGE_SIZE
         assert backbone.max_text_length == MAX_TEXT_LENGTH
         assert backbone.num_image_tokens_per_camera == NUM_IMAGE_TOKENS
@@ -869,7 +869,7 @@ class TestSmolVLMIntegration:
             output = backbone(inputs=inputs)
         fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
         assert fused.shape[0] == batch_size
-        assert fused.shape[-1] == backbone.hidden_dim
+        assert fused.shape[-1] == backbone.hidden_dimension
         if lora_enabled:
             trainable_parameter_names = [
                 name
@@ -931,12 +931,12 @@ class TestSmolVLMIntegration:
         backbone = real_smolvlm_backbone(model_dtype=PrecisionType.FP32.value)
         layers = backbone.get_backbone_layers()
         assert len(layers) > 0
-        hidden = torch.zeros(1, 1, backbone.hidden_dim)
+        hidden = torch.zeros(1, 1, backbone.hidden_dimension)
         position_ids = torch.zeros(1, 1, dtype=torch.long)
         cos, sin = backbone.get_rotary_embedding()(hidden, position_ids)
         assert cos.shape[0] == hidden.shape[0]
         assert sin.shape[0] == hidden.shape[0]
-        assert backbone.get_backbone_hidden_dim() == backbone.hidden_dim
+        assert backbone.get_backbone_hidden_dim() == backbone.hidden_dimension
 
     @pytest.mark.integration
     @pytest.mark.parametrize(

@@ -17,25 +17,31 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
         self,
         embedding_dimension: int,
         position_source: str = PositionSource.TENSOR_INDICES.value,
-        maximum_length: int = 5000,
+        maximum_sequence_length: int = 5000,
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
-        if maximum_length is None:
-            raise ValueError("maximum_length must be provided for 1D learned encoding")
+        if maximum_sequence_length is None:
+            raise ValueError(
+                "maximum_sequence_length must be provided for 1D learned encoding"
+            )
         super().__init__(
             embedding_dimension=embedding_dimension,
             position_source=position_source,
             precompute_encodings=False,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
-        self.learned_encoding = nn.Embedding(maximum_length, embedding_dimension)
+        self.learned_encoding = nn.Embedding(
+            maximum_sequence_length, embedding_dimension
+        )
 
     def _compute_encodings(self, input_values: torch.Tensor) -> torch.Tensor:
-        if self.maximum_length is None:
-            raise RuntimeError("maximum_length must be set for learned encoding")
+        if self.maximum_sequence_length is None:
+            raise RuntimeError(
+                "maximum_sequence_length must be set for learned encoding"
+            )
         input_values = input_values.long()
         if (
             self.position_source == PositionSource.TENSOR_INDICES.value
@@ -47,13 +53,13 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
         ):
             max_position = int(input_values.max())
             min_position = int(input_values.min())
-            if min_position < 0 or max_position >= self.maximum_length:
+            if min_position < 0 or max_position >= self.maximum_sequence_length:
                 raise ValueError(
                     f"Position indices [{min_position}, {max_position}] out of range "
-                    f"[0, {self.maximum_length - 1}]. Increase maximum_length."
+                    f"[0, {self.maximum_sequence_length - 1}]. Increase maximum_sequence_length."
                 )
         else:
-            input_values = input_values.clamp(0, self.maximum_length - 1)
+            input_values = input_values.clamp(0, self.maximum_sequence_length - 1)
         result: torch.Tensor = self.learned_encoding(input_values)
         return result
 

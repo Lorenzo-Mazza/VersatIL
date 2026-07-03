@@ -56,7 +56,7 @@ def _mock_setup_pooling(self, spatial_height: int, spatial_width: int):
 _TINY_VARIANT = {
     "embed_dims": [8, 16],
     "depths": [1, 1],
-    "num_heads": [2, 2],
+    "number_of_heads": [2, 2],
     "decay_ranges": [3, 3],
     "ffn_ratios": [2, 2],
     "use_layer_scales": [False, True],
@@ -174,7 +174,7 @@ def dformer_stage_factory() -> Callable[..., DFormerStage]:
 
     def factory(
         embedding_dimension: int = 16,
-        num_heads: int = 2,
+        number_of_heads: int = 2,
         num_blocks: int = 1,
         decomposition_mode: AttentionDecompositionMode = AttentionDecompositionMode.SEPARABLE,
         drop_path_rate: float = 0.0,
@@ -187,7 +187,7 @@ def dformer_stage_factory() -> Callable[..., DFormerStage]:
     ) -> DFormerStage:
         return DFormerStage(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             num_blocks=num_blocks,
             decomposition_mode=decomposition_mode,
             drop_path_rate=drop_path_rate,

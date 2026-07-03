@@ -30,7 +30,7 @@ class TestGaussianHeadSetOutputDim:
         self,
         gaussian_head_factory: Callable[..., GaussianHead],
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(3)
         assert head.output_proj is not None
         assert head.output_proj.out_features == 3
@@ -39,14 +39,14 @@ class TestGaussianHeadSetOutputDim:
         self,
         gaussian_head_factory: Callable[..., GaussianHead],
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(3)
         assert head._logvar_proj is not None
         assert head._logvar_proj.out_features == 3
 
     def test_projection_uses_last_block_dim(self):
-        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
-        head = GaussianHead(input_dim=64, blocks=blocks)
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = GaussianHead(input_dimension=64, blocks=blocks)
         head.set_output_dim(3)
         assert head.output_proj.in_features == 32
         assert head._logvar_proj.in_features == 32
@@ -72,7 +72,7 @@ class TestGaussianHeadForward:
         gaussian_head_factory: Callable[..., GaussianHead],
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(3)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
@@ -87,7 +87,7 @@ class TestGaussianHeadForward:
         embedding_tensor_factory: Callable[..., torch.Tensor],
         output_dim: int,
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(output_dim)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
@@ -102,7 +102,7 @@ class TestGaussianHeadForward:
         min_logvar = -5.0
         max_logvar = 2.0
         head = gaussian_head_factory(
-            input_dim=64,
+            input_dimension=64,
             min_logvar=min_logvar,
             max_logvar=max_logvar,
         )
@@ -118,8 +118,8 @@ class TestGaussianHeadForward:
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
-        head = GaussianHead(input_dim=64, blocks=blocks)
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = GaussianHead(input_dimension=64, blocks=blocks)
         head.set_output_dim(3)
         head.eval()
         embedding = embedding_tensor_factory(embedding_dimension=64)
@@ -132,7 +132,9 @@ class TestGaussianHeadForward:
         gaussian_head_factory: Callable[..., GaussianHead],
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        head = gaussian_head_factory(input_dim=64, max_logvar=100.0, min_logvar=-100.0)
+        head = gaussian_head_factory(
+            input_dimension=64, max_logvar=100.0, min_logvar=-100.0
+        )
         head.set_output_dim(3)
         head.eval()
         embedding = embedding_tensor_factory(embedding_dimension=64)

@@ -20,12 +20,12 @@ def learned_1d_factory() -> Callable[..., LearnedPositionalEncoding1D]:
     def factory(
         embedding_dimension: int = 64,
         position_source: str = PositionSource.TENSOR_INDICES.value,
-        maximum_length: int = 100,
+        maximum_sequence_length: int = 100,
     ) -> LearnedPositionalEncoding1D:
         return LearnedPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
             position_source=position_source,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
 
     return factory
@@ -51,27 +51,29 @@ def learned_2d_factory() -> Callable[..., LearnedPositionalEncoding2D]:
 
 class TestLearnedPositionalEncoding1D:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
-    @pytest.mark.parametrize("maximum_length", [50, 100])
+    @pytest.mark.parametrize("maximum_sequence_length", [50, 100])
     def test_stores_configuration(
         self,
         embedding_dimension: int,
-        maximum_length: int,
+        maximum_sequence_length: int,
     ):
         module = LearnedPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         assert module.embedding_dimension == embedding_dimension
-        assert module.maximum_length == maximum_length
+        assert module.maximum_sequence_length == maximum_sequence_length
 
     def test_maximum_length_none_raises(self):
         with pytest.raises(
             ValueError,
-            match=re.escape("maximum_length must be provided for 1D learned encoding"),
+            match=re.escape(
+                "maximum_sequence_length must be provided for 1D learned encoding"
+            ),
         ):
             LearnedPositionalEncoding1D(
                 embedding_dimension=64,
-                maximum_length=None,
+                maximum_sequence_length=None,
             )
 
     def test_learned_encoding_dimensions(
@@ -80,7 +82,7 @@ class TestLearnedPositionalEncoding1D:
     ):
         module = learned_1d_factory(
             embedding_dimension=64,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         assert module.learned_encoding.num_embeddings == 100
         assert module.learned_encoding.embedding_dim == 64
@@ -104,7 +106,7 @@ class TestLearnedPositionalEncoding1D:
     ):
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
-            maximum_length=max(sequence_length, 100),
+            maximum_sequence_length=max(sequence_length, 100),
         )
         tensor = sequence_tensor_factory(
             batch_size=batch_size,
@@ -119,7 +121,7 @@ class TestLearnedPositionalEncoding1D:
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        module = learned_1d_factory(embedding_dimension=64, maximum_length=100)
+        module = learned_1d_factory(embedding_dimension=64, maximum_sequence_length=100)
         tensor = sequence_tensor_factory(
             batch_size=1,
             sequence_length=10,
@@ -141,7 +143,7 @@ class TestLearnedPositionalEncoding1D:
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.SCALAR.value,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         tensor = scalar_tensor_factory(batch_size=batch_size)
         output = module(tensor)
@@ -152,13 +154,13 @@ class TestLearnedPositionalEncoding1D:
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        maximum_length = 16
-        sequence_length = maximum_length + 1
+        maximum_sequence_length = 16
+        sequence_length = maximum_sequence_length + 1
         embedding_dimension = 32
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         tensor = sequence_tensor_factory(
             batch_size=2,
@@ -170,7 +172,7 @@ class TestLearnedPositionalEncoding1D:
             ValueError,
             match=re.escape(
                 f"Position indices [0, {max_position}] out of range "
-                f"[0, {maximum_length - 1}]. Increase maximum_length."
+                f"[0, {maximum_sequence_length - 1}]. Increase maximum_sequence_length."
             ),
         ):
             module(tensor)
@@ -180,14 +182,14 @@ class TestLearnedPositionalEncoding1D:
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        maximum_length = 16
+        maximum_sequence_length = 16
         sequence_length = 4
         offset = 14
         embedding_dimension = 32
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         tensor = sequence_tensor_factory(
             batch_size=2,
@@ -199,7 +201,7 @@ class TestLearnedPositionalEncoding1D:
             ValueError,
             match=re.escape(
                 f"Position indices [{offset}, {max_position}] out of range "
-                f"[0, {maximum_length - 1}]. Increase maximum_length."
+                f"[0, {maximum_sequence_length - 1}]. Increase maximum_sequence_length."
             ),
         ):
             module(tensor, offset=offset)
@@ -209,14 +211,14 @@ class TestLearnedPositionalEncoding1D:
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        maximum_length = 4
+        maximum_sequence_length = 4
         sequence_length = 8
         embedding_dimension = 4
         batch_size = 2
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.TENSOR_INDICES.value,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         tensor = sequence_tensor_factory(
             batch_size=batch_size,
@@ -242,18 +244,18 @@ class TestLearnedPositionalEncoding1D:
         self,
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
     ):
-        maximum_length = 16
+        maximum_sequence_length = 16
         embedding_dimension = 32
         batch_size = 2
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
             position_source=PositionSource.SCALAR.value,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
         out_of_range = torch.tensor(
-            [-5.0, float(maximum_length + 10)], dtype=torch.float32
+            [-5.0, float(maximum_sequence_length + 10)], dtype=torch.float32
         )
-        clamped = torch.tensor([0, maximum_length - 1], dtype=torch.long)
+        clamped = torch.tensor([0, maximum_sequence_length - 1], dtype=torch.long)
         output = module(out_of_range)
         expected = module.learned_encoding(clamped)
         assert output.shape == (batch_size, embedding_dimension)

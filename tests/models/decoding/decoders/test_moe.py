@@ -165,12 +165,16 @@ def base_expert_factory(
         observation_space = mock_observation_space_factory()
         if joint_layout:
             action_heads = {
-                "joint_action": action_head_factory(input_dim=embedding_dimension),
+                "joint_action": action_head_factory(
+                    input_dimension=embedding_dimension
+                ),
             }
             decoder_class = MinimalJointDecoder
         else:
             action_heads = {
-                "position_action": action_head_factory(input_dim=embedding_dimension),
+                "position_action": action_head_factory(
+                    input_dimension=embedding_dimension
+                ),
             }
             decoder_class = (
                 MinimalDecoderWithInitWeights if with_init_weights else MinimalDecoder

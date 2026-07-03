@@ -64,7 +64,7 @@ class TransformerInputBuilder(nn.Module):
 
     Example:
         >>> pos_enc = SinusoidalPositionalEncoding2D(embedding_dimension=256)
-        >>> input_builder = TransformerInputBuilder(embedding_dim=256, spatial_positional_encoding_layer=pos_enc)
+        >>> input_builder = TransformerInputBuilder(embedding_dimension=256, spatial_positional_encoding_layer=pos_enc)
         >>> features = {
         ...     "rgb": torch.randn(8, 3, 16, 16),         # (B, C, H, W)
         ...     "depth": torch.randn(8, 5, 1, 32, 32),    # (B, T, C, H, W)
@@ -76,7 +76,7 @@ class TransformerInputBuilder(nn.Module):
 
     def __init__(
         self,
-        embedding_dim: int,
+        embedding_dimension: int,
         has_time_dim: bool = False,
         spatial_positional_encoding_layer: PositionalEncoding2D | None = None,
         flat_positional_encoding_layer: PositionalEncoding1D | None = None,
@@ -87,7 +87,7 @@ class TransformerInputBuilder(nn.Module):
         """Initialize TransformerInputBuilder.
 
         Args:
-            embedding_dim: Common embedding dimension for all features.
+            embedding_dimension: Common embedding dimension for all features.
             has_time_dim: Whether input features include a time dimension.
             spatial_positional_encoding_layer: Optional 2D positional encoding layer for spatial features.
             flat_positional_encoding_layer: Optional 1D positional encoding layer for flat/sequential features.
@@ -99,15 +99,20 @@ class TransformerInputBuilder(nn.Module):
             ValueError: If provided positional encoding layers do not match expected types or dimensions.
         """
         super().__init__()
-        self.embedding_dim = embedding_dim
+        self.embedding_dimension = embedding_dimension
         self.exclude_keys = set(exclude_keys) if exclude_keys else set()
-        self.projection = FeatureProjection(embedding_dim, has_time_dim=has_time_dim)
+        self.projection = FeatureProjection(
+            embedding_dimension, has_time_dim=has_time_dim
+        )
         if spatial_positional_encoding_layer is not None:
             if not isinstance(spatial_positional_encoding_layer, PositionalEncoding2D):
                 raise ValueError(
                     "spatial_positional_encoding_layer must be PositionalEncoding2D."
                 )
-            if spatial_positional_encoding_layer.embedding_dimension != embedding_dim:
+            if (
+                spatial_positional_encoding_layer.embedding_dimension
+                != embedding_dimension
+            ):
                 raise ValueError(
                     "spatial_positional_encoding_layer embedding dimension does not match."
                 )
@@ -116,7 +121,10 @@ class TransformerInputBuilder(nn.Module):
                 raise ValueError(
                     "temporal_positional_encoding_layer must be PositionalEncoding1D."
                 )
-            if temporal_positional_encoding_layer.embedding_dimension != embedding_dim:
+            if (
+                temporal_positional_encoding_layer.embedding_dimension
+                != embedding_dimension
+            ):
                 raise ValueError(
                     "temporal_positional_encoding_layer embedding dimension does not match."
                 )
@@ -125,7 +133,10 @@ class TransformerInputBuilder(nn.Module):
                 raise ValueError(
                     "flat_positional_encoding_layer must be PositionalEncoding1D."
                 )
-            if flat_positional_encoding_layer.embedding_dimension != embedding_dim:
+            if (
+                flat_positional_encoding_layer.embedding_dimension
+                != embedding_dimension
+            ):
                 raise ValueError(
                     "flat_positional_encoding_layer embedding dimension does not match."
                 )
@@ -134,7 +145,9 @@ class TransformerInputBuilder(nn.Module):
         self.has_time_dim = has_time_dim
         self.flat_positional_encoding_layer = flat_positional_encoding_layer
         self.camera_embeddings = (
-            DynamicFeatureEmbedding(embedding_dim) if use_camera_embeddings else None
+            DynamicFeatureEmbedding(embedding_dimension)
+            if use_camera_embeddings
+            else None
         )
 
     def forward(
@@ -349,7 +362,7 @@ class TransformerInputBuilder(nn.Module):
                     flat_positional_encodings = torch.zeros(
                         B,
                         flat_tokens.shape[1],
-                        self.embedding_dim,
+                        self.embedding_dimension,
                         device=flat_tokens.device,
                     )  # (B, L_flat, Emb)
             pe_list = [

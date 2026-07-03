@@ -30,7 +30,7 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
     Each camera image is encoded through SigLIP + multi-modal projector
     separately, then concatenated with language embeddings before the Gemma
     language-model pass. Scaling follows the HF reference: text embeddings are
-    scaled by ``sqrt(hidden_dim)`` inside Gemma's embedding module, image
+    scaled by ``sqrt(hidden_dimension)`` inside Gemma's embedding module, image
     tokens enter unscaled.
     """
 

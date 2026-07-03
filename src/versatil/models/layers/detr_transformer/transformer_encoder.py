@@ -35,7 +35,8 @@ class TransformerEncoderLayer(nn.Module):
         activation_enum = ActivationFunction(activation)
         if activation_enum.is_gated:
             self.activation = activation_enum.to_torch_activation()(
-                input_dim=embedding_dimension, hidden_dim=feedforward_dimension
+                input_dimension=embedding_dimension,
+                hidden_dimension=feedforward_dimension,
             )
             self.feedforward_network = nn.Sequential(
                 self.activation,

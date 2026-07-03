@@ -27,11 +27,11 @@ def concrete_action_head_factory() -> Callable[..., ConcreteActionHead]:
     """Factory for ConcreteActionHead instances."""
 
     def factory(
-        input_dim: int = 64,
+        input_dimension: int = 64,
         blocks: list | None = None,
     ) -> ConcreteActionHead:
         return ConcreteActionHead(
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             blocks=blocks,
         )
 
@@ -40,21 +40,27 @@ def concrete_action_head_factory() -> Callable[..., ConcreteActionHead]:
 
 @pytest.mark.unit
 class TestBaseActionHeadInitialization:
-    @pytest.mark.parametrize("input_dim", [32, 128])
+    @pytest.mark.parametrize("input_dimension", [32, 128])
     @pytest.mark.parametrize("use_blocks", [False, True])
     def test_stores_configuration(
         self,
         concrete_action_head_factory: Callable[..., ConcreteActionHead],
-        input_dim: int,
+        input_dimension: int,
         use_blocks: bool,
     ):
         blocks = (
-            [MLPBlock(input_dim=input_dim, hidden_dims=[input_dim])]
+            [
+                MLPBlock(
+                    input_dimension=input_dimension, hidden_dimensions=[input_dimension]
+                )
+            ]
             if use_blocks
             else None
         )
-        head = concrete_action_head_factory(input_dim=input_dim, blocks=blocks)
-        assert head.input_dim == input_dim
+        head = concrete_action_head_factory(
+            input_dimension=input_dimension, blocks=blocks
+        )
+        assert head.input_dimension == input_dimension
         assert head.output_proj is None
         assert isinstance(head.blocks, nn.ModuleList)
         if blocks is None:
@@ -90,15 +96,15 @@ class TestBaseActionHeadSetOutputDim:
         self,
         concrete_action_head_factory: Callable[..., ConcreteActionHead],
     ):
-        head = concrete_action_head_factory(input_dim=64)
+        head = concrete_action_head_factory(input_dimension=64)
         head.set_output_dim(3)
         assert head.output_proj is not None
         assert head.output_proj.in_features == 64
         assert head.output_proj.out_features == 3
 
     def test_projection_uses_last_block_dim(self):
-        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
-        head = ConcreteActionHead(input_dim=64, blocks=blocks)
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = ConcreteActionHead(input_dimension=64, blocks=blocks)
         head.set_output_dim(3)
         assert head.output_proj.in_features == 32
 
@@ -109,15 +115,15 @@ class TestBaseActionHeadGetHiddenDim:
         self,
         concrete_action_head_factory: Callable[..., ConcreteActionHead],
     ):
-        head = concrete_action_head_factory(input_dim=64)
+        head = concrete_action_head_factory(input_dimension=64)
         assert head._get_hidden_dim() == 64
 
     def test_returns_last_block_output_dim(self):
         blocks = [
-            MLPBlock(input_dim=64, hidden_dims=[48]),
-            MLPBlock(input_dim=48, hidden_dims=[32]),
+            MLPBlock(input_dimension=64, hidden_dimensions=[48]),
+            MLPBlock(input_dimension=48, hidden_dimensions=[32]),
         ]
-        head = ConcreteActionHead(input_dim=64, blocks=blocks)
+        head = ConcreteActionHead(input_dimension=64, blocks=blocks)
         assert head._get_hidden_dim() == 32
 
 
@@ -125,10 +131,10 @@ class TestBaseActionHeadGetHiddenDim:
 def test_apply_blocks_passes_embedding_through_blocks_in_order(
     embedding_tensor_factory: Callable[..., torch.Tensor],
 ):
-    first_block = MLPBlock(input_dim=64, hidden_dims=[64])
-    second_block = MLPBlock(input_dim=64, hidden_dims=[64])
+    first_block = MLPBlock(input_dimension=64, hidden_dimensions=[64])
+    second_block = MLPBlock(input_dimension=64, hidden_dimensions=[64])
     head = ConcreteActionHead(
-        input_dim=64,
+        input_dimension=64,
         blocks=[first_block, second_block],
     )
     embedding = embedding_tensor_factory(embedding_dimension=64)
@@ -165,7 +171,7 @@ class TestBaseActionHeadForward:
         embedding_tensor_factory: Callable[..., torch.Tensor],
         output_dim: int,
     ):
-        head = concrete_action_head_factory(input_dim=64)
+        head = concrete_action_head_factory(input_dimension=64)
         head.set_output_dim(output_dim)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
@@ -175,8 +181,8 @@ class TestBaseActionHeadForward:
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
-        head = ConcreteActionHead(input_dim=64, blocks=blocks)
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = ConcreteActionHead(input_dimension=64, blocks=blocks)
         head.set_output_dim(3)
         head.eval()
         embedding = embedding_tensor_factory(embedding_dimension=64)

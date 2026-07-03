@@ -30,5 +30,4 @@ policy:
   action_space: ${task.action_space}
   prediction_horizon: ${task.prediction_horizon}
   device: ${experiment.device}
-  validate_loss_keys: true
 

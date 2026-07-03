@@ -25,23 +25,25 @@ class UNetInputBuilder(nn.Module):
     Class tokens (if present) are appended at the end of the feature vector.
 
     Args:
-        embedding_dim: Target dimension for projecting all features.
+        embedding_dimension: Target dimension for projecting all features.
         has_time_dim: If True, expects temporal dimension in features (B, T, ...).
 
     Example:
-        >>> builder = UNetInputBuilder(embedding_dim=256, has_time_dim=False)
+        >>> builder = UNetInputBuilder(embedding_dimension=256, has_time_dim=False)
         >>> features = {"rgb_pooled": torch.randn(4, 512), "proprio": torch.randn(4, 64)}
         >>> conditioning = builder(features)  # Shape: (4, 256 + 256)
     """
 
     def __init__(
         self,
-        embedding_dim: int,
+        embedding_dimension: int,
         has_time_dim: bool = False,
     ):
         super().__init__()
-        self.embedding_dim = embedding_dim
-        self.projection = FeatureProjection(embedding_dim, has_time_dim=has_time_dim)
+        self.embedding_dimension = embedding_dimension
+        self.projection = FeatureProjection(
+            embedding_dimension, has_time_dim=has_time_dim
+        )
         self.has_time_dim = has_time_dim
 
     def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor | None:
@@ -52,7 +54,7 @@ class UNetInputBuilder(nn.Module):
                 and pad action keys are automatically filtered out.
 
         Returns:
-            Concatenated feature tensor of shape (B, total_features * embedding_dim),
+            Concatenated feature tensor of shape (B, total_features * embedding_dimension),
             or None if no valid features are provided.
 
         Raises:

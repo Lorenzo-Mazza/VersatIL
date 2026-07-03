@@ -8,22 +8,22 @@ from versatil.models.layers.constants import AttentionDecompositionMode
 
 class TestGeometricAttentionBiasConfiguration:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
-    @pytest.mark.parametrize("num_heads", [4, 8])
+    @pytest.mark.parametrize("number_of_heads", [4, 8])
     def test_stores_configuration(
-        self, geometric_bias_factory, embedding_dimension, num_heads
+        self, geometric_bias_factory, embedding_dimension, number_of_heads
     ):
         bias = geometric_bias_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
         )
         assert bias.embedding_dimension == embedding_dimension
-        assert bias.num_heads == num_heads
+        assert bias.number_of_heads == number_of_heads
         assert bias.bias_weights.shape == (2, 1, 1, 1)
         assert bias.bias_weights.requires_grad is True
-        assert bias.spatial_decay.num_heads == num_heads
-        assert bias.depth_decay.num_heads == num_heads
+        assert bias.spatial_decay.number_of_heads == number_of_heads
+        assert bias.depth_decay.number_of_heads == number_of_heads
         assert bias.rotary_encoding.embedding_dimension == embedding_dimension
-        assert bias.rotary_encoding.num_heads == num_heads
+        assert bias.rotary_encoding.number_of_heads == number_of_heads
 
     def test_bias_weights_initialized_to_ones(self, geometric_bias_factory):
         bias = geometric_bias_factory()
@@ -35,9 +35,9 @@ class TestGeometricBiasForwardFull:
         self, geometric_bias_factory, depth_map_factory
     ):
         embedding_dimension = 32
-        num_heads = 4
+        number_of_heads = 4
         bias = geometric_bias_factory(
-            embedding_dimension=embedding_dimension, num_heads=num_heads
+            embedding_dimension=embedding_dimension, number_of_heads=number_of_heads
         )
         height, width = 4, 6
         depth_map = depth_map_factory(batch_size=2, height=height, width=width)
@@ -48,19 +48,19 @@ class TestGeometricBiasForwardFull:
             device=depth_map.device,
             decomposition_mode=AttentionDecompositionMode.FULL.value,
         )
-        head_dimension = embedding_dimension // num_heads
+        head_dimension = embedding_dimension // number_of_heads
         assert sine.shape == (height, width, head_dimension)
         assert cosine.shape == (height, width, head_dimension)
         assert len(bias_masks) == 1
 
     @pytest.mark.parametrize(
-        "num_heads, height, width",
+        "number_of_heads, height, width",
         [(4, 3, 5), (8, 4, 4)],
     )
     def test_full_bias_mask_shape(
-        self, geometric_bias_factory, depth_map_factory, num_heads, height, width
+        self, geometric_bias_factory, depth_map_factory, number_of_heads, height, width
     ):
-        bias = geometric_bias_factory(num_heads=num_heads)
+        bias = geometric_bias_factory(number_of_heads=number_of_heads)
         batch_size = 2
         depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         (sine, cosine), bias_masks = bias(
@@ -73,7 +73,7 @@ class TestGeometricBiasForwardFull:
         sequence_length = height * width
         assert bias_masks[0].shape == (
             batch_size,
-            num_heads,
+            number_of_heads,
             sequence_length,
             sequence_length,
         )
@@ -81,7 +81,7 @@ class TestGeometricBiasForwardFull:
     def test_bias_weights_control_spatial_vs_depth_contribution(
         self, geometric_bias_factory, depth_map_factory
     ):
-        bias = geometric_bias_factory(num_heads=4)
+        bias = geometric_bias_factory(number_of_heads=4)
         depth_map = depth_map_factory(batch_size=1, height=3, width=3)
 
         _, baseline_masks = bias(
@@ -110,7 +110,7 @@ class TestGeometricBiasForwardFull:
     def test_zero_spatial_weight_removes_spatial_component(
         self, geometric_bias_factory, depth_map_factory
     ):
-        bias = geometric_bias_factory(num_heads=4)
+        bias = geometric_bias_factory(number_of_heads=4)
         depth_map = depth_map_factory(batch_size=1, height=3, width=3)
 
         _, full_masks = bias(
@@ -138,7 +138,7 @@ class TestGeometricBiasForwardFull:
     def test_zero_both_weights_produces_zero_bias(
         self, geometric_bias_factory, depth_map_factory
     ):
-        bias = geometric_bias_factory(num_heads=4)
+        bias = geometric_bias_factory(number_of_heads=4)
         depth_map = depth_map_factory(batch_size=1, height=3, width=3)
 
         with torch.no_grad():
@@ -155,7 +155,7 @@ class TestGeometricBiasForwardFull:
 
     def test_uniform_depth_full_bias_equals_spatial_only(self, geometric_bias_factory):
         # With uniform depth, depth differences are zero, so combined = spatial_weight * spatial
-        bias = geometric_bias_factory(num_heads=4)
+        bias = geometric_bias_factory(number_of_heads=4)
         height, width = 3, 3
         uniform_depth = torch.ones(1, 1, height, width)
 
@@ -195,7 +195,7 @@ class TestGeometricBiasForwardSeparable:
         assert len(bias_masks) == 2
 
     @pytest.mark.parametrize(
-        "batch_size, num_heads, height, width",
+        "batch_size, number_of_heads, height, width",
         [(2, 4, 3, 5), (1, 8, 4, 4)],
     )
     def test_separable_bias_mask_shapes(
@@ -203,11 +203,11 @@ class TestGeometricBiasForwardSeparable:
         geometric_bias_factory,
         depth_map_factory,
         batch_size,
-        num_heads,
+        number_of_heads,
         height,
         width,
     ):
-        bias = geometric_bias_factory(num_heads=num_heads)
+        bias = geometric_bias_factory(number_of_heads=number_of_heads)
         depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         (sine, cosine), (height_bias, width_bias) = bias(
             height=height,
@@ -216,13 +216,13 @@ class TestGeometricBiasForwardSeparable:
             device=depth_map.device,
             decomposition_mode=AttentionDecompositionMode.SEPARABLE.value,
         )
-        assert height_bias.shape == (batch_size, num_heads, width, height, height)
-        assert width_bias.shape == (batch_size, num_heads, height, width, width)
+        assert height_bias.shape == (batch_size, number_of_heads, width, height, height)
+        assert width_bias.shape == (batch_size, number_of_heads, height, width, width)
 
     def test_separable_zero_both_weights_produces_zero_bias(
         self, geometric_bias_factory, depth_map_factory
     ):
-        bias = geometric_bias_factory(num_heads=4)
+        bias = geometric_bias_factory(number_of_heads=4)
         depth_map = depth_map_factory(batch_size=1, height=3, width=4)
 
         with torch.no_grad():

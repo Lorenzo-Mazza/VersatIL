@@ -40,7 +40,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         self,
         input_keys: str | list[str],
         embedding_dimension: int = 512,
-        num_heads: int = 8,
+        number_of_heads: int = 8,
         ffn_dimension: int = 2048,
         decomposition_mode: str = AttentionDecompositionMode.SEPARABLE.value,
         initial_decay: float = 2.0,
@@ -56,7 +56,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         Args:
             input_keys: Input keys for RGB and depth observations.
             embedding_dimension: Dimension of patch embeddings and attention.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             ffn_dimension: Hidden dimension of the feed-forward network.
             decomposition_mode: Attention computation strategy (full or separable).
             initial_decay: Initial decay rate for spatial biases.
@@ -102,7 +102,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         self.attention_block = GeometricAttentionEncoderBlock(
             decomposition_mode=AttentionDecompositionMode(decomposition_mode),
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             ffn_dimension=ffn_dimension,
             initial_decay=initial_decay,
             decay_range=decay_range,

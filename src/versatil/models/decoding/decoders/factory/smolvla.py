@@ -180,7 +180,7 @@ class SmolVLADecoder(BaseInterleavedVLMDecoder):
         )
         if self.proprioceptive_feature_key is not None:
             self.proprioceptive_projection = FeatureProjection(
-                embedding_dim=vlm_hidden_dimension
+                embedding_dimension=vlm_hidden_dimension
             )
         stride = (
             1

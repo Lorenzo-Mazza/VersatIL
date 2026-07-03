@@ -122,7 +122,7 @@ class TestConditionalResidualBlock1DForward:
             channels=input_channels,
             sequence_length=prediction_horizon,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
         assert output.shape == (2, output_channels, prediction_horizon)
@@ -147,8 +147,8 @@ class TestConditionalResidualBlock1DForward:
             channels=16,
             sequence_length=20,
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=32)
-        condition_b = condition_factory(batch_size=2, condition_dim=32)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output_a = module(x=tensor, condition=condition_a)
             output_b = module(x=tensor, condition=condition_b)
@@ -171,7 +171,7 @@ class TestConditionalResidualBlock1DForward:
             channels=channels,
             sequence_length=20,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
         # Output should be nonzero even at identity init because of the residual path
@@ -227,7 +227,7 @@ class TestConditionalResidualBlock1DForward:
             channels=channels,
             sequence_length=20,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output_without_scale = module_without_scale(x=tensor, condition=condition)
             output_with_scale = module_with_scale(x=tensor, condition=condition)

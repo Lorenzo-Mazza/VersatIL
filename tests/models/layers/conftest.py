@@ -22,9 +22,11 @@ def condition_factory(
 
     def factory(
         batch_size: int = 2,
-        condition_dim: int = 32,
+        conditioning_dimension: int = 32,
     ) -> torch.Tensor:
-        data = rng.standard_normal((batch_size, condition_dim)).astype(np.float32)
+        data = rng.standard_normal((batch_size, conditioning_dimension)).astype(
+            np.float32
+        )
         return torch.from_numpy(data)
 
     return factory
@@ -162,7 +164,7 @@ def ada_norm_factory() -> Callable[..., AdaNorm]:
     """Factory for AdaNorm instances with configurable parameters."""
 
     def factory(
-        condition_dim: int = 32,
+        conditioning_dimension: int = 32,
         feature_dim: int = 64,
         use_gate: bool = False,
         base_norm: nn.Module | None = None,
@@ -173,7 +175,7 @@ def ada_norm_factory() -> Callable[..., AdaNorm]:
             base_norm = nn.LayerNorm(feature_dim, elementwise_affine=False)
         return AdaNorm(
             base_norm=base_norm,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=feature_dim,
             use_gate=use_gate,
             init_strategy=init_strategy,

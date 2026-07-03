@@ -78,6 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Public parameter names standardized on explicit long forms across layers,
+  decoders, encoders, configs, and YAMLs: `embedding_dimension`,
+  `number_of_heads`, `input_dimension`, `hidden_dimension(s)`,
+  `conditioning_dimension`, `maximum_sequence_length`, and `epsilon`.
+  Parameters mirroring external APIs (torch optimizers/schedulers,
+  `nn.MultiheadAttention`, `nn.Embedding`) keep their upstream names.
+- `versatil.endpoints.test` renamed to `versatil.endpoints.deploy`; the
+  deployment CLI is `python -m versatil.endpoints.deploy`.
+- Removed dead API surface before freezing the public interface: the unused
+  `validate_loss_keys` policy-constructor parameter (the experiment-level
+  validation flag is unchanged), the decorative `autoregressive` flag on
+  transformer decoder layers (masks control causality), `FusionInput`
+  count fields, `LossOutput.__add__`, `Workspace.load_checkpoint`/`predict`,
+  and the unused split-half rotary frequency builder.
 - Hydra configs moved into the package (`src/versatil/hydra_configs/`) and
   ship in the wheel; endpoints resolve them through `importlib.resources`, so
   the documented CLI works for pip installs, not just source checkouts. The

@@ -76,7 +76,7 @@ class PrecomputedDualStreamLayer(nn.Module):
             attention_normalization_primary=create_block_normalization(
                 normalization_type=normalization_type,
                 dimension=primary_embedding_dimension,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
@@ -92,7 +92,7 @@ class PrecomputedDualStreamLayer(nn.Module):
             normalization=create_block_normalization(
                 normalization_type=normalization_type,
                 dimension=primary_embedding_dimension,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,

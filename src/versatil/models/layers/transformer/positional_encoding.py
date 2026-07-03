@@ -21,8 +21,8 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 def create_positional_encoding(
     encoding_type: str,
     embedding_dimension: int,
-    maximum_length: int,
-    num_heads: int | None = None,
+    maximum_sequence_length: int,
+    number_of_heads: int | None = None,
     base_frequency: float = 10000.0,
     learnable_frequencies: bool = False,
 ) -> PositionalEncoding1D | RotaryPositionalEncoding1D:
@@ -31,8 +31,8 @@ def create_positional_encoding(
     Args:
         encoding_type: Type of encoding (use PositionalEncodingType enum values)
         embedding_dimension: Model embedding dimension
-        maximum_length: Maximum sequence length
-        num_heads: Number of attention heads (required for RoPE)
+        maximum_sequence_length: Maximum sequence length
+        number_of_heads: Number of attention heads (required for RoPE)
         base_frequency: Base frequency for RoPE
         learnable_frequencies: Whether to make RoPE frequencies learnable
 
@@ -45,19 +45,19 @@ def create_positional_encoding(
     if encoding_type == PositionalEncodingType.SINUSOIDAL.value:
         return SinusoidalPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
     elif encoding_type == PositionalEncodingType.LEARNED.value:
         return LearnedPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
         )
     elif encoding_type == PositionalEncodingType.ROPE.value:
-        if num_heads is None:
-            raise ValueError("num_heads is required for RoPE positional encoding")
+        if number_of_heads is None:
+            raise ValueError("number_of_heads is required for RoPE positional encoding")
         return RotaryPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             base_frequency=base_frequency,
             learnable_frequencies=learnable_frequencies,
         )
@@ -79,8 +79,8 @@ def apply_rope_positional_encoding(
     Handles both Sinusoidal (added to embeddings) and RoPE (applied via rotation).
 
     Args:
-        queries: Query tensor (B, num_heads, query_len, head_dim)
-        keys: Key tensor (B, num_heads, key_len, head_dim) including cached keys
+        queries: Query tensor (B, number_of_heads, query_len, head_dim)
+        keys: Key tensor (B, number_of_heads, key_len, head_dim) including cached keys
         positional_encoding: Positional encoding module
         cache_position: Starting position for queries (0 for initial forward, cache_len for generation)
 
