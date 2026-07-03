@@ -26,7 +26,6 @@ defaults:
   - /policy/decoder: act_default
   - /policy/algorithm: bc_with_vae_gaussian
   - /policy/loss: regression_gripper_KL
-  - /inference: default
   - _self_
 ```
 
@@ -54,7 +53,7 @@ src/versatil/hydra_configs/
 │   ├── decoder/                 # Architecture configs
 │   ├── algorithm/               # Algorithm configs
 │   └── loss/                    # Loss configs
-└── inference/                   # Inference settings
+└── end_to_end_deploy/           # Deployment endpoint configs
 ```
 
 ### Creating a New Experiment
@@ -76,7 +75,6 @@ defaults:
   - /policy/decoder: dit_block_transformer
   - /policy/algorithm: diffusion
   - /policy/loss: regression_gripper
-  - /inference: default
   - _self_
 
 experiment:
@@ -104,7 +102,6 @@ class MainConfig:
     task: TaskSpaceConfig
     training: TrainingConfig
     policy: PolicyConfig
-    inference: InferenceConfig
     quantization: Any = None
 ```
 

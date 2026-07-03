@@ -91,6 +91,7 @@ from versatil.configs.decoding.latent import (
     VampPriorConfig,
     VQPosteriorEncoderConfig,
 )
+from versatil.configs.deployment import DeploymentConfig
 from versatil.configs.encoding.encoder import (
     ConditionalCNNEncoderConfig,
     DFormerEncoderConfig,
@@ -115,7 +116,6 @@ from versatil.configs.encoding.fusion import (
 from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.explainability import ExplainabilityConfig
-from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
     ActionTokenLossConfig,
     BaseLossConfig,
@@ -273,7 +273,7 @@ __all__ = [
     "DiffusionActionTransformerConfig",
     "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
-    "InferenceConfig",
+    "DeploymentConfig",
     "ExplainabilityConfig",
     "DataLoaderConfig",
     "DecodingAlgorithmConfig",
@@ -755,7 +755,6 @@ def register_configs() -> None:
     cs.store(name="config", node=MainConfig)
 
     cs.store(group="experiment", name="base", node=ExperimentConfig)
-    cs.store(group="inference", name="base", node=InferenceConfig)
     cs.store(group="task", name="base", node=TaskSpaceConfig)
     cs.store(
         group="task/dataset_schema/zarr_meta", name="base", node=DatasetMetadataConfig
@@ -1130,6 +1129,10 @@ def register_configs() -> None:
     cs.store(
         name="explainability",
         node=ExplainabilityConfig,
+    )
+    cs.store(
+        name="deployment",
+        node=DeploymentConfig,
     )
     cs.store(
         group="compression/module",

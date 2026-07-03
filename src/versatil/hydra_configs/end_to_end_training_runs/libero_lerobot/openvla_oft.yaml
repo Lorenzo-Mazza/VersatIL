@@ -13,7 +13,6 @@ defaults:
   - /policy/decoder: openvla_oft
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_gripper_l1
-  - /inference: libero_lerobot
   - _self_
 
 task:

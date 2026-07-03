@@ -90,6 +90,14 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- The deployment endpoint is Hydra-based like every other endpoint:
+  `python -m versatil.endpoints.deploy checkpoint_path=... model_server_address=...`
+  with a `DeploymentConfig` schema and `end_to_end_deploy/default.yaml`.
+  `InferenceConfig` is gone from training configs — its runtime knobs were
+  deployment decisions, and image rotation is now derived from the
+  checkpoint's dataset schema (LIBERO lerobot datasets need the 180-degree
+  flip because the LIBERO simulator emits images inverted relative to the
+  lerobot orientation).
 - `Policy.output_keys` and `ActionDecoder.get_prediction_output_keys` return
   action keys in action-space metadata order instead of alphabetically; that
   order is the canonical action-key ordering for exported policies and

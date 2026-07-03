@@ -5,7 +5,6 @@ from typing import Any
 
 from versatil.configs.data.task import TaskSpaceConfig
 from versatil.configs.experiment import ExperimentConfig
-from versatil.configs.inference import InferenceConfig
 from versatil.configs.policy import PolicyConfig
 from versatil.configs.training import TrainingConfig
 
@@ -29,5 +28,4 @@ class MainConfig:
     task: TaskSpaceConfig = field(default_factory=TaskSpaceConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
-    inference: InferenceConfig = field(default_factory=InferenceConfig)
     quantization: Any = None

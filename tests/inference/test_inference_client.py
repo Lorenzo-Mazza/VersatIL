@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 from tso_robotics_sockets import (
     CompressionType,
     InferenceResponseKey,
@@ -26,6 +27,7 @@ from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.inference_client import (
     EpisodeStatus,
     InferenceClient,
+    infer_rotate_images,
 )
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
 from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
@@ -138,9 +140,27 @@ def mock_policy_loader_factory(
         mock.device = torch.device("cpu")
         mock.checkpoint_path = "/mock/checkpoint"
         mock.client_identifier = "/mock/checkpoint/latest-99"
-        mock.config.task.dataloader.image_height = image_height
-        mock.config.task.dataloader.image_width = image_width
-        mock.config.inference.rotate_images = rotate_images
+        dataset_schema = (
+            {
+                "_target_": "versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30",
+                "dataset_type": "libero",
+            }
+            if rotate_images
+            else {
+                "_target_": "versatil.data.raw.schemas.hdf5.Hdf5DatasetSchema",
+            }
+        )
+        mock.config = OmegaConf.create(
+            {
+                "task": {
+                    "dataloader": {
+                        "image_height": image_height,
+                        "image_width": image_width,
+                    },
+                    "dataset_schema": dataset_schema,
+                }
+            }
+        )
         mock.depth_clamp_range = depth_clamp_range
         mock.denoising_thresholds = {}
         return mock
@@ -468,6 +488,47 @@ class TestCheckStatus:
         result = InferenceClient._check_status(response=response)
 
         assert result == EpisodeStatus.CONTINUE.value
+
+
+@pytest.mark.unit
+class TestInferRotateImages:
+    @pytest.mark.parametrize(
+        "dataset_schema, expected",
+        [
+            (
+                {
+                    "_target_": (
+                        "versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30"
+                    ),
+                    "dataset_type": "libero",
+                },
+                True,
+            ),
+            (
+                {
+                    "_target_": (
+                        "versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30"
+                    ),
+                    "dataset_type": "metaworld",
+                },
+                False,
+            ),
+            (
+                {"_target_": "versatil.data.raw.schemas.hdf5.Hdf5DatasetSchema"},
+                False,
+            ),
+        ],
+        ids=["libero_lerobot", "metaworld_lerobot", "libero_hdf5"],
+    )
+    def test_rotation_derived_from_dataset_schema(
+        self, dataset_schema: dict, expected: bool
+    ):
+        config = OmegaConf.create({"task": {"dataset_schema": dataset_schema}})
+        assert infer_rotate_images(config=config) is expected
+
+    def test_missing_schema_disables_rotation(self):
+        config = OmegaConf.create({"task": {}})
+        assert infer_rotate_images(config=config) is False
 
 
 @pytest.mark.unit

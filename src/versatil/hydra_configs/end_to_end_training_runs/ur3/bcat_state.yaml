@@ -15,7 +15,6 @@ defaults:
   - /policy/decoder: action_transformer
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_synthetic
-  - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: ur3_2d
   - _self_
 

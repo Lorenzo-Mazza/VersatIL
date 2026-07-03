@@ -14,7 +14,6 @@ defaults:
   - /policy/decoder: gpt_action_transformer
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: tokenCE
-  - /inference: default
   - override /task/dataloader/tokenization: obs_proprio_cf_action_fast
   - _self_
 

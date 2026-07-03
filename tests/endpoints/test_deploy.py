@@ -4,8 +4,34 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+from omegaconf import DictConfig, OmegaConf
 
 from versatil.endpoints.deploy import main
+
+
+def _deployment_config(
+    device: str | None = "cpu",
+    temporal_aggregation: bool = True,
+    update_rate_hz: float | None = 10.0,
+    request_timeout_seconds: float | None = 2.5,
+) -> DictConfig:
+    return OmegaConf.create(
+        {
+            "checkpoint_path": "/tmp/ckpt",
+            "checkpoint_name": "best.ckpt",
+            "device": device,
+            "model_server_address": "10.0.0.1",
+            "model_server_port": 5556,
+            "temporal_aggregation": temporal_aggregation,
+            "action_execution_horizon": None,
+            "update_rate_hz": update_rate_hz,
+            "max_steps": 100,
+            "temporal_max_timesteps": 800,
+            "timing_log": True,
+            "compile_model": False,
+            "request_timeout_seconds": request_timeout_seconds,
+        }
+    )
 
 
 @pytest.mark.unit
@@ -13,31 +39,16 @@ from versatil.endpoints.deploy import main
 @patch("versatil.endpoints.deploy.SocketActionTransport")
 @patch("versatil.endpoints.deploy.SocketObservationTransport")
 @patch("versatil.endpoints.deploy.load_policy")
-@patch("versatil.endpoints.deploy.parse_args")
-def test_main_creates_policy_loader_with_parsed_args(
-    mock_parse_args,
+def test_main_wires_client_from_config(
     mock_load_policy,
     mock_obs_transport_class,
     mock_action_transport_class,
     mock_client_class,
 ):
-    mock_parse_args.return_value = MagicMock(
-        checkpoint_path="/tmp/ckpt",
-        checkpoint_name="best.ckpt",
-        device="cpu",
-        model_server_address="10.0.0.1",
-        model_server_port=5556,
-        temporal_aggregation=True,
-        action_execution_horizon=None,
-        timing_log=True,
-        update_frequency=10.0,
-        max_steps=100,
-        request_timeout=2.5,
-    )
     mock_client = MagicMock()
     mock_client_class.return_value = mock_client
 
-    main()
+    main(_deployment_config())
 
     mock_load_policy.assert_called_once_with(
         checkpoint_path="/tmp/ckpt",
@@ -70,30 +81,16 @@ def test_main_creates_policy_loader_with_parsed_args(
 @patch("versatil.endpoints.deploy.SocketActionTransport")
 @patch("versatil.endpoints.deploy.SocketObservationTransport")
 @patch("versatil.endpoints.deploy.load_policy")
-@patch("versatil.endpoints.deploy.parse_args")
-def test_main_defaults_to_cuda_when_available(
-    mock_parse_args,
+def test_main_defaults_to_cpu_without_cuda(
     mock_load_policy,
     mock_obs_transport_class,
     mock_action_transport_class,
     mock_client_class,
 ):
-    mock_parse_args.return_value = MagicMock(
-        checkpoint_path="/tmp/ckpt",
-        checkpoint_name="last.ckpt",
-        device=None,
-        model_server_address="127.0.0.1",
-        model_server_port=5555,
-        temporal_aggregation=False,
-        action_execution_horizon=None,
-        timing_log=False,
-        update_frequency=None,
-        max_steps=1000,
-    )
     mock_client_class.return_value = MagicMock()
 
     with patch("versatil.endpoints.deploy.torch.cuda.is_available", return_value=False):
-        main()
+        main(_deployment_config(device=None))
 
     device_used = mock_load_policy.call_args.kwargs["device"]
     assert device_used == torch.device("cpu")
@@ -104,30 +101,16 @@ def test_main_defaults_to_cuda_when_available(
 @patch("versatil.endpoints.deploy.SocketActionTransport")
 @patch("versatil.endpoints.deploy.SocketObservationTransport")
 @patch("versatil.endpoints.deploy.load_policy")
-@patch("versatil.endpoints.deploy.parse_args")
 def test_main_calls_shutdown_even_on_keyboard_interrupt(
-    mock_parse_args,
     mock_load_policy,
     mock_obs_transport_class,
     mock_action_transport_class,
     mock_client_class,
 ):
-    mock_parse_args.return_value = MagicMock(
-        checkpoint_path="/tmp/ckpt",
-        checkpoint_name="last.ckpt",
-        device="cpu",
-        model_server_address="127.0.0.1",
-        model_server_port=5555,
-        temporal_aggregation=False,
-        action_execution_horizon=None,
-        timing_log=False,
-        update_frequency=None,
-        max_steps=1000,
-    )
     mock_client = MagicMock()
     mock_client.run_episode.side_effect = KeyboardInterrupt
     mock_client_class.return_value = mock_client
 
-    main()
+    main(_deployment_config())
 
     mock_client.shutdown.assert_called_once()

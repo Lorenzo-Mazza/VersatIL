@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 from tso_robotics_sockets import (
     CompressionType,
     InferenceRequestKey,
@@ -158,9 +159,19 @@ def mock_policy_loader_factory(
         mock.action_space = action_space
         mock.observation_horizon = observation_horizon
         mock.prediction_horizon = prediction_horizon
-        mock.config.task.dataloader.image_height = IMAGE_HEIGHT
-        mock.config.task.dataloader.image_width = IMAGE_WIDTH
-        mock.config.inference.rotate_images = False
+        mock.config = OmegaConf.create(
+            {
+                "task": {
+                    "dataloader": {
+                        "image_height": IMAGE_HEIGHT,
+                        "image_width": IMAGE_WIDTH,
+                    },
+                    "dataset_schema": {
+                        "_target_": "versatil.data.raw.schemas.hdf5.Hdf5DatasetSchema"
+                    },
+                }
+            }
+        )
         mock.depth_clamp_range = depth_clamp_range
         mock.denoising_thresholds = denoising_thresholds
         mock.checkpoint_path = checkpoint_path

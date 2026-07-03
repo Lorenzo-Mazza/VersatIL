@@ -14,7 +14,6 @@ defaults:
   - /policy/decoder: conditional_unet
   - /policy/algorithm: diffusion
   - /policy/loss: regression_gripper_mse
-  - /inference: default
   - _self_
 
 experiment:

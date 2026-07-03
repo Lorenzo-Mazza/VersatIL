@@ -14,7 +14,6 @@ defaults:
   - /policy/decoder: dit_multimodal
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_synthetic
-  - /inference: default
   - _self_
 
 task:

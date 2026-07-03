@@ -13,7 +13,6 @@ defaults:
   - /policy/decoder: pi05_decoder
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_gripper_mse
-  - /inference: libero_lerobot
   - _self_
 
 task:

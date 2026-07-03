@@ -1,11 +1,14 @@
-"""Inference endpoint for real-time model deployment."""
+"""Hydra-based endpoint for real-time model deployment."""
 
-import argparse
 import logging
 import os
 
+import hydra
 import torch
+from omegaconf import DictConfig, OmegaConf
 
+from versatil.common.logging import override_log_format
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.inference.inference_client import InferenceClient
 from versatil.inference.policy_runtime.base import PolicyRuntime
 from versatil.inference.policy_runtime.compressed_runtime import (
@@ -19,94 +22,7 @@ from versatil.inference.socket_transport import (
 from versatil.post_training_compression.constants import CompressionFilename
 from versatil.training.constants import CheckpointFilename
 
-
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments.
-
-    Returns:
-        Parsed arguments namespace.
-    """
-    parser = argparse.ArgumentParser(description="VersatIL Inference Client")
-    parser.add_argument(
-        "--checkpoint_path",
-        type=str,
-        required=True,
-        help="Path to the checkpoint directory.",
-    )
-    parser.add_argument(
-        "--checkpoint_name",
-        type=str,
-        default=CheckpointFilename.DEFAULT_CHECKPOINT.value,
-        help="Name of the checkpoint file.",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default=None,
-        help="Device to run inference on (e.g., cuda, cpu).",
-    )
-    parser.add_argument(
-        "--model_server_address",
-        type=str,
-        default="127.0.0.1",
-        help="Address of the environment server.",
-    )
-    parser.add_argument(
-        "--model_server_port",
-        type=int,
-        default=5555,
-        help="Port of the environment server.",
-    )
-    parser.add_argument(
-        "--temporal_aggregation",
-        action="store_true",
-        help="Enable temporal ensemble (query every step, average overlapping chunks).",
-    )
-    parser.add_argument(
-        "--action_execution_horizon",
-        type=int,
-        default=None,
-        help="Actions to execute per chunk when temporal aggregation is off. Default: prediction_horizon.",
-    )
-    parser.add_argument(
-        "--update_frequency",
-        type=float,
-        default=None,
-        help="Update rate in Hz (for robot deployment). None for simulation.",
-    )
-    parser.add_argument(
-        "--max_steps",
-        type=int,
-        default=1000000,
-        help="Maximum steps per episode.",
-    )
-    parser.add_argument(
-        "--temporal_max_timesteps",
-        type=int,
-        default=800,
-        help="Maximum number of steps tracked by temporal aggregation.",
-    )
-    parser.add_argument(
-        "--timing_log",
-        action="store_true",
-        help="Log per-step timing breakdown.",
-    )
-    parser.add_argument(
-        "--no_compile",
-        action="store_true",
-        help="Disable torch.compile model optimization.",
-    )
-    parser.add_argument(
-        "--request_timeout",
-        type=float,
-        default=None,
-        help=(
-            "Per-request transport timeout in seconds; requests raise "
-            "TimeoutError instead of blocking forever on a dead server. "
-            "Requires tso-robotics-sockets >= 0.2.0."
-        ),
-    )
-    return parser.parse_args()
+EXPERIMENTS_DIR = get_hydra_configs_dir()
 
 
 def load_policy(
@@ -148,55 +64,59 @@ def load_policy(
         )
 
 
-def main() -> None:
-    """Main entry point for inference endpoint."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(module)s %(levelname)s %(message)s",
-        force=True,
-    )
-    for handler in logging.root.handlers:
-        handler.flush = handler.stream.flush
-    args = parse_args()
-    if args.device:
-        device = torch.device(args.device)
+@hydra.main(
+    version_base=None,
+    config_path=str(EXPERIMENTS_DIR),
+    config_name="end_to_end_deploy/default.yaml",
+)
+def main(config: DictConfig) -> None:
+    """Run the deployment endpoint.
+
+    Args:
+        config: Hydra configuration for the deployment client.
+    """
+    override_log_format()
+    logging.info("Deployment endpoint")
+    logging.info(OmegaConf.to_yaml(config))
+
+    if config.device is not None:
+        device = torch.device(config.device)
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     if device == torch.device("cpu"):
         logging.warning("Running on CPU. Consider using a GPU for better performance.")
 
     policy_runtime = load_policy(
-        checkpoint_path=args.checkpoint_path,
+        checkpoint_path=config.checkpoint_path,
         device=device,
-        checkpoint_name=args.checkpoint_name,
-        compile_model=not args.no_compile,
+        checkpoint_name=config.checkpoint_name,
+        compile_model=config.compile_model,
     )
 
     observation_transport = SocketObservationTransport(
-        server_address=args.model_server_address,
-        server_port=args.model_server_port,
-        request_timeout_seconds=args.request_timeout,
+        server_address=config.model_server_address,
+        server_port=config.model_server_port,
+        request_timeout_seconds=config.request_timeout_seconds,
     )
     action_transport = SocketActionTransport(
-        server_address=args.model_server_address,
-        server_port=args.model_server_port,
-        request_timeout_seconds=args.request_timeout,
+        server_address=config.model_server_address,
+        server_port=config.model_server_port,
+        request_timeout_seconds=config.request_timeout_seconds,
     )
 
     client = InferenceClient(
         policy_runtime=policy_runtime,
         observation_transport=observation_transport,
         action_transport=action_transport,
-        temporal_aggregation=args.temporal_aggregation,
-        action_execution_horizon=args.action_execution_horizon,
-        max_timesteps=args.temporal_max_timesteps,
-        timing_log=args.timing_log,
-        update_rate_hz=args.update_frequency,
+        temporal_aggregation=config.temporal_aggregation,
+        action_execution_horizon=config.action_execution_horizon,
+        max_timesteps=config.temporal_max_timesteps,
+        timing_log=config.timing_log,
+        update_rate_hz=config.update_rate_hz,
     )
 
     try:
-        client.run_episode(max_steps=args.max_steps)
+        client.run_episode(max_steps=config.max_steps)
     except KeyboardInterrupt:
         logging.info("Shutting down client...")
     finally:

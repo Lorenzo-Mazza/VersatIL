@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf
 from tso_robotics_sockets import (
     CompressionType,
     InferenceResponseKey,
@@ -16,6 +17,7 @@ from tso_robotics_sockets import (
 )
 from versatil_constants.shared import ObsKey
 
+from versatil.data.constants import DatasetType
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
@@ -42,6 +44,30 @@ class EnvironmentState:
 
     observation_buffer: ObservationBuffer
     temporal_aggregator: TemporalAggregator | None = None
+
+
+def infer_rotate_images(config: DictConfig) -> bool:
+    """Whether incoming simulator images must be rotated 180 degrees.
+
+    The LIBERO simulator emits images flipped relative to the lerobot dataset
+    orientation the policy was trained on, so the mismatch is a property of
+    the training data source, derived from the checkpoint's dataset schema.
+
+    Args:
+        config: Full training config saved with the checkpoint.
+
+    Returns:
+        True for policies trained on LIBERO lerobot datasets.
+    """
+    schema = OmegaConf.select(config, "task.dataset_schema")
+    if schema is None:
+        return False
+    target = str(schema.get("_target_", ""))
+    dataset_type = str(schema.get("dataset_type", ""))
+    return (
+        target.endswith("LeRobotDatasetSchemaV30")
+        and dataset_type == DatasetType.LIBERO.value
+    )
 
 
 class InferenceClient:
@@ -136,7 +162,7 @@ class InferenceClient:
             has_language=self.has_language,
             camera_metadata=policy_runtime.observation_space.cameras,
             compression_type=compression_type,
-            rotate_images=policy_runtime.config.inference.rotate_images,
+            rotate_images=infer_rotate_images(config=policy_runtime.config),
             depth_clamp_range=policy_runtime.depth_clamp_range,
         )
         self.action_postprocessor = ActionPostprocessor(

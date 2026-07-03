@@ -15,7 +15,6 @@ defaults:
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior
   - /policy/loss: regression_relaxed_conditional_OT
-  - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: ur3_2d
   - _self_
 

@@ -16,7 +16,6 @@ defaults:
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_vq_learned
   - /policy/loss: regression_vq_ce
-  - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: pusht_2d
   - _self_
 

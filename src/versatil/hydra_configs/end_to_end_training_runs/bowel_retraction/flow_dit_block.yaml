@@ -14,7 +14,6 @@ defaults:
   - /policy/decoder: dit_block_transformer
   - /policy/algorithm: flow_matching
   - /policy/loss: regression_gripper_mse
-  - /inference: default
   - _self_
 
 experiment:

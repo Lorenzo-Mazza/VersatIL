@@ -15,7 +15,6 @@ defaults:
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_vae_gaussian
   - /policy/loss: regression_KL
-  - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: ant_8d
   - _self_
 

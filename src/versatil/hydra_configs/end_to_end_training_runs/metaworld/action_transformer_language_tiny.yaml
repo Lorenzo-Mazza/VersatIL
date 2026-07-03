@@ -14,7 +14,6 @@ defaults:
   - /policy/decoder: action_transformer_language
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_continuous_gripper
-  - /inference: libero_lerobot
   - override /policy/decoder/heads@policy.decoder.action_heads: metaworld_mt50
   - _self_
 

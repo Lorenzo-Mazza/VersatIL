@@ -14,7 +14,6 @@ defaults:
   - /policy/decoder: mixture_of_act
   - /policy/algorithm: bc_with_learned_prior
   - /policy/loss: moe_regression_gripper_MMD
-  - /inference: default
   - _self_
 
 experiment:

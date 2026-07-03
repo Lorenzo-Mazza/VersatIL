@@ -608,7 +608,6 @@ defaults:
   - /policy/decoder: act_default                 # Action decoder architecture
   - /policy/algorithm: bc_with_vae_gaussian      # Learning algorithm
   - /policy/loss: regression_gripper_KL          # Loss composition
-  - /inference: default
   - _self_
 ```
 
