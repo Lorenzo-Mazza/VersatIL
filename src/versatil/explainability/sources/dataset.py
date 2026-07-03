@@ -160,10 +160,7 @@ class DatasetExplanationSource:
         if self.split == ExplanationDatasetSplit.ALL.value:
             dataloader_config.val_ratio = 0.0
         train_split = self.split != ExplanationDatasetSplit.VAL.value
-        _ensure_zarr_exists(
-            schema=self.dataset_schema,
-            preload_in_memory=dataloader_config.preload_data_in_memory,
-        )
+        _ensure_zarr_exists(schema=self.dataset_schema)
         dataset = EpisodicDataset(
             zarr_path=self.dataset_schema.zarr_path,
             pred_horizon=self.config.task.prediction_horizon,

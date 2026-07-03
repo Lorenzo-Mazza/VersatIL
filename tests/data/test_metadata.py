@@ -96,6 +96,22 @@ class TestBaseMetadata:
         )
         assert first != second
 
+    def test_subclass_never_equals_parent_instance(self):
+        # Reflected equality must not fall back to the parent's field-only
+        # comparison; different metadata types describe different data.
+        parent = BaseMetadata(
+            dtype="float32", is_numerical=True, needs_normalization=True
+        )
+        child = ObservationMetadata(
+            raw_data_column_keys=["column"],
+            dimension=3,
+            dtype="float32",
+            is_numerical=True,
+            needs_normalization=True,
+        )
+        assert parent != child
+        assert child != parent
+
     def test_equality_different_type_returns_not_implemented(self):
         metadata = BaseMetadata(
             dtype="float32", is_numerical=True, needs_normalization=True

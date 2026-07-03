@@ -313,6 +313,18 @@ class EncodingPipeline(nn.Module):
                     features[f"{encoder_name}_{feature_key}"] = encoded[feature_key]
 
         for fusion_module in self.fusion_stages:
+            missing_features = [
+                feature_name
+                for feature_name in fusion_module.input_features
+                if feature_name not in features
+            ]
+            if missing_features:
+                raise ValueError(
+                    f"Fusion stage '{fusion_module.output_name}' requires "
+                    f"features {missing_features} that were not produced; a "
+                    "contributing encoder was likely skipped because its "
+                    "observation keys are missing."
+                )
             input_features = [
                 features[feat_name] for feat_name in fusion_module.input_features
             ]

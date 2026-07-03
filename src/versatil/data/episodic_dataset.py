@@ -53,6 +53,7 @@ class EpisodicDataset(data.Dataset):
         train: bool = True,
         seed: int = 42,
         augment_images: bool | None = None,
+        replay_buffer: ReplayBuffer | None = None,
     ):
         """Initialize episodic dataset.
 
@@ -65,6 +66,9 @@ class EpisodicDataset(data.Dataset):
             train: Whether to use training mode.
             seed: Random seed of the experiment.
             augment_images: Whether image augmentations are enabled. Defaults
+            replay_buffer: Already-loaded replay buffer to reuse, avoiding a
+                second in-memory copy when train and validation datasets share
+                one store.
                 to ``train`` so existing training and validation behavior is
                 unchanged.
         """
@@ -94,7 +98,9 @@ class EpisodicDataset(data.Dataset):
                 + action_space.get_required_zarr_keys()
             )
         )  # Remove duplicates
-        if self.preload_data_in_memory:
+        if replay_buffer is not None:
+            self.replay_buffer = replay_buffer
+        elif self.preload_data_in_memory:
             self.replay_buffer = ReplayBuffer.copy_from_path(
                 zarr_path=zarr_path, keys=all_keys
             )
@@ -387,6 +393,12 @@ class EpisodicDataset(data.Dataset):
                 episode_start = int(episode_end)
             gripper_actions = gripper_actions[step_mask]
         gripper_actions = gripper_actions.reshape(-1)
-        number_of_positive_actions = (gripper_actions == 1).sum()
+        number_of_positive_actions = int((gripper_actions == 1).sum())
         number_of_negative_actions = len(gripper_actions) - number_of_positive_actions
+        if number_of_positive_actions == 0 or number_of_negative_actions == 0:
+            raise ValueError(
+                "Class-imbalance weighting needs both gripper classes in the "
+                f"training data; got {number_of_positive_actions} positive and "
+                f"{number_of_negative_actions} negative samples for key={key}."
+            )
         return number_of_negative_actions / number_of_positive_actions

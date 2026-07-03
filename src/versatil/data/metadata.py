@@ -48,7 +48,7 @@ class BaseMetadata:
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, BaseMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             self.dtype == other.dtype
@@ -100,7 +100,7 @@ class ObservationMetadata(BaseMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, ObservationMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -147,7 +147,7 @@ class PositionObservationMetadata(ObservationMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, PositionObservationMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return super().__eq__(other) and self.frame == other.frame
 
@@ -196,7 +196,7 @@ class OrientationObservationMetadata(ObservationMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, OrientationObservationMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -259,7 +259,7 @@ class GripperObservationMetadata(ObservationMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, GripperObservationMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -353,7 +353,7 @@ class CameraMetadata(BaseMetadata):
         semantics depending on context: storage size in the dataset schema vs
         training resize target in the observation space.
         """
-        if not isinstance(other, CameraMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -500,7 +500,7 @@ class ActionMetadata(BaseMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, ActionMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -549,7 +549,7 @@ class OnTheFlyActionMetadata(ActionMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, OnTheFlyActionMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -615,7 +615,7 @@ class PrecomputedActionMetadata(ActionMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, PrecomputedActionMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -667,7 +667,7 @@ class PositionActionMetadata(PrecomputedActionMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, PositionActionMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -722,7 +722,7 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, OrientationActionMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)
@@ -791,7 +791,7 @@ class GripperActionMetadata(PrecomputedActionMetadata):
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
-        if not isinstance(other, GripperActionMetadata):
+        if type(other) is not type(self):
             return NotImplemented
         return (
             super().__eq__(other)

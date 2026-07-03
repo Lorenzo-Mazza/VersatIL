@@ -269,6 +269,37 @@ class TestEpisodicDatasetInit:
         dataset = episodic_dataset_factory(seed=seed)
         assert dataset.seed == seed
 
+    def test_provided_replay_buffer_skips_loading(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        mock_dataloader_config: Callable[..., DataLoaderConfig],
+        mock_replay_buffer_for_dataset: Callable[..., MagicMock],
+    ):
+        # A validation dataset reusing the training buffer must not load a
+        # second in-memory copy of the store.
+        config = mock_dataloader_config(preload_data_in_memory=True)
+        buffer = mock_replay_buffer_for_dataset()
+
+        with (
+            patch(
+                "versatil.data.episodic_dataset.ReplayBuffer"
+            ) as mock_replay_buffer_class,
+            patch("versatil.data.episodic_dataset.ImageProcessor"),
+        ):
+            dataset = EpisodicDataset(
+                zarr_path="/fake/path.zarr",
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(),
+                dataloader_config=config,
+                pred_horizon=4,
+                obs_horizon=2,
+                replay_buffer=buffer,
+            )
+            mock_replay_buffer_class.create_from_path.assert_not_called()
+            mock_replay_buffer_class.copy_from_path.assert_not_called()
+        assert dataset.replay_buffer is buffer
+
     def test_uses_create_from_path_when_not_preloading(
         self,
         action_space_factory: Callable[..., ActionSpace],

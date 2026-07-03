@@ -474,26 +474,9 @@ class TestEnsureZarrExists:
             mock_path_class.return_value.exists.return_value = True
             mock_replay_buffer.create_from_path.return_value = mock_buffer
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_replay_buffer.create_from_path.assert_called_once()
-
-    def test_existing_zarr_preloads_into_memory(self, mock_dataset_schema_factory):
-        required_keys = ["left", "right"]
-        schema = mock_dataset_schema_factory(required_keys=required_keys)
-        mock_buffer = MagicMock()
-        mock_buffer.keys.return_value = required_keys
-
-        with (
-            patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
-        ):
-            mock_path_class.return_value.exists.return_value = True
-            mock_replay_buffer.create_from_path.return_value = mock_buffer
-
-            _ensure_zarr_exists(schema=schema, preload_in_memory=True)
-
-            mock_replay_buffer.copy_from_path.assert_called_once()
 
     def test_missing_keys_raises_without_deleting_store(
         self, mock_dataset_schema_factory
@@ -517,7 +500,7 @@ class TestEnsureZarrExists:
             mock_replay_buffer.create_from_path.return_value = mock_buffer
 
             with pytest.raises(ValueError, match="missing keys"):
-                _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+                _ensure_zarr_exists(schema=schema)
 
             mock_shutil.rmtree.assert_not_called()
             mock_create.assert_not_called()
@@ -543,40 +526,11 @@ class TestEnsureZarrExists:
 
             _ensure_zarr_exists(
                 schema=schema,
-                preload_in_memory=False,
                 recreate_on_missing_keys=True,
             )
 
             mock_shutil.rmtree.assert_called_once()
             mock_create.assert_called_once_with(schema=schema)
-
-    def test_preload_failure_propagates_without_deleting_store(
-        self, mock_dataset_schema_factory
-    ):
-        required_keys = ["left"]
-        schema = mock_dataset_schema_factory(
-            schema_type=Hdf5DatasetSchema, required_keys=required_keys
-        )
-        mock_buffer = MagicMock()
-        mock_buffer.keys.return_value = required_keys
-
-        with (
-            patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
-            patch("versatil.data.dataloader.shutil") as mock_shutil,
-            patch(
-                "versatil.data.dataloader.create_replay_buffer_from_hdf5"
-            ) as mock_create,
-        ):
-            mock_path_class.return_value.exists.return_value = True
-            mock_replay_buffer.create_from_path.return_value = mock_buffer
-            mock_replay_buffer.copy_from_path.side_effect = MemoryError("OOM")
-
-            with pytest.raises(MemoryError, match="OOM"):
-                _ensure_zarr_exists(schema=schema, preload_in_memory=True)
-
-            mock_shutil.rmtree.assert_not_called()
-            mock_create.assert_not_called()
 
     def test_corrupt_store_triggers_recreation(self, mock_dataset_schema_factory):
         schema = mock_dataset_schema_factory(schema_type=Hdf5DatasetSchema)
@@ -592,7 +546,7 @@ class TestEnsureZarrExists:
             mock_path_class.return_value.exists.return_value = True
             mock_replay_buffer.create_from_path.side_effect = Exception("Corrupt zarr")
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_shutil.rmtree.assert_called_once()
             mock_create.assert_called_once_with(schema=schema)
@@ -608,7 +562,7 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_create.assert_called_once_with(schema=schema)
 
@@ -629,7 +583,7 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_collect.assert_called_once_with(
                 dataset_folders=schema.dataset_folders,
@@ -653,7 +607,7 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_create.assert_called_once_with(schema=schema)
 
@@ -671,7 +625,6 @@ class TestEnsureZarrExists:
             ):
                 _ensure_zarr_exists(
                     schema=schema,
-                    preload_in_memory=False,
                 )
 
 

@@ -68,7 +68,6 @@ def get_dataloaders(
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
     _ensure_zarr_exists(
         schema=schema,
-        preload_in_memory=dataloader_config.preload_data_in_memory,
         recreate_on_missing_keys=dataloader_config.recreate_zarr_on_missing_keys,
     )
     skip_validation = dataloader_config.val_ratio == 0
@@ -122,6 +121,7 @@ def get_dataloaders(
             seed=config.experiment.seed,
             action_space=action_space,
             observation_space=observation_space,
+            replay_buffer=train_dataset.replay_buffer,
         )
         val_dataset.set_normalizer(normalizer)
         val_dataset.set_tokenizer(tokenizer)
@@ -238,17 +238,13 @@ def _collect_dataset_paths(
 
 def _ensure_zarr_exists(
     schema: DatasetSchema,
-    preload_in_memory: bool = False,
     recreate_on_missing_keys: bool = False,
 ) -> None:
     """Create the zarr replay buffer if missing, recreating only corrupt stores.
 
-    A store that opens but does not match the task (missing keys) raises by
-    default, and preloading failures always propagate, so a dataset that took
-    hours to build cannot be destroyed by a transient failure or a wrong task
-    configuration. Set ``recreate_on_missing_keys`` to rebuild key-mismatched
-    stores from the raw sources instead.
-
+    Note:
+    Set ``recreate_on_missing_keys`` to rebuild key-mismatched stores from the raw
+    sources instead.
     Dispatches to the appropriate creation function based on schema type:
     - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
@@ -291,11 +287,6 @@ def _ensure_zarr_exists(
                     "rebuild it from the raw sources."
                 )
             else:
-                if preload_in_memory:
-                    logging.info(
-                        f"Preloading replay buffer into memory from {zarr_path}"
-                    )
-                    ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
                 need_create = False
 
     if need_create:

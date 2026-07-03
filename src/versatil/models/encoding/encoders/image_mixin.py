@@ -48,6 +48,14 @@ def resize_to_target_size(
     return resized
 
 
+_NON_CAMERA_INPUT_KEYS = frozenset(
+    {
+        SampleKey.TOKENIZED_OBSERVATIONS.value,
+        SampleKey.IS_PAD_OBSERVATION.value,
+    }
+)
+
+
 class ImageEncoderMixin(abc.ABC):
     """Shared logic for encoders that process camera images.
 
@@ -98,11 +106,9 @@ class ImageEncoderMixin(abc.ABC):
         Args:
             input_keys: Camera input keys declared by the encoder.
         """
-        non_camera_keys = {
-            SampleKey.TOKENIZED_OBSERVATIONS.value,
-            SampleKey.IS_PAD_OBSERVATION.value,
-        }
-        self.camera_keys = [key for key in input_keys if key not in non_camera_keys]
+        self.camera_keys = [
+            key for key in input_keys if key not in _NON_CAMERA_INPUT_KEYS
+        ]
         self.camera_metadata: dict[str, CameraMetadata] = {}
         self.is_multi_camera = len(self.camera_keys) > 1
 
@@ -113,10 +119,21 @@ class ImageEncoderMixin(abc.ABC):
             camera_metadata: Observation-space camera metadata keyed by
                 observation key.
         """
-        camera_keys = [
-            key for key in self.input_specification.keys if key in camera_metadata
+        declared_camera_keys = [
+            key
+            for key in self.input_specification.keys
+            if key not in _NON_CAMERA_INPUT_KEYS
         ]
-        self.camera_keys = camera_keys
+        unknown_keys = [
+            key for key in declared_camera_keys if key not in camera_metadata
+        ]
+        if unknown_keys:
+            raise ValueError(
+                f"{type(self).__name__} declares camera keys {unknown_keys} "
+                "that are not part of the observation-space cameras "
+                f"{sorted(camera_metadata)}."
+            )
+        self.camera_keys = declared_camera_keys
         self.camera_metadata = camera_metadata
         self.is_multi_camera = len(self.camera_keys) > 1
 
