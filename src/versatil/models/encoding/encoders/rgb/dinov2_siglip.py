@@ -86,6 +86,9 @@ class DinoV2SigLIPRGBEncoder(RGBEncoderMixin, Encoder):
             frozen=frozen,
             model_dtype=model_dtype,
         )
+        # The mixin resolves self.model_dtype into a torch.dtype; the child
+        # tower constructors validate the raw precision string, so keep it.
+        self._model_dtype_string = model_dtype
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         backbone_config = self._resolve_backbone_config(backbone=backbone)
         self.backbone_name = backbone
@@ -156,7 +159,7 @@ class DinoV2SigLIPRGBEncoder(RGBEncoderMixin, Encoder):
             backbone=backbone.value,
             image_size=self.image_size,
             intermediate_layer_index=-2,
-            model_dtype=self.model_dtype,
+            model_dtype=self._model_dtype_string,
             lora_config=self.lora_config,
         )
 

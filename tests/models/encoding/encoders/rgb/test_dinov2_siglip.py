@@ -150,6 +150,29 @@ def dinov2_siglip_encoder_factory(
 
 class TestDinoV2SigLIPRGBEncoderInitialization:
     @pytest.mark.unit
+    def test_precision_string_forwarded_to_towers_not_resolved_dtype(
+        self,
+        mock_flat_rgb_encoder_backend: MockFlatRGBEncoderBackend,
+    ) -> None:
+        # The mixin resolves self.model_dtype into a torch.dtype, but the
+        # tower constructors validate the raw precision string; forwarding
+        # the resolved dtype made every non-None precision crash.
+        mock_flat_rgb_encoder_backend.configure()
+        encoder = DinoV2SigLIPRGBEncoder(
+            input_keys=Cameras.LEFT.value,
+            pretrained=False,
+            frozen=False,
+            backbone=DinoV2SigLIPBackboneType.DINOV2_SIGLIP_VIT_SO_224PX.value,
+            model_dtype="bf16-mixed",
+            lora_config=None,
+        )
+        tower_calls = mock_flat_rgb_encoder_backend.flat_encoder_mock.call_args_list
+        assert len(tower_calls) == 2
+        for call in tower_calls:
+            assert call.kwargs["model_dtype"] == "bf16-mixed"
+        assert encoder.model_dtype == torch.bfloat16
+
+    @pytest.mark.unit
     def test_invalid_backbone_raises(self) -> None:
         backbone = "invalid"
         valid_backbones = [model_type.value for model_type in DinoV2SigLIPBackboneType]
