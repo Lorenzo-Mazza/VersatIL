@@ -11,7 +11,10 @@ import torch
 from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.normalization.constants import (
+    NormalizationType,
+)
+from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
@@ -767,6 +770,25 @@ class TestConditionalBidirectionalDecoderPrecomputeConditioningKV:
 
 
 class TestConditionalBidirectionalDecoderFinalNormalization:
+    def test_final_normalization_ignores_cross_attention_norm_type(
+        self,
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
+    ):
+        decoder = conditional_bidirectional_decoder_factory(
+            number_of_layers=1,
+            embedding_dimension=32,
+            conditioning_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+            use_final_normalization=True,
+            condition_final_normalization=False,
+            normalization_type=NormalizationType.RMS_NORM.value,
+            cross_attention_normalization_type=NormalizationType.LAYER_NORM.value,
+        )
+        assert isinstance(decoder.final_normalization, RMSNorm)
+
     def test_no_final_normalization(
         self,
         conditional_bidirectional_decoder_factory: Callable[

@@ -134,8 +134,7 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
                 conditioning_dimension if condition_final_normalization else None
             )
             self.final_normalization = create_normalization_layer(
-                normalization_type=cross_attention_normalization_type
-                or normalization_type,
+                normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
                 conditioning_dimension=final_condition_dim,
