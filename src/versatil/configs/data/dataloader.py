@@ -13,6 +13,10 @@ class DataLoaderConfig:
     """Hydra config for dataset loading, normalization, augmentation, and sampling behavior."""
 
     preload_data_in_memory: bool = False  # Whether to preload the entire zarr into RAM, speeds up training considerably but works only for small datasets.
+    # Whether a zarr store lacking keys required by this task may be deleted
+    # and rebuilt from the raw sources. Off by default so a wrong task
+    # configuration cannot destroy an expensive store.
+    recreate_zarr_on_missing_keys: bool = False
     # Batching
     batch_size: int = 64
     num_workers: int = 16

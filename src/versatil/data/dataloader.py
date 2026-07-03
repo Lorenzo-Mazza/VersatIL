@@ -67,7 +67,9 @@ def get_dataloaders(
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
     _ensure_zarr_exists(
-        schema=schema, preload_in_memory=dataloader_config.preload_data_in_memory
+        schema=schema,
+        preload_in_memory=dataloader_config.preload_data_in_memory,
+        recreate_on_missing_keys=dataloader_config.recreate_zarr_on_missing_keys,
     )
     skip_validation = dataloader_config.val_ratio == 0
 
@@ -234,12 +236,26 @@ def _collect_dataset_paths(
     return datasets_paths
 
 
-def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) -> None:
-    """Create zarr if it doesn't exist or is invalid. Optionally, preload in memory.
+def _ensure_zarr_exists(
+    schema: DatasetSchema,
+    preload_in_memory: bool = False,
+    recreate_on_missing_keys: bool = False,
+) -> None:
+    """Create the zarr replay buffer if missing, recreating only corrupt stores.
+
+    A store that opens but does not match the task (missing keys) raises by
+    default, and preloading failures always propagate, so a dataset that took
+    hours to build cannot be destroyed by a transient failure or a wrong task
+    configuration. Set ``recreate_on_missing_keys`` to rebuild key-mismatched
+    stores from the raw sources instead.
 
     Dispatches to the appropriate creation function based on schema type:
     - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
+
+    Raises:
+        ValueError: If the existing store lacks keys required by this task
+            and ``recreate_on_missing_keys`` is off.
     """
     zarr_path = schema.zarr_path
     need_create = True
@@ -247,19 +263,40 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
 
     if Path(zarr_path).exists():
         try:
-            if preload_in_memory:
-                logging.info(f"Preloading replay buffer into memory from {zarr_path}")
-                ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
-            else:
-                logging.info(f"Loading existing replay buffer from {zarr_path}")
-                buffer = ReplayBuffer.create_from_path(zarr_path)
-                missing_keys = set(required_keys) - set(buffer.keys())
-                if missing_keys:
-                    raise KeyError(f"Missing required keys: {missing_keys}")
-            need_create = False
-        except Exception as e:
-            logging.info(f"Error loading {zarr_path}: {e}. Recreating...")
+            logging.info(f"Loading existing replay buffer from {zarr_path}")
+            buffer = ReplayBuffer.create_from_path(zarr_path)
+            existing_keys = set(buffer.keys())
+        except Exception as error:
+            # Only a structurally unreadable store counts as corrupt.
+            logging.warning(
+                f"Replay buffer at {zarr_path} is corrupt ({error}); recreating."
+            )
             shutil.rmtree(zarr_path, ignore_errors=True)
+        else:
+            missing_keys = set(required_keys) - existing_keys
+            if missing_keys and recreate_on_missing_keys:
+                logging.warning(
+                    f"Replay buffer at {zarr_path} is missing keys "
+                    f"{sorted(missing_keys)}; recreating from raw sources "
+                    "(recreate_zarr_on_missing_keys is enabled)."
+                )
+                shutil.rmtree(zarr_path, ignore_errors=True)
+            elif missing_keys:
+                raise ValueError(
+                    f"Replay buffer at {zarr_path} is missing keys "
+                    f"{sorted(missing_keys)} required by this task; it was "
+                    "likely built for a different task or schema. Delete the "
+                    "store manually, or set "
+                    "task.dataloader.recreate_zarr_on_missing_keys=true to "
+                    "rebuild it from the raw sources."
+                )
+            else:
+                if preload_in_memory:
+                    logging.info(
+                        f"Preloading replay buffer into memory from {zarr_path}"
+                    )
+                    ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
+                need_create = False
 
     if need_create:
         logging.info(f"Creating zarr replay buffer at: {zarr_path}")
