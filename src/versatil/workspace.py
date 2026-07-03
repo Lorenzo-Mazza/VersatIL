@@ -277,6 +277,9 @@ class Workspace:
             logging.info(
                 f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
             )
+        # 0 is out of Lightning's documented contract, but None requires an
+        # integer val_check_interval; validation stays disabled here through
+        # limit_val_batches=0 and the absent val dataloader.
         val_every = (
             self.config.experiment.val_every if self.val_loader is not None else 0
         )
@@ -368,7 +371,7 @@ class Workspace:
                 save_last=True,
                 verbose=True,
                 auto_insert_metric_name=False,
-                save_on_train_epoch_end=not has_validation,
+                save_on_train_epoch_end=True,
             )
             callbacks.append(checkpoint_callback_latest)
             logging.info(
@@ -619,6 +622,8 @@ class Workspace:
             )
 
         self.trainer.callbacks = original_callbacks
+        self.lightning_policy.train_metrics.reset()
+        self.lightning_policy.val_metrics.reset()
         if self.config.training.tune_lr:
             self.save_config()
             logging.info("Saved updated config with tuned hyperparameters")

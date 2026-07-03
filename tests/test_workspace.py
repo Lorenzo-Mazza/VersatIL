@@ -1136,9 +1136,12 @@ class TestCreateCallbacks:
         assert len(latest_checkpoints) == 1
         assert latest_checkpoints[0]._save_on_train_epoch_end is True
 
-    def test_latest_checkpoint_does_not_save_on_train_epoch_end_with_validation(
+    def test_latest_checkpoint_saves_on_train_epoch_end_with_validation(
         self, workspace_factory, mock_workspace_policy_factory
     ):
+        # The latest callback monitors the epoch counter, not a validation
+        # metric; tying it to validation would silently skip epochs whenever
+        # checkpoint_every and val_every do not align.
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
@@ -1152,7 +1155,7 @@ class TestCreateCallbacks:
             if isinstance(cb, ModelCheckpoint) and "latest" in (cb.filename or "")
         ]
         assert len(latest_checkpoints) == 1
-        assert latest_checkpoints[0]._save_on_train_epoch_end is False
+        assert latest_checkpoints[0]._save_on_train_epoch_end is True
 
 
 @pytest.mark.unit

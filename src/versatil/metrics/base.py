@@ -1,6 +1,7 @@
 """Base classes for loss computation and metrics tracking."""
 
 import abc
+import copy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,7 +51,7 @@ def _merge_weights(
     (dict subtree replaced by scalar, or scalar replaced by dict) raise
     ``TypeError``.
     """
-    merged = existing_weights
+    merged = copy.deepcopy(existing_weights)
     for key, value in override_weights.items():
         if key not in existing_weights:
             raise KeyError(
