@@ -83,6 +83,14 @@ def compute_gradient_maps_for_policy(
         actions=actions,
         preprocess_observation=preprocess_observation,
     )
+    # Frozen vision towers produce requires_grad=False activations unless the
+    # inputs carry gradients.
+    observation = {
+        key: value.clone().requires_grad_(True)
+        if isinstance(value, torch.Tensor) and value.is_floating_point()
+        else value
+        for key, value in observation.items()
+    }
     camera_targets = resolve_camera_explanation_targets(
         policy=policy,
         target_camera=target_camera,

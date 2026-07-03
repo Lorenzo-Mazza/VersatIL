@@ -115,3 +115,28 @@ def test_compute_gradient_maps_for_policy_supports_real_model_wiring(
     assert torch.isfinite(heatmap).all()
     assert heatmap.min() >= 0
     assert heatmap.max() <= 1
+
+
+@pytest.mark.integration
+def test_compute_gradient_maps_for_policy_supports_fully_frozen_towers(
+    real_explainability_policy_case_factory: Callable,
+):
+    case = real_explainability_policy_case_factory(
+        case_name="spatial_resnet18",
+        batch_size=2,
+    )
+    for parameter in case.policy.parameters():
+        parameter.requires_grad_(False)
+
+    heatmaps = compute_gradient_maps_for_policy(
+        policy=case.policy,
+        observation=case.observation,
+        explanation_type=ExplanationType.GRADCAM.value,
+        target_camera=case.target_camera,
+        target_vision_module_names=case.target_vision_module_names,
+        preprocess_observation=False,
+    )
+
+    heatmap = heatmaps[case.expected_camera]
+    assert torch.isfinite(heatmap).all()
+    assert heatmap.abs().sum() > 0

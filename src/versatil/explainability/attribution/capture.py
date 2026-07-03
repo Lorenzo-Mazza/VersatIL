@@ -164,7 +164,10 @@ class GradientCapture:
             module_output: Module output to capture.
 
         Raises:
-            RuntimeError: If the selected activation does not require gradients.
+            RuntimeError: If the selected activation does not require gradients,
+                or if the layer already produced a captured activation in this
+                forward pass, which would pair the last activation with the
+                gradient of an earlier one.
         """
         current_call_index = self.call_index
         self.call_index += 1
@@ -173,6 +176,14 @@ class GradientCapture:
             target=self.target,
         ):
             return
+        if self.activation is not None:
+            raise RuntimeError(
+                f"Target layer was invoked more than once for camera "
+                f"'{self.target.camera_key}' in capture mode "
+                f"'{self.target.capture_mode}'; the activation/gradient "
+                "pairing would be ambiguous. Use a per-camera capture mode or "
+                "a more specific target layer."
+            )
         activation = select_tensor_output(
             value=module_output,
             output_index=self.target.target.output_index,

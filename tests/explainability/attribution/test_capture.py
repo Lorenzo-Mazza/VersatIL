@@ -57,6 +57,66 @@ def test_gradient_capture_selects_stacked_camera_gradient_from_full_output():
     torch.testing.assert_close(gradient, torch.ones(2, 1, 2))
 
 
+def test_gradient_capture_rejects_repeated_invocation_in_single_call_mode():
+    layer = nn.Identity()
+    target = VisionExplanationTarget(
+        layer=layer,
+        target_kind=ExplanationTargetKind.TOKEN_SEQUENCE.value,
+        activation_layout=ActivationLayout.NLC.value,
+        patch_grid=(1, 1),
+    )
+    camera_target = CameraExplanationTarget(
+        camera_key=Cameras.LEFT.value,
+        vision_module_name="encoder",
+        target=target,
+        capture_mode=VisionCaptureMode.SINGLE_CALL.value,
+        stacked_camera_index=None,
+        stacked_camera_count=None,
+    )
+    capture = GradientCapture(target=camera_target)
+    first_output = torch.ones(2, 1, 2, requires_grad=True)
+    second_output = torch.ones(2, 1, 2, requires_grad=True) * 2
+
+    capture.forward_hook(module=layer, module_input=(), module_output=first_output)
+
+    with pytest.raises(RuntimeError, match="invoked more than once"):
+        capture.forward_hook(
+            module=layer,
+            module_input=(),
+            module_output=second_output,
+        )
+
+
+def test_gradient_capture_works_through_frozen_module_with_grad_input():
+    layer = nn.Conv2d(1, 1, kernel_size=1)
+    for parameter in layer.parameters():
+        parameter.requires_grad_(False)
+    target = VisionExplanationTarget(
+        layer=layer,
+        target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+        activation_layout=ActivationLayout.NCHW.value,
+        patch_grid=None,
+    )
+    camera_target = CameraExplanationTarget(
+        camera_key=Cameras.LEFT.value,
+        vision_module_name="encoder",
+        target=target,
+        capture_mode=VisionCaptureMode.SINGLE_CALL.value,
+        stacked_camera_index=None,
+        stacked_camera_count=None,
+    )
+    capture = GradientCapture(target=camera_target)
+    handle = layer.register_forward_hook(capture.forward_hook)
+    image = torch.ones(1, 1, 2, 2, requires_grad=True)
+
+    layer(image).sum().backward()
+    handle.remove()
+    activation, gradient = capture.require_tensors()
+
+    assert activation.shape == (1, 1, 2, 2)
+    assert gradient.shape == (1, 1, 2, 2)
+
+
 @pytest.mark.integration
 def test_activation_capture_selects_real_smolvla_stacked_camera_activation(
     real_explainability_policy_case_factory: Callable,
