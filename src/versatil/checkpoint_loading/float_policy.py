@@ -5,7 +5,10 @@ import os
 
 import torch
 
-from versatil.checkpoint_loading.base import BaseCheckpointLoader
+from versatil.checkpoint_loading.base import (
+    BaseCheckpointLoader,
+    versatil_checkpoint_safe_globals,
+)
 from versatil.training.constants import (
     CheckpointFilename,
     CheckpointKey,
@@ -48,11 +51,12 @@ class FloatCheckpointLoader(BaseCheckpointLoader):
             self._policy.set_tokenizer(self._tokenizer)
 
         self._policy.to(self._device).eval()
-        checkpoint = torch.load(
-            checkpoint_file,
-            map_location=self._device,
-            weights_only=False,
-        )
+        with torch.serialization.safe_globals(versatil_checkpoint_safe_globals()):
+            checkpoint = torch.load(
+                checkpoint_file,
+                map_location=self._device,
+                weights_only=True,
+            )
         lightning_module = LightningPolicy(
             policy=self._policy,
             training_config=self._config.training,

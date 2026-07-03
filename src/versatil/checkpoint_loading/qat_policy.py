@@ -4,7 +4,10 @@ import os
 
 import torch
 
-from versatil.checkpoint_loading.base import BaseCheckpointLoader
+from versatil.checkpoint_loading.base import (
+    BaseCheckpointLoader,
+    versatil_checkpoint_safe_globals,
+)
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.export import build_example_inputs
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
@@ -53,11 +56,12 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
         checkpoint_file = os.path.join(self._checkpoint_path, self._checkpoint_name)
         if not os.path.exists(checkpoint_file):
             raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
-        checkpoint = torch.load(
-            checkpoint_file,
-            map_location=self._device,
-            weights_only=False,
-        )
+        with torch.serialization.safe_globals(versatil_checkpoint_safe_globals()):
+            checkpoint = torch.load(
+                checkpoint_file,
+                map_location=self._device,
+                weights_only=True,
+            )
         lightning_module = LightningPolicy(
             policy=self._policy,
             training_config=self._config.training,

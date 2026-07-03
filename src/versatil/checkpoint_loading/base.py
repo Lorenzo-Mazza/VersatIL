@@ -1,11 +1,30 @@
 """Base checkpoint loader with shared config, tokenizer, and metadata access."""
 
+import importlib
+import inspect
 import logging
+import operator
 import os
+import pkgutil
+import typing
+from collections import defaultdict
 
 import hydra
 import torch
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
+from omegaconf.base import ContainerMetadata, Metadata
+from omegaconf.nodes import (
+    AnyNode,
+    BooleanNode,
+    BytesNode,
+    EnumNode,
+    FloatNode,
+    IntegerNode,
+    InterpolationResultNode,
+    PathNode,
+    StringNode,
+    ValueNode,
+)
 
 from versatil.configs import MainConfig
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -13,6 +32,61 @@ from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.policy import Policy
 from versatil.training.constants import CheckpointKey
 from versatil.validation import validate_experiment
+
+
+def versatil_checkpoint_safe_globals() -> list[type | object]:
+    """Classes trusted when unpickling checkpoints with weights_only=True.
+
+    Lightning checkpoints embed the hyperparameters saved by
+    ``save_hyperparameters``, which for VersatIL are config dataclasses.
+    Allowlisting exactly those classes keeps third-party checkpoints from
+    executing arbitrary pickled code while our own checkpoints load.
+    """
+    configs_package = importlib.import_module("versatil.configs")
+    # Lightning stores hyperparameters as an OmegaConf container, whose
+    # pickle graph spans these classes.
+    safe_classes: list[type | object] = [
+        DictConfig,
+        ListConfig,
+        ContainerMetadata,
+        Metadata,
+        AnyNode,
+        BooleanNode,
+        BytesNode,
+        EnumNode,
+        FloatNode,
+        IntegerNode,
+        InterpolationResultNode,
+        PathNode,
+        StringNode,
+        ValueNode,
+        defaultdict,
+        dict,
+        list,
+        tuple,
+        set,
+        int,
+        float,
+        str,
+        bool,
+        operator.getitem,
+        typing.Any,
+        # The pickle stream of structured configs references the deprecated
+        # typing aliases literally, so the builtins cannot substitute here.
+        typing.Dict,  # noqa: UP006
+        typing.List,  # noqa: UP006
+        typing.Optional,
+        typing.Tuple,  # noqa: UP006
+        typing.Union,
+    ]
+    for module_info in pkgutil.walk_packages(
+        configs_package.__path__, prefix=f"{configs_package.__name__}."
+    ):
+        module = importlib.import_module(module_info.name)
+        for _, member in inspect.getmembers(module, inspect.isclass):
+            if member.__module__.startswith("versatil.configs"):
+                safe_classes.append(member)
+    return safe_classes
 
 
 class BaseCheckpointLoader:

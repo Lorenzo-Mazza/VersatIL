@@ -18,6 +18,7 @@ from tso_robotics_sockets import (
 from versatil_constants.shared import ObsKey
 
 from versatil.data.constants import DatasetType
+from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
@@ -54,19 +55,30 @@ def infer_rotate_images(config: DictConfig) -> bool:
     the training data source, derived from the checkpoint's dataset schema.
 
     Args:
-        config: Full training config saved with the checkpoint.
+        config: Full training config saved with the checkpoint, either as the
+            composed DictConfig or as an instantiated MainConfig whose schema
+            node is a real DatasetSchema.
 
     Returns:
         True for policies trained on LIBERO lerobot datasets.
     """
-    schema = OmegaConf.select(config, "task.dataset_schema")
-    if schema is None:
-        return False
-    target = str(schema.get("_target_", ""))
-    dataset_type = str(schema.get("dataset_type", ""))
+    if isinstance(config, DictConfig):
+        schema_node = OmegaConf.select(config, "task.dataset_schema")
+        if schema_node is None:
+            return False
+        if isinstance(schema_node, DictConfig):
+            target = str(schema_node.get("_target_", ""))
+            dataset_type = str(schema_node.get("dataset_type", ""))
+            return (
+                target.endswith("LeRobotDatasetSchemaV30")
+                and dataset_type == DatasetType.LIBERO.value
+            )
+        schema = schema_node
+    else:
+        schema = config.task.dataset_schema
     return (
-        target.endswith("LeRobotDatasetSchemaV30")
-        and dataset_type == DatasetType.LIBERO.value
+        isinstance(schema, LeRobotDatasetSchemaV30)
+        and schema.dataset_type == DatasetType.LIBERO.value
     )
 
 

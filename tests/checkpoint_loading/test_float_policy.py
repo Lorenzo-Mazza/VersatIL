@@ -71,7 +71,7 @@ def test_float_checkpoint_loader_restores_policy(
     mock_load.assert_called_once_with(
         checkpoint_file,
         map_location=torch.device("cpu"),
-        weights_only=False,
+        weights_only=True,
     )
     mock_lightning_policy.assert_called_once_with(
         policy=config.policy,
