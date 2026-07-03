@@ -101,7 +101,11 @@ def compute_gradient_maps_for_policy(
     for camera_target in camera_targets:
         camera = camera_target.camera_key
         if camera not in observation:
-            continue
+            raise ValueError(
+                f"Camera '{camera}' resolved as an explanation target but is "
+                "missing from the observation; the checkpoint's observation "
+                "space and the provided observation disagree."
+            )
 
         capture = GradientCapture(target=camera_target)
         forward_handle = camera_target.target.layer.register_forward_hook(

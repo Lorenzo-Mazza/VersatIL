@@ -3,22 +3,14 @@
 from types import TracebackType
 
 import torch
-import torch.nn as nn
 
 from versatil.data.processing.transform import (
     normalize_observation,
     tokenize_observation,
 )
 from versatil.explainability.typedefs import ObservationBatch
+from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.policy import Policy
-
-
-def _ignore_encoder_cache_enable() -> None:
-    pass
-
-
-def _ignore_encoder_cache_disable() -> None:
-    pass
 
 
 class EncoderCacheDisabled:
@@ -27,33 +19,26 @@ class EncoderCacheDisabled:
     Some VLM decoders cache encoded visual prefixes for autoregressive
     inference. Attribution re-runs the policy with hooks and activation
     replacements, so reusing a cached prefix can detach the current visual
-    target from the scored prediction. This context manager replaces cache
-    toggles with no-ops while attribution runs, then restores the decoder state.
+    target from the scored prediction. This context manager clears the cache,
+    suppresses the cache toggles while attribution runs, then restores the
+    decoder's prior cache state.
     """
 
-    def __init__(self, decoder: nn.Module) -> None:
+    def __init__(self, decoder: ActionDecoder) -> None:
         """Store the decoder whose cache controls should be suppressed.
 
         Args:
-            decoder: Policy decoder. Decoders without encoder-cache methods are
-                supported; temporary no-op methods are removed on exit.
+            decoder: Policy decoder implementing the encoder-cache contract;
+                decoders without a cache inherit the base no-op behavior.
         """
         self.decoder = decoder
-        self._had_enable = False
-        self._had_disable = False
-        self._original_enable = None
-        self._original_disable = None
+        self._cache_was_enabled = False
 
     def __enter__(self) -> None:
-        """Replace decoder cache toggles with no-op functions."""
-        self._had_enable = hasattr(self.decoder, "enable_encoder_cache")
-        self._had_disable = hasattr(self.decoder, "disable_encoder_cache")
-        if self._had_enable:
-            self._original_enable = self.decoder.enable_encoder_cache
-        if self._had_disable:
-            self._original_disable = self.decoder.disable_encoder_cache
-        self.decoder.enable_encoder_cache = _ignore_encoder_cache_enable
-        self.decoder.disable_encoder_cache = _ignore_encoder_cache_disable
+        """Clear the cache and freeze its toggles."""
+        self._cache_was_enabled = self.decoder.encoder_cache_enabled
+        self.decoder.disable_encoder_cache()
+        self.decoder.set_encoder_cache_suppressed(True)
 
     def __exit__(
         self,
@@ -61,7 +46,7 @@ class EncoderCacheDisabled:
         exception: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool:
-        """Restore original cache controls and propagate attribution errors.
+        """Unfreeze the toggles and restore the prior cache state.
 
         Args:
             exception_type: Exception class raised inside the context, if any.
@@ -71,16 +56,11 @@ class EncoderCacheDisabled:
         Returns:
             ``False`` so exceptions from the attribution forward pass propagate.
         """
-        if self._had_enable:
-            self.decoder.enable_encoder_cache = self._original_enable
-        elif hasattr(self.decoder, "enable_encoder_cache"):
-            delattr(self.decoder, "enable_encoder_cache")
-        if self._had_disable:
-            self.decoder.disable_encoder_cache = self._original_disable
-            if self._original_disable is not None:
-                self._original_disable()
-        elif hasattr(self.decoder, "disable_encoder_cache"):
-            delattr(self.decoder, "disable_encoder_cache")
+        self.decoder.set_encoder_cache_suppressed(False)
+        if self._cache_was_enabled:
+            self.decoder.enable_encoder_cache()
+        else:
+            self.decoder.disable_encoder_cache()
         return False
 
 

@@ -225,7 +225,11 @@ def compute_ablation_maps_for_policy(
     for camera_target in camera_targets:
         camera = camera_target.camera_key
         if camera not in observation:
-            continue
+            raise ValueError(
+                f"Camera '{camera}' resolved as an explanation target but is "
+                "missing from the observation; the checkpoint's observation "
+                "space and the provided observation disagree."
+            )
 
         capture = ActivationCapture(target=camera_target)
         capture_handle = camera_target.target.layer.register_forward_hook(
@@ -273,7 +277,6 @@ def compute_ablation_maps_for_policy(
             )
             hook_call_index = 0
 
-            # Is this nested function needed? cant we do it in a more clean way?
             def ablation_hook(
                 module: torch.nn.Module,
                 module_input: tuple[torch.Tensor, ...],

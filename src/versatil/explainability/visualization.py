@@ -42,6 +42,8 @@ def show_cam_on_image(
         )
 
     overlay = (1 - image_weight) * heatmap + image_weight * image
-    overlay = overlay / np.max(overlay)
-    result: np.ndarray = (255 * overlay).astype(np.uint8)
+    overlay_maximum = np.max(overlay)
+    if overlay_maximum > 1.0:
+        overlay = overlay / overlay_maximum
+    result: np.ndarray = (255 * np.clip(overlay, 0.0, 1.0)).astype(np.uint8)
     return result

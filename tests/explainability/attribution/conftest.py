@@ -120,6 +120,19 @@ class _TokenEncodingPipeline(nn.Module):
 
 
 class _ActionDecoder(nn.Module):
+    @property
+    def encoder_cache_enabled(self) -> bool:
+        return False
+
+    def enable_encoder_cache(self) -> None:
+        pass
+
+    def disable_encoder_cache(self) -> None:
+        pass
+
+    def set_encoder_cache_suppressed(self, suppressed: bool) -> None:
+        pass
+
     def forward(
         self,
         features: dict[str, torch.Tensor],

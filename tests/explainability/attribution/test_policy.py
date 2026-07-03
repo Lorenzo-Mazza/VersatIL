@@ -15,22 +15,41 @@ from versatil.explainability.attribution.policy import (
 )
 
 
+class _CachingDecoder(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cache_enabled = False
+        self.suppressed = False
+
+    @property
+    def encoder_cache_enabled(self) -> bool:
+        return self.cache_enabled
+
+    def enable_encoder_cache(self) -> None:
+        if not self.suppressed:
+            self.cache_enabled = True
+
+    def disable_encoder_cache(self) -> None:
+        if not self.suppressed:
+            self.cache_enabled = False
+
+    def set_encoder_cache_suppressed(self, suppressed: bool) -> None:
+        self.suppressed = suppressed
+
+
 def test_run_policy_for_explanation_disables_decoder_cache_during_predict():
-    original_enable = MagicMock()
-    original_disable = MagicMock()
-    decoder = MagicMock()
-    decoder.enable_encoder_cache = original_enable
-    decoder.disable_encoder_cache = original_disable
+    decoder = _CachingDecoder()
+    decoder.cache_enabled = True
     predictions = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.ones(1, 1, 3)}
 
     def predict(
         features: dict[str, torch.Tensor],
-        network: MagicMock,
+        network: _CachingDecoder,
     ) -> dict[str, torch.Tensor]:
+        # The prefix cache must stay cold during attribution even when the
+        # algorithm's own predict path re-enables it.
         network.enable_encoder_cache()
-        network.disable_encoder_cache()
-        original_enable.assert_not_called()
-        original_disable.assert_not_called()
+        assert network.encoder_cache_enabled is False
         return predictions
 
     policy = MagicMock()
@@ -47,25 +66,22 @@ def test_run_policy_for_explanation_disables_decoder_cache_during_predict():
     )
 
     assert result is predictions
-    policy.algorithm.predict.assert_called_once_with(
-        features=features,
-        network=decoder,
-    )
-    original_enable.assert_not_called()
-    original_disable.assert_called_once_with()
-    assert decoder.enable_encoder_cache is original_enable
-    assert decoder.disable_encoder_cache is original_disable
+    assert decoder.encoder_cache_enabled is True
+    assert decoder.suppressed is False
 
 
-def test_encoder_cache_disabled_removes_temporary_methods_from_plain_decoder():
-    decoder = torch.nn.Module()
+@pytest.mark.parametrize("cache_enabled_before", [True, False])
+def test_encoder_cache_disabled_restores_prior_state(cache_enabled_before: bool):
+    decoder = _CachingDecoder()
+    decoder.cache_enabled = cache_enabled_before
 
     with EncoderCacheDisabled(decoder=decoder):
-        assert hasattr(decoder, "enable_encoder_cache")
-        assert hasattr(decoder, "disable_encoder_cache")
+        assert decoder.encoder_cache_enabled is False
+        decoder.enable_encoder_cache()
+        assert decoder.encoder_cache_enabled is False
 
-    assert not hasattr(decoder, "enable_encoder_cache")
-    assert not hasattr(decoder, "disable_encoder_cache")
+    assert decoder.encoder_cache_enabled is cache_enabled_before
+    assert decoder.suppressed is False
 
 
 @pytest.mark.integration
