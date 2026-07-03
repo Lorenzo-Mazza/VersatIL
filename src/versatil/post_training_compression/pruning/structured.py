@@ -33,7 +33,7 @@ class StructuredPruner(BasePruner):
                 (e.g., 1 for L1, 2 for L2).
             dimension: Weight tensor dimension along which to prune.
             layer_types: PrunableLayerType values to target. Defaults
-                to Conv1d and Conv2d.
+                to Conv1d, Conv2d, and Linear.
 
         Raises:
             ValueError: If amount is not in the open interval (0, 1).

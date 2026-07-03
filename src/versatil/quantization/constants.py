@@ -29,6 +29,12 @@ class QuantizableOperatorType(StrEnum):
     LINEAR = "linear"
 
 
+class FXNodeOp(StrEnum):
+    """FX graph node operation kinds relevant to reporting."""
+
+    CALL_FUNCTION = "call_function"
+
+
 class FXNodePattern(StrEnum):
     """FX graph node target patterns for operator classification."""
 

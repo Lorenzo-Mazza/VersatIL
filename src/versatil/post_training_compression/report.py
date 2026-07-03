@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.quantization.constants import (
+    FXNodeOp,
     FXNodePattern,
     QuantizableOperatorType,
     ReportMetricKey,
@@ -69,6 +70,8 @@ class QuantizationReport:
             return coverage
 
         for node in self._quantized_model.graph.nodes:
+            if node.op != FXNodeOp.CALL_FUNCTION.value:
+                continue
             target_name = str(node.target)
             operator_type = None
             if QuantizableOperatorType.CONV2D.value in target_name:

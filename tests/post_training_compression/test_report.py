@@ -11,7 +11,7 @@ import torch.nn as nn
 
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.report import QuantizationReport
-from versatil.quantization.constants import ReportMetricKey
+from versatil.quantization.constants import FXNodeOp, ReportMetricKey
 
 REPORT_MODULE = "versatil.post_training_compression.report"
 
@@ -115,6 +115,7 @@ def quantized_model_mock_factory() -> Callable[..., MagicMock]:
     def factory(
         node_targets: list[str] | None = None,
         node_args: list[list] | None = None,
+        node_ops: list[str] | None = None,
     ) -> MagicMock:
         if node_targets is None:
             node_targets = []
@@ -122,6 +123,11 @@ def quantized_model_mock_factory() -> Callable[..., MagicMock]:
         for index, target in enumerate(node_targets):
             node = MagicMock()
             node.target = target
+            node.op = (
+                node_ops[index]
+                if node_ops and index < len(node_ops)
+                else FXNodeOp.CALL_FUNCTION.value
+            )
             node.args = node_args[index] if node_args and index < len(node_args) else []
             nodes.append(node)
         mock_graph = MagicMock()
@@ -183,6 +189,33 @@ class TestOperatorCoverage:
 
         assert coverage[expected_key][ReportMetricKey.TOTAL.value] == 1
         assert coverage[expected_key][ReportMetricKey.QUANTIZED.value] == 0
+
+    def test_get_attr_nodes_are_not_counted_as_operators(
+        self,
+        float_model_factory: Callable[..., nn.Module],
+        example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+        quantized_model_mock_factory: Callable[..., MagicMock],
+    ):
+        # Unlifted exports emit get_attr nodes with parameter FQNs like
+        # "linear_projections.weight" that must not inflate operator totals.
+        quantized_model = quantized_model_mock_factory(
+            node_targets=[
+                "linear_projections.weight",
+                "torch.ops.aten.linear.default",
+            ],
+            node_ops=["get_attr", FXNodeOp.CALL_FUNCTION.value],
+        )
+
+        report = QuantizationReport(
+            float_model=float_model_factory(num_outputs=1),
+            quantized_model=quantized_model,
+            example_inputs=example_inputs_factory(),
+            action_keys=["action_0"],
+        )
+
+        coverage = report.compute_operator_coverage()
+
+        assert coverage["linear"][ReportMetricKey.TOTAL.value] == 1
 
     def test_detects_quantized_nodes_with_dequantize_args(
         self,
