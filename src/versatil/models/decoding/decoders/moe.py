@@ -60,7 +60,6 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_normalization=gating_normalization,
         )
         self.expert_decoders = nn.ModuleList(expert_list)
-        self.base_expert = base_expert
         self.num_experts = num_experts
         self.gating_feature_key = gating_feature_key
         self.inference_gating_key = (
@@ -69,7 +68,7 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             else gating_feature_key
         )
         self.action_keys = self._get_routed_output_keys(base_expert=base_expert)
-        self.action_heads = base_expert.action_heads
+        self.action_heads = self.expert_decoders[0].action_heads
 
     @staticmethod
     def _get_routed_output_keys(base_expert: ActionDecoder) -> list[str]:

@@ -273,7 +273,6 @@ class TestMoEDecoderInitialization:
         assert decoder.num_experts == num_experts
         assert decoder.gating_feature_key == gating_feature_key
         assert decoder.action_keys == ["position_action"]
-        assert isinstance(decoder.base_expert, MinimalDecoder)
 
     def test_joint_layout_routes_action_space_keys(
         self,
@@ -321,16 +320,30 @@ class TestMoEDecoderInitialization:
         assert isinstance(decoder.expert_decoders, nn.ModuleList)
         assert len(decoder.expert_decoders) == num_experts
 
-    def test_action_heads_shared_with_base_expert(
+    def test_action_heads_alias_first_expert_heads(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
     ):
         decoder = moe_decoder_factory()
-        # Mutating base_expert.action_heads must be visible through decoder.action_heads
-        decoder.base_expert.action_heads["sentinel"] = nn.Identity()
-        assert "sentinel" in decoder.action_heads
-        del decoder.base_expert.action_heads["sentinel"]
-        assert "sentinel" not in decoder.action_heads
+        assert decoder.action_heads is decoder.expert_decoders[0].action_heads
+
+    def test_base_expert_is_not_registered_as_submodule(
+        self,
+        moe_decoder_factory: Callable[..., MoEDecoder],
+    ):
+        decoder = moe_decoder_factory()
+
+        # Every parameter must belong to state that participates in forward:
+        # the experts, the gating network, the aliased expert-0 heads, or the
+        # routing temperature.
+        live_prefixes = (
+            "expert_decoders.",
+            "gating_network.",
+            "action_heads.",
+            "temperature",
+        )
+        for key in decoder.state_dict():
+            assert key.startswith(live_prefixes), key
 
 
 @pytest.mark.unit
