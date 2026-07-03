@@ -17,7 +17,10 @@ from typing import Any
 import torch
 
 from versatil.configs.experiment import ExperimentConfig
-from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.base import (
+    DecodingAlgorithm,
+    resolve_feature_reference,
+)
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent.posterior.base_posterior import (
@@ -241,7 +244,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         if sample_from_prior:
             if LatentKey.PRIOR_LATENT.value not in prior_output:
                 # Sample from prior only when needed (avoids costly denoising inference during training)
-                batch_size = next(iter(features.values())).shape[0]
+                batch_size, _, _ = resolve_feature_reference(features=features)
                 prior_output[LatentKey.PRIOR_LATENT.value] = self.prior.sample_prior(
                     batch_size=batch_size, observations=features
                 )
@@ -289,7 +292,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         Returns:
             Dictionary containing action predictions
         """
-        batch_size = next(iter(features.values())).shape[0]
+        batch_size, _, _ = resolve_feature_reference(features=features)
         latent_embedding = self._sample_prior(features=features, batch_size=batch_size)
         features_with_latent = {
             **features,

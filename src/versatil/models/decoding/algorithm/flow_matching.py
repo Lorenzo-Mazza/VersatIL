@@ -3,7 +3,10 @@
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.base import (
+    DecodingAlgorithm,
+    resolve_feature_reference,
+)
 from versatil.models.decoding.constants import (
     AlgorithmContextKey,
     DecoderOutputKey,
@@ -243,13 +246,15 @@ class FlowMatching(DecodingAlgorithm):
 
         features_with_time = {**features, AlgorithmContextKey.TIMESTEP.value: times}
         predictions = network(features=features_with_time, actions=interpolated_actions)
-        return {
+        outputs = {
             **predictions,
             DecoderOutputKey.TARGET_VELOCITY.value: target_velocities,
             DecoderOutputKey.NOISE.value: noise,
             AlgorithmContextKey.TIMESTEP.value: times,
-            SampleKey.IS_PAD_ACTION.value: is_pad,
         }
+        if is_pad is not None:
+            outputs[SampleKey.IS_PAD_ACTION.value] = is_pad
+        return outputs
 
     @property
     def predicts_in_action_space(self) -> bool:
@@ -281,10 +286,7 @@ class FlowMatching(DecodingAlgorithm):
         Returns:
             Decoder output dictionary containing action predictions.
         """
-        first_feature = next(iter(features.values()))
-        batch_size = first_feature.shape[0]
-        device = first_feature.device
-        dtype = first_feature.dtype
+        batch_size, device, dtype = resolve_feature_reference(features=features)
 
         network.enable_encoder_cache()
 

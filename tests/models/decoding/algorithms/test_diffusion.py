@@ -158,8 +158,9 @@ class TestDiffusionForward:
             DecoderOutputKey.TARGET_DIFFUSION.value,
             DecoderOutputKey.NOISE.value,
             AlgorithmContextKey.TIMESTEP.value,
-            SampleKey.IS_PAD_ACTION.value,
         }
+        if include_padding_mask:
+            expected_keys.add(SampleKey.IS_PAD_ACTION.value)
         assert set(result.keys()) == expected_keys
         assert set(result[DecoderOutputKey.TARGET_DIFFUSION.value].keys()) == {
             "position_action"
@@ -174,7 +175,7 @@ class TestDiffusionForward:
             )[SampleKey.IS_PAD_ACTION.value]
             assert result[SampleKey.IS_PAD_ACTION.value].shape == padding_mask.shape
         else:
-            assert result[SampleKey.IS_PAD_ACTION.value] is None
+            assert SampleKey.IS_PAD_ACTION.value not in result
 
     def test_padding_mask_is_passed_through_unchanged(
         self,

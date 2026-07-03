@@ -1254,6 +1254,17 @@ class TestSmolVLADecoderCaching:
 
 @pytest.mark.integration
 class TestInterleavedLayerTypeDispatch:
+    def test_more_expert_than_vlm_layers_raises(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+    ):
+        with pytest.raises(ValueError, match="cannot exceed the"):
+            initialized_decoder_factory(
+                num_vlm_layers=2,
+                num_expert_layers=4,
+                self_attention_every_n_layers=0,
+            )
+
     def test_vlm_only_layer_inserted_when_fewer_expert_than_vlm_layers(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],

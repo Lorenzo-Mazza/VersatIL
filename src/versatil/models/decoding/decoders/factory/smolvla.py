@@ -182,6 +182,11 @@ class SmolVLADecoder(BaseInterleavedVLMDecoder):
             self.proprioceptive_projection = FeatureProjection(
                 embedding_dimension=vlm_hidden_dimension
             )
+        if actual_expert_count > actual_vlm_count:
+            raise ValueError(
+                f"num_expert_layers ({actual_expert_count}) cannot exceed the "
+                f"number of VLM layers ({actual_vlm_count})."
+            )
         stride = (
             1
             if actual_vlm_count == actual_expert_count

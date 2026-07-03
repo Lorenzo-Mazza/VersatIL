@@ -256,8 +256,9 @@ class TestFlowMatchingForward:
             DecoderOutputKey.TARGET_VELOCITY.value,
             DecoderOutputKey.NOISE.value,
             AlgorithmContextKey.TIMESTEP.value,
-            SampleKey.IS_PAD_ACTION.value,
         }
+        if include_padding_mask:
+            expected_keys.add(SampleKey.IS_PAD_ACTION.value)
         assert set(result.keys()) == expected_keys
         assert set(result[DecoderOutputKey.TARGET_VELOCITY.value].keys()) == {
             "position_action"
@@ -265,7 +266,7 @@ class TestFlowMatchingForward:
         if include_padding_mask:
             assert result[SampleKey.IS_PAD_ACTION.value].dtype == torch.bool
         else:
-            assert result[SampleKey.IS_PAD_ACTION.value] is None
+            assert SampleKey.IS_PAD_ACTION.value not in result
 
     def test_padding_mask_passed_through_and_excluded_from_network_actions(
         self,

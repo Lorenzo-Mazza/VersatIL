@@ -18,7 +18,10 @@ See diffusion_process.py for detailed documentation of these components.
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.base import (
+    DecodingAlgorithm,
+    resolve_feature_reference,
+)
 from versatil.models.decoding.constants import (
     AlgorithmContextKey,
     BetaSchedule,
@@ -176,13 +179,15 @@ class Diffusion(DecodingAlgorithm):
                 f"Unknown prediction_type: {self.prediction_type}. "
                 f"Expected one of {[e.value for e in PredictionType]}"
             )
-        return {
+        outputs = {
             **predictions,
             DecoderOutputKey.TARGET_DIFFUSION.value: target,
             DecoderOutputKey.NOISE.value: noise,
-            SampleKey.IS_PAD_ACTION.value: is_pad,
             AlgorithmContextKey.TIMESTEP.value: timesteps,
         }
+        if is_pad is not None:
+            outputs[SampleKey.IS_PAD_ACTION.value] = is_pad
+        return outputs
 
     @property
     def predicts_in_action_space(self) -> bool:
@@ -213,10 +218,7 @@ class Diffusion(DecodingAlgorithm):
         Returns:
             Decoder output dictionary containing denoised action predictions.
         """
-        first_feature = next(iter(features.values()))
-        batch_size = first_feature.shape[0]
-        device = first_feature.device
-        dtype = first_feature.dtype
+        batch_size, device, dtype = resolve_feature_reference(features=features)
 
         # Initialize actions with random noise
         noisy_actions = {}
