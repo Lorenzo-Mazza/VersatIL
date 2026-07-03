@@ -801,7 +801,7 @@ class TestDepthClampRange:
     def test_depth_key_absent_returns_none(self, policy_runtime_factory):
         loader = policy_runtime_factory()
         loader._policy.normalizer.params_dict = nn.ParameterDict()
-        assert loader.depth_clamp_range is None
+        assert loader.depth_clamp_ranges == {}
 
     def test_depth_key_present_but_input_stats_none_returns_none(
         self, policy_runtime_factory
@@ -820,7 +820,7 @@ class TestDepthClampRange:
             "__getitem__",
             return_value=mock_single_field,
         ):
-            assert loader.depth_clamp_range is None
+            assert loader.depth_clamp_ranges == {}
 
     def test_depth_key_with_valid_stats_returns_min_max_tuple(
         self, policy_runtime_factory
@@ -845,8 +845,10 @@ class TestDepthClampRange:
             "__getitem__",
             return_value=mock_single_field,
         ):
-            result = loader.depth_clamp_range
-        assert result == (
+            result = loader.depth_clamp_ranges
+        assert len(result) == 1
+        clamp_range = next(iter(result.values()))
+        assert clamp_range == (
             pytest.approx(min_value),
             pytest.approx(max_value),
         )

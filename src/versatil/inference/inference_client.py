@@ -163,7 +163,7 @@ class InferenceClient:
             camera_metadata=policy_runtime.observation_space.cameras,
             compression_type=compression_type,
             rotate_images=infer_rotate_images(config=policy_runtime.config),
-            depth_clamp_range=policy_runtime.depth_clamp_range,
+            depth_clamp_ranges=policy_runtime.depth_clamp_ranges,
         )
         self.action_postprocessor = ActionPostprocessor(
             action_space=action_space,

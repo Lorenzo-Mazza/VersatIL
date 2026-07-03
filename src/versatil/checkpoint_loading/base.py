@@ -259,12 +259,14 @@ class BaseCheckpointLoader:
         }
 
     @property
-    def depth_clamp_range(self) -> tuple[float, float] | None:
-        """Get depth image clamping range from normalizer statistics.
+    def depth_clamp_ranges(self) -> dict[str, tuple[float, float]]:
+        """Get per-camera depth clamping ranges from normalizer statistics.
 
         Returns:
-            Tuple of (min, max) for clamping, or None if depth not in normalizer.
+            Mapping from depth camera key to its (min, max) clamping range;
+            cameras without normalizer statistics are omitted.
         """
+        clamp_ranges: dict[str, tuple[float, float]] = {}
         for depth_key in self.observation_space.depth_cameras:
             if depth_key not in self._policy.normalizer.params_dict:
                 continue
@@ -272,5 +274,8 @@ class BaseCheckpointLoader:
                 CheckpointKey.INPUT_STATS.value
             )
             if stats is not None:
-                return float(stats["min"].item()), float(stats["max"].item())
-        return None
+                clamp_ranges[depth_key] = (
+                    float(stats["min"].item()),
+                    float(stats["max"].item()),
+                )
+        return clamp_ranges

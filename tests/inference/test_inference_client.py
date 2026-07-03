@@ -161,7 +161,7 @@ def mock_policy_loader_factory(
                 }
             }
         )
-        mock.depth_clamp_range = depth_clamp_range
+        mock.depth_clamp_ranges = depth_clamp_range
         mock.denoising_thresholds = {}
         return mock
 

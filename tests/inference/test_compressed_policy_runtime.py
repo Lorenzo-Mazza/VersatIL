@@ -245,7 +245,7 @@ def inference_loader_factory(
         checkpoint_loader.prediction_horizon = mock_policy.prediction_horizon
         checkpoint_loader.observation_horizon = mock_policy.decoder.observation_horizon
         checkpoint_loader.denoising_thresholds = {}
-        checkpoint_loader.depth_clamp_range = None
+        checkpoint_loader.depth_clamp_ranges = None
         checkpoint_loader.input_keys = input_keys
         checkpoint_loader.output_keys = output_keys
         checkpoint_loader.artifact_format = artifact_format
@@ -490,7 +490,7 @@ class TestCompressedPolicyRuntimeProperties:
         assert loader.prediction_horizon == 16
         assert loader.observation_horizon == 2
         assert loader.denoising_thresholds == {}
-        assert loader.depth_clamp_range is None
+        assert loader.depth_clamp_ranges is None
 
     def test_client_identifier_returns_compressed_checkpoint_path(
         self,

@@ -177,8 +177,9 @@ class CompressedCheckpointLoader(BaseCheckpointLoader):
         return self._workflow
 
     @property
-    def depth_clamp_range(self) -> tuple[float, float] | None:
-        """Get depth image clamping range from the compressed normalizer."""
+    def depth_clamp_ranges(self) -> dict[str, tuple[float, float]]:
+        """Get per-camera depth clamping ranges from the compressed normalizer."""
+        clamp_ranges: dict[str, tuple[float, float]] = {}
         for depth_key in self.observation_space.depth_cameras:
             if depth_key not in self._normalizer.params_dict:
                 continue
@@ -186,5 +187,8 @@ class CompressedCheckpointLoader(BaseCheckpointLoader):
                 CheckpointKey.INPUT_STATS.value
             )
             if stats is not None:
-                return float(stats["min"].item()), float(stats["max"].item())
-        return None
+                clamp_ranges[depth_key] = (
+                    float(stats["min"].item()),
+                    float(stats["max"].item()),
+                )
+        return clamp_ranges

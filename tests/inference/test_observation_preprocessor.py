@@ -55,7 +55,13 @@ def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
             camera_metadata=camera_metadata,
             compression_type=compression_type,
             rotate_images=rotate_images,
-            depth_clamp_range=depth_clamp_range,
+            depth_clamp_ranges={
+                key: depth_clamp_range
+                for key in camera_keys
+                if camera_metadata[key].is_depth
+            }
+            if depth_clamp_range is not None
+            else None,
         )
 
     return factory

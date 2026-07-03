@@ -24,7 +24,7 @@ class ObservationPreprocessor:
         camera_metadata: dict[str, CameraMetadata],
         compression_type: str = CompressionType.RAW.value,
         rotate_images: bool = False,
-        depth_clamp_range: tuple[float, float] | None = None,
+        depth_clamp_ranges: dict[str, tuple[float, float]] | None = None,
     ):
         """Initialize the observation preprocessor.
 
@@ -35,14 +35,14 @@ class ObservationPreprocessor:
             camera_metadata: Per-camera metadata with training-time image dimensions.
             compression_type: Compression format used by the server for images.
             rotate_images: Whether to flip images 180 degrees.
-            depth_clamp_range: Optional (min, max) for depth clamping.
+            depth_clamp_ranges: Optional per-camera (min, max) depth clamps.
         """
         self.camera_keys = camera_keys
         self.state_keys = state_keys
         self.has_language = has_language
         self.compression_type = compression_type
         self.rotate_images = rotate_images
-        self.depth_clamp_range = depth_clamp_range
+        self.depth_clamp_ranges = depth_clamp_ranges or {}
         self.camera_metadata = camera_metadata
 
         self.depth_camera_keys = [
@@ -154,7 +154,7 @@ class ObservationPreprocessor:
 
         Note:
             Uses ImageProcessor for per-camera resize and normalization.
-            Depth images are additionally clamped if depth_clamp_range is set.
+            Depth images are clamped to their camera's configured range.
 
         Args:
             recent_observations: Dict mapping key to list of images per timestep.
@@ -176,9 +176,9 @@ class ObservationPreprocessor:
             )
             if (
                 self.camera_metadata[camera_key].is_depth
-                and self.depth_clamp_range is not None
+                and camera_key in self.depth_clamp_ranges
             ):
-                depth_min, depth_max = self.depth_clamp_range
+                depth_min, depth_max = self.depth_clamp_ranges[camera_key]
                 processed = torch.clamp(processed, min=depth_min, max=depth_max)
             result[camera_key] = processed
 

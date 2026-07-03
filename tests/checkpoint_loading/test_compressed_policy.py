@@ -92,9 +92,9 @@ class TestCompressedCheckpointLoaderMetadataProperties:
         loader._normalizer = normalizer
         loader._policy = policy
 
-        result = loader.depth_clamp_range
+        result = loader.depth_clamp_ranges
 
-        assert result is not None
-        minimum, maximum = result
+        assert len(result) == 1
+        minimum, maximum = result[Cameras.DEPTH.value]
         assert minimum == pytest.approx(0.1, abs=1e-5)
         assert maximum == pytest.approx(0.9, abs=1e-5)

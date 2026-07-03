@@ -87,6 +87,6 @@ class PolicyRuntime(ABC):
         return self.checkpoint_loader.denoising_thresholds
 
     @property
-    def depth_clamp_range(self) -> tuple[float, float] | None:
-        """Optional min/max range for clamping depth observations."""
-        return self.checkpoint_loader.depth_clamp_range
+    def depth_clamp_ranges(self) -> dict[str, tuple[float, float]]:
+        """Per-camera min/max ranges for clamping depth observations."""
+        return self.checkpoint_loader.depth_clamp_ranges
