@@ -11,6 +11,7 @@ from hydra.errors import ConfigCompositionException
 from omegaconf import ListConfig, OmegaConf
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.configs.training import TrainingConfig, TrainingStageConfig
 from versatil.data.constants import (
     ActionDiscretizerType,
@@ -23,7 +24,7 @@ from versatil.data.constants import (
 from versatil.models.adaptation.constants import LoRATargetModulePreset
 from versatil.models.decoding.constants import LatentKey, TimeConditioning
 
-HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
+HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
 
 ALL_YAML_FILES = sorted(
     glob.glob(

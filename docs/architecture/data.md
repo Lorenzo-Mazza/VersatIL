@@ -39,7 +39,7 @@ New formats are supported by subclassing [`DatasetSchema`][versatil.data.raw.sch
 
 ### Available Datasets
 
-Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_runs/`:
+Ready-to-use end-to-end configs exist under `src/versatil/hydra_configs/end_to_end_training_runs/`:
 
 | Dataset                                                                  | Config Path | Data Link | Notes                                                            |
 |--------------------------------------------------------------------------|---|---|------------------------------------------------------------------|

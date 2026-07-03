@@ -377,7 +377,7 @@ These variables are referenced in Hydra configs via OmegaConf resolvers (e.g., `
 
 ### Available Training Configs
 
-Ready-to-use end-to-end configs are organized by dataset under `hydra_configs/end_to_end_training_runs/`:
+Ready-to-use end-to-end configs are organized by dataset under `src/versatil/hydra_configs/end_to_end_training_runs/`:
 
 | Dataset | Path | Data Link | Notes                                                                   |
 |---|---|---|-------------------------------------------------------------------------|
@@ -587,11 +587,11 @@ You can easily extend the available decoders by implementing new classes that su
 ## Configuration System
 
 **The Composition Pattern:**
-Instead of massive monolithic config files, we mix and match small, reusable blocks, which are located in `hydra_configs/`.
+Instead of massive monolithic config files, we mix and match small, reusable blocks, which are located in `src/versatil/hydra_configs/`.
 An end-to-end training config just points to the blocks it wants to use:
 
 ```yaml
-# hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
+# src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
 # @package _global_
 _target_: versatil.configs.main.MainConfig
 

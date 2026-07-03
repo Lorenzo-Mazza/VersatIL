@@ -1,16 +1,15 @@
 """Hydra-based endpoint for policy explainability insights."""
 
 import logging
-from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from versatil.common.logging import override_log_format
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.explainability.runner import ExplainabilityRunner
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-EXPERIMENTS_DIR = PROJECT_ROOT / "hydra_configs"
+EXPERIMENTS_DIR = get_hydra_configs_dir()
 
 
 @hydra.main(

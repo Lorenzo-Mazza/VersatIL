@@ -134,7 +134,7 @@ References: [OpenVLA](https://openvla.github.io/), [OpenVLA-OFT](https://openvla
 #### Training the VLA presets
 
 Each VLA has a ready-to-run LIBERO (LeRobot) end-to-end config under
-`hydra_configs/end_to_end_training_runs/libero_lerobot/`:
+`src/versatil/hydra_configs/end_to_end_training_runs/libero_lerobot/`:
 
 ```bash
 # Discrete autoregressive (binned tokens → Prismatic vocabulary)
@@ -182,7 +182,7 @@ PEFT in [`apply_lora_config`][versatil.models.adaptation.lora.apply_lora_config]
 `target_modules` presets: `auto` (PEFT infers), `all-linear`,
 `llama-attention-and-feedforward`, `llama-query-value-projections`,
 `vlm-text-model-attention-and-feedforward`, `vlm-text-model-query-value-projections`.
-Ready-made presets ship under `hydra_configs/policy/adaptation/lora/`. Compose
+Ready-made presets ship under `src/versatil/hydra_configs/policy/adaptation/lora/`. Compose
 one into a decoder's `vlm_backbone`/encoder via the `adaptation/lora` config
 group; the VLA presets default to LoRA-enabled backbones.
 
@@ -423,10 +423,10 @@ Add the config to the Hydra ConfigStore in `src/versatil/configs/__init__.py`.
 
 ### 4. Create YAML config
 
-Add a reusable config in `hydra_configs/policy/decoder/`:
+Add a reusable config in `src/versatil/hydra_configs/policy/decoder/`:
 
 ```yaml
-# hydra_configs/policy/decoder/my_decoder.yaml
+# src/versatil/hydra_configs/policy/decoder/my_decoder.yaml
 defaults:
   - heads@action_heads: bowel_retraction
 

@@ -8,7 +8,7 @@ VersatIL trains policies via the `versatil.endpoints.train` module. Each trainin
 python -m versatil.endpoints.train --config-name end_to_end_training_runs/bowel_retraction/act
 ```
 
-End-to-end configs live in `hydra_configs/end_to_end_training_runs/` and are organized by dataset:
+End-to-end configs live in `src/versatil/hydra_configs/end_to_end_training_runs/` and are organized by dataset:
 
 ```bash
 # ACT on bowel retraction
@@ -146,7 +146,7 @@ python -m versatil.endpoints.train \
 
 ## Training Configuration Reference
 
-Key fields in the default training config (`hydra_configs/training/default.yaml`):
+Key fields in the default training config (`src/versatil/hydra_configs/training/default.yaml`):
 
 | Field | Default | Description |
 |-------|---------|-------------|

@@ -456,7 +456,7 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 7. **Renaming classes/configs**: When renaming a class, config, or loss module, you MUST also update:
    - The corresponding `*Config` dataclass in `src/versatil/configs/`
    - The import, export, and ConfigStore registration in `src/versatil/configs/__init__.py` when it is a Hydra config
-   - **ALL YAML files** in `hydra_configs/` that reference the old name (use `grep -r "OldName" hydra_configs/`)
+   - **ALL YAML files** in `src/versatil/hydra_configs/` that reference the old name (use `grep -r "OldName" src/versatil/hydra_configs/`)
    - Rename YAML files if the filename contains the old name
 
 ## TODOs

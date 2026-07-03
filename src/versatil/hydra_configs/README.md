@@ -11,13 +11,22 @@ We use [OmegaConf](https://omegaconf.readthedocs.io/) to validate YAML configs a
 python -m versatil.endpoints.train --config-name end_to_end_training_runs/bowel_retraction/act
 ```
 
+These configs ship inside the `versatil` package, so the CLI works for pip
+installs as well as source checkouts. Endpoints resolve the directory through
+`versatil.configs.paths.get_hydra_configs_dir()`; pass `--config-dir` to layer
+your own recipes on top of the packaged groups.
+
 ## Structure
 
-- `end_to_end_training_runs/` - Complete experiment training runs
+- `end_to_end_training_runs/` - Complete training recipes, organized by dataset (shipped as examples)
+- `end_to_end_ptq/` - Post-training compression recipes
+- `end_to_end_explain/` - Explainability runner recipes
 - `experiment/`, `training/`, `inference/` - Base configs
 - `task/` - Dataset schema definition, dataloader setup, task (action/observation spaces) definition
 - `policy/` - Encoding pipeline, decoder, algorithm, loss components
+- `quantization/` - QAT and PT2E workflow presets
+- `synthetic_presets/` - Dataset-agnostic recipe presets for the synthetic benchmarks
 
 ## Environment Variables
 
-Paths configured via `.env` (see `.env.example`).
+Dataset and cache paths are configured via `.env` (see `.env.example`).

@@ -4,10 +4,10 @@ VersatIL uses [Hydra](https://hydra.cc/) and [OmegaConf](https://omegaconf.readt
 
 ## Hydra Composition Pattern
 
-Instead of monolithic config files, VersatIL composes small, reusable config blocks stored in `hydra_configs/`. An end-to-end training config declares which blocks to combine via `defaults:`:
+Instead of monolithic config files, VersatIL composes small, reusable config blocks stored in `src/versatil/hydra_configs/`. An end-to-end training config declares which blocks to combine via `defaults:`:
 
 ```yaml
-# hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
+# src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
 
 # Required in all end-to-end configs: declares the package scope and the target dataclass.
 # @package _global_
@@ -30,14 +30,14 @@ defaults:
   - _self_
 ```
 
-Each line references a YAML file under `hydra_configs/`. For example, `/policy/algorithm: bc_with_vae_gaussian` loads `hydra_configs/policy/algorithm/bc_with_vae_gaussian.yaml`.
+Each line references a YAML file under `src/versatil/hydra_configs/`. For example, `/policy/algorithm: bc_with_vae_gaussian` loads `src/versatil/hydra_configs/policy/algorithm/bc_with_vae_gaussian.yaml`.
 
 The `_self_` entry at the end means that any values defined directly in this file override values from the defaults.
 
 ### Config Group Hierarchy
 
 ```
-hydra_configs/
+src/versatil/hydra_configs/
 ├── end_to_end_training_runs/    # Complete training configs
 │   ├── bowel_retraction/
 │   ├── libero_hdf5/
@@ -62,7 +62,7 @@ hydra_configs/
 To create a new experiment, write a YAML file that references existing config blocks and overrides only the parameters that differ:
 
 ```yaml
-# hydra_configs/end_to_end_training_runs/my_dataset/diffusion.yaml
+# src/versatil/hydra_configs/end_to_end_training_runs/my_dataset/diffusion.yaml
 defaults:
   - /task: base
   - /policy: base
@@ -150,10 +150,10 @@ When adding a new component:
     cs.store(group="policy/decoder", name="my_component", node=MyComponentConfig)
     ```
 
-3. Create the YAML file in `hydra_configs/`:
+3. Create the YAML file in `src/versatil/hydra_configs/`:
 
     ```yaml
-    # hydra_configs/policy/decoder/my_component.yaml
+    # src/versatil/hydra_configs/policy/decoder/my_component.yaml
     _target_: versatil.models.my_module.MyComponent
     feature_dim: 256
     dropout: 0.1

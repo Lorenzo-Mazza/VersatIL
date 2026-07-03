@@ -78,6 +78,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Hydra configs moved into the package (`src/versatil/hydra_configs/`) and
+  ship in the wheel; endpoints resolve them through `importlib.resources`, so
+  the documented CLI works for pip installs, not just source checkouts. The
+  `end_to_end_training_runs/` recipes ship as examples.
+- Socket transports accept `request_timeout_seconds` and the deployment
+  endpoint gains `--request_timeout`: requests raise `TimeoutError` instead
+  of blocking forever on a dead environment server, with the REQ socket
+  rebuilt for retries. Requires tso-robotics-sockets >= 0.2.0, now the
+  dependency floor.
+- A zarr replay buffer is deleted and rebuilt only when structurally corrupt;
+  key mismatches raise (opt into rebuilding with
+  `task.dataloader.recreate_zarr_on_missing_keys`), and transient load
+  failures propagate instead of destroying the store.
 - Renamed the previous encoder-pipeline image-text embedding module to
   `VLMEncoder` and moved its Hydra config to
   `policy/encoding_pipeline/encoder/vlm/vlm_encoder`.
@@ -143,6 +156,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- DinoV2SigLIP forwarded its resolved torch.dtype to the tower constructors,
+  which validate the raw precision string, so every instantiation with a real
+  precision setting crashed.
+- The PT2E compression report compared the quantized model against its own
+  in-place-mutated graph; the float baseline is now a genuine pre-quantization
+  copy.
 - The DFormerv2 encoder now reproduces the reference implementation
   exactly and loads the official pretrained checkpoints (mirrored at
   https://huggingface.co/bbynku/DFormerv2): rotary encoding rotates by

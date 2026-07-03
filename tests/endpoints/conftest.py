@@ -24,6 +24,7 @@ from tso_robotics_sockets import (
 from versatil_constants.tso import TSOObsKey
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.data.constants import (
     Cameras,
     ObsKey,
@@ -414,7 +415,7 @@ def _generate_array_for_key(
 @pytest.fixture
 def hydra_config_dir() -> str:
     """Path to the hydra_configs directory."""
-    return str(Path(__file__).parents[2] / "hydra_configs")
+    return str(get_hydra_configs_dir())
 
 
 @pytest.fixture
@@ -484,7 +485,7 @@ def synthetic_zarr_factory(rng: np.random.Generator) -> Callable[..., str]:
     return factory
 
 
-HYDRA_CONFIG_DIR = str(Path(__file__).parents[2] / "hydra_configs")
+HYDRA_CONFIG_DIR = str(get_hydra_configs_dir())
 
 DATASET_TYPE_TO_ZARR_SPEC: dict[str, str] = {
     "ant": "ant",

@@ -156,7 +156,7 @@ by the inference client for floating-point policies.
 
 ## Hydra Configuration
 
-PTC configs live under `hydra_configs/end_to_end_ptq/`. Top-level fields serve
+PTC configs live under `src/versatil/hydra_configs/end_to_end_ptq/`. Top-level fields serve
 as defaults for preparation and pruning. Entries in `modules` can override
 preparation and pruning for specific submodules. Quantization is configured once
 at the top level through `quantization`, and module-level quantization

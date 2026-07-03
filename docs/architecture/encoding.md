@@ -511,7 +511,7 @@ class MyEncoder(Encoder):
 ### 3. Register in the config store and add tests
 
 - Register the config dataclass in `src/versatil/configs/__init__.py`
-- Add a YAML config in `hydra_configs/policy/encoding_pipeline/`
+- Add a YAML config in `src/versatil/hydra_configs/policy/encoding_pipeline/`
 - Write tests in `tests/models/encoding/`
 
 For conditional encoders, subclass [`ConditionalEncoder`][versatil.models.encoding.encoders.conditional.ConditionalEncoder] instead and implement `encode(inputs, conditioning)`. The base `forward()` handles temporal flattening/unflattening and delegates to `encode()`.

@@ -1,13 +1,12 @@
 """Tests for versatil.configs.post_training_compression module."""
 
-from pathlib import Path
-
 import hydra
 import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
 import versatil.configs  # noqa: F401
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.configs.post_training_compression import (
     CompressionTargetConfig,
     ExecutorchXNNPACKBackendConfig,
@@ -19,7 +18,7 @@ from versatil.post_training_compression.compressor import (
 )
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
-HYDRA_CONFIG_DIR = str(Path(__file__).parents[2] / "hydra_configs")
+HYDRA_CONFIG_DIR = str(get_hydra_configs_dir())
 
 
 @pytest.mark.unit

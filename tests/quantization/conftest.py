@@ -2,7 +2,6 @@
 
 from collections.abc import Callable, Iterator
 from contextlib import nullcontext as does_not_raise
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import hydra
@@ -13,6 +12,7 @@ import torch.nn as nn
 from hydra import compose, initialize_config_dir
 
 import versatil.configs  # noqa: F401
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.data.constants import ProprioKey, SampleKey
 from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.policy import Policy
@@ -22,7 +22,7 @@ from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 
-HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
+HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
 LANGUAGE_ACTION_TRANSFORMER_TINY_CONFIG = (
     "end_to_end_training_runs/libero_lerobot/action_transformer_language_tiny"
 )
