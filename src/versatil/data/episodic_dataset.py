@@ -320,6 +320,7 @@ class EpisodicDataset(data.Dataset):
             min_kinematics_range=min_kinematics_range,
             action_sample_size=action_sample_size,
             episode_selection_mask=self.episode_selection_mask,
+            seed=self.seed,
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(

@@ -115,6 +115,7 @@ class TransformBuilder:
         min_kinematics_range: float = 4e-2,
         action_sample_size: int = 2048,
         episode_selection_mask: np.ndarray | None = None,
+        seed: int = 42,
     ):
         """Initialize transform builder.
 
@@ -142,6 +143,8 @@ class TransformBuilder:
                 Statistics, tokenizers, and denoising thresholds are fitted
                 only on selected episodes (the training split), keeping
                 validation data out of the fitted transforms.
+            seed: Seed for the subsampling used by depth-quantile estimation,
+                so fitted statistics are reproducible.
         """
         self.replay_buffer = replay_buffer
         self.action_processor = action_processor
@@ -160,6 +163,7 @@ class TransformBuilder:
         self.min_kinematics_std = min_kinematics_std
         self.min_kinematics_range = min_kinematics_range
         self.action_sample_size = action_sample_size
+        self._random_generator = np.random.default_rng(seed)
 
     def _build_selected_step_mask(self) -> np.ndarray | None:
         """Return a per-step mask of selected episodes, or None for all."""
@@ -408,20 +412,22 @@ class TransformBuilder:
                 # subset of selected frames and pool their pixels.
                 sampled_frame_count = min(200, len(selected_frame_indices))
                 sampled_frames = np.sort(
-                    np.random.choice(
+                    self._random_generator.choice(
                         selected_frame_indices, sampled_frame_count, replace=False
                     )
                 )
                 pooled = depth_array[sampled_frames].ravel()
                 if pooled.size > reservoir_size:
-                    pooled = np.random.choice(pooled, reservoir_size, replace=False)
+                    pooled = self._random_generator.choice(
+                        pooled, reservoir_size, replace=False
+                    )
                 reservoir = pooled
             elif total_pixels <= reservoir_size:
                 # Small array - load all and ravel
                 reservoir = depth_array[:].ravel()
             else:
                 # Large array - sample using multi-dimensional indexing
-                flat_indices = np.random.choice(
+                flat_indices = self._random_generator.choice(
                     total_pixels, reservoir_size, replace=False
                 )
                 multi_indices = np.unravel_index(flat_indices, depth_array.shape)

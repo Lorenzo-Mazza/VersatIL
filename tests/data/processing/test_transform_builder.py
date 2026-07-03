@@ -594,6 +594,34 @@ class TestComputeDepthStatsStreaming:
         assert stats_single["mean"] == pytest.approx(stats_chunked["mean"], abs=1e-4)
         assert stats_single["std"] == pytest.approx(stats_chunked["std"], abs=1e-4)
 
+    def test_winsorized_stats_reproducible_across_global_rng_state(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        # Large enough that the quantile reservoir must subsample pixels.
+        depth_data = rng.uniform(0.5, 5.0, (300, 20, 20)).astype(np.float32)
+
+        def compute_stats() -> dict[str, float]:
+            builder = self._make_depth_builder(
+                transform_builder_factory,
+                camera_metadata_factory,
+                depth_data,
+            )
+            return builder._compute_depth_stats_streaming(
+                camera_key=Cameras.DEPTH.value,
+                winsorize=True,
+            )
+
+        np.random.seed(0)
+        first = compute_stats()
+        np.random.seed(1)
+        np.random.random(999)
+        second = compute_stats()
+
+        assert first == second
+
 
 class TestLogCameraStatsSampled:
     def test_logs_stats_for_rgb_camera(

@@ -163,7 +163,6 @@ class Workspace:
         """Set random seeds for reproducibility."""
         seed = self.config.experiment.seed
         torch.manual_seed(seed)
-        np.random.default_rng(seed)
         np.random.seed(seed)  # Legacy: required by some third-party libraries
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
