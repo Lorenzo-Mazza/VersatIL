@@ -191,7 +191,11 @@ class TestPT2EQuantizationWorkflow:
             targets=targets,
             calibration=None,
         )
-        assert result.float_model is exported
+        # The float baseline must be a copy: conversion mutates the exported
+        # graph in place, so aliasing it would compare the quantized model
+        # against itself in reports.
+        assert result.float_model is not exported
+        assert result.float_model is not converted
         assert result.quantized_model is converted
         assert result.example_inputs is example_inputs
         assert result.quantization_workflow == QuantizationWorkflow.PT2E.value

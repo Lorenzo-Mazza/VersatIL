@@ -1,5 +1,6 @@
 """PT2E quantization workflow."""
 
+import copy
 import logging
 
 import torch
@@ -134,13 +135,17 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             tokenizer=context.tokenizer,
         )
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
+        # prepare_pt2e/convert_pt2e mutate the exported graph in place; keep a
+        # genuinely float copy so the report compares against the pre-
+        # quantization model instead of the mutated graph itself.
+        float_exported = copy.deepcopy(exported)
         converted = self._convert_exported_model(
             exported=exported,
             targets=self.targets,
             calibration=calibration,
         )
         return QuantizedContext(
-            float_model=exported,
+            float_model=float_exported,
             quantized_model=converted,
             example_inputs=example_inputs,
             quantization_workflow=QuantizationWorkflow.PT2E.value,
