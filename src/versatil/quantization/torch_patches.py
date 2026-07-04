@@ -1,135 +1,207 @@
-"""Compatibility patches for torchao version-specific issues."""
+"""In-memory compatibility patches for torchao version-specific issues.
 
-import importlib
+The patches rewrite torchao module source as it is imported, through a
+meta-path finder registered by ``register_torchao_patches``. Nothing is
+written to site-packages: other processes and projects sharing the
+environment see pristine torchao, read-only installs work, and
+uninstalling versatil leaves no trace.
+"""
+
+import importlib.abc
+import importlib.machinery
 import importlib.util
+import logging
 import sys
-from pathlib import Path
+from dataclasses import dataclass
+from types import CodeType
 
-_PT2E_MODULE_PATCHES: dict[str, dict[str, str]] = {
-    "torchao.quantization.pt2e": {
-        'ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"': "pass",
-        'ObserverOrFakeQuantizeConstructor.__module__ = "torchao.quantization.pt2e"': "pass",
-    },
-    "torchao.quantization.pt2e.quantizer.quantizer": {
-        'EdgeOrNode.__module__ = "torchao.quantization.pt2e.quantizer.quantizer"': "pass",
-    },
+
+@dataclass(frozen=True)
+class SourcePatch:
+    """One source-fragment replacement applied at module load time.
+
+    Attributes:
+        original: Source fragment the installed torchao version contains.
+        replacement: Fragment compiled in its place.
+        required: Whether the module must contain either fragment. Required
+            patches raise on unknown torchao source because their absence
+            means silently wrong behavior; optional patches disable crashing
+            statements, so their absence means upstream already removed them.
+    """
+
+    original: str
+    replacement: str
+    required: bool
+
+
+_PT2E_MODULE_PATCHES: dict[str, list[SourcePatch]] = {
+    # Python 3.14 makes Union objects immutable; torchao still assigns
+    # __module__ to Union aliases at import time, which crashes on 3.14+.
+    # https://github.com/pytorch/ao/issues/3619
+    # https://github.com/pytorch/ao/pull/3657
+    "torchao.quantization.pt2e": [
+        SourcePatch(
+            original=(
+                'ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"'
+            ),
+            replacement="pass",
+            required=False,
+        ),
+        SourcePatch(
+            original=(
+                "ObserverOrFakeQuantizeConstructor.__module__"
+                ' = "torchao.quantization.pt2e"'
+            ),
+            replacement="pass",
+            required=False,
+        ),
+    ],
+    "torchao.quantization.pt2e.quantizer.quantizer": [
+        SourcePatch(
+            original=(
+                "EdgeOrNode.__module__"
+                ' = "torchao.quantization.pt2e.quantizer.quantizer"'
+            ),
+            replacement="pass",
+            required=False,
+        ),
+    ],
 }
 
-_QAT_INT4_GROUP_SIZE_ORIGINAL = """weight_config = Int4WeightFakeQuantizeConfig(
+# torchao 0.17 hardcodes Int4WeightFakeQuantizeConfig(group_size=128) when
+# preparing QAT from Int4WeightOnlyConfig(version=2), ignoring the
+# user-selected group size.
+# https://github.com/pytorch/ao/issues/3572
+# https://github.com/pytorch/ao/pull/4518
+_QAT_MODULE_PATCHES: dict[str, list[SourcePatch]] = {
+    "torchao.quantization.qat.fake_quantize_config": [
+        SourcePatch(
+            original="""weight_config = Int4WeightFakeQuantizeConfig(
                 group_size=128,
                 activation_dtype=torch.bfloat16,
-            )"""
-_QAT_INT4_GROUP_SIZE_REPLACEMENT = """weight_config = Int4WeightFakeQuantizeConfig(
+            )""",
+            replacement="""weight_config = Int4WeightFakeQuantizeConfig(
                 group_size=base_config.group_size,
                 activation_dtype=torch.bfloat16,
-            )"""
+            )""",
+            required=True,
+        ),
+    ],
+}
 
 
-def patch_pt2e_python314() -> None:
-    """Patch torchao pt2e files for Python 3.14+ compatibility.
+class PatchingSourceLoader(importlib.machinery.SourceFileLoader):
+    """Source loader applying string replacements before compilation."""
 
-    Python 3.14 makes Union objects immutable. torchao still assigns
-    ``__module__`` to Union aliases at PT2E import time, which crashes
-    on 3.14+.
+    def __init__(self, fullname: str, path: str, patches: list[SourcePatch]) -> None:
+        """Initialize the loader.
 
-    Patches the installed .py files on disk by replacing the
-    crashing lines with ``pass``. Idempotent and skips files that
-    are already patched.
+        Args:
+            fullname: Fully qualified module name.
+            path: Filesystem path of the module source.
+            patches: Replacements to apply to the module source.
+        """
+        super().__init__(fullname, path)
+        self._patches = patches
 
-    Must be called BEFORE importing torchao.quantization.pt2e.
+    def get_code(self, fullname: str) -> CodeType:
+        """Compile the patched source, bypassing the bytecode cache.
 
-    See:
-        https://github.com/pytorch/ao/issues/3619
-        https://github.com/pytorch/ao/pull/3657
+        Reading the cache could load unpatched bytecode; writing it would
+        leak patched bytecode to imports that bypass the hook.
+
+        Args:
+            fullname: Fully qualified module name.
+        """
+        data = self.get_data(self.path)
+        return self.source_to_code(data, self.path)
+
+    def source_to_code(self, data: bytes, path: str) -> CodeType:
+        """Apply the replacements and compile.
+
+        Args:
+            data: Raw module source bytes.
+            path: Filesystem path of the module source.
+
+        Raises:
+            RuntimeError: If the source contains neither the original nor the
+                patched fragment, meaning the installed torchao version is not
+                the one these patches target.
+        """
+        source = importlib.util.decode_source(data)
+        for patch in self._patches:
+            if patch.original in source:
+                source = source.replace(patch.original, patch.replacement)
+                continue
+            if patch.required and patch.replacement not in source:
+                raise RuntimeError(
+                    f"torchao module '{self.name}' does not match the version "
+                    "the versatil compatibility patches target. Install the "
+                    "torchao version pinned in pyproject.toml or update "
+                    "versatil.quantization.torch_patches."
+                )
+        code: CodeType = super().source_to_code(source.encode(), path)
+        return code
+
+
+class TorchaoPatchFinder(importlib.abc.MetaPathFinder):
+    """Meta-path finder routing patched torchao modules through the loader."""
+
+    def __init__(self, module_patches: dict[str, list[SourcePatch]]) -> None:
+        """Initialize the finder.
+
+        Args:
+            module_patches: Mapping from module name to its source patches.
+        """
+        self._module_patches = module_patches
+
+    def find_spec(
+        self,
+        fullname: str,
+        path: list[str] | None = None,
+        target: object = None,
+    ) -> importlib.machinery.ModuleSpec | None:
+        """Return a patched spec for targeted modules.
+
+        Args:
+            fullname: Fully qualified module name being imported.
+            path: Parent package search path from the import system.
+            target: Existing module for reloads, unused.
+        """
+        patches = self._module_patches.get(fullname)
+        if patches is None:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        if spec is None or spec.origin is None:
+            return None
+        loader = PatchingSourceLoader(
+            fullname=fullname, path=spec.origin, patches=patches
+        )
+        return importlib.util.spec_from_file_location(
+            fullname,
+            spec.origin,
+            loader=loader,
+            submodule_search_locations=spec.submodule_search_locations,
+        )
+
+
+def register_torchao_patches() -> None:
+    """Install the import hook applying the torchao compatibility patches.
+
+    Idempotent. Must run before ``torchao.quantization`` is imported;
+    targeted modules that are already imported cannot be patched in place
+    and are reported with a warning.
     """
-    if sys.version_info < (3, 14):
+    if any(isinstance(finder, TorchaoPatchFinder) for finder in sys.meta_path):
         return
-    spec = importlib.util.find_spec("torchao")
-    if spec is None or not spec.submodule_search_locations:
-        return
-
-    pt2e_dir = Path(spec.submodule_search_locations[0]) / "quantization" / "pt2e"
-    if not pt2e_dir.exists():
-        return
-
-    patched_marker = "# versatil-pt2e-patched"
-    patched_any = False
-
-    for module_name, replacements in _PT2E_MODULE_PATCHES.items():
-        relative_path = module_name.replace("torchao.quantization.pt2e", "").lstrip(".")
-        if not relative_path:
-            file_path = pt2e_dir / "__init__.py"
-        else:
-            file_path = pt2e_dir / relative_path.replace(".", "/")
-            if file_path.is_dir():
-                file_path = file_path / "__init__.py"
-            else:
-                file_path = file_path.with_suffix(".py")
-
-        if not file_path.exists():
-            continue
-
-        source = file_path.read_text()
-        if patched_marker in source:
-            continue
-
-        patched = source
-        for original, replacement in replacements.items():
-            patched = patched.replace(original, replacement)
-
-        if patched != source:
-            file_path.write_text(patched + f"\n{patched_marker}\n")
-            patched_any = True
-
-    if patched_any:
-        importlib.invalidate_caches()
-
-
-def patch_qat_int4_group_size() -> None:
-    """Patch torchao QAT int4 fake-quant group size propagation.
-
-    torchao 0.17 hardcodes ``Int4WeightFakeQuantizeConfig(group_size=128)``
-    when preparing QAT from ``Int4WeightOnlyConfig(version=2)``. That ignores
-    ``Int4WeightOnlyConfig.group_size`` and crashes training forwards for
-    linear layers whose input dimension is compatible with the user-selected
-    group size but not 128.
-
-    Patches the installed torchao file on disk so the fake-quant config uses
-    ``base_config.group_size``. Idempotent and skips clean torchao wheels that
-    already contain the upstream fix.
-
-    Must be called before importing ``torchao.quantization.qat``.
-
-    See:
-        https://github.com/pytorch/ao/issues/3572
-        https://github.com/pytorch/ao/pull/4518
-    """
-    spec = importlib.util.find_spec("torchao")
-    if spec is None or not spec.submodule_search_locations:
-        return
-
-    package_path = Path(spec.submodule_search_locations[0])
-    file_path = package_path / "quantization" / "qat" / "fake_quantize_config.py"
-    if not file_path.exists():
-        return
-
-    patched_marker = "# versatil-qat-int4-group-size-patched"
-    source = file_path.read_text()
-    if _QAT_INT4_GROUP_SIZE_REPLACEMENT in source:
-        return
-    if patched_marker in source:
-        return
-
-    patched = source.replace(
-        _QAT_INT4_GROUP_SIZE_ORIGINAL,
-        _QAT_INT4_GROUP_SIZE_REPLACEMENT,
-    )
-    if patched == source:
-        return
-
-    file_path.write_text(patched + f"\n{patched_marker}\n")
-    importlib.invalidate_caches()
-
-
-patch_pt2e_python314()
-patch_qat_int4_group_size()
+    module_patches = dict(_QAT_MODULE_PATCHES)
+    if sys.version_info >= (3, 14):
+        module_patches.update(_PT2E_MODULE_PATCHES)
+    already_imported = [name for name in module_patches if name in sys.modules]
+    if already_imported:
+        logging.warning(
+            "torchao modules %s were imported before versatil registered its "
+            "compatibility patches; the patches do not apply to this process.",
+            already_imported,
+        )
+    sys.meta_path.insert(0, TorchaoPatchFinder(module_patches=module_patches))

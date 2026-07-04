@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- torchao compatibility patches apply in memory through an import hook
+  instead of rewriting installed site-packages files: other projects sharing
+  the environment see pristine torchao, read-only installs work, and
+  unrecognized torchao source raises instead of silently skipping a patch.
 - The deployment endpoint is Hydra-based like every other endpoint:
   `python -m versatil.endpoints.deploy checkpoint_path=... model_server_address=...`
   with a `DeploymentConfig` schema and `end_to_end_deploy/default.yaml`.

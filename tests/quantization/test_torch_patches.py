@@ -1,325 +1,193 @@
 """Tests for versatil.quantization.torch_patches module."""
 
-import importlib
-import importlib.util
-from collections.abc import Callable, Iterator
-from importlib.machinery import ModuleSpec
+import logging
+import sys
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from versatil.quantization.torch_patches import (
-    _PT2E_MODULE_PATCHES,
-    _QAT_INT4_GROUP_SIZE_ORIGINAL,
-    _QAT_INT4_GROUP_SIZE_REPLACEMENT,
-    patch_pt2e_python314,
-    patch_qat_int4_group_size,
+    SourcePatch,
+    TorchaoPatchFinder,
+    register_torchao_patches,
 )
 
-
-@pytest.fixture
-def python_314_version() -> Iterator[None]:
-    """Simulate Python 3.14 so the patch gate opens regardless of host version."""
-    with patch(
-        "versatil.quantization.torch_patches.sys.version_info",
-        (3, 14, 0),
-    ):
-        yield
+FAKE_MODULE_NAME = "torch_patches_fake_target"
 
 
 @pytest.fixture
-def torchao_package_factory(tmp_path: Path) -> Callable[[], Path]:
-    """Factory for fake torchao package trees."""
+def fake_module_factory(
+    tmp_path: Path,
+) -> Iterator:
+    installed_finders: list[TorchaoPatchFinder] = []
 
-    def factory() -> Path:
-        package_path = tmp_path / "torchao"
-        pt2e_path = package_path / "quantization" / "pt2e"
-        quantizer_path = pt2e_path / "quantizer"
-        quantizer_path.mkdir(parents=True)
-        (pt2e_path / "__init__.py").write_text(
-            "\n".join(_PT2E_MODULE_PATCHES["torchao.quantization.pt2e"])
-        )
-        (quantizer_path / "quantizer.py").write_text(
-            "\n".join(
-                _PT2E_MODULE_PATCHES["torchao.quantization.pt2e.quantizer.quantizer"]
-            )
-        )
-        return package_path
+    def factory(source: str, patches: list[SourcePatch]) -> Path:
+        module_path = tmp_path / f"{FAKE_MODULE_NAME}.py"
+        module_path.write_text(source)
+        finder = TorchaoPatchFinder(module_patches={FAKE_MODULE_NAME: patches})
+        sys.meta_path.insert(0, finder)
+        installed_finders.append(finder)
+        sys.path.insert(0, str(tmp_path))
+        return module_path
 
-    return factory
+    yield factory
 
-
-@pytest.fixture
-def eager_package_factory(tmp_path: Path) -> Callable[[str], Path]:
-    """Factory for fake torchao package trees with QAT fake-quant source."""
-
-    def factory(source: str = _QAT_INT4_GROUP_SIZE_ORIGINAL) -> Path:
-        package_path = tmp_path / "torchao"
-        qat_path = package_path / "quantization" / "qat"
-        qat_path.mkdir(parents=True)
-        (qat_path / "fake_quantize_config.py").write_text(source)
-        return package_path
-
-    return factory
+    for finder in installed_finders:
+        sys.meta_path.remove(finder)
+    if str(tmp_path) in sys.path:
+        sys.path.remove(str(tmp_path))
+    sys.modules.pop(FAKE_MODULE_NAME, None)
 
 
 @pytest.mark.unit
-class TestPatchPT2EPython314:
-    def test_skips_on_python_below_314(self) -> None:
-        find_spec_mock = MagicMock(spec=importlib.util.find_spec)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.sys.version_info",
-                (3, 13, 0),
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                new=find_spec_mock,
-            ),
-        ):
-            patch_pt2e_python314()
-
-        find_spec_mock.assert_not_called()
-
-    def test_patch_targets_cover_all_known_crash_sites(self) -> None:
-        expected_modules = {
-            "torchao.quantization.pt2e",
-            "torchao.quantization.pt2e.quantizer.quantizer",
-        }
-
-        assert set(_PT2E_MODULE_PATCHES.keys()) == expected_modules
-
-    def test_replaces_known_crashing_assignments(
-        self,
-        python_314_version: None,
-        torchao_package_factory: Callable[[], Path],
-    ) -> None:
-        package_path = torchao_package_factory()
-        spec = MagicMock(spec=ModuleSpec)
-        spec.submodule_search_locations = [str(package_path)]
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                return_value=spec,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_pt2e_python314()
-
-        pt2e_source = (
-            package_path / "quantization" / "pt2e" / "__init__.py"
-        ).read_text()
-        quantizer_source = (
-            package_path / "quantization" / "pt2e" / "quantizer" / "quantizer.py"
-        ).read_text()
-        assert "ObserverOrFakeQuantize.__module__" not in pt2e_source
-        assert "ObserverOrFakeQuantizeConstructor.__module__" not in pt2e_source
-        assert "EdgeOrNode.__module__" not in quantizer_source
-        assert "# versatil-pt2e-patched" in pt2e_source
-        assert "# versatil-pt2e-patched" in quantizer_source
-        invalidate_caches_mock.assert_called_once_with()
-
-    def test_skips_when_torchao_is_missing(self, python_314_version: None) -> None:
-        find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=None)
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                new=find_spec_mock,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_pt2e_python314()
-
-        find_spec_mock.assert_called_once_with("torchao")
-        invalidate_caches_mock.assert_not_called()
-
-    def test_skips_when_torchao_has_no_package_path(
-        self, python_314_version: None
-    ) -> None:
-        spec = MagicMock(spec=ModuleSpec)
-        spec.submodule_search_locations = None
-        find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=spec)
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                new=find_spec_mock,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_pt2e_python314()
-
-        find_spec_mock.assert_called_once_with("torchao")
-        invalidate_caches_mock.assert_not_called()
-
-    def test_skips_when_pt2e_directory_is_missing(
-        self, python_314_version: None, tmp_path: Path
-    ) -> None:
-        package_path = tmp_path / "torchao"
-        package_path.mkdir()
-        spec = MagicMock(spec=ModuleSpec)
-        spec.submodule_search_locations = [str(package_path)]
-        find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=spec)
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                new=find_spec_mock,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_pt2e_python314()
-
-        find_spec_mock.assert_called_once_with("torchao")
-        invalidate_caches_mock.assert_not_called()
-
-    def test_skips_files_that_are_already_patched(
-        self,
-        python_314_version: None,
-        torchao_package_factory: Callable[[], Path],
-    ) -> None:
-        package_path = torchao_package_factory()
-        pt2e_file = package_path / "quantization" / "pt2e" / "__init__.py"
-        quantizer_file = (
-            package_path / "quantization" / "pt2e" / "quantizer" / "quantizer.py"
+class TestPatchingImport:
+    def test_replacement_applies_in_memory_only(self, fake_module_factory) -> None:
+        module_path = fake_module_factory(
+            source='VALUE = "original"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement='VALUE = "patched"',
+                    required=True,
+                ),
+            ],
         )
-        pt2e_file.write_text(pt2e_file.read_text() + "\n# versatil-pt2e-patched\n")
-        quantizer_file.write_text(
-            quantizer_file.read_text() + "\n# versatil-pt2e-patched\n"
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert module.VALUE == "patched"
+        assert 'VALUE = "original"' in module_path.read_text()
+        assert not (module_path.parent / "__pycache__").exists()
+
+    def test_already_fixed_source_is_accepted(self, fake_module_factory) -> None:
+        fake_module_factory(
+            source='VALUE = "patched"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement='VALUE = "patched"',
+                    required=True,
+                ),
+            ],
         )
-        spec = MagicMock(spec=ModuleSpec)
-        spec.submodule_search_locations = [str(package_path)]
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
 
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                return_value=spec,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_pt2e_python314()
+        module = __import__(FAKE_MODULE_NAME)
 
-        assert "ObserverOrFakeQuantize.__module__" in pt2e_file.read_text()
-        assert "EdgeOrNode.__module__" in quantizer_file.read_text()
-        invalidate_caches_mock.assert_not_called()
+        assert module.VALUE == "patched"
+
+    def test_unknown_source_raises_for_required_patch(
+        self, fake_module_factory
+    ) -> None:
+        fake_module_factory(
+            source='VALUE = "rewritten upstream"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement='VALUE = "patched"',
+                    required=True,
+                ),
+            ],
+        )
+
+        with pytest.raises(RuntimeError, match="does not match the version"):
+            __import__(FAKE_MODULE_NAME)
+
+    def test_missing_original_is_skipped_for_optional_patch(
+        self, fake_module_factory
+    ) -> None:
+        fake_module_factory(
+            source='VALUE = "statement removed upstream"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement="pass",
+                    required=False,
+                ),
+            ],
+        )
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert module.VALUE == "statement removed upstream"
+
+    def test_common_replacement_does_not_mask_later_patches(
+        self, fake_module_factory
+    ) -> None:
+        # Both patches replace with "pass"; applying the first must not make
+        # the second look already applied.
+        fake_module_factory(
+            source="FIRST = 1\nSECOND = 2\n",
+            patches=[
+                SourcePatch(original="FIRST = 1", replacement="pass", required=True),
+                SourcePatch(original="SECOND = 2", replacement="pass", required=True),
+            ],
+        )
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert not hasattr(module, "FIRST")
+        assert not hasattr(module, "SECOND")
+
+
+@pytest.mark.unit
+class TestRegisterTorchaoPatches:
+    def test_registration_is_idempotent(self) -> None:
+        register_torchao_patches()
+        finder_count_before = sum(
+            isinstance(finder, TorchaoPatchFinder) for finder in sys.meta_path
+        )
+
+        register_torchao_patches()
+
+        finder_count_after = sum(
+            isinstance(finder, TorchaoPatchFinder) for finder in sys.meta_path
+        )
+        assert finder_count_before == finder_count_after == 1
+
+    def test_warns_when_target_module_already_imported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        installed = [
+            finder for finder in sys.meta_path if isinstance(finder, TorchaoPatchFinder)
+        ]
+        for finder in installed:
+            sys.meta_path.remove(finder)
+        sys.modules.setdefault("torchao.quantization.qat.fake_quantize_config", sys)
+        try:
+            with caplog.at_level(logging.WARNING):
+                register_torchao_patches()
+            assert any(
+                "imported before versatil" in record.message
+                for record in caplog.records
+            )
+        finally:
+            if sys.modules.get("torchao.quantization.qat.fake_quantize_config") is sys:
+                del sys.modules["torchao.quantization.qat.fake_quantize_config"]
+            for finder in list(sys.meta_path):
+                if isinstance(finder, TorchaoPatchFinder):
+                    sys.meta_path.remove(finder)
+            for finder in installed:
+                sys.meta_path.insert(0, finder)
 
 
 @pytest.mark.integration
-class TestPatchPT2EPython314Integration:
-    def test_pt2e_imports_succeed_on_current_python(self) -> None:
-        quantize_module = importlib.import_module(
-            "torchao.quantization.pt2e.quantize_pt2e"
+class TestTorchaoPatchesIntegration:
+    def test_qat_group_size_propagates_in_memory(self) -> None:
+        fake_quantize_config = pytest.importorskip(
+            "torchao.quantization.qat.fake_quantize_config"
         )
-        quantizer_module = importlib.import_module(
-            "torchao.quantization.pt2e.quantizer"
+        quantization = pytest.importorskip("torchao.quantization")
+
+        base_config = quantization.Int4WeightOnlyConfig(group_size=32, version=2)
+        _, weight_config = fake_quantize_config._infer_fake_quantize_configs(
+            base_config
         )
-        x86_module = importlib.import_module(
-            "torchao.quantization.pt2e.quantizer.x86_inductor_quantizer"
-        )
 
-        assert quantize_module.prepare_pt2e.__name__ == "prepare_pt2e"
-        assert quantize_module.convert_pt2e.__name__ == "convert_pt2e"
-        assert quantizer_module.Quantizer.__name__ == "Quantizer"
-        assert x86_module.X86InductorQuantizer.__name__ == "X86InductorQuantizer"
+        assert weight_config.group_size == 32
 
-
-@pytest.mark.unit
-class TestPatchQATInt4GroupSize:
-    def test_replaces_hardcoded_group_size(
-        self,
-        eager_package_factory: Callable[[str], Path],
-    ) -> None:
-        package_path = eager_package_factory()
-        spec = MagicMock(spec=ModuleSpec)
-        spec.submodule_search_locations = [str(package_path)]
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                return_value=spec,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_qat_int4_group_size()
-
-        source = (
-            package_path / "quantization" / "qat" / "fake_quantize_config.py"
-        ).read_text()
-        assert _QAT_INT4_GROUP_SIZE_ORIGINAL not in source
-        assert _QAT_INT4_GROUP_SIZE_REPLACEMENT in source
-        assert "# versatil-qat-int4-group-size-patched" in source
-        invalidate_caches_mock.assert_called_once_with()
-
-    def test_skips_when_upstream_fix_exists(
-        self,
-        eager_package_factory: Callable[[str], Path],
-    ) -> None:
-        package_path = eager_package_factory(source=_QAT_INT4_GROUP_SIZE_REPLACEMENT)
-        spec = MagicMock(spec=ModuleSpec)
-        spec.submodule_search_locations = [str(package_path)]
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                return_value=spec,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_qat_int4_group_size()
-
-        source = (
-            package_path / "quantization" / "qat" / "fake_quantize_config.py"
-        ).read_text()
-        assert source == _QAT_INT4_GROUP_SIZE_REPLACEMENT
-        invalidate_caches_mock.assert_not_called()
-
-    def test_skips_when_torchao_is_missing(self) -> None:
-        find_spec_mock = MagicMock(spec=importlib.util.find_spec, return_value=None)
-        invalidate_caches_mock = MagicMock(spec=importlib.invalidate_caches)
-
-        with (
-            patch(
-                "versatil.quantization.torch_patches.importlib.util.find_spec",
-                new=find_spec_mock,
-            ),
-            patch(
-                "versatil.quantization.torch_patches.importlib.invalidate_caches",
-                new=invalidate_caches_mock,
-            ),
-        ):
-            patch_qat_int4_group_size()
-
-        find_spec_mock.assert_called_once_with("torchao")
-        invalidate_caches_mock.assert_not_called()
+    @pytest.mark.skipif(
+        sys.version_info < (3, 14), reason="crash only exists on Python 3.14+"
+    )
+    def test_pt2e_imports_on_python_314(self) -> None:
+        pytest.importorskip("torchao.quantization.pt2e")
