@@ -567,13 +567,14 @@ class TestForward:
         assert "rgb_embedding" in result
         assert "rgb_extra" not in result
 
-    def test_squeezes_singleton_time_dimension(
+    def test_keeps_singleton_time_dimension(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
         rng: np.random.Generator,
         default_observation_space,
     ):
-        # Feature with shape (batch, 1, dim) should be squeezed to (batch, dim)
+        # Features keep the canonical (B, T, ...) layout even for T=1 so
+        # consumers can rely on rank instead of guessing.
         feature_with_time = torch.from_numpy(
             rng.standard_normal((2, 1, 64)).astype(np.float32)
         )
@@ -586,7 +587,7 @@ class TestForward:
         )
         image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
         result = pipeline.forward(observation={"left": image})
-        assert result["rgb_embedding"].shape == (2, 64)
+        assert result["rgb_embedding"].shape == (2, 1, 64)
 
     def test_does_not_squeeze_multi_step_time_dimension(
         self,

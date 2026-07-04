@@ -139,7 +139,6 @@ class TestParallelTransformerInputBuilder:
             temporal_layer = None
         input_sequence_builder_class.assert_called_once_with(
             embedding_dimension=EMBEDDING_DIMENSION,
-            has_time_dim=observation_horizon > 1,
             spatial_positional_encoding_layer=spatial_encoding_class.return_value,
             flat_positional_encoding_layer=flat_encoding,
             temporal_positional_encoding_layer=temporal_layer,
@@ -190,7 +189,6 @@ class TestParallelTransformerInputBuilder:
         )
         input_sequence_builder_class.assert_called_once_with(
             embedding_dimension=EMBEDDING_DIMENSION,
-            has_time_dim=True,
             spatial_positional_encoding_layer=spatial_encoding_class.return_value,
             flat_positional_encoding_layer=flat_encoding,
             temporal_positional_encoding_layer=temporal_encoding,

@@ -330,9 +330,6 @@ class EncodingPipeline(nn.Module):
             ]
             features[fusion_module.output_name] = fusion_module(input_features)
 
-        features = dict_apply(
-            features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x
-        )
         if self.output_dtype is not None:
             features = dict_apply(
                 features,

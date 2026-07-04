@@ -122,7 +122,6 @@ class VQPosteriorEncoder(PosteriorLatentEncoder):
 
         self.input_sequence_builder = TransformerInputBuilder(
             embedding_dimension=embedding_dimension,
-            has_time_dim=observation_horizon > 1,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=embedding_dimension, normalize=True
             ),

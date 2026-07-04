@@ -43,17 +43,14 @@ class FeatureProjection(ModuleAttrMixin):
     def __init__(
         self,
         embedding_dimension: int,
-        has_time_dim: bool = False,
     ):
         """Initialize feature projection module.
 
         Args:
             embedding_dimension: Target embedding dimension for all features
-            has_time_dim: Whether features may have a time dimension (default: False)
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
-        self.has_time_dim = has_time_dim
         # These two dicts are doing exactly the same mathematical operation. But using linear projections
         # for spatial features would require transposing the tensors,  so we use conv2d instead.
         self.linear_projections = nn.ModuleDict()
@@ -131,23 +128,25 @@ class FeatureProjection(ModuleAttrMixin):
     def _create_projection_layer(
         self,
         feature: torch.Tensor,
+        is_spatial: bool,
     ) -> nn.Module:
-        """Create projection layer for feature."""
-        if len(feature.shape) < 4:  # flat (B, C) or sequential (B, T, C)
-            channel_dim = feature.shape[-1]
-            if channel_dim == self.embedding_dimension:
-                return nn.Identity()
-            layer: nn.Module = nn.Linear(channel_dim, self.embedding_dimension)
-            return layer.to(device=self.device, dtype=self.dtype)
-        else:
-            if len(feature.shape) == 4:  # spatial (B, C, H, W)
-                channel_dim = feature.shape[1]
-            else:
-                raise ValueError(f"Unsupported feature shape: {feature.shape}")
-            if channel_dim == self.embedding_dimension:
-                return nn.Identity()
+        """Create projection layer for feature.
+
+        Args:
+            feature: Tensor the layer will project, already flattened to
+                (B*T, C, H, W) for spatial features.
+            is_spatial: Whether the feature is a spatial map projected over
+                its channel axis instead of its last axis.
+        """
+        channel_dim = feature.shape[1] if is_spatial else feature.shape[-1]
+        if channel_dim == self.embedding_dimension:
+            return nn.Identity()
+        layer: nn.Module
+        if is_spatial:
             layer = nn.Conv2d(channel_dim, self.embedding_dimension, kernel_size=1)
-            return layer.to(device=self.device, dtype=self.dtype)
+        else:
+            layer = nn.Linear(channel_dim, self.embedding_dimension)
+        return layer.to(device=self.device, dtype=self.dtype)
 
     def forward(
         self,
@@ -167,25 +166,21 @@ class FeatureProjection(ModuleAttrMixin):
         projected = {}
         for feature_name, feature in features.items():
             B, T = None, None
-            if feature.ndim == 5:
-                B, T, _, _, _ = feature.shape
+            # Pipeline features always carry (B, T, ...): 5D spatial maps,
+            # 4D token sequences, 3D vectors. 2D tensors are algorithm
+            # context (e.g. latents) without a time axis.
+            is_spatial = feature.ndim == 5
+            if is_spatial:
+                B, T = feature.shape[0], feature.shape[1]
                 feature = feature.reshape(B * T, *feature.shape[2:])  # (B*T, C, H, W)
-                is_spatial = True
-            elif self.has_time_dim and feature.ndim == 4:
-                B, T, _, _ = feature.shape
-                feature = feature.reshape(B * T, *feature.shape[2:])
-                is_spatial = False
-            else:
-                is_spatial = len(feature.shape) > 3
             projection_dict = (
                 self.spatial_projections if is_spatial else self.linear_projections
             )
             if feature_name not in projection_dict:
-                projection_dict[feature_name] = self._create_projection_layer(feature)
+                projection_dict[feature_name] = self._create_projection_layer(
+                    feature=feature, is_spatial=is_spatial
+                )
             feature_projection = projection_dict[feature_name](feature)
-            # Restore whenever the input was flattened: a 5D input carries a
-            # time dimension regardless of the has_time_dim flag, and folding
-            # it into the batch would leak B*T downstream.
             if B is not None and T is not None:
                 feature_projection = feature_projection.reshape(
                     B, T, *feature_projection.shape[1:]

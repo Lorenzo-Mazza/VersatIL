@@ -17,11 +17,9 @@ def feature_projection_factory() -> Callable[..., FeatureProjection]:
 
     def factory(
         embedding_dimension: int = 64,
-        has_time_dim: bool = False,
     ) -> FeatureProjection:
         return FeatureProjection(
             embedding_dimension=embedding_dimension,
-            has_time_dim=has_time_dim,
         )
 
     return factory
@@ -80,11 +78,12 @@ def sequential_feature_factory(
 def spatial_feature_factory(
     rng: np.random.Generator,
 ) -> Callable[..., dict[str, torch.Tensor]]:
-    """Factory for spatial feature dictionaries with shape (B, C, H, W)."""
+    """Factory for spatial feature dictionaries with shape (B, T, C, H, W)."""
 
     def factory(
         keys: list[str] | None = None,
         batch_size: int = 2,
+        time_length: int = 1,
         channel_dim: int = 32,
         height: int = 7,
         width: int = 7,
@@ -93,9 +92,9 @@ def spatial_feature_factory(
             keys = ["spatial_feature"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal((batch_size, channel_dim, height, width)).astype(
-                    np.float32
-                )
+                rng.standard_normal(
+                    (batch_size, time_length, channel_dim, height, width)
+                ).astype(np.float32)
             )
             for key in keys
         }
@@ -105,19 +104,15 @@ def spatial_feature_factory(
 
 class TestFeatureProjectionInitialization:
     @pytest.mark.parametrize("embedding_dimension", [64, 128])
-    @pytest.mark.parametrize("has_time_dim", [True, False])
     def test_stores_configuration(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
         embedding_dimension: int,
-        has_time_dim: bool,
     ):
         projection = feature_projection_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=has_time_dim,
         )
         assert projection.embedding_dimension == embedding_dimension
-        assert projection.has_time_dim is has_time_dim
 
     def test_starts_with_empty_linear_projections(
         self,
@@ -154,7 +149,9 @@ class TestFeatureProjectionCreateProjectionLayer:
         projection = feature_projection_factory(embedding_dimension=embedding_dimension)
         features = flat_feature_factory(channel_dim=channel_dim)
         feature_tensor = features["flat_feature"]
-        layer = projection._create_projection_layer(feature=feature_tensor)
+        layer = projection._create_projection_layer(
+            feature=feature_tensor, is_spatial=False
+        )
         assert isinstance(layer, expected_type)
 
     @pytest.mark.parametrize(
@@ -175,8 +172,10 @@ class TestFeatureProjectionCreateProjectionLayer:
         embedding_dimension = 64
         projection = feature_projection_factory(embedding_dimension=embedding_dimension)
         features = spatial_feature_factory(channel_dim=channel_dim)
-        feature_tensor = features["spatial_feature"]
-        layer = projection._create_projection_layer(feature=feature_tensor)
+        feature_tensor = features["spatial_feature"].flatten(0, 1)  # (B*T, C, H, W)
+        layer = projection._create_projection_layer(
+            feature=feature_tensor, is_spatial=True
+        )
         assert isinstance(layer, expected_type)
 
     def test_sequential_feature_creates_linear_layer(
@@ -187,7 +186,9 @@ class TestFeatureProjectionCreateProjectionLayer:
         projection = feature_projection_factory(embedding_dimension=64)
         features = sequential_feature_factory(channel_dim=32)
         feature_tensor = features["sequential_feature"]
-        layer = projection._create_projection_layer(feature=feature_tensor)
+        layer = projection._create_projection_layer(
+            feature=feature_tensor, is_spatial=False
+        )
         assert isinstance(layer, nn.Linear)
 
     def test_sequential_feature_identity_when_dim_matches(
@@ -199,27 +200,11 @@ class TestFeatureProjectionCreateProjectionLayer:
         projection = feature_projection_factory(embedding_dimension=embedding_dimension)
         features = sequential_feature_factory(channel_dim=embedding_dimension)
         feature_tensor = features["sequential_feature"]
-        layer = projection._create_projection_layer(feature=feature_tensor)
+        layer = projection._create_projection_layer(
+            feature=feature_tensor, is_spatial=False
+        )
         assert isinstance(layer, nn.Identity)
 
-    def test_raises_for_unsupported_shape(
-        self,
-        rng: np.random.Generator,
-        feature_projection_factory: Callable[..., FeatureProjection],
-    ):
-        projection = feature_projection_factory(embedding_dimension=64)
-        # 5D tensor passed directly to _create_projection_layer (not via forward)
-        unsupported = torch.from_numpy(
-            rng.standard_normal((2, 3, 4, 5, 6)).astype(np.float32)
-        )
-        with pytest.raises(
-            ValueError,
-            match=re.escape(f"Unsupported feature shape: {unsupported.shape}"),
-        ):
-            projection._create_projection_layer(feature=unsupported)
-
-
-class TestFeatureProjectionForward:
     def test_flat_features_projected_to_embedding_dim(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -272,6 +257,7 @@ class TestFeatureProjectionForward:
         output = projection(features)
         assert output["spatial_feature"].shape == (
             batch_size,
+            1,
             embedding_dimension,
             height,
             width,
@@ -345,7 +331,6 @@ class TestFeatureProjectionForward:
         embedding_dimension = 64
         projection = feature_projection_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=True,
         )
         features = {
             "video_feature": torch.from_numpy(
@@ -376,7 +361,6 @@ class TestFeatureProjectionForward:
         embedding_dimension = 64
         projection = feature_projection_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=False,
         )
         features = {
             "video_feature": torch.from_numpy(
@@ -386,8 +370,8 @@ class TestFeatureProjectionForward:
             )
         }
         output = projection(features)
-        # A 5D input carries a time dimension regardless of has_time_dim;
-        # folding it into the batch would leak B*T downstream.
+        # A 5D input carries a time dimension; folding it into the batch
+        # would leak B*T downstream.
         assert output["video_feature"].shape == (
             batch_size,
             temporal_length,
@@ -396,7 +380,7 @@ class TestFeatureProjectionForward:
             width,
         )
 
-    def test_has_time_dim_reshapes_4d_sequential_features(
+    def test_4d_sequential_features_project_on_last_dim(
         self,
         rng: np.random.Generator,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -407,7 +391,6 @@ class TestFeatureProjectionForward:
         embedding_dimension = 64
         projection = feature_projection_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=True,
         )
         features = {
             "temporal_flat": torch.from_numpy(
@@ -469,7 +452,7 @@ class TestFeatureProjectionForward:
         )
         features = {
             "spatial_feature": torch.from_numpy(
-                rng.standard_normal((2, 32, 7, 7)).astype(np.float64)
+                rng.standard_normal((2, 1, 32, 7, 7)).astype(np.float64)
             )
         }
         output = projection(features)

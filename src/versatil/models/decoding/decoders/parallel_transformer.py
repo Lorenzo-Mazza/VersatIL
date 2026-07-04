@@ -60,7 +60,6 @@ class BaseParallelTransformerDecoder(ActionDecoder):
         )
         return TransformerInputBuilder(
             embedding_dimension=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=self.embedding_dimension,
                 normalize=True,

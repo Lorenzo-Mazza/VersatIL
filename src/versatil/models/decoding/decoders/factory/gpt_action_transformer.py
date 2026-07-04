@@ -147,7 +147,6 @@ class GPTActionTransformer(
         # This layer transforms input features into a sequence of token embeddings + positional encodings
         self.input_sequence_builder = TransformerInputBuilder(
             embedding_dimension=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
             spatial_positional_encoding_layer=image_positional_encoding,
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension

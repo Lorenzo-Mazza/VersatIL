@@ -19,11 +19,9 @@ def unet_input_builder_factory() -> Callable[..., UNetInputBuilder]:
 
     def factory(
         embedding_dimension: int = 64,
-        has_time_dim: bool = False,
     ) -> UNetInputBuilder:
         return UNetInputBuilder(
             embedding_dimension=embedding_dimension,
-            has_time_dim=has_time_dim,
         )
 
     return factory
@@ -31,19 +29,15 @@ def unet_input_builder_factory() -> Callable[..., UNetInputBuilder]:
 
 class TestUNetInputBuilderInitialization:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
-    @pytest.mark.parametrize("has_time_dim", [True, False])
     def test_stores_configuration(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
         embedding_dimension: int,
-        has_time_dim: bool,
     ):
         builder = unet_input_builder_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=has_time_dim,
         )
         assert builder.embedding_dimension == embedding_dimension
-        assert builder.has_time_dim is has_time_dim
         assert builder.projection is not None
 
 
@@ -157,7 +151,6 @@ class TestUNetInputBuilderFeatureShapes:
         sequence_length = 4
         builder = unet_input_builder_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=True,
         )
         builder.projection.forward = lambda features: features
         features = temporal_flat_feature_factory(
@@ -174,7 +167,7 @@ class TestUNetInputBuilderFeatureShapes:
         )
         assert torch.equal(result, input_value.reshape(2, -1))
 
-    def test_4d_spatial_without_time_dim_raises(
+    def test_spatial_features_raise(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
@@ -182,7 +175,6 @@ class TestUNetInputBuilderFeatureShapes:
         embedding_dimension = 64
         builder = unet_input_builder_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=False,
         )
         builder.projection.forward = lambda features: features
         feature_name = "spatial_feature"
@@ -195,8 +187,8 @@ class TestUNetInputBuilderFeatureShapes:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"4D feature '{feature_name}' with no time dimension is not supported "
-                f"as input to U-Net Decoder."
+                f"5D feature '{feature_name}' is not supported as input to "
+                "U-Net Decoder."
             ),
         ):
             builder(features)
@@ -209,7 +201,6 @@ class TestUNetInputBuilderFeatureShapes:
         embedding_dimension = 64
         builder = unet_input_builder_factory(
             embedding_dimension=embedding_dimension,
-            has_time_dim=True,
         )
         builder.projection.forward = lambda features: features
         feature_name = "video_feature"

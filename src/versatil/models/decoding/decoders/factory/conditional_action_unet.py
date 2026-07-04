@@ -111,7 +111,6 @@ class ConditionalActionUNet(ActionDecoder):
         self._feature_projections: nn.ModuleDict | None = None
         self.unet_conditioning_builder = UNetInputBuilder(
             embedding_dimension=embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
         )
 
         # U-Net will be lazily initialized on first forward pass

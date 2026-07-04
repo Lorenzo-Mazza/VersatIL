@@ -145,7 +145,7 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
 def spatial_feature_factory(
     rng: np.random.Generator,
 ) -> Callable[..., dict[str, torch.Tensor]]:
-    """Factory for spatial feature dictionaries (B, C, H, W)."""
+    """Factory for single-frame spatial feature dictionaries (B, 1, C, H, W)."""
 
     def factory(
         batch_size: int = 2,
@@ -158,7 +158,7 @@ def spatial_feature_factory(
             feature_keys = ["rgb_features"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal((batch_size, channels, height, width)).astype(
+                rng.standard_normal((batch_size, 1, channels, height, width)).astype(
                     np.float32
                 )
             )

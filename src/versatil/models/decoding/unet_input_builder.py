@@ -26,10 +26,9 @@ class UNetInputBuilder(nn.Module):
 
     Args:
         embedding_dimension: Target dimension for projecting all features.
-        has_time_dim: If True, expects temporal dimension in features (B, T, ...).
 
     Example:
-        >>> builder = UNetInputBuilder(embedding_dimension=256, has_time_dim=False)
+        >>> builder = UNetInputBuilder(embedding_dimension=256)
         >>> features = {"rgb_pooled": torch.randn(4, 512), "proprio": torch.randn(4, 64)}
         >>> conditioning = builder(features)  # Shape: (4, 256 + 256)
     """
@@ -37,14 +36,10 @@ class UNetInputBuilder(nn.Module):
     def __init__(
         self,
         embedding_dimension: int,
-        has_time_dim: bool = False,
     ):
         super().__init__()
         self.embedding_dimension = embedding_dimension
-        self.projection = FeatureProjection(
-            embedding_dimension, has_time_dim=has_time_dim
-        )
-        self.has_time_dim = has_time_dim
+        self.projection = FeatureProjection(embedding_dimension)
 
     def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor | None:
         """Project and concatenate features into a single conditioning vector.
@@ -73,20 +68,14 @@ class UNetInputBuilder(nn.Module):
         cls_token = None
         for name in sorted(projected.keys()):
             x = projected[name]
-            if x.ndim == 2:  # pooled / single token (always T=1)
+            if x.ndim == 2:  # algorithm context (B, Emb)
                 feature_embedding = x  # (B, Emb)
-            elif x.ndim == 3:
+            elif x.ndim == 3:  # temporal vector (B, T, Emb)
                 B, _, _ = x.shape
-                feature_embedding = x.reshape(B, -1)  # (B, Seq*Emb)
-            elif x.ndim == 4:
-                if self.has_time_dim:  # (B, T, Seq, Emb)
-                    B, _, _, _ = x.shape
-                    feature_embedding = x.reshape(B, -1)  # (B, T*Seq*Emb)
-                else:  # spatial (B, Emb, H, W)
-                    raise ValueError(
-                        f"4D feature '{name}' with no time dimension is not supported as input to U-Net Decoder. "
-                        "Please pool your features accordingly using the encoding pipeline."
-                    )
+                feature_embedding = x.reshape(B, -1)  # (B, T*Emb)
+            elif x.ndim == 4:  # temporal token sequence (B, T, Seq, Emb)
+                B, _, _, _ = x.shape
+                feature_embedding = x.reshape(B, -1)  # (B, T*Seq*Emb)
             elif x.ndim == 5:  # temporal spatial (B, T, Emb, H, W)
                 raise ValueError(
                     f"5D feature '{name}' is not supported as input to U-Net Decoder. "

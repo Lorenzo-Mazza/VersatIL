@@ -170,6 +170,12 @@ Where:
 - **`FlatRGBEncoder`** (`rgb/flat.py`): Backbones producing (B, S, D) token sequences (ViT, DINOv2, DINOv3, DeiT). Validates against `FlatBackboneType`.
 - **`SpatialDepthEncoder`** (`depth/spatial.py`): Same as SpatialRGBEncoder but for single-channel depth images (`in_chans=1`).
 
+**Feature tensor contract**: every feature crossing the pipeline/decoder boundary carries a leading `(B, T, ...)` layout, even for `T=1`. Rank alone identifies the feature kind:
+- 5D `(B, T, C, H, W)`: spatial feature map
+- 4D `(B, T, S, D)`: token sequence
+- 3D `(B, T, D)`: vector feature
+- 2D `(B, D)`: algorithm context without a time axis (e.g. sampled latents)
+
 **Encoder mixins** define camera group and output modality:
 - `ImageEncoderMixin` (abstract) → `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`
 - Each mixin sets `_camera_group` (which cameras to use) and `_output_modality` (feature key prefix)
@@ -496,7 +502,7 @@ Extensions:
                 observation_horizon=task.observation_horizon)
             # ... wire everything, pass feature metadata to decoder
     ```
-  - **Feature metadata injection**: The assembler passes `encoding_pipeline.get_features()` to the decoder after instantiation, replacing the current `has_time_dim` flag and runtime `ndim` shape guessing in `TransformerInputBuilder`/`UNetInputBuilder`/`FeatureProjection`. Decoders use `FeatureMetadata.feature_type` instead of inspecting tensor shapes. The pipeline squeeze of `T=1` is removed — encoders always output `(B, T, ...)`, decoders handle it consistently.
+  - **Feature metadata injection**: DONE for shapes — the pipeline no longer squeezes `T=1` and every feature carries the canonical `(B, T, ...)` layout (see "Feature tensor contract"), so `has_time_dim` and `ndim` guessing are gone from `TransformerInputBuilder`/`UNetInputBuilder`/`FeatureProjection`. Remaining: the assembler could still pass `encoding_pipeline.get_features()` so decoders validate against `FeatureMetadata.feature_type` at construction instead of relying on rank at runtime.
   - **Feature filtering in decoders**: Currently `DecoderInput.keys` is used only for validation at init — decoders pass the ENTIRE features dict to `TransformerInputBuilder`, which processes everything via a fragile denylist (`exclude_keys`, padding mask substring checks). Algorithm-injected keys (timestep, latent) are mixed with encoder outputs in the same dict. The fix: decoders filter features by `decoder_input.keys` (allowlist) before passing to input builders, and access algorithm-injected keys explicitly. The latent key changes between training (`POSTERIOR_LATENT`) and inference (`PRIOR_LATENT`) — the algorithm handles this, the decoder should be agnostic. This requires the assembler to distinguish between "encoder features" and "algorithm context" as separate dicts or namespaces.
   - **YAML simplification**: `policy.decoder.observation_space: ${policy.observation_space}` disappears. Shared params exist once in `task:` and flow through the assembler.
   - **Migration path**: Incremental — start with decoder configs, then algorithm, then encoding pipeline, then PolicyConfig itself. Each step is independently testable.
