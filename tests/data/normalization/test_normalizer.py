@@ -14,6 +14,18 @@ from versatil.data.normalization.normalizer import (
 ALL_MODES = [member.value for member in KinematicsNormalizationType]
 
 
+@pytest.mark.unit
+class TestSingleRowFit:
+    def test_gaussian_fit_on_single_row_stays_finite(self):
+        data = torch.tensor([[1.0, 2.0]])
+        normalizer = SingleFieldLinearNormalizer.create_fit(
+            data=data,
+            mode=KinematicsNormalizationType.GAUSSIAN.value,
+        )
+        normalized = normalizer.normalize(data)
+        assert torch.isfinite(normalized).all()
+
+
 @pytest.fixture
 def gaussian_then_minmax_sequential(rng: np.random.Generator) -> SequentialNormalizer:
     """Two-stage sequential normalizer: gaussian → min_max."""

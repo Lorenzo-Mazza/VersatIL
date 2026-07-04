@@ -225,6 +225,17 @@ class TestGetDepthImageNormalizer:
             normalizer, (SingleFieldLinearNormalizer, SequentialNormalizer)
         )
 
+    def test_constant_depth_range_stays_finite(self):
+        normalizer = get_depth_image_normalizer(
+            input_min=1.0,
+            input_max=1.0,
+            input_mean=1.0,
+            input_std=0.0,
+            norm_type=ImageNormalizationType.ZERO_TO_ONE.value,
+        )
+        normalized = normalizer.normalize(torch.ones(2, 1, 4, 4))
+        assert torch.isfinite(normalized).all()
+
     @pytest.mark.parametrize("norm_type", RGB_ONLY_IMAGE_NORM_TYPES)
     def test_rgb_only_normalization_types_raise_for_depth(
         self,

@@ -219,6 +219,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- Binary gripper detokenization thresholds decoded values into valid classes
+  instead of rounding or signing out of domain; TrajectoryLengthLoss reduces
+  per sample so opposite errors cannot cancel and horizon-1 returns zero
+  instead of NaN; BinaryKLDivergenceLoss respects padding masks and survives
+  absent logits; unstructured pruning defaults to convolution and linear
+  layers instead of every weight parameter (norm scales, embeddings); static
+  PT2E requires at least one calibration batch; mixed PT2E backends across
+  targets are rejected at compression time; Gaussian normalizer fits stay
+  finite on single-row data; constant-range depth normalization no longer
+  divides by zero; and winsorization quantiles are validated as ordered.
 - Diffusion sample-prediction targets no longer carry the padding mask;
   encoders validate that every input shares one (batch, time) layout before
   temporal flattening; discrete token sampling returns (B, 1) ids in both

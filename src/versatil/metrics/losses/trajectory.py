@@ -61,20 +61,28 @@ class TrajectoryLengthLoss(ScalarWeightedLoss):
         pred_steps = torch.norm(pred[:, 1:] - pred[:, :-1], dim=-1)  # (B, H-1)
         target_steps = torch.norm(target[:, 1:] - target[:, :-1], dim=-1)  # (B, H-1)
 
-        if is_pad is not None:
-            # A step between t-1 and t is valid only if both timesteps are valid
-            valid_steps = (~is_pad[:, 1:]) & (~is_pad[:, :-1])  # (B, H-1)
-            pred_length = reduce_loss_with_padding(
-                pred_steps, is_pad=~valid_steps, reduction="mean"
-            )
-            target_length = reduce_loss_with_padding(
-                target_steps, is_pad=~valid_steps, reduction="mean"
-            )
+        if pred_steps.shape[1] == 0:
+            length_loss = torch.zeros((), device=pred.device, dtype=pred.dtype)
         else:
-            pred_length = pred_steps.mean()
-            target_length = target_steps.mean()
+            if is_pad is not None:
+                # A step between t-1 and t is valid only if both timesteps
+                # are valid
+                valid_steps = (~is_pad[:, 1:]) & (~is_pad[:, :-1])  # (B, H-1)
+                valid_counts = valid_steps.sum(dim=1)  # (B,)
+                pred_lengths = (pred_steps * valid_steps).sum(dim=1)
+                target_lengths = (target_steps * valid_steps).sum(dim=1)
+                sample_has_steps = valid_counts > 0
+                counts = valid_counts.clamp(min=1)
+                pred_lengths = pred_lengths / counts
+                target_lengths = target_lengths / counts
+            else:
+                pred_lengths = pred_steps.mean(dim=1)  # (B,)
+                target_lengths = target_steps.mean(dim=1)  # (B,)
+                sample_has_steps = torch.ones_like(pred_lengths, dtype=torch.bool)
 
-        length_loss = (pred_length - target_length) ** 2
+            sample_losses = (pred_lengths - target_lengths) ** 2
+            valid_samples = sample_has_steps.sum().clamp(min=1)
+            length_loss = (sample_losses * sample_has_steps).sum() / valid_samples
 
         return LossOutput(
             total_loss=self.weight * length_loss,

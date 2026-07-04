@@ -36,6 +36,33 @@ class TestTrajectoryLengthLossForward:
         assert output.total_loss.item() == pytest.approx(4.0)
         assert MetricKey.LENGTH_LOSS.value in output.component_losses
 
+    def test_opposite_errors_do_not_cancel_across_batch(self):
+        pred = torch.tensor(
+            [
+                [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                [[0.0, 0.0], [2.0, 0.0], [4.0, 0.0]],
+            ]
+        )
+        target = torch.tensor(
+            [
+                [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+                [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+            ]
+        )
+        loss = TrajectoryLengthLoss(action_key="position", weight=1.0)
+        output = loss({"position": pred}, {"position": target})
+        # Per-sample mean step lengths: pred [0, 2], target [1, 1].
+        # Per-sample squared errors: [1, 1] -> mean 1, not (1 - 1)^2 = 0.
+        assert output.total_loss.item() == pytest.approx(1.0)
+
+    def test_horizon_one_returns_zero_loss(self):
+        pred = torch.tensor([[[1.0, 2.0]]])
+        target = torch.tensor([[[3.0, 4.0]]])
+        loss = TrajectoryLengthLoss(action_key="position", weight=1.0)
+        output = loss({"position": pred}, {"position": target})
+        assert output.total_loss.item() == pytest.approx(0.0)
+        assert not torch.isnan(output.total_loss)
+
     def test_raises_on_missing_key(self):
         loss = TrajectoryLengthLoss(action_key="position")
         with pytest.raises(

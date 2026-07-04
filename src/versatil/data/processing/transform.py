@@ -223,18 +223,20 @@ def detokenize_actions(
                 if gripper_meta.gripper_type == GripperType.BINARY.value:
                     if (
                         gripper_meta.binary_gripper_range
-                        == BinaryGripperRange.ZERO_ONE.value
-                    ):
-                        action_dict[key] = torch.round(action_dict[key]).long()
-                    elif (
-                        gripper_meta.binary_gripper_range
                         == BinaryGripperRange.MINUS_ONE_ONE.value
                     ):
-                        action_dict[key] = torch.sign(action_dict[key]).long()
+                        action_dict[key] = torch.where(
+                            action_dict[key] > 0.0, 1, -1
+                        ).long()
                     else:
-                        logging.warning(
-                            "Gripper type is binary but range is not set. Assuming {0,1}."
-                        )
-                        action_dict[key] = torch.round(action_dict[key]).long()
+                        if (
+                            gripper_meta.binary_gripper_range
+                            != BinaryGripperRange.ZERO_ONE.value
+                        ):
+                            logging.warning(
+                                "Gripper type is binary but range is not set. "
+                                "Assuming {0,1}."
+                            )
+                        action_dict[key] = (action_dict[key] > 0.5).long()
 
     return action_dict

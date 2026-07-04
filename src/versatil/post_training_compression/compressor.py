@@ -336,15 +336,25 @@ class PostTrainingCompressor:
         """
         if not isinstance(hydra_config, DictConfig):
             return None
-        backend_node = OmegaConf.select(
-            hydra_config, "quantization.targets[0].pt2e_backend"
-        )
-        if backend_node is None:
+        targets_node = OmegaConf.select(hydra_config, "quantization.targets")
+        if targets_node is None:
             return None
-        container = OmegaConf.to_container(backend_node, resolve=True)
-        if not isinstance(container, dict):
+        backend_nodes = [
+            OmegaConf.to_container(target.pt2e_backend, resolve=True)
+            for target in targets_node
+            if OmegaConf.select(target, "pt2e_backend") is not None
+        ]
+        backend_nodes = [node for node in backend_nodes if isinstance(node, dict)]
+        if not backend_nodes:
             return None
-        return container
+        distinct_targets = {str(node.get("_target_")) for node in backend_nodes}
+        if len(distinct_targets) > 1:
+            raise ValueError(
+                "PT2E targets declare different backends "
+                f"{sorted(distinct_targets)}; the compressed runtime can only "
+                "activate one backend per artifact. Split the run per backend."
+            )
+        return backend_nodes[0]
 
     def _resolve_output_directory(self) -> str:
         """Resolve the output directory for the compressed model.

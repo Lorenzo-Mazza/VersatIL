@@ -190,6 +190,17 @@ def validate_dataloader_config(config: DataLoaderConfig) -> None:
         raise ValueError(
             f"downsample_factor must be >= 1, got {config.downsample_factor}"
         )
+    for name, quantiles in (
+        ("depth_winsorize_quantiles", config.depth_winsorize_quantiles),
+        ("kinematics_winsorize_quantiles", config.kinematics_winsorize_quantiles),
+    ):
+        if quantiles is None:
+            continue
+        lower, upper = quantiles
+        if not 0.0 <= lower <= upper <= 1.0:
+            raise ValueError(
+                f"{name} must satisfy 0 <= lower <= upper <= 1, got {quantiles}"
+            )
     if config.action_backward_shift < 0:
         raise ValueError(
             f"action_backward_shift cannot be negative, "

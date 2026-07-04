@@ -275,6 +275,25 @@ class TestBinaryKLDivergenceLossForward:
             MetricKey.RAW_KL_DIVERGENCE.value
         ].item() == pytest.approx(0.0, abs=1e-5)
 
+    def test_padded_tokens_do_not_influence_kl(self):
+        logits = torch.zeros(1, 2, 8)  # (B, T, H)
+        logits[:, 1] = 20.0  # padded token with extreme logits
+        is_pad = torch.tensor([[False, True]])
+        loss = BinaryKLDivergenceLoss(weight=1.0, entropy_weight=0.0, free_bits=0.0)
+        predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
+        output = loss(predictions, {}, is_pad=is_pad)
+        assert output.component_losses[
+            MetricKey.RAW_KL_DIVERGENCE.value
+        ].item() == pytest.approx(0.0, abs=1e-5)
+
+    def test_none_logits_return_zero_without_crashing(self):
+        predictions = {
+            DecoderOutputKey.BINARY_LOGITS.value: None,
+        }
+        loss = BinaryKLDivergenceLoss(weight=1.0)
+        output = loss(predictions, {})
+        assert output.total_loss.item() == pytest.approx(0.0)
+
     def test_extreme_logits_produce_positive_kl(self):
         logits = 10.0 * torch.ones(4, 3, 8)  # sigmoid(10) ≈ 1
         loss = BinaryKLDivergenceLoss(weight=1.0, entropy_weight=0.0, free_bits=0.0)

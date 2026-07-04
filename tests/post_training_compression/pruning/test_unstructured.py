@@ -56,7 +56,9 @@ class TestUnstructuredPruner:
 
         assert pruner.amount == amount
         if layer_types is None:
-            assert pruner.layer_types is None
+            # None targets convolution and linear layers, never norm scales
+            # or embedding tables.
+            assert pruner.layer_types == (nn.Conv1d, nn.Conv2d, nn.Linear)
         else:
             expected_types = tuple(
                 PrunableLayerType(name).to_module_type() for name in layer_types

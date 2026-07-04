@@ -107,6 +107,22 @@ class GaussianEntropyLoss(BaseLoss):
         )
 
 
+def _masked_mean(
+    values: torch.Tensor,
+    mask: torch.Tensor | None,
+) -> torch.Tensor:
+    """Mean over valid positions, or the plain mean without a mask.
+
+    Args:
+        values: Per-position values.
+        mask: Boolean mask matching values, True for valid positions.
+    """
+    if mask is None:
+        return values.mean()
+    valid = mask.sum().clamp(min=1)
+    return (values * mask).sum() / valid
+
+
 class KLDivergenceLoss(BaseLoss):
     """KL divergence loss for VAE latent distributions."""
 
@@ -337,10 +353,13 @@ class BinaryKLDivergenceLoss(BaseLoss):
             DecoderOutputKey.BINARY_LOGITS.value
         ]  # (B, T, H) or (B, H)
         if logits is None:  # Inference, zero loss
+            reference = next(
+                (value for value in predictions.values() if value is not None),
+                None,
+            )
+            device = reference.device if reference is not None else None
             return LossOutput(
-                total_loss=torch.tensor(
-                    0.0, device=next(iter(predictions.values())).device
-                ),
+                total_loss=torch.tensor(0.0, device=device),
                 component_losses=all_component_losses,
             )
 
@@ -356,7 +375,15 @@ class BinaryKLDivergenceLoss(BaseLoss):
         )
         # Sum over bits to get total KL per token
         kl_per_token = kl_per_bit.sum(dim=-1)  # (B, T)
-        raw_kl_mean = kl_per_token.mean()  # Scalar (mean over B,T)
+        temporal_mask = None
+        if is_pad is not None and kl_per_token.dim() == 2:
+            if is_pad.shape == kl_per_token.shape:
+                temporal_mask = ~is_pad
+            elif is_pad.dim() == 2 and is_pad.shape[0] == kl_per_token.shape[0]:
+                # Token masks can be longer than the latent token count when
+                # logits summarize a chunk; only an exact match is usable.
+                temporal_mask = None
+        raw_kl_mean = _masked_mean(values=kl_per_token, mask=temporal_mask)
         all_component_losses[MetricKey.RAW_KL_DIVERGENCE.value] = raw_kl_mean
 
         # Apply free bits threshold: max(0, KL - κ)
@@ -364,7 +391,9 @@ class BinaryKLDivergenceLoss(BaseLoss):
             clamped_kl_per_token = torch.clamp(
                 kl_per_token - self.free_bits, min=0.0
             )  # (B, T)
-            clamped_kl_mean = clamped_kl_per_token.mean()  # Scalar
+            clamped_kl_mean = _masked_mean(
+                values=clamped_kl_per_token, mask=temporal_mask
+            )
         else:
             clamped_kl_mean = raw_kl_mean
 
@@ -372,10 +401,12 @@ class BinaryKLDivergenceLoss(BaseLoss):
         entropy = -(
             probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps)
         )  # (B,token_len,H)
+        entropy_per_token = entropy.mean(dim=-1)  # (B, T) or (B,)
+        entropy_mean = _masked_mean(values=entropy_per_token, mask=temporal_mask)
         regularized_kl = (
-            clamped_kl_mean - self.entropy_weight * entropy.mean()
+            clamped_kl_mean - self.entropy_weight * entropy_mean
         )  # Scalar (avg over B,T,H)
-        all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy.mean()
+        all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy_mean
         all_component_losses[MetricKey.KL_DIVERGENCE.value] = regularized_kl
         metadata = {
             MetadataKey.POSTERIOR_Z.value: torch.bernoulli(probs),

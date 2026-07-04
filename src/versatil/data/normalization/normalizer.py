@@ -474,7 +474,8 @@ def _fit(
     input_min, _ = tensor_data.min(dim=0)
     input_max, _ = tensor_data.max(dim=0)
     input_mean = tensor_data.mean(dim=0)
-    input_std = tensor_data.std(dim=0)
+    # correction=0 keeps single-row fits finite
+    input_std = tensor_data.std(dim=0, correction=0)
 
     if mode == KinematicsNormalizationType.MIN_MAX.value:
         if fit_offset:

@@ -176,6 +176,12 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         needs_calibration = any(target.needs_calibration for target in targets)
         if not needs_calibration:
             return None
+        if calibration_steps < 1:
+            raise ValueError(
+                "Static PT2E quantization requires calibration_steps >= 1, "
+                f"got {calibration_steps}; converting uncalibrated observers "
+                "produces garbage quantization parameters."
+            )
         dataset = EpisodicDataset(
             zarr_path=context.config.task.dataset_schema.zarr_path,
             action_space=context.config.task.action_space,
