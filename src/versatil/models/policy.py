@@ -29,6 +29,7 @@ def build_algorithm_features(
     observation: dict[str, torch.Tensor],
     encoding_pipeline: EncodingPipeline,
     decoder: ActionDecoder,
+    algorithm_injected_keys: set[str] | None = None,
 ) -> dict[str, torch.Tensor]:
     """Encode observations and select the features the decoder declared.
 
@@ -37,17 +38,26 @@ def build_algorithm_features(
     Both ``Policy`` and ``ExportablePolicy`` must build features through this
     function so that exported models see exactly the training-time inputs.
 
+    Args:
+        observation: Raw observation dictionary.
+        encoding_pipeline: Pipeline producing encoded features.
+        decoder: Decoder whose input specification selects the features.
+        algorithm_injected_keys: Decoder-declared keys the algorithm adds
+            later (latents, timesteps); they are not required here.
+
     Raises:
         ValueError: If the decoder requests keys that are neither raw
-            observations nor encoding-pipeline outputs.
+            observations, encoding-pipeline outputs, nor algorithm-injected.
     """
+    injected_keys = algorithm_injected_keys or set()
     encoded_features = encoding_pipeline(observation)
     available_features = {**observation, **encoded_features}
     selected_features: dict[str, torch.Tensor] = {}
     missing_keys: list[str] = []
     for key in decoder.decoder_input.keys:
         if key not in available_features:
-            missing_keys.append(key)
+            if key not in injected_keys:
+                missing_keys.append(key)
             continue
         selected_features[key] = available_features[key]
         padding_key = f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"
@@ -223,6 +233,9 @@ class Policy(nn.Module):
             return None
         allowed_keys = set(self.action_space.predicted_action_keys)
         allowed_keys.add(SampleKey.IS_PAD_ACTION.value)
+        # Tokenized actions are the supervision targets of tokenized-action
+        # decoders, derived from the predicted keys themselves.
+        allowed_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
         return {key: value for key, value in actions.items() if key in allowed_keys}
 
     def compute_loss(
@@ -349,6 +362,7 @@ class Policy(nn.Module):
             observation=observation,
             encoding_pipeline=self.encoding_pipeline,
             decoder=self.decoder,
+            algorithm_injected_keys=self.algorithm.injected_feature_keys(),
         )
 
     def predict_action(
@@ -379,6 +393,7 @@ class Policy(nn.Module):
             normalized_observation = tokenize_observation(
                 observation=normalized_observation,
                 obs_tokenizer=self.tokenizer.observation_tokenizer,
+                batched=True,
             )
         features = self._build_algorithm_features(observation=normalized_observation)
         predictions = self.algorithm.predict(features=features, network=self.decoder)

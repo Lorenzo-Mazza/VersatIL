@@ -405,7 +405,11 @@ class ExperimentValidator:
         available_features = self.encoding_pipeline.get_features()
         available_observation_keys = self._available_observation_keys()
         available_feature_names = set(available_features.keys())
-        available_input_names = available_feature_names | available_observation_keys
+        available_input_names = (
+            available_feature_names
+            | available_observation_keys
+            | self.algorithm.injected_feature_keys()
+        )
         decoder_input_keys = self.decoder.decoder_input.keys
 
         for expected_feature in decoder_input_keys:

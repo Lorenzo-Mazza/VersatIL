@@ -101,6 +101,10 @@ class Diffusion(DecodingAlgorithm):
         self.num_inference_steps = num_inference_steps
         self.prediction_type = prediction_type
 
+    def injected_feature_keys(self) -> set[str]:
+        """The conditioning timestep is provided by the algorithm."""
+        return {AlgorithmContextKey.TIMESTEP.value}
+
     def forward(
         self,
         network: ActionDecoder,

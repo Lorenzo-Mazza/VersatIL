@@ -90,6 +90,14 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Every feature crossing the encoding pipeline boundary now carries a
+  canonical `(B, T, ...)` layout, even for a single observation frame: 5D
+  spatial maps, 4D token sequences, 3D vectors, and 2D algorithm context.
+  The pipeline no longer squeezes `T=1`, rank alone identifies the feature
+  kind, and the `has_time_dim` flag and all runtime shape guessing are gone
+  from feature projection and the transformer/U-Net input builders. The
+  observation tokenizer takes an explicit `batched` argument instead of
+  inferring the layout from tensor ranks.
 - Hydra ConfigStore registrations moved into per-domain modules under
   `versatil.configs.store`, shrinking the config package init by a third.
 - The training callback stack is built by `versatil.training.callback_factory`
@@ -231,6 +239,11 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- Algorithms declare the feature keys they inject (variational latents,
+  diffusion/flow timesteps), so feature building and experiment validation
+  no longer reject decoders that legitimately declare them, and tokenized
+  actions survive the predicted-action filter as the supervision targets of
+  tokenized-action decoders.
 - Binary gripper detokenization thresholds decoded values into valid classes
   instead of rounding or signing out of domain; TrajectoryLengthLoss reduces
   per sample so opposite errors cannot cancel and horizon-1 returns zero

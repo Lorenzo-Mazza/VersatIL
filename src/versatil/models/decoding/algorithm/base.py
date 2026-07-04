@@ -76,6 +76,14 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         """
         raise NotImplementedError
 
+    def injected_feature_keys(self) -> set[str]:
+        """Feature keys this algorithm adds to the decoder features itself.
+
+        Decoders may declare these in their input specification even though
+        they never come from observations or the encoding pipeline.
+        """
+        return set()
+
     def get_auxiliary_output_keys(self) -> set[str]:
         """Get keys for auxiliary outputs this algorithm adds to the decoder output.
 

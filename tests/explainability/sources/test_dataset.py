@@ -525,7 +525,7 @@ class TestDatasetExplanationSourceIntegration:
             camera_keys,
             action_key,
         ) = explanation_schema_case_factory(schema_name=schema_name)
-        _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+        _ensure_zarr_exists(schema=schema)
 
         source = _build_source(
             schema=schema,

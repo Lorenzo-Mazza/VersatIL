@@ -199,6 +199,13 @@ class VariationalAlgorithm(DecodingAlgorithm):
             )
         return latent
 
+    def injected_feature_keys(self) -> set[str]:
+        """Latent keys added on top of the base algorithm's injections."""
+        return self.base_algorithm.injected_feature_keys() | {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.PRIOR_LATENT.value,
+        }
+
     def forward(
         self,
         network: ActionDecoder,

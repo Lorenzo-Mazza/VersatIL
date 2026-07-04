@@ -258,6 +258,11 @@ def mock_algorithm_factory() -> Callable[..., MagicMock]:
             if auxiliary_output_keys is None:
                 auxiliary_output_keys = set()
         algorithm.get_auxiliary_output_keys.return_value = auxiliary_output_keys
+        algorithm.injected_feature_keys.return_value = (
+            {LatentKey.POSTERIOR_LATENT.value, LatentKey.PRIOR_LATENT.value}
+            if is_variational
+            else set()
+        )
         algorithm.predicts_in_action_space = predicts_in_action_space
         return algorithm
 

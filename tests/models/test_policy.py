@@ -512,6 +512,50 @@ class TestForward:
         assert torch.equal(actual_features[mask_key], kept_mask)
         assert torch.equal(actual_features[Cameras.LEFT.value], raw_camera)
 
+    def test_algorithm_injected_keys_are_not_required_from_pipeline(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        feature_key = "rgb_features"
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = {feature_key: torch.ones(2, 4)}
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(keys=[feature_key, "latent"]),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        policy.algorithm.injected_feature_keys.return_value = {"latent"}
+        batch = batch_dictionary_factory()
+
+        policy.forward(batch=batch)
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert set(actual_features) == {feature_key}
+
+    def test_tokenized_actions_survive_action_filtering(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = feature_dictionary_factory()
+        policy = policy_factory(encoding_pipeline=pipeline)
+        batch = batch_dictionary_factory()
+        batch_actions = batch[SampleKey.ACTION.value]
+        policy.action_space.predicted_action_keys = list(batch_actions)
+        tokens = torch.zeros(2, 4, dtype=torch.long)
+        batch_actions[SampleKey.TOKENIZED_ACTIONS.value] = tokens
+
+        policy.forward(batch=batch)
+
+        actual_actions = policy.algorithm.forward.call_args.kwargs["actions"]
+        assert torch.equal(actual_actions[SampleKey.TOKENIZED_ACTIONS.value], tokens)
+
     def test_passes_raw_observations_to_algorithm_for_decoder_owned_vlm(
         self,
         policy_factory: Callable[..., Policy],
@@ -899,6 +943,7 @@ class TestPredictAction:
         mock_tokenize.assert_called_once_with(
             observation=normalized_observation,
             obs_tokenizer=tokenizer.observation_tokenizer,
+            batched=True,
         )
 
     @patch("versatil.models.policy.unnormalize_actions")

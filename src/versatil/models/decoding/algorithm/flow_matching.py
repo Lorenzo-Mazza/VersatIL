@@ -188,6 +188,10 @@ class FlowMatching(DecodingAlgorithm):
         """Configured maximum sampled timestep."""
         return self.timestep_sampling_config.max_timestep
 
+    def injected_feature_keys(self) -> set[str]:
+        """The conditioning timestep is provided by the algorithm."""
+        return {AlgorithmContextKey.TIMESTEP.value}
+
     def forward(
         self,
         network: ActionDecoder,

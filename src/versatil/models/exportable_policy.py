@@ -71,6 +71,7 @@ class ExportablePolicy(nn.Module):
             observation=observation_dict,
             encoding_pipeline=self.encoding_pipeline,
             decoder=self.decoder,
+            algorithm_injected_keys=self.algorithm.injected_feature_keys(),
         )
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         return tuple(predictions[key] for key in self._action_keys)
