@@ -4,6 +4,7 @@ from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
+import torch
 from versatil_constants.shared import ObsKey
 
 from versatil.data.constants import (
@@ -85,6 +86,106 @@ def _make_mock_schema(
     schema.metadata.observations = observations or {}
     schema.metadata.get_observation = lambda key: (observations or {}).get(key)
     return schema
+
+
+class TestActionTensorRoundTrip:
+    def test_concatenation_follows_metadata_insertion_order(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        position = torch.ones(2, 4, 3)
+        gripper = torch.zeros(2, 4, 1)
+        joint = mixed_action_space.concatenate_action_tensors(
+            actions={"gripper": gripper, "position": position},
+            prediction_horizon=4,
+            owner_name="test",
+        )
+        assert joint.shape == (2, 4, 4)
+        # Metadata declares position before gripper; dict order must not
+        # matter.
+        assert torch.equal(joint[..., :3], position)
+        assert torch.equal(joint[..., 3:], gripper)
+
+    def test_split_inverts_concatenation(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        actions = {
+            "position": torch.randn(2, 4, 3),
+            "gripper": torch.randn(2, 4, 1),
+        }
+        joint = mixed_action_space.concatenate_action_tensors(
+            actions=actions, prediction_horizon=4, owner_name="test"
+        )
+        split = mixed_action_space.split_action_tensor(
+            action_tensor=joint, owner_name="test"
+        )
+        assert set(split) == set(actions)
+        for key in actions:
+            assert torch.equal(split[key], actions[key])
+
+    def test_split_rejects_wrong_final_dimension(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        with pytest.raises(ValueError, match="final dimension"):
+            mixed_action_space.split_action_tensor(
+                action_tensor=torch.randn(2, 4, 7), owner_name="test"
+            )
+
+    def test_validate_rejects_missing_and_extra_keys(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        with pytest.raises(ValueError):
+            mixed_action_space.validate_action_tensors(
+                actions={"position": torch.randn(2, 4, 3)},
+                prediction_horizon=4,
+                owner_name="test",
+            )
+        with pytest.raises(ValueError):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": torch.randn(2, 4, 3),
+                    "gripper": torch.randn(2, 4, 1),
+                    "phase": torch.randn(2, 4, 1),
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+
+    def test_validate_rejects_wrong_horizon_and_batch_mismatch(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        with pytest.raises(ValueError):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": torch.randn(2, 3, 3),
+                    "gripper": torch.randn(2, 4, 1),
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+        with pytest.raises(ValueError):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": torch.randn(2, 4, 3),
+                    "gripper": torch.randn(3, 4, 1),
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+
+    def test_validate_rejects_empty_action_space(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+    ):
+        empty_space = action_space_factory(actions_metadata={})
+        with pytest.raises(ValueError, match="at least one predicted action"):
+            empty_space.validate_action_tensors(
+                actions={}, prediction_horizon=4, owner_name="test"
+            )
 
 
 class TestActionSpaceInitialization:

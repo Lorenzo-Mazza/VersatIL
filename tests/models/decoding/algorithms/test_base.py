@@ -80,3 +80,10 @@ def test_predicts_in_action_space_default_is_true(
 ):
     algorithm = minimal_algorithm_factory()
     assert algorithm.predicts_in_action_space is True
+
+
+def test_injected_feature_keys_default_is_empty(
+    minimal_algorithm_factory: Callable[..., _MinimalAlgorithm],
+):
+    algorithm = minimal_algorithm_factory()
+    assert algorithm.injected_feature_keys() == set()

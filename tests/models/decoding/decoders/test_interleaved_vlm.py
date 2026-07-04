@@ -1061,3 +1061,30 @@ class TestBaseInterleavedVLMAttentionBehaviour:
         assert torch.equal(action_mask, expected_action_mask)
         assert not action_to_prefix_mask.any()
         assert prefix_to_action_mask.all()
+
+
+@pytest.mark.integration
+class TestInterleavedVLMCacheEquivalence:
+    def test_cached_prediction_matches_uncached(
+        self,
+        real_explainability_policy_case_factory,
+    ) -> None:
+        case = real_explainability_policy_case_factory(
+            case_name="smolvla", batch_size=1
+        )
+        policy = case.policy
+        policy.eval()
+
+        torch.manual_seed(3)
+        with torch.no_grad():
+            uncached = policy.predict_action(obs_dict=dict(case.observation))
+
+        policy.decoder.enable_encoder_cache()
+        torch.manual_seed(3)
+        with torch.no_grad():
+            cached = policy.predict_action(obs_dict=dict(case.observation))
+        policy.decoder.disable_encoder_cache()
+
+        assert set(cached) == set(uncached)
+        for key, value in uncached.items():
+            torch.testing.assert_close(cached[key], value, atol=1e-4, rtol=1e-4)

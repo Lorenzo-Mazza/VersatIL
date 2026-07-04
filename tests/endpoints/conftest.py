@@ -505,6 +505,9 @@ E2E_UNSUPPORTED_CONFIG_SUBSTRINGS = (
 )
 
 E2E_FULL_COVERAGE_CONFIGS = (
+    # Horizon-2 recipe keeps (B, T>1) feature paths and the UNet decoder
+    # covered; every other matrix entry uses a single observation frame.
+    "end_to_end_training_runs/bowel_retraction/flow_unet",
     "end_to_end_training_runs/pusht/act_flow_rgb",
     "end_to_end_training_runs/pusht/act_flow_state",
     "end_to_end_training_runs/pusht/conditional_mmd_cwae_learned_prior_rgb",

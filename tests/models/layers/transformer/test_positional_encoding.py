@@ -211,6 +211,31 @@ class TestApplyRopePositionalEncoding:
         # Same input at different positions should produce different rotated output
         assert not torch.equal(result_at_zero, result_at_three)
 
+    def test_rope_attention_scores_depend_only_on_relative_distance(
+        self,
+        rope_encoding: RotaryPositionalEncoding1D,
+        query_key_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ):
+        queries, keys = query_key_factory(sequence_length=4)
+        rotated_queries, rotated_keys = apply_rope_positional_encoding(
+            queries=queries,
+            keys=keys,
+            positional_encoding=rope_encoding,
+            cache_position=0,
+        )
+        shift = 7
+        shifted_queries, shifted_keys = apply_rope_positional_encoding(
+            queries=queries,
+            keys=keys,
+            positional_encoding=rope_encoding,
+            cache_position=shift,
+        )
+        scores = torch.matmul(rotated_queries, rotated_keys.transpose(-2, -1))
+        shifted_scores = torch.matmul(shifted_queries, shifted_keys.transpose(-2, -1))
+        # Rotating query and key by the same offset must leave attention
+        # scores unchanged: RoPE encodes only relative distance.
+        torch.testing.assert_close(scores, shifted_scores, atol=1e-5, rtol=1e-5)
+
     def test_non_rope_encoding_returns_unchanged(
         self,
         query_key_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],

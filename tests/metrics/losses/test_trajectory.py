@@ -55,6 +55,35 @@ class TestTrajectoryLengthLossForward:
         # Per-sample squared errors: [1, 1] -> mean 1, not (1 - 1)^2 = 0.
         assert output.total_loss.item() == pytest.approx(1.0)
 
+    def test_padded_steps_do_not_contribute_to_length(self):
+        pred = torch.tensor([[[0.0, 0.0], [1.0, 0.0], [9.0, 9.0]]])
+        target = torch.tensor([[[0.0, 0.0], [1.0, 0.0], [-9.0, 9.0]]])
+        is_pad = torch.tensor([[False, False, True]])
+        loss = TrajectoryLengthLoss(action_key="position", weight=1.0)
+        output = loss({"position": pred}, {"position": target}, is_pad=is_pad)
+        # Only the first step is valid and matches exactly.
+        assert output.total_loss.item() == pytest.approx(0.0, abs=1e-6)
+
+    def test_fully_padded_sample_is_excluded_from_batch_mean(self):
+        pred = torch.tensor(
+            [
+                [[0.0, 0.0], [2.0, 0.0]],
+                [[0.0, 0.0], [5.0, 0.0]],
+            ]
+        )
+        target = torch.tensor(
+            [
+                [[0.0, 0.0], [1.0, 0.0]],
+                [[0.0, 0.0], [1.0, 0.0]],
+            ]
+        )
+        is_pad = torch.tensor([[False, False], [True, True]])
+        loss = TrajectoryLengthLoss(action_key="position", weight=1.0)
+        output = loss({"position": pred}, {"position": target}, is_pad=is_pad)
+        # Sample 0: lengths 2 vs 1 -> error 1. Sample 1 has no valid steps.
+        assert output.total_loss.item() == pytest.approx(1.0)
+        assert not torch.isnan(output.total_loss)
+
     def test_horizon_one_returns_zero_loss(self):
         pred = torch.tensor([[[1.0, 2.0]]])
         target = torch.tensor([[[3.0, 4.0]]])
@@ -80,6 +109,15 @@ class TestTrajectoryLengthLossForward:
 
 @pytest.mark.unit
 class TestTrajectorySmoothnessForward:
+    def test_padded_timesteps_do_not_contribute_to_smoothness(self):
+        # Linear motion in valid steps; a huge kink only at the padded tail.
+        pred = torch.tensor([[[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [50.0, 50.0]]])
+        target = pred.clone()
+        is_pad = torch.tensor([[False, False, False, True]])
+        loss = TrajectorySmoothness(action_key="position", weight=1.0)
+        output = loss({"position": pred}, {"position": target}, is_pad=is_pad)
+        assert output.total_loss.item() == pytest.approx(0.0, abs=1e-6)
+
     def test_linear_trajectory_has_zero_smoothness(self):
         # Constant velocity => zero acceleration
         trajectory = torch.tensor([[[0.0], [1.0], [2.0], [3.0]]])

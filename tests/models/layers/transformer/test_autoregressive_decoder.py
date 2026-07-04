@@ -229,16 +229,27 @@ class TestGPTDecoderForward:
             output_original[0, 3:], output_modified[0, 3:], atol=1e-5
         )
 
+    @pytest.mark.parametrize(
+        "positional_encoding_type",
+        [
+            None,
+            PositionalEncodingType.ROPE.value,
+            PositionalEncodingType.SINUSOIDAL.value,
+            PositionalEncodingType.LEARNED.value,
+        ],
+    )
     def test_cached_forward_matches_full_forward(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
+        positional_encoding_type: str | None,
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=False,
+            positional_encoding_type=positional_encoding_type,
         )
         decoder.eval()
         sequence_length = 5

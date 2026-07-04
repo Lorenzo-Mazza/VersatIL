@@ -974,3 +974,15 @@ def test_get_callbacks_adds_prior_target_standardization_for_enabled_standardize
     ]
     assert len(prior_callbacks) == 1
     assert prior_callbacks[0].max_batches == 3
+
+
+def test_injected_feature_keys_include_latents_and_base_keys():
+    base_algorithm = MagicMock()
+    base_algorithm.injected_feature_keys.return_value = {"timestep"}
+    algorithm = VariationalAlgorithm.__new__(VariationalAlgorithm)
+    algorithm.base_algorithm = base_algorithm
+    assert algorithm.injected_feature_keys() == {
+        "timestep",
+        LatentKey.POSTERIOR_LATENT.value,
+        LatentKey.PRIOR_LATENT.value,
+    }

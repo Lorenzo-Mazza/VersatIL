@@ -78,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- The e2e matrix gains a horizon-2 UNet recipe so multi-frame feature paths
+  stay covered, and new edge-case tests pin the action concat/split round
+  trip and ordering, KV-cache equivalence under every positional encoding
+  including RoPE, RoPE relative-distance invariance, cached-vs-uncached
+  interleaved VLM predictions, and padded-step handling in trajectory losses.
 - Every feature crossing the encoding pipeline boundary now carries a
   canonical `(B, T, ...)` layout, even for a single observation frame: 5D
   spatial maps, 4D token sequences, 3D vectors, and 2D algorithm context.
