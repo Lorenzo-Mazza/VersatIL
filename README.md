@@ -147,6 +147,9 @@ git clone https://github.com/pytorch/executorch.git
 cd executorch
 git submodule update --init --recursive
 
+# Build dependencies must be present because --no-build-isolation is used.
+pip install "cmake>=3.24,<4.0.0" "packaging>=24.2" pyyaml "setuptools>=77.0.3" wheel zstd certifi ninja
+
 SITE_PACKAGES=$(python - <<'PY'
 import site
 print(site.getsitepackages()[0])
@@ -158,6 +161,13 @@ CMAKE_ARGS="-DEXECUTORCH_BUILD_CUDA=OFF -DEXECUTORCH_BUILD_QNN=OFF -DEXECUTORCH_
 python -m pip install . --no-build-isolation --ignore-requires-python --no-deps -v
 
 cd ../versatil
+
+# Runtime dependencies are skipped by --no-deps; install the AoT set manually.
+pip install flatbuffers "ruamel.yaml" sympy tabulate pytorch-tokenizers \
+    expecttest hypothesis kgb parameterized
+
+# Verify: all ExecuTorch-gated tests should pass.
+pytest -m requires_executorch -o addopts=""
 ```
 
 `python -m pip check` can still report a `scikit-learn` metadata conflict in

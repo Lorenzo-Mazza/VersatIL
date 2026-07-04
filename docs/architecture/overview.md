@@ -84,7 +84,7 @@ path and use their configured VLM backbone to build the language/image prefix.
 
 ## Composable Loss
 
-The loss module is decoupled from the decoder architecture. Some loss terms are naturally tied to specific algorithms (e.g., probability measures like KL divergence and MMD to variational inference). Loss components are combined via weighted sums in `ComposableLoss`:
+The loss module is decoupled from the decoder architecture. Some loss terms are naturally tied to specific algorithms (e.g., probability measures like KL divergence and MMD to variational inference). Loss components are combined via weighted sums in `CompositeLoss`:
 
 - **Regression losses** -- MSE, L1, Huber for continuous action prediction
 - **Classification losses** -- BCE for binary gripper, cross-entropy for tokenized actions

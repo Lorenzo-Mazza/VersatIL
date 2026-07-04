@@ -95,7 +95,7 @@ python -m versatil.endpoints.train \
 # Override a defaults list entry (e.g. swap dataset schema)
 # Use slash syntax (group override), NOT dot syntax (value override)
 python -m versatil.endpoints.train \
-    --config-name end_to_end_training_runs/synthetic/action_transformer \
+    --config-name end_to_end_training_runs/synthetic/bcat \
     task/dataset_schema=synthetic/conditional_circle
 
 # Resume from checkpoint
@@ -469,7 +469,7 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 Fixes:
 
-- Add input shape validation to `EncodingMixin` — all image encoders silently accept wrong-dimensioned tensors (e.g. no batch dim). Add a shared `_unpack_temporal` method that validates 4D/5D and handles the `(B*T, C, H, W)` reshape, replacing the duplicated `if img.dim() == 5` pattern in every encoder's `forward`.
+- Extend strict input-rank validation to the flat and cross-modal image encoders. `SpatialBackboneEncoder` and the proprioceptive encoders validate the canonical `(B, T, ...)` layout; `FlatRGBEncoder` and the vision-language paths still accept mis-ranked tensors silently.
 
 Extensions:
 

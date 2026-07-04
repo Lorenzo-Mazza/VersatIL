@@ -94,8 +94,8 @@ instances. The list is applied sequentially, so structured and unstructured
 pruning can be composed on the same target.
 
 - **[`UnstructuredPruner`][versatil.post_training_compression.pruning.unstructured.UnstructuredPruner]**:
-  global L1 magnitude pruning over targeted modules with a trainable `weight`
-  parameter.
+  global L1 magnitude pruning. Defaults to convolution and linear layers;
+  normalization scales and embedding tables are never pruned.
 - **[`StructuredPruner`][versatil.post_training_compression.pruning.structured.StructuredPruner]**:
   per-layer channel pruning along a configured dimension. By default it targets
   Conv1d, Conv2d, and Linear layers.

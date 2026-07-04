@@ -188,6 +188,10 @@ checkpoint_folder: ${checkpoint_dir:bowel_retraction}  # VERSATIL_CHECKPOINT_DIR
 zarr_path: ${zarr_dir:my_dataset}                      # VERSATIL_ZARR_DIR/my_dataset
 cache: ${cache_dir:}                                    # VERSATIL_CACHE_DIR
 
+# Dataset directory resolver: takes the environment variable to read as its
+# first argument and an optional subpath as the second
+dataset_folders: ${dataset_dir:VERSATIL_LIBERO_HDF5_DIR,libero_10}  # $VERSATIL_LIBERO_HDF5_DIR/libero_10
+
 # Environment variable resolver
 api_key: ${env:WANDB_API_KEY}            # Direct env var access
 ```

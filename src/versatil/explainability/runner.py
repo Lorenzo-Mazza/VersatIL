@@ -86,23 +86,6 @@ class ExplainabilityRunner:
                 first override path unless ``zarr_cache_directory`` is set by
                 the dataset source.
             batch_size: Number of samples per attribution call.
-            model_server_address: Environment server address used by
-                ``source=online_inference``.
-            model_server_port: Environment server port used by
-                ``source=online_inference``.
-            temporal_aggregation: Whether online inference should average
-                overlapping action predictions from consecutive policy calls.
-            action_execution_horizon: Number of actions sent from each predicted
-                chunk when temporal aggregation is disabled. ``None`` uses the
-                checkpoint prediction horizon.
-            update_rate_hz: Optional action-send rate limit for online
-                inference. ``None`` sends actions as soon as they are available.
-            temporal_max_timesteps: Maximum episode length tracked by temporal
-                aggregation state.
-            timing_log: Whether to log per-step timing breakdowns in online
-                mode.
-            compression_type: Image compression format requested from the online
-                environment server.
             channel_batch_size: Number of channels per Ablation-CAM forward.
             explanation_types: Explanation methods to run. If None, it runs all
                 supported methods.
@@ -111,10 +94,10 @@ class ExplainabilityRunner:
             target_vision_module_names: Optional visual module allowlist. Names
                 include encoding-pipeline entries and decoder-owned VLM vision
                 tower paths.
-            save_raw_heatmaps: Whether to save on disk raw heatmap tensors.
-            save_overlays: Whether to save on disk heatmaps with image overlays.
-            image_weight: Original-image blend weight for overlays.
-            overlay_image_format: Image file format for saved overlays.
+            online: Socket inference client settings used by
+                ``source=online_inference``. ``None`` uses defaults.
+            writer: Explanation writer settings controlling raw heatmaps,
+                overlays, blending, and image format. ``None`` uses defaults.
 
         Raises:
             ValueError: If explanation types or source data are invalid.

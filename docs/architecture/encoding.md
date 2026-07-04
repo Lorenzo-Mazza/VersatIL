@@ -53,6 +53,11 @@ Feature types are classified by [`FeatureType`][versatil.models.feature_meta.Fea
 | **SEQUENTIAL** | `"sequential"` | `(S, D)` | `pooling_method="none"` on [`FlatRGBEncoder`][versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder] or token/language outputs |
 | **FLAT** | `"flat"` | `(D,)` | Any pooling method that produces a flat feature vector |
 
+Every feature leaving the pipeline carries a leading `(B, T, ...)` layout, even
+for a single observation frame; the shapes above are the per-timestep trailing
+dimensions. Rank alone identifies the feature kind downstream: 5D spatial maps,
+4D token sequences, 3D vectors, 2D algorithm context.
+
 The decoder's [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] validates feature types at initialization via `required_types` and `raises_for_types`, catching configuration errors before training starts.
 
 ## Multi-Camera Encoding

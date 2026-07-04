@@ -437,7 +437,7 @@ input_keys:
 
 ### 5. Add tests
 
-Create tests in `tests/models/decoding/` following the patterns in `tests/CLAUDE.md`.
+Create tests in `tests/models/decoding/` following the patterns in `tests/AGENTS.md`.
 
 ### 6. Checklist for new decoders
 

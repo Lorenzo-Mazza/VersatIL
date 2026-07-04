@@ -90,7 +90,7 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
-- The e2e matrix gains a horizon-2 UNet recipe so multi-frame feature paths
+- The e2e test matrix gains a horizon-2 UNet recipe so multi-frame feature paths
   stay covered, and new edge-case tests pin the action concat/split round
   trip and ordering, KV-cache equivalence under every positional encoding
   including RoPE, RoPE relative-distance invariance, cached-vs-uncached
