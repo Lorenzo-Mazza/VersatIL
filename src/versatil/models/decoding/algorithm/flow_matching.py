@@ -289,7 +289,34 @@ class FlowMatching(DecodingAlgorithm):
         batch_size, device, dtype = resolve_feature_reference(features=features)
 
         network.enable_encoder_cache()
+        try:
+            return self._integrate_prediction(
+                network=network,
+                features=features,
+                batch_size=batch_size,
+                device=device,
+                dtype=dtype,
+            )
+        finally:
+            network.disable_encoder_cache()
 
+    def _integrate_prediction(
+        self,
+        network: ActionDecoder,
+        features: dict[str, torch.Tensor],
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> dict[str, torch.Tensor]:
+        """Integrate the flow ODE from noise to actions.
+
+        Args:
+            network: The action decoder network module.
+            features: Encoded features conditioning the velocity field.
+            batch_size: Batch size of the prediction.
+            device: Device for the sampled noise trajectory.
+            dtype: Dtype for the sampled noise trajectory.
+        """
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
             if not meta.requires_prediction_head:
@@ -333,7 +360,5 @@ class FlowMatching(DecodingAlgorithm):
                 :, current_offset : current_offset + flat_action_dimension
             ].view(shapes[key])  # (B, H, D_k)
             current_offset += flat_action_dimension
-
-        network.disable_encoder_cache()
 
         return result

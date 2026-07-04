@@ -315,7 +315,7 @@ class TestPT2EQuantizationWorkflow:
     ):
         target = pt2e_target_factory(needs_calibration=False)
 
-        with patch(f"{PT2E_WORKFLOW_MODULE}.get_dataloaders") as mock_dataloaders:
+        with patch(f"{PT2E_WORKFLOW_MODULE}.EpisodicDataset") as mock_dataset:
             result = PT2EQuantizationWorkflow._build_calibration(
                 context=MagicMock(),
                 exportable=MagicMock(),
@@ -323,26 +323,30 @@ class TestPT2EQuantizationWorkflow:
                 calibration_steps=8,
             )
 
-        mock_dataloaders.assert_not_called()
+        mock_dataset.assert_not_called()
         assert result is None
 
-    def test_build_calibration_uses_training_dataloader_for_static_targets(
+    def test_build_calibration_uses_deterministic_deployment_loader(
         self,
         pt2e_target_factory,
     ):
         target = pt2e_target_factory(needs_calibration=True)
         context = MagicMock()
-        context.config = MagicMock()
         exportable = MagicMock()
         exportable.observation_keys = ["left", "depth"]
-        train_loader = MagicMock()
+        dataset = MagicMock()
+        calibration_loader = MagicMock()
         expected_provider = MagicMock()
 
         with (
             patch(
-                f"{PT2E_WORKFLOW_MODULE}.get_dataloaders",
-                return_value=(train_loader, None, None, None, None),
-            ) as mock_dataloaders,
+                f"{PT2E_WORKFLOW_MODULE}.EpisodicDataset",
+                return_value=dataset,
+            ) as mock_dataset,
+            patch(
+                f"{PT2E_WORKFLOW_MODULE}.DataLoader",
+                return_value=calibration_loader,
+            ) as mock_loader,
             patch(
                 f"{PT2E_WORKFLOW_MODULE}.CalibrationDataProvider",
                 return_value=expected_provider,
@@ -355,9 +359,12 @@ class TestPT2EQuantizationWorkflow:
                 calibration_steps=8,
             )
 
-        mock_dataloaders.assert_called_once_with(config=context.config)
+        assert mock_dataset.call_args.kwargs["augment_images"] is False
+        assert mock_loader.call_args.kwargs["shuffle"] is False
+        dataset.set_normalizer.assert_called_once_with(context.policy.normalizer)
+        dataset.set_tokenizer.assert_called_once_with(context.tokenizer)
         mock_provider.assert_called_once_with(
-            dataloader=train_loader,
+            dataloader=calibration_loader,
             observation_keys=exportable.observation_keys,
             num_calibration_steps=8,
         )

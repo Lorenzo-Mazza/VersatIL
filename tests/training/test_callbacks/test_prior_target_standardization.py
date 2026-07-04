@@ -125,6 +125,11 @@ class _ToyPolicy(torch.nn.Module):
             prior_trainable=prior_trainable,
         )
 
+    def _build_algorithm_features(
+        self, observation: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
+        return self.encoding_pipeline(observation)
+
 
 def _batch(
     target: list[list[float]],

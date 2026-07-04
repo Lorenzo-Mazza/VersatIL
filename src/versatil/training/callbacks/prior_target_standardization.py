@@ -235,7 +235,7 @@ class PriorTargetStandardizationCallback(Callback):
                 observations, actions = self._split_batch(batch=batch)
                 observations = to_device(observations, device=device)
                 actions = to_device(actions, device=device)
-                features = policy.encoding_pipeline(observations)
+                features = policy._build_algorithm_features(observation=observations)
                 posterior_output = algorithm.posterior_encoder.encode(
                     actions=actions,
                     observations=features,

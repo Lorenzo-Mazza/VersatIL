@@ -2,6 +2,7 @@
 
 import logging
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -116,6 +117,9 @@ def build_example_inputs(
 
     for key, state_meta in observation_space.numerical_observations.items():
         observation_shapes[key] = (observation_horizon, state_meta.dimension)
+        observation_dtypes[key] = torch.from_numpy(
+            np.empty(0, dtype=np.dtype(state_meta.dtype))
+        ).dtype
 
     if tokenizer is not None and tokenizer.observation_tokenizer is not None:
         token_length = tokenizer.observation_tokenizer.max_token_len

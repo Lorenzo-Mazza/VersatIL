@@ -234,22 +234,24 @@ class Diffusion(DecodingAlgorithm):
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
         network.enable_encoder_cache()
-
-        # Iteratively denoise
-        for t in self.noise_scheduler.timesteps:
-            # Expand timestep to batch dimension
-            timestep = t.unsqueeze(0).expand(batch_size).to(device)
-            features_with_time = {
-                **features,
-                AlgorithmContextKey.TIMESTEP.value: timestep,
-            }
-            model_output = network(features=features_with_time, actions=noisy_actions)
-            for key in noisy_actions:
-                if key in model_output:
-                    noisy_actions[key] = self.noise_scheduler.step(
-                        model_output[key], t, noisy_actions[key]
-                    ).prev_sample
-
-        network.disable_encoder_cache()
+        try:
+            # Iteratively denoise
+            for t in self.noise_scheduler.timesteps:
+                # Expand timestep to batch dimension
+                timestep = t.unsqueeze(0).expand(batch_size).to(device)
+                features_with_time = {
+                    **features,
+                    AlgorithmContextKey.TIMESTEP.value: timestep,
+                }
+                model_output = network(
+                    features=features_with_time, actions=noisy_actions
+                )
+                for key in noisy_actions:
+                    if key in model_output:
+                        noisy_actions[key] = self.noise_scheduler.step(
+                            model_output[key], t, noisy_actions[key]
+                        ).prev_sample
+        finally:
+            network.disable_encoder_cache()
 
         return noisy_actions

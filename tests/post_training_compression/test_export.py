@@ -126,6 +126,7 @@ class TestBuildExampleInputs:
     ):
         state_meta = MagicMock()
         state_meta.dimension = 7
+        state_meta.dtype = "float32"
         obs_space = observation_space_factory(
             numerical_observations={"proprio_robot_frame": state_meta},
         )

@@ -5,12 +5,13 @@ import logging
 
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.composable_quantizer import (
     ComposableQuantizer,
 )
 
-from versatil.data.dataloader import get_dataloaders
+from versatil.data.episodic_dataset import EpisodicDataset
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.export import (
@@ -175,9 +176,27 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         needs_calibration = any(target.needs_calibration for target in targets)
         if not needs_calibration:
             return None
-        train_loader, _, _, _, _ = get_dataloaders(config=context.config)
+        dataset = EpisodicDataset(
+            zarr_path=context.config.task.dataset_schema.zarr_path,
+            action_space=context.config.task.action_space,
+            observation_space=context.observation_space,
+            dataloader_config=context.config.task.dataloader,
+            pred_horizon=context.config.task.prediction_horizon,
+            obs_horizon=context.observation_horizon,
+            train=True,
+            seed=context.config.experiment.seed,
+            augment_images=False,
+        )
+        dataset.set_normalizer(context.policy.normalizer)
+        dataset.set_tokenizer(context.tokenizer)
+        calibration_loader = DataLoader(
+            dataset=dataset,
+            batch_size=context.config.task.dataloader.batch_size,
+            shuffle=False,
+            num_workers=0,
+        )
         return CalibrationDataProvider(
-            dataloader=train_loader,
+            dataloader=calibration_loader,
             observation_keys=exportable.observation_keys,
             num_calibration_steps=calibration_steps,
         )
