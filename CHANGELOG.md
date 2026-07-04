@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-05
+
 ### Added
 - Vision-language-action policies: `AutoregressiveVLADecoder` (OpenVLA,
   pi0-FAST), `OpenVLAOFTDecoder`, and interleaved-attention decoders for Pi0,
