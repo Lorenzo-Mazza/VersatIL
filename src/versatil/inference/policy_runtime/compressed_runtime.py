@@ -1,12 +1,10 @@
 """Compressed policy inference runtime."""
 
 import logging
-import os
 
 import hydra
 import torch
 import torch.nn as nn
-from omegaconf import OmegaConf
 
 from versatil.checkpoint_loading.compressed_policy import CompressedCheckpointLoader
 from versatil.common.tensor_ops import to_device
@@ -17,14 +15,12 @@ from versatil.data.processing.transform import (
 )
 from versatil.inference.policy_runtime.base import PolicyRuntime
 from versatil.inference.policy_runtime.executorch_adapter import ExecuTorchModuleAdapter
-from versatil.post_training_compression.compressor import PostTrainingCompressor
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
-    CompressionFilename,
+    CompressionMetadataKey,
     QuantizationWorkflow,
 )
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
-from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 
 class CompressedPolicyRuntime(PolicyRuntime):
@@ -105,30 +101,35 @@ class CompressedPolicyRuntime(PolicyRuntime):
         self,
         workflow: str | None,
     ) -> BasePT2EBackend | None:
-        """Reconstruct the PT2E backend from the saved quantization config.
+        """Reconstruct the PT2E backend for compile-environment activation.
 
         Args:
             workflow: The quantization workflow from metadata.
 
         Returns:
             Instantiated backend, or None if not a PT2E model.
+
+        Raises:
+            ValueError: If a PT2E artifact carries no instantiable backend
+                node in its metadata.
         """
         if workflow != QuantizationWorkflow.PT2E.value:
             return None
-        config_path = os.path.join(
-            self.checkpoint_path,
-            CompressionFilename.QUANTIZATION_CONFIG.value,
+        backend_config = self.checkpoint_loader.metadata.get(
+            CompressionMetadataKey.PT2E_BACKEND.value
         )
-        if not os.path.exists(config_path):
-            return None
-        config = OmegaConf.load(config_path)
-        instance = hydra.utils.instantiate(config)
-        if isinstance(instance, PostTrainingCompressor) and isinstance(
-            instance.quantization, PT2EQuantizationWorkflow
-        ):
-            return instance.quantization.pt2e_backend
-        else:
-            return None
+        if backend_config is None:
+            raise ValueError(
+                "PT2E artifact metadata carries no pt2e_backend node; "
+                "recompress the checkpoint with the current release."
+            )
+        backend = hydra.utils.instantiate(backend_config)
+        if isinstance(backend, BasePT2EBackend):
+            return backend
+        raise ValueError(
+            "Persisted pt2e_backend metadata did not instantiate a "
+            f"PT2E backend, got {type(backend).__name__}."
+        )
 
     @staticmethod
     def _should_compile(

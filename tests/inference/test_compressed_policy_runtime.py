@@ -45,6 +45,7 @@ def metadata_factory() -> Callable[..., dict]:
         backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
         quantization_workflow: str | None = None,
         exclude_keys: list[str] | None = None,
+        pt2e_backend: dict | None = None,
     ) -> dict:
         if input_keys is None:
             input_keys = ["depth", "left"]
@@ -58,6 +59,7 @@ def metadata_factory() -> Callable[..., dict]:
             CompressionMetadataKey.DEPLOYMENT_BACKEND.value: backend_name,
             CompressionMetadataKey.INPUT_KEYS.value: input_keys,
             CompressionMetadataKey.OUTPUT_KEYS.value: output_keys,
+            CompressionMetadataKey.PT2E_BACKEND.value: pt2e_backend,
             CompressionMetadataKey.TORCHAO_VERSION.value: "0.16.0",
             CompressionMetadataKey.TORCH_VERSION.value: "2.10.0",
         }
@@ -98,6 +100,7 @@ def checkpoint_directory_factory(
         quantization_workflow: str | None = None,
         exclude_metadata_keys: list[str] | None = None,
         quantization_config: dict | None = None,
+        pt2e_backend: dict | None = None,
     ) -> str:
         checkpoint_dir = tmp_path / f"checkpoint_{rng.integers(0, 99999)}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +115,7 @@ def checkpoint_directory_factory(
                 backend_name=backend_name,
                 quantization_workflow=quantization_workflow,
                 exclude_keys=exclude_metadata_keys,
+                pt2e_backend=pt2e_backend,
             )
             with open(
                 checkpoint_dir / CompressionFilename.COMPRESSION_METADATA.value,
@@ -748,74 +752,37 @@ class TestLoadBackend:
 
         assert loader._load_backend(workflow=workflow) is None
 
-    def test_returns_none_when_config_file_missing(self, loaded_loader_factory):
+    def test_prefers_backend_persisted_in_metadata(self, loaded_loader_factory):
+        loader = loaded_loader_factory(
+            checkpoint_kwargs={
+                "pt2e_backend": {
+                    "_target_": (
+                        "versatil.quantization.pt2e.backends.x86_inductor"
+                        ".X86InductorBackend"
+                    ),
+                },
+            },
+        )
+
+        backend = loader._load_backend(workflow=QuantizationWorkflow.PT2E.value)
+
+        assert type(backend).__name__ == "X86InductorBackend"
+
+    def test_metadata_backend_of_wrong_type_raises(self, loaded_loader_factory):
+        loader = loaded_loader_factory(
+            checkpoint_kwargs={
+                "pt2e_backend": {"_target_": "builtins.dict"},
+            },
+        )
+
+        with pytest.raises(ValueError, match="did not instantiate a"):
+            loader._load_backend(workflow=QuantizationWorkflow.PT2E.value)
+
+    def test_missing_backend_node_raises(self, loaded_loader_factory):
         loader = loaded_loader_factory()
 
-        assert (
-            loader._load_backend(
-                workflow=QuantizationWorkflow.PT2E.value,
-            )
-            is None
-        )
-
-    def test_returns_none_when_full_config_has_no_pt2e_workflow(
-        self, loaded_loader_factory
-    ):
-        loader = loaded_loader_factory(
-            checkpoint_kwargs={
-                "quantization_config": {
-                    "_target_": "versatil.post_training_compression.compressor.PostTrainingCompressor",
-                    "checkpoint_path": "/tmp/test",
-                    "modules": [],
-                    "preparation": {
-                        "replace_frozen_batchnorm": True,
-                        "fuse_conv_batchnorm": True,
-                    },
-                },
-            },
-        )
-
-        assert (
-            loader._load_backend(
-                workflow=QuantizationWorkflow.PT2E.value,
-            )
-            is None
-        )
-
-    def test_instantiates_backend_from_saved_config(self, loaded_loader_factory):
-        loader = loaded_loader_factory(
-            checkpoint_kwargs={
-                "quantization_config": {
-                    "_target_": "versatil.post_training_compression.compressor.PostTrainingCompressor",
-                    "checkpoint_path": "/tmp/test",
-                    "modules": [],
-                    "preparation": {
-                        "replace_frozen_batchnorm": True,
-                        "fuse_conv_batchnorm": True,
-                    },
-                    "quantization": {
-                        "_target_": "versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow",
-                        "targets": [
-                            {
-                                "_target_": "versatil.quantization.module_target.PT2EQuantizationModuleTarget",
-                                "module_path": "",
-                                "pt2e_backend": {
-                                    "_target_": "versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend",
-                                    "is_dynamic": False,
-                                },
-                            }
-                        ],
-                    },
-                },
-            },
-        )
-
-        backend = loader._load_backend(
-            workflow=QuantizationWorkflow.PT2E.value,
-        )
-
-        assert isinstance(backend, BasePT2EBackend)
-        assert backend.supported_device_types == ("cpu",)
+        with pytest.raises(ValueError, match="no pt2e_backend node"):
+            loader._load_backend(workflow=QuantizationWorkflow.PT2E.value)
 
 
 @pytest.mark.unit
@@ -917,8 +884,19 @@ class TestArtifactDevicePlacement:
         quantization_workflow: str | None,
         expects_move: bool,
     ):
+        pt2e_backend = (
+            {
+                "_target_": (
+                    "versatil.quantization.pt2e.backends.x86_inductor"
+                    ".X86InductorBackend"
+                ),
+            }
+            if quantization_workflow == QuantizationWorkflow.PT2E.value
+            else None
+        )
         checkpoint_path = checkpoint_directory_factory(
             quantization_workflow=quantization_workflow,
+            pt2e_backend=pt2e_backend,
         )
         mock_exported_program = MagicMock()
         raw_module = MagicMock()

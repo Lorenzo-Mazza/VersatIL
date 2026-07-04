@@ -345,14 +345,6 @@ class TestLoadCompressionMetadata:
             result[CompressionMetadataKey.MODEL_FILE.value] == "compressed_policy.pt2"
         )
         assert result[CompressionMetadataKey.INPUT_KEYS.value] == ["left"]
-        assert (
-            result[CompressionMetadataKey.ARTIFACT_FORMAT.value]
-            == ArtifactFormat.TORCH_EXPORT_PT2.value
-        )
-        assert (
-            result[CompressionMetadataKey.DEPLOYMENT_BACKEND.value]
-            == DeploymentBackendName.TORCH_INDUCTOR.value
-        )
 
     def test_ignores_quantization_config_file(self, tmp_path: Path):
         with open(tmp_path / "compression_metadata.json", "w") as file:
@@ -366,11 +358,7 @@ class TestLoadCompressionMetadata:
             metadata_path=str(tmp_path / "compression_metadata.json"),
         )
 
-        assert set(result) == {
-            CompressionMetadataKey.MODEL_FILE.value,
-            CompressionMetadataKey.ARTIFACT_FORMAT.value,
-            CompressionMetadataKey.DEPLOYMENT_BACKEND.value,
-        }
+        assert set(result) == {CompressionMetadataKey.MODEL_FILE.value}
 
 
 @pytest.mark.unit

@@ -162,6 +162,11 @@ class CompressedCheckpointLoader(BaseCheckpointLoader):
         return self._artifact_format
 
     @property
+    def metadata(self) -> dict[str, Any]:
+        """Get the loaded compression metadata."""
+        return self._metadata
+
+    @property
     def model_path(self) -> str:
         """Get the compressed model artifact path."""
         return self._model_path

@@ -37,6 +37,7 @@ def save_compressed_model(
     backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
     model_bytes: bytes | None = None,
     denoising_thresholds: dict[str, float] | None = None,
+    pt2e_backend_config: dict[str, Any] | None = None,
 ) -> Path:
     """Save compressed model artifact with normalizer and metadata.
 
@@ -62,6 +63,9 @@ def save_compressed_model(
         denoising_thresholds: Per-action-key denoising thresholds from the
             source policy, persisted so compressed deployments zero small
             deltas exactly like the float runtime.
+        pt2e_backend_config: Instantiable config node of the PT2E quantizer
+            backend, persisted so inference can rebuild the backend without
+            depending on the full compressor config schema.
 
     Returns:
         Path to the save directory.
@@ -110,6 +114,7 @@ def save_compressed_model(
         CompressionMetadataKey.TRAINING_CHECKPOINT_PATH.value: training_checkpoint_path,
         CompressionMetadataKey.QUANTIZATION_WORKFLOW.value: quantization_workflow,
         CompressionMetadataKey.DENOISING_THRESHOLDS.value: denoising_thresholds or {},
+        CompressionMetadataKey.PT2E_BACKEND.value: pt2e_backend_config,
     }
     with open(save_path / CompressionFilename.COMPRESSION_METADATA.value, "w") as file:
         json.dump(metadata, file, indent=2)
@@ -124,20 +129,10 @@ def load_compression_metadata(metadata_path: str) -> dict[str, Any]:
         metadata_path: Path to compression_metadata.json.
 
     Returns:
-        Dict with runtime metadata, with artifact format and deployment
-        backend defaults filled in for older checkpoints.
+        Dict with runtime metadata.
     """
     with open(metadata_path) as file:
-        metadata = json.load(file)
-    metadata.setdefault(
-        CompressionMetadataKey.ARTIFACT_FORMAT.value,
-        ArtifactFormat.TORCH_EXPORT_PT2.value,
-    )
-    metadata.setdefault(
-        CompressionMetadataKey.DEPLOYMENT_BACKEND.value,
-        DeploymentBackendName.TORCH_INDUCTOR.value,
-    )
-
+        metadata: dict[str, Any] = json.load(file)
     return metadata
 
 

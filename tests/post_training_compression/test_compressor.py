@@ -540,6 +540,7 @@ class TestCompressOrchestration:
             backend_name=DeploymentBackendName.TORCH_INDUCTOR.value,
             model_bytes=None,
             denoising_thresholds={"delta_pos": 0.01},
+            pt2e_backend_config=None,
         )
         assert result == "/tmp/compressed"
 

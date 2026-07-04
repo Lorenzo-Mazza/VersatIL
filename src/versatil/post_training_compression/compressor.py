@@ -3,9 +3,10 @@
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import torch.nn as nn
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.models.exportable_policy import ExportablePolicy
@@ -119,6 +120,7 @@ class PostTrainingCompressor:
             example_inputs=quantized.example_inputs,
         )
         output_directory = self._resolve_output_directory()
+        pt2e_backend_config = self._pt2e_backend_config(hydra_config=hydra_config)
         save_compressed_model(
             converted_model=deployment_artifact.converted_model,
             example_inputs=deployment_artifact.example_inputs,
@@ -134,6 +136,7 @@ class PostTrainingCompressor:
             backend_name=deployment_artifact.backend_name,
             model_bytes=deployment_artifact.model_bytes,
             denoising_thresholds=policy.get_denoising_thresholds(),
+            pt2e_backend_config=pt2e_backend_config,
         )
         logging.info("Compressed model saved to %s", output_directory)
         if self.generate_report:
@@ -320,6 +323,28 @@ class PostTrainingCompressor:
             f"Deployment backend {deployment_backend_name} supports PT2E backends "
             f"{list(supported_backends)}, got {list(pt2e_backend_names)}."
         )
+
+    @staticmethod
+    def _pt2e_backend_config(hydra_config: DictConfig) -> dict[str, Any] | None:
+        """Extract the instantiable PT2E backend node from the compressor config.
+
+        Args:
+            hydra_config: Raw Hydra config being persisted with the artifact.
+
+        Returns:
+            Plain-container backend node, or None for non-PT2E runs.
+        """
+        if not isinstance(hydra_config, DictConfig):
+            return None
+        backend_node = OmegaConf.select(
+            hydra_config, "quantization.targets[0].pt2e_backend"
+        )
+        if backend_node is None:
+            return None
+        container = OmegaConf.to_container(backend_node, resolve=True)
+        if not isinstance(container, dict):
+            return None
+        return container
 
     def _resolve_output_directory(self) -> str:
         """Resolve the output directory for the compressed model.

@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Compression metadata carries the instantiable PT2E backend node, so
+  compressed-artifact inference reconstructs the backend directly instead of
+  instantiating the entire saved compressor config; PT2E artifacts without
+  the node fail loudly.
 - torchao compatibility patches apply in memory through an import hook
   instead of rewriting installed site-packages files: other projects sharing
   the environment see pristine torchao, read-only installs work, and

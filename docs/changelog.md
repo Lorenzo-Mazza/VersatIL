@@ -90,6 +90,10 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Compression metadata carries the instantiable PT2E backend node, so
+  compressed-artifact inference reconstructs the backend directly instead of
+  instantiating the entire saved compressor config; PT2E artifacts without
+  the node fail loudly.
 - torchao compatibility patches apply in memory through an import hook
   instead of rewriting installed site-packages files: other projects sharing
   the environment see pristine torchao, read-only installs work, and
