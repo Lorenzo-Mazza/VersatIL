@@ -187,6 +187,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- Action padding masks take the union of component requirements, so mixed
+  precomputed and on-the-fly action spaces no longer train on edge-padded
+  values at episode starts.
+- Depth-quantile winsorization draws from a seeded generator owned by the
+  transform builder, making fitted statistics reproducible regardless of
+  global RNG state.
+- Grad-CAM works on fully frozen vision towers (camera inputs carry
+  gradients), and a target layer invoked twice per forward raises instead of
+  silently pairing mismatched activation/gradient tensors.
+- MoEDecoder no longer registers the unused base expert as a trainable
+  submodule and declares its gating keys in the input specification.
+- PrecomputedPrimaryJointAttention normalizes queries and keys before
+  rotation and continues the precomputed prefix's position space instead of
+  colliding at zero.
+- Pi0 and SmolVLA reuse the cached VLM prefix across denoising steps, so the
+  vision tower runs once per prediction instead of once per step.
+- Attribution restores the decoder's encoder-cache state instead of leaving
+  it force-disabled, cameras missing from the observation raise instead of
+  silently producing no output, and overlays no longer divide by zero.
+- Diffusion and flow matching derive batch, device, and dtype from the first
+  floating-point feature instead of dict order; SmolVLA validates the expert
+  layer count instead of dividing by zero.
+- LR tuning no longer pollutes epoch-0 metrics, the latest checkpoint saves
+  on every matching epoch instead of only validation epochs, and the
+  quantization report counts only call_function graph nodes.
+- The validation dataset reuses the training dataset's replay buffer, so
+  preloading holds one in-memory copy instead of three; fusion stages,
+  unknown camera keys, and single-class gripper weighting fail loudly.
+- Each depth camera is clamped to its own normalizer range at inference
+  instead of the first camera's range.
+- Saved configs serialize torch dtypes as resolver interpolations, so
+  reloading a checkpoint config reconstructs real dtypes; the bare string
+  previously broke QAT presets with dtype-valued fields on reload.
+- Checkpoints load with weights_only=True under an explicit allowlist of
+  config and OmegaConf classes, so third-party checkpoints can no longer
+  execute arbitrary pickled code.
 - DinoV2SigLIP forwarded its resolved torch.dtype to the tower constructors,
   which validate the raw precision string, so every instantiation with a real
   precision setting crashed.

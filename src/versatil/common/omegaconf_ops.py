@@ -37,7 +37,9 @@ def resolve_dict_keys(d: Mapping[Any, Any]) -> dict[Any, Any]:
 def make_config_yaml_safe(value: Any) -> Any:
     """Convert resolved config values unsupported by OmegaConf into YAML-safe values."""
     if isinstance(value, torch.dtype):
-        return str(value)
+        # Serialize as the resolver interpolation so reloading the saved
+        # config reconstructs the real dtype
+        return "${torch_dtype:" + str(value).removeprefix("torch.") + "}"
     if isinstance(value, dict):
         return {
             make_config_yaml_safe(key): make_config_yaml_safe(nested_value)

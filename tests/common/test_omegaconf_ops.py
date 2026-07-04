@@ -1,9 +1,10 @@
 """Tests for versatil.common.omegaconf_ops module."""
 
 import pytest
+import torch
 from omegaconf import OmegaConf
 
-from versatil.common.omegaconf_ops import resolve_dict_keys
+from versatil.common.omegaconf_ops import make_config_yaml_safe, resolve_dict_keys
 from versatil.configs import register_resolvers
 from versatil.data.constants import Cameras, MetadataPassthroughSource, SyntheticObsKey
 
@@ -79,3 +80,14 @@ class TestResolveDictKeys:
         assert result is not input_dict
         result["new_key"] = "new_value"
         assert "new_key" not in input_dict
+
+
+@pytest.mark.unit
+class TestMakeConfigYamlSafe:
+    def test_dtype_round_trips_through_yaml_as_real_dtype(self) -> None:
+        safe = make_config_yaml_safe(
+            {"weight_dtype": torch.int4, "nested": [torch.bfloat16]}
+        )
+        reloaded = OmegaConf.create(OmegaConf.to_yaml(OmegaConf.create(safe)))
+        assert reloaded.weight_dtype is torch.int4
+        assert reloaded.nested[0] is torch.bfloat16

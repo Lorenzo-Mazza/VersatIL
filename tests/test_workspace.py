@@ -415,8 +415,7 @@ def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
     )
 
     loaded = OmegaConf.load(workspace.output_dir / "config.yaml")
-
-    assert loaded.quantization.targets[0].quantize_config.weight_dtype == "torch.int4"
+    assert loaded.quantization.targets[0].quantize_config.weight_dtype is torch.int4
 
 
 @pytest.mark.unit
