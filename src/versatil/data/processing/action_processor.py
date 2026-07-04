@@ -77,6 +77,12 @@ class ActionProcessor:
         deltas = deltas[valid_mask]
         norms = np.linalg.norm(deltas, axis=1)
         non_zero = norms[norms > 0]
+        if len(non_zero) == 0:
+            raise ValueError(
+                f"Cannot compute a denoising threshold for '{key}': the "
+                "training data contains no nonzero motion for this action. "
+                "Disable denoise_actions or check the data."
+            )
         self.dataset_magnitudes[key] = norms
         self.denoising_thresholds[key] = np.percentile(
             non_zero, self.denoising_percentile

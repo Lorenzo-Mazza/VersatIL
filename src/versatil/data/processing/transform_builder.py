@@ -258,9 +258,17 @@ class TransformBuilder:
             self.tokenization_config.tokenize_observations
             or self.tokenization_config.tokenize_actions
         ):
+            tokenizer_action_data = (
+                {
+                    key: self._select_step_rows(array=action_source_data[key])
+                    for key in valid_action_data
+                }
+                if self.action_processor.action_space.has_only_precomputed_actions
+                else valid_action_data
+            )
             tokenizer = self._create_tokenizer(
                 normalizer=normalizer,
-                action_data=valid_action_data,
+                action_data=tokenizer_action_data,
                 action_meta=action_meta,
                 device=device,
             )
@@ -666,14 +674,17 @@ class TransformBuilder:
         for key in sorted(action_dict.keys()):
             action_components.append(action_dict[key])
         all_actions = np.concatenate(action_components, axis=-1)
-        # Compute episode lengths (each episode loses 1 action for on-the-fly computation)
+        # On-the-fly action computation loses the final row of each episode.
+        terminal_offset = (
+            0 if self.action_processor.action_space.has_only_precomputed_actions else 1
+        )
         episode_lengths = []
         for i in range(len(self.episode_ends)):
             if i == 0:
-                episode_lengths.append(self.episode_ends[i] - 1)
+                episode_lengths.append(self.episode_ends[i] - terminal_offset)
             else:
                 episode_lengths.append(
-                    self.episode_ends[i] - self.episode_ends[i - 1] - 1
+                    self.episode_ends[i] - self.episode_ends[i - 1] - terminal_offset
                 )
         chunks = []
         episode_start = 0
@@ -688,6 +699,12 @@ class TransformBuilder:
                     chunks.append(episode_actions[i : i + self.prediction_horizon])
             episode_start += length
 
+        if len(chunks) == 0:
+            raise ValueError(
+                "No episode is long enough to build a single action chunk of "
+                f"prediction_horizon={self.prediction_horizon}; check the "
+                "dataset and horizon configuration."
+            )
         return np.stack(chunks, axis=0)
 
     @staticmethod

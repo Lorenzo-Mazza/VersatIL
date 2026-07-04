@@ -174,6 +174,29 @@ class SpatialBackboneEncoder(ImageEncoderMixin, Encoder):
         )
         self.output_dim = self.pooling_head.output_dim
 
+    def _validate_inputs(self, inputs: dict[str, torch.Tensor]) -> None:
+        """Validate camera inputs before temporal flattening.
+
+        Args:
+            inputs: Dict mapping keys to tensors.
+
+        Raises:
+            ValueError: If a camera tensor is not 5D with the expected
+                channels; a 4D ``(B, C, H, W)`` tensor would otherwise be
+                silently read as ``(B, T=C, ...)`` by temporal flattening.
+        """
+        super()._validate_inputs(inputs)
+        for camera_key in self.camera_keys:
+            images = inputs.get(camera_key)
+            if images is None:
+                continue
+            if images.dim() != 5 or images.shape[2] != self._input_channels:
+                raise ValueError(
+                    f"{type(self).__name__} expects '{camera_key}' images of "
+                    f"shape (B, T, {self._input_channels}, H, W), got "
+                    f"{tuple(images.shape)}."
+                )
+
     def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
         """Encode a single camera's images through the backbone and pooling.
 

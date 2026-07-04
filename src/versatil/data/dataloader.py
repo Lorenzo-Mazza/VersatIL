@@ -121,7 +121,12 @@ def get_dataloaders(
             seed=config.experiment.seed,
             action_space=action_space,
             observation_space=observation_space,
-            replay_buffer=train_dataset.replay_buffer,
+            # Downsampling replaces the training buffer with a copy holding
+            # only train-selected episodes: sharing it would leak training
+            # episodes into the validation split.
+            replay_buffer=train_dataset.replay_buffer
+            if dataloader_config.downsample_factor <= 1
+            else None,
         )
         val_dataset.set_normalizer(normalizer)
         val_dataset.set_tokenizer(tokenizer)

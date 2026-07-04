@@ -25,6 +25,7 @@ class ObservationPreprocessor:
         compression_type: str = CompressionType.RAW.value,
         rotate_images: bool = False,
         depth_clamp_ranges: dict[str, tuple[float, float]] | None = None,
+        state_dtypes: dict[str, str] | None = None,
     ):
         """Initialize the observation preprocessor.
 
@@ -36,6 +37,8 @@ class ObservationPreprocessor:
             compression_type: Compression format used by the server for images.
             rotate_images: Whether to flip images 180 degrees.
             depth_clamp_ranges: Optional per-camera (min, max) depth clamps.
+            state_dtypes: Numpy dtype names per state key from the training
+                observation metadata; unlisted keys parse as float32.
         """
         self.camera_keys = camera_keys
         self.state_keys = state_keys
@@ -43,6 +46,10 @@ class ObservationPreprocessor:
         self.compression_type = compression_type
         self.rotate_images = rotate_images
         self.depth_clamp_ranges = depth_clamp_ranges or {}
+        self.state_dtypes = {
+            key: np.dtype(dtype_name)
+            for key, dtype_name in (state_dtypes or {}).items()
+        }
         self.camera_metadata = camera_metadata
 
         self.depth_camera_keys = [
@@ -101,7 +108,9 @@ class ObservationPreprocessor:
                 image = np.ascontiguousarray(image[::-1, ::-1])
             observations[camera_key] = image
         for key in self.state_keys:
-            observations[key] = np.array(response[key], dtype=np.float32)
+            observations[key] = np.array(
+                response[key], dtype=self.state_dtypes.get(key, np.float32)
+            )
         if self.has_language:
             observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value]
         return {0: observations}
@@ -138,7 +147,8 @@ class ObservationPreprocessor:
                 observations[camera_key] = image
             for key in self.state_keys:
                 observations[key] = np.array(
-                    response[key][index_string], dtype=np.float32
+                    response[key][index_string],
+                    dtype=self.state_dtypes.get(key, np.float32),
                 )
             if self.has_language:
                 observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value][

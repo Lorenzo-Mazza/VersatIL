@@ -176,6 +176,11 @@ class InferenceClient:
             compression_type=compression_type,
             rotate_images=infer_rotate_images(config=policy_runtime.config),
             depth_clamp_ranges=policy_runtime.depth_clamp_ranges,
+            state_dtypes={
+                key: metadata.dtype
+                for key, metadata in (observation_space.observations_metadata.items())
+                if key in self.state_keys and metadata.is_numerical
+            },
         )
         self.action_postprocessor = ActionPostprocessor(
             action_space=action_space,

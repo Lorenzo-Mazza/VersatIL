@@ -70,7 +70,9 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
                 metadata.is_depth = False
                 metadata.is_single_channel = False
             cameras[key] = metadata
-        state_metadata = {key: MagicMock() for key in state_keys}
+        state_metadata = {
+            key: MagicMock(dtype="float32", is_numerical=True) for key in state_keys
+        }
 
         observations_metadata: dict[str, MagicMock] = {}
         observations_metadata.update(cameras)

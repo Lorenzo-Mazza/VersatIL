@@ -39,7 +39,25 @@ class ActionPostprocessor:
         Args:
             action_space: Policy's action space with metadata per key.
             denoising_thresholds: Per-VersatIL-key denoising thresholds.
+
+        Raises:
+            ValueError: If two predicted action keys share an action type;
+                the wire format is keyed by ActionComponent and cannot
+                express duplicates.
         """
+        action_types: dict[str, str] = {}
+        for key, metadata in action_space.actions_metadata.items():
+            if not metadata.requires_prediction_head:
+                continue
+            existing_key = action_types.get(metadata.action_type)
+            if existing_key is not None:
+                raise ValueError(
+                    f"Predicted action keys '{existing_key}' and '{key}' both "
+                    f"map to action type '{metadata.action_type}'; the "
+                    "structured action format is keyed by action type and "
+                    "would silently drop one of them."
+                )
+            action_types[metadata.action_type] = key
         self.action_space = action_space
         self.denoising_thresholds = denoising_thresholds
 

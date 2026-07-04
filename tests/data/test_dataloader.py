@@ -99,12 +99,14 @@ def mock_hydra_config_factory() -> Callable[..., MagicMock]:
         denoise_actions: bool = False,
         has_gripper_actions: bool = False,
         use_gripper_class_weights: bool = False,
+        downsample_factor: int = 1,
     ) -> MagicMock:
         dataloader_config = DataLoaderConfig(
             batch_size=batch_size,
             num_workers=num_workers,
             shuffle=shuffle,
             val_ratio=val_ratio,
+            downsample_factor=downsample_factor,
         )
         schema = MagicMock(spec=DatasetSchema)
         schema.zarr_path = "/tmp/test.zarr"
@@ -689,6 +691,28 @@ class TestGetDataloaders:
         _, val_loader, _, _, _ = get_dataloaders(config=config)
 
         assert val_loader.dataset is self.mock_val_dataset
+
+    def test_validation_reuses_train_buffer_without_downsampling(
+        self, mock_hydra_config_factory
+    ):
+        config = mock_hydra_config_factory(val_ratio=0.2, downsample_factor=1)
+
+        get_dataloaders(config=config)
+
+        val_call = self.mock_episodic_dataset.call_args_list[1]
+        assert val_call.kwargs["replay_buffer"] is self.mock_train_dataset.replay_buffer
+
+    def test_validation_reloads_buffer_when_downsampling(
+        self, mock_hydra_config_factory
+    ):
+        # Downsampling replaces the training buffer with a train-only copy;
+        # sharing it would leak training episodes into the validation split.
+        config = mock_hydra_config_factory(val_ratio=0.2, downsample_factor=2)
+
+        get_dataloaders(config=config)
+
+        val_call = self.mock_episodic_dataset.call_args_list[1]
+        assert val_call.kwargs["replay_buffer"] is None
 
     def test_skips_validation_when_val_ratio_zero(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(val_ratio=0.0)
