@@ -795,7 +795,7 @@ class TestDetokenizeActions:
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
         mock_action_tokenizer: Callable[..., MagicMock],
     ):
-        """Actions are split in sorted key order matching tokenize_actions concatenation."""
+        """Actions split in metadata order matching tokenize_actions concatenation."""
         action_space = action_space_factory(
             actions_metadata={
                 "position": on_the_fly_action_metadata_factory(
@@ -807,9 +807,9 @@ class TestDetokenizeActions:
                 ),
             }
         )
-        # Sorted keys: "gripper" (dim=1), "position" (dim=3) → total=4
+        # Metadata order: "position" (dim=3), "gripper" (dim=1) → total=4
         tokenizer = mock_action_tokenizer(
-            decoded_output=np.array([[10.0, 1.0, 2.0, 3.0]], dtype=np.float32),
+            decoded_output=np.array([[1.0, 2.0, 3.0, 10.0]], dtype=np.float32),
         )
 
         result = detokenize_actions(
@@ -820,7 +820,7 @@ class TestDetokenizeActions:
 
         assert result["gripper"].shape == (1, 1, 1)
         assert result["position"].shape == (1, 1, 3)
-        # "gripper" comes first alphabetically
+        # "position" is declared first in the metadata
         torch.testing.assert_close(
             result["gripper"][0, 0, 0],
             torch.tensor(10.0),

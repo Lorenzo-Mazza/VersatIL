@@ -164,12 +164,13 @@ class FeatureProjection(ModuleAttrMixin):
             Dictionary of projected features with shape (B, Emb) or (B, T, Emb) or (B, Optional[T], Emb, H, W)
         """
         projected = {}
-        for feature_name, feature in features.items():
+        for feature_name, raw_feature in features.items():
             B, T = None, None
             # Pipeline features always carry (B, T, ...): 5D spatial maps,
             # 4D token sequences, 3D vectors. 2D tensors are algorithm
             # context (e.g. latents) without a time axis.
-            is_spatial = feature.ndim == 5
+            is_spatial = raw_feature.ndim == 5
+            feature = raw_feature
             if is_spatial:
                 B, T = feature.shape[0], feature.shape[1]
                 feature = feature.reshape(B * T, *feature.shape[2:])  # (B*T, C, H, W)

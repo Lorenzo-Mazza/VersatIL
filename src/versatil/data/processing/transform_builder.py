@@ -670,9 +670,17 @@ class TransformBuilder:
         Returns:
             Action chunks of shape (N_chunks, prediction_horizon, total_D)
         """
-        action_components = []
-        for key in sorted(action_dict.keys()):
-            action_components.append(action_dict[key])
+        # Canonical metadata order; keys without metadata keep dict order.
+        metadata_order = {
+            key: index
+            for index, key in enumerate(
+                self.action_processor.action_space.actions_metadata
+            )
+        }
+        ordered_keys = sorted(
+            action_dict, key=lambda key: metadata_order.get(key, len(metadata_order))
+        )
+        action_components = [action_dict[key] for key in ordered_keys]
         all_actions = np.concatenate(action_components, axis=-1)
         # On-the-fly action computation loses the final row of each episode.
         terminal_offset = (

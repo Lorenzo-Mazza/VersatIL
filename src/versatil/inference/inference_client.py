@@ -367,8 +367,8 @@ class InferenceClient:
         reset_indices = response.get(
             InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value, []
         )
-        for environment_index in reset_indices:
-            environment_index = int(environment_index)
+        for raw_index in reset_indices:
+            environment_index = int(raw_index)
             if environment_index in self.environment_states:
                 state = self.environment_states[environment_index]
                 state.observation_buffer.reset()
@@ -576,7 +576,6 @@ class InferenceClient:
         except Exception:
             logging.warning("Error closing observation transport", exc_info=True)
         try:
-            if hasattr(self.action_transport, "close"):
-                self.action_transport.close()
+            self.action_transport.close()
         except Exception:
             logging.warning("Error closing action transport", exc_info=True)

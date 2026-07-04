@@ -299,7 +299,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             self.backbone.layer4,
         ]
 
-        for base_layer, self_layer in zip(base_layers, self_layers):
+        for base_layer, self_layer in zip(base_layers, self_layers, strict=True):
             for i, base_block in enumerate(base_layer):
                 self_block = self_layer[i]
 

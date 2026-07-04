@@ -30,6 +30,10 @@ class ActionTransport(Protocol):
         """Send one action packet to the environment."""
         ...
 
+    def close(self) -> None:
+        """Release transport resources."""
+        ...
+
 
 class OnlineExplanationSource(Protocol):
     """Converts model-ready online inference windows into explanations."""

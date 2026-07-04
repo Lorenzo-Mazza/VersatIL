@@ -13,6 +13,7 @@ import zarr.storage
 from versatil.data.constants import (
     CLIP_RGB_MEAN,
     ActionDiscretizerType,
+    ActionTokenIdMappingType,
     BinningStrategy,
     Cameras,
     ImageNormalizationType,
@@ -26,9 +27,16 @@ from versatil.data.metadata import (
     PrecomputedActionMetadata,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.processing.transform_builder import TransformBuilder
+from versatil.data.processing.transform_builder import (
+    TransformBuilder,
+    _build_action_discretizer,
+    _build_token_id_mapping,
+)
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.action_discretizer import BinnedActionDiscretizer
+from versatil.data.tokenization.action_token_id_mapping import (
+    IdentityActionTokenIdMapping,
+)
 
 
 def _numpy_to_zarr_array(array: np.ndarray) -> zarr.Array:
@@ -322,7 +330,7 @@ class TestCreateActionChunksForTokenizer:
         # Only second episode: 9 actions, pred_horizon=4 → 6 chunks
         assert chunks.shape == (6, 4, 2)
 
-    def test_concatenates_multiple_action_keys_in_sorted_order(
+    def test_concatenates_multiple_action_keys_in_metadata_order(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         rng: np.random.Generator,
@@ -1362,3 +1370,32 @@ class TestCreateTokenizer:
 
         assert "pass-through" in caplog.text
         mock_obs_instance.fit.assert_called_with({})
+
+
+class TestTokenizerComponentBuilders:
+    def test_unsupported_discretizer_type_raises(self):
+        config = MagicMock()
+        config.type = "unsupported"
+        with pytest.raises(ValueError, match="Unsupported action discretizer type"):
+            _build_action_discretizer(
+                config, device="cpu", time_horizon=4, action_dim=2
+            )
+
+    def test_identity_token_id_mapping(self):
+        config = MagicMock()
+        config.type = ActionTokenIdMappingType.IDENTITY.value
+        mapping = _build_token_id_mapping(config)
+        assert isinstance(mapping, IdentityActionTokenIdMapping)
+
+    def test_language_vocabulary_mapping_requires_model(self):
+        config = MagicMock()
+        config.type = ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+        config.language_tokenizer_model = None
+        with pytest.raises(ValueError, match="language_tokenizer_model"):
+            _build_token_id_mapping(config)
+
+    def test_unsupported_token_id_mapping_raises(self):
+        config = MagicMock()
+        config.type = "unsupported"
+        with pytest.raises(ValueError, match="Unsupported action token-id mapping"):
+            _build_token_id_mapping(config)

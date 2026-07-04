@@ -62,11 +62,13 @@ class AttentionFusion(SequentialFusion):
         """
         if self.projections is None:
             raise RuntimeError("Projections must be set up before forward pass")
-        projected = [proj(feat) for feat, proj in zip(features, self.projections)]
+        projected = [
+            proj(feat) for feat, proj in zip(features, self.projections, strict=True)
+        ]
         if self.use_norm:
             if self.norms is None:
                 raise RuntimeError("Norms should be initialized when use_norm is True")
-            projected = [norm(p) for p, norm in zip(projected, self.norms)]
+            projected = [norm(p) for p, norm in zip(projected, self.norms, strict=True)]
         # Sequential features arrive as (B, T, S, D) — fusion runs before the
         # pipeline's T=1 squeeze — so batch and time are merged for attention
         # over tokens and restored afterwards.

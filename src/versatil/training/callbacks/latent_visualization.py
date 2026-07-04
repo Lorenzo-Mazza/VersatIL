@@ -357,7 +357,9 @@ class LatentVisualizationCallback(Callback):
             )
             if axis.get_legend() is not None and label_values is not None:
                 axis.get_legend().set_title(label_name)
-                for text, value in zip(axis.get_legend().texts, label_values):
+                for text, value in zip(
+                    axis.get_legend().texts, label_values, strict=True
+                ):
                     text.set_text(value)
             axis.set_title(f"{title} PCA (colored by {label_name})")
         else:

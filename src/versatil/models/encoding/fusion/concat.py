@@ -30,7 +30,7 @@ class ConcatFusion(SequentialFusion):
         if self.projections is None:
             raise RuntimeError("Projections must be set up before forward pass")
         projected = []
-        for feat, proj in zip(features, self.projections):
+        for feat, proj in zip(features, self.projections, strict=True):
             projected.append(proj(feat))
         return torch.cat(projected, dim=-1)
 

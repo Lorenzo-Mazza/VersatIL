@@ -164,11 +164,10 @@ def repeat_action_batch(
 def _decoder_requires_tokenized_actions(policy: Policy) -> bool:
     """Return whether the decoder needs tokenized action targets for scoring.
 
-    The flag describes the decoder forward contract, not the whole policy
-    family. Continuous action decoders can be scored directly from predictions;
-    tokenized-action decoders need teacher-forced token likelihoods.
+    The flag is needed as tokenized-action decoders need teacher-forced token
+        likelihoods.
     """
-    return bool(getattr(policy.decoder, "requires_tokenized_actions", False))
+    return policy.decoder.requires_tokenized_actions
 
 
 def _compute_tokenized_action_log_likelihood(

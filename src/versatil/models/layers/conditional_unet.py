@@ -58,7 +58,6 @@ class ConditionalUnet1D(nn.Module):
             down_dimensions = [256, 512, 1024]
         all_dimensions = [input_dimension] + list(down_dimensions)
         starting_dimension = down_dimensions[0]
-        diffusion_step_embedding_dimension = diffusion_step_embedding_dimension
         diffusion_step_encoder = nn.Sequential(
             SinusoidalPositionalEncoding1D(
                 embedding_dimension=diffusion_step_embedding_dimension,
@@ -82,7 +81,9 @@ class ConditionalUnet1D(nn.Module):
         if global_conditioning_dimension is not None:
             condition_dimension += global_conditioning_dimension
 
-        input_output_pairs = list(zip(all_dimensions[:-1], all_dimensions[1:]))
+        input_output_pairs = list(
+            zip(all_dimensions[:-1], all_dimensions[1:], strict=True)
+        )
 
         local_condition_encoder = None
         if local_conditioning_dimension is not None:

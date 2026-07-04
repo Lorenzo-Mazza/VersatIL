@@ -171,8 +171,9 @@ def tokenize_actions(
     """Tokenize actions."""
     actions_to_tokenize = actions.copy()
     action_components = []
-    for key in sorted(action_space.actions_metadata.keys()):
-        meta = action_space.actions_metadata[key]
+    # Iterate in metadata insertion order — the same canonical order
+    # predicted_action_keys and the joint action layout use.
+    for key, meta in action_space.actions_metadata.items():
         if meta.is_numerical and meta.requires_prediction_head:
             action_tensor = actions_to_tokenize[key]
             if action_tensor.ndim == 1:
@@ -210,8 +211,7 @@ def detokenize_actions(
     actions = torch.stack(detokenized_actions, dim=0)  # (B, pred_horizon, action_dim)
     action_dict = {}
     current_idx = 0
-    for key in sorted(action_space.actions_metadata.keys()):
-        meta = action_space.actions_metadata[key]
+    for key, meta in action_space.actions_metadata.items():
         if meta.is_numerical and meta.requires_prediction_head:
             dim = meta.prediction_dimension
             action_dict[key] = actions[..., current_idx : current_idx + dim]

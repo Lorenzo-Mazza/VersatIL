@@ -97,7 +97,7 @@ class EMACallback(Callback):
 
         with torch.no_grad():
             for module, ema_module in zip(
-                pl_module.policy.modules(), self.ema_model.modules()
+                pl_module.policy.modules(), self.ema_model.modules(), strict=True
             ):
                 for buffer, ema_buffer in zip(
                     module.buffers(recurse=False),

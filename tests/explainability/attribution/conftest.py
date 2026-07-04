@@ -120,6 +120,8 @@ class _TokenEncodingPipeline(nn.Module):
 
 
 class _ActionDecoder(nn.Module):
+    requires_tokenized_actions = False
+
     @property
     def encoder_cache_enabled(self) -> bool:
         return False

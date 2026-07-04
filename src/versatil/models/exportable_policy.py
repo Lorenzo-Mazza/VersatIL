@@ -66,7 +66,9 @@ class ExportablePolicy(nn.Module):
                 f"matching keys {self._observation_keys}, "
                 f"got {len(observation_tensors)}"
             )
-        observation_dict = dict(zip(self._observation_keys, observation_tensors))
+        observation_dict = dict(
+            zip(self._observation_keys, observation_tensors, strict=True)
+        )
         features = build_algorithm_features(
             observation=observation_dict,
             encoding_pipeline=self.encoding_pipeline,

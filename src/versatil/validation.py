@@ -513,14 +513,14 @@ class ExperimentValidator:
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             self.errors.append(f"Training stage names must be unique: {duplicates}.")
-        for previous, current in zip(stages, stages[1:]):
+        for previous, current in zip(stages, stages[1:], strict=False):
             if current.start_epoch <= previous.start_epoch:
                 self.errors.append(
                     "training.stages must be listed in strictly increasing "
                     "start_epoch order."
                 )
                 break
-        for previous, current in zip(stages, stages[1:]):
+        for previous, current in zip(stages, stages[1:], strict=False):
             if (
                 previous.end_epoch is not None
                 and previous.end_epoch > current.start_epoch
