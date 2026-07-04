@@ -8,9 +8,9 @@ import torch.nn as nn
 
 from versatil.data.constants import Cameras
 from versatil.explainability.attribution.capture import (
-    select_tensor_output,
     ActivationCapture,
     GradientCapture,
+    select_tensor_output,
 )
 from versatil.explainability.attribution.policy import run_policy_for_explanation
 from versatil.explainability.constants import VisionCaptureMode
