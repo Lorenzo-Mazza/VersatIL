@@ -20,16 +20,18 @@ def _deployment_config(
             "checkpoint_path": "/tmp/ckpt",
             "checkpoint_name": "best.ckpt",
             "device": device,
-            "model_server_address": "10.0.0.1",
-            "model_server_port": 5556,
-            "temporal_aggregation": temporal_aggregation,
-            "action_execution_horizon": None,
-            "update_rate_hz": update_rate_hz,
             "max_steps": 100,
-            "temporal_max_timesteps": 800,
-            "timing_log": True,
             "compile_model": False,
-            "request_timeout_seconds": request_timeout_seconds,
+            "client": {
+                "model_server_address": "10.0.0.1",
+                "model_server_port": 5556,
+                "temporal_aggregation": temporal_aggregation,
+                "action_execution_horizon": None,
+                "update_rate_hz": update_rate_hz,
+                "temporal_max_timesteps": 800,
+                "timing_log": True,
+                "request_timeout_seconds": request_timeout_seconds,
+            },
         }
     )
 

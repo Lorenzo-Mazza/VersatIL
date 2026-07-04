@@ -8,6 +8,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
+from versatil.configs.explainability import ExplainabilityConfig
 from versatil.endpoints.explain import main
 from versatil.explainability.constants import ExplanationSourceType, ExplanationType
 from versatil.explainability.sources.typedefs import ExplanationBatch
@@ -45,9 +46,9 @@ def test_main_writes_real_policy_gradcam_heatmaps(
         preprocess_observation=False,
     )
     output_directory = tmp_path / "explain_outputs"
-    config = OmegaConf.create(
+    config = OmegaConf.merge(
+        OmegaConf.structured(ExplainabilityConfig),
         {
-            "_target_": "versatil.explainability.runner.ExplainabilityRunner",
             "checkpoint_path": str(tmp_path / "checkpoint"),
             "checkpoint_name": "last.ckpt",
             "output_directory": str(output_directory),
@@ -61,9 +62,11 @@ def test_main_writes_real_policy_gradcam_heatmaps(
             "explanation_types": [ExplanationType.GRADCAM.value],
             "target_camera_keys": [case.target_camera],
             "target_vision_module_names": case.target_vision_module_names,
-            "save_raw_heatmaps": True,
-            "save_overlays": False,
-        }
+            "writer": {
+                "save_raw_heatmaps": True,
+                "save_overlays": False,
+            },
+        },
     )
 
     with (

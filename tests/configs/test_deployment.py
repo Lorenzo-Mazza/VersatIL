@@ -6,6 +6,7 @@ import pytest
 from omegaconf import MISSING
 
 from versatil.configs.deployment import DeploymentConfig
+from versatil.configs.inference_client import InferenceClientConfig
 
 
 @pytest.mark.unit
@@ -23,11 +24,13 @@ class TestDeploymentConfig:
     ):
         config = DeploymentConfig(
             checkpoint_path="/ckpt",
-            temporal_aggregation=temporal_aggregation,
-            request_timeout_seconds=request_timeout_seconds,
+            client=InferenceClientConfig(
+                temporal_aggregation=temporal_aggregation,
+                request_timeout_seconds=request_timeout_seconds,
+            ),
         )
-        assert config.temporal_aggregation == temporal_aggregation
-        assert config.request_timeout_seconds == request_timeout_seconds
+        assert config.client.temporal_aggregation == temporal_aggregation
+        assert config.client.request_timeout_seconds == request_timeout_seconds
 
     def test_has_all_expected_fields(self):
         field_names = {field.name for field in dataclasses.fields(DeploymentConfig)}
@@ -35,15 +38,8 @@ class TestDeploymentConfig:
             "checkpoint_path",
             "checkpoint_name",
             "device",
-            "model_server_address",
-            "model_server_port",
-            "temporal_aggregation",
-            "action_execution_horizon",
-            "update_rate_hz",
             "max_steps",
-            "temporal_max_timesteps",
-            "timing_log",
             "compile_model",
-            "request_timeout_seconds",
+            "client",
         }
         assert expected == field_names

@@ -78,6 +78,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Hydra ConfigStore registrations moved into per-domain modules under
+  `versatil.configs.store`, shrinking the config package init by a third.
+- The training callback stack is built by `versatil.training.callback_factory`
+  with one builder per concern, and the workspace attaches dataloaders through
+  a public LightningPolicy setter instead of private attributes.
+- Deployment and online-inference explanations share one
+  `InferenceClientConfig` (`client.` group on the deploy CLI); the
+  explainability runner takes nested online/writer configs instead of 26 flat
+  parameters, and `end_to_end_explain/default.yaml` no longer restates every
+  default.
 - Algorithms receive only predicted action keys plus the padding mask, so
   metadata-only labels can no longer condition variational posteriors on
   inputs inference cannot access.

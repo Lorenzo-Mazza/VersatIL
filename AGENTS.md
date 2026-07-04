@@ -123,8 +123,8 @@ python -m versatil.endpoints.post_training_compress \
 python -m versatil.endpoints.deploy \
     checkpoint_path=/path/to/checkpoint/compressed/<timestamp> \
     device=cpu \
-    model_server_address=10.0.0.1 \
-    model_server_port=5556
+    client.model_server_address=10.0.0.1 \
+    client.model_server_port=5556
 ```
 
 ### Code Formatting and Linting

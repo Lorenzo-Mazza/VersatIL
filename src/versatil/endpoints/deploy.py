@@ -94,25 +94,25 @@ def main(config: DictConfig) -> None:
     )
 
     observation_transport = SocketObservationTransport(
-        server_address=config.model_server_address,
-        server_port=config.model_server_port,
-        request_timeout_seconds=config.request_timeout_seconds,
+        server_address=config.client.model_server_address,
+        server_port=config.client.model_server_port,
+        request_timeout_seconds=config.client.request_timeout_seconds,
     )
     action_transport = SocketActionTransport(
-        server_address=config.model_server_address,
-        server_port=config.model_server_port,
-        request_timeout_seconds=config.request_timeout_seconds,
+        server_address=config.client.model_server_address,
+        server_port=config.client.model_server_port,
+        request_timeout_seconds=config.client.request_timeout_seconds,
     )
 
     client = InferenceClient(
         policy_runtime=policy_runtime,
         observation_transport=observation_transport,
         action_transport=action_transport,
-        temporal_aggregation=config.temporal_aggregation,
-        action_execution_horizon=config.action_execution_horizon,
-        max_timesteps=config.temporal_max_timesteps,
-        timing_log=config.timing_log,
-        update_rate_hz=config.update_rate_hz,
+        temporal_aggregation=config.client.temporal_aggregation,
+        action_execution_horizon=config.client.action_execution_horizon,
+        max_timesteps=config.client.temporal_max_timesteps,
+        timing_log=config.client.timing_log,
+        update_rate_hz=config.client.update_rate_hz,
     )
 
     try:

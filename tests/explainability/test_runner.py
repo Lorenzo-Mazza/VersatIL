@@ -9,6 +9,7 @@ import pytest
 import torch
 
 import versatil.endpoints.explain as explain_endpoint
+from versatil.configs.explainability import ExplanationWriterConfig
 from versatil.data.constants import Cameras
 from versatil.explainability.constants import ExplanationSourceType, ExplanationType
 from versatil.explainability.runner import ExplainabilityRunner
@@ -51,9 +52,11 @@ def runner_factory(tmp_path: Path) -> Callable[..., ExplainabilityRunner]:
                 explanation_types=explanation_types,
                 target_camera_keys=target_camera_keys,
                 target_vision_module_names=target_vision_module_names,
-                save_overlays=save_overlays,
-                save_raw_heatmaps=save_raw_heatmaps,
-                overlay_image_format=overlay_image_format,
+                writer=ExplanationWriterConfig(
+                    save_overlays=save_overlays,
+                    save_raw_heatmaps=save_raw_heatmaps,
+                    overlay_image_format=overlay_image_format,
+                ),
                 data_path_override=data_path_override,
             )
 

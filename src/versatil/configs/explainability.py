@@ -3,13 +3,30 @@
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING
-from tso_robotics_sockets import CompressionType
 
+from versatil.configs.inference_client import InferenceClientConfig
 from versatil.explainability.constants import (
     VALID_EXPLANATION_TYPES,
     ExplanationSourceType,
 )
 from versatil.training.constants import CheckpointFilename
+
+
+@dataclass
+class ExplanationWriterConfig:
+    """Settings for how explanations are written to disk.
+
+    Attributes:
+        save_raw_heatmaps: Whether raw heatmap tensors are saved.
+        save_overlays: Whether overlay images are rendered and saved.
+        image_weight: Blend weight of the camera image in overlays.
+        overlay_image_format: Overlay image file extension without a dot.
+    """
+
+    save_raw_heatmaps: bool = False
+    save_overlays: bool = True
+    image_weight: float = 0.5
+    overlay_image_format: str = "png"
 
 
 @dataclass
@@ -97,21 +114,11 @@ class ExplainabilityConfig:
     max_samples: int | None = None
     data_path_override: str | list[str] | None = None
     batch_size: int = 1
-    model_server_address: str = "127.0.0.1"
-    model_server_port: int = 5555
-    temporal_aggregation: bool = False
-    action_execution_horizon: int | None = None
-    update_rate_hz: float | None = None
-    temporal_max_timesteps: int = 800
-    timing_log: bool = False
-    compression_type: str = CompressionType.RAW.value
     explanation_types: list[str] = field(
         default_factory=lambda: list(VALID_EXPLANATION_TYPES)
     )
     target_camera_keys: list[str] | None = None
     target_vision_module_names: list[str] | None = None
-    save_raw_heatmaps: bool = False
-    save_overlays: bool = True
     channel_batch_size: int = 32
-    image_weight: float = 0.5
-    overlay_image_format: str = "png"
+    online: InferenceClientConfig = field(default_factory=InferenceClientConfig)
+    writer: ExplanationWriterConfig = field(default_factory=ExplanationWriterConfig)

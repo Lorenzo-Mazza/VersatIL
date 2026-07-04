@@ -9,6 +9,8 @@ from tso_robotics_sockets import CompressionType
 
 from versatil.checkpoint_loading.float_policy import FloatCheckpointLoader
 from versatil.common.tensor_ops import to_device
+from versatil.configs.explainability import ExplanationWriterConfig
+from versatil.configs.inference_client import InferenceClientConfig
 from versatil.explainability.constants import (
     VALID_EXPLANATION_SOURCE_TYPES,
     VALID_EXPLANATION_TYPES,
@@ -47,22 +49,12 @@ class ExplainabilityRunner:
         max_samples: int | None = None,
         data_path_override: str | list[str] | None = None,
         batch_size: int = 1,
-        model_server_address: str = "127.0.0.1",
-        model_server_port: int = 5555,
-        temporal_aggregation: bool = False,
-        action_execution_horizon: int | None = None,
-        update_rate_hz: float | None = None,
-        temporal_max_timesteps: int = 800,
-        timing_log: bool = False,
-        compression_type: str = CompressionType.RAW.value,
         channel_batch_size: int = 32,
         explanation_types: list[str] | None = None,
         target_camera_keys: list[str] | None = None,
         target_vision_module_names: list[str] | None = None,
-        save_raw_heatmaps: bool = False,
-        save_overlays: bool = True,
-        image_weight: float = 0.5,
-        overlay_image_format: str = "png",
+        online: InferenceClientConfig | None = None,
+        writer: ExplanationWriterConfig | None = None,
     ) -> None:
         """Initialize the runner.
 
@@ -140,27 +132,17 @@ class ExplainabilityRunner:
         self.max_samples = max_samples
         self.data_path_override = data_path_override
         self.batch_size = batch_size
-        self.model_server_address = model_server_address
-        self.model_server_port = model_server_port
-        self.temporal_aggregation = temporal_aggregation
-        self.action_execution_horizon = action_execution_horizon
-        self.update_rate_hz = update_rate_hz
-        self.temporal_max_timesteps = temporal_max_timesteps
-        self.timing_log = timing_log
-        self.compression_type = compression_type
+        self.online = online if online is not None else InferenceClientConfig()
         self.explanation_types = self._resolve_explanation_types(
             explanation_types=explanation_types
         )
         self.target_camera_keys = target_camera_keys
         self.target_vision_module_names = target_vision_module_names
-        self.save_raw_heatmaps = save_raw_heatmaps
-        self.save_overlays = save_overlays
+        self.writer_config = writer if writer is not None else ExplanationWriterConfig()
         self.channel_batch_size = channel_batch_size
         self.explanation_heatmaps = to_explanation_heatmaps(
             channel_batch_size=channel_batch_size
         )
-        self.image_weight = image_weight
-        self.overlay_image_format = overlay_image_format
         self._validate_source(source=source)
         self._validate_sampling_configuration(
             sample_stride=sample_stride,
@@ -168,17 +150,17 @@ class ExplainabilityRunner:
         )
         if source == ExplanationSourceType.ONLINE_INFERENCE.value:
             self._validate_online_configuration(
-                model_server_port=model_server_port,
-                action_execution_horizon=action_execution_horizon,
-                update_rate_hz=update_rate_hz,
-                temporal_max_timesteps=temporal_max_timesteps,
-                compression_type=compression_type,
+                model_server_port=self.online.model_server_port,
+                action_execution_horizon=self.online.action_execution_horizon,
+                update_rate_hz=self.online.update_rate_hz,
+                temporal_max_timesteps=self.online.temporal_max_timesteps,
+                compression_type=self.online.compression_type,
             )
         self.output_directory.mkdir(parents=True, exist_ok=True)
         self.writer = ExplanationWriter(
             output_directory=self.output_directory,
-            image_weight=self.image_weight,
-            overlay_image_format=self.overlay_image_format,
+            image_weight=self.writer_config.image_weight,
+            overlay_image_format=self.writer_config.overlay_image_format,
         )
 
         checkpoint_loader = FloatCheckpointLoader(
@@ -352,23 +334,23 @@ class ExplainabilityRunner:
             checkpoint_name=self.checkpoint_name,
         )
         observation_transport = SocketObservationTransport(
-            server_address=self.model_server_address,
-            server_port=self.model_server_port,
+            server_address=self.online.model_server_address,
+            server_port=self.online.model_server_port,
         )
         action_transport = SocketActionTransport(
-            server_address=self.model_server_address,
-            server_port=self.model_server_port,
+            server_address=self.online.model_server_address,
+            server_port=self.online.model_server_port,
         )
         client = InferenceClient(
             policy_runtime=policy_runtime,
             observation_transport=observation_transport,
             action_transport=action_transport,
-            temporal_aggregation=self.temporal_aggregation,
-            action_execution_horizon=self.action_execution_horizon,
-            compression_type=self.compression_type,
-            max_timesteps=self.temporal_max_timesteps,
-            timing_log=self.timing_log,
-            update_rate_hz=self.update_rate_hz,
+            temporal_aggregation=self.online.temporal_aggregation,
+            action_execution_horizon=self.online.action_execution_horizon,
+            compression_type=self.online.compression_type,
+            max_timesteps=self.online.temporal_max_timesteps,
+            timing_log=self.online.timing_log,
+            update_rate_hz=self.online.update_rate_hz,
             online_explanation_source=self.build_online_source(),
         )
         try:
@@ -422,14 +404,14 @@ class ExplainabilityRunner:
                 explanation_type=explanation_type,
                 preprocess_observation=batch.preprocess_observation,
             )
-            if self.save_raw_heatmaps:
+            if self.writer_config.save_raw_heatmaps:
                 self.writer.save_raw_heatmaps(
                     heatmaps=heatmaps,
                     explanation_type=explanation_type,
                     metadata=batch.metadata,
                     batch_counter=self._batch_counter,
                 )
-            if self.save_overlays:
+            if self.writer_config.save_overlays:
                 self.writer.save_overlays(
                     heatmaps=heatmaps,
                     explanation_type=explanation_type,
