@@ -78,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- SpatialRGBEncoder and SpatialDepthEncoder share one SpatialBackboneEncoder
+  implementation parameterized by input channels and camera modality.
 - Compression metadata carries the instantiable PT2E backend node, so
   compressed-artifact inference reconstructs the backend directly instead of
   instantiating the entire saved compressor config; PT2E artifacts without

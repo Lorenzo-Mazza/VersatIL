@@ -230,11 +230,11 @@ class TestSpatialDepthEncoderInitialization:
 
         with (
             patch(
-                "versatil.models.encoding.encoders.depth.spatial.timm.create_model",
+                "versatil.models.encoding.encoders.spatial_backbone.timm.create_model",
                 return_value=backbone,
             ),
             patch(
-                "versatil.models.encoding.encoders.depth.spatial.apply_lora_config",
+                "versatil.models.encoding.encoders.spatial_backbone.apply_lora_config",
                 side_effect=lora_passthrough,
             ) as mock_apply_lora,
         ):
