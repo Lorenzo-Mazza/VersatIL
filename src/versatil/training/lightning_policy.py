@@ -18,6 +18,21 @@ from versatil.models.policy import Policy
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
+def _batch_size_of(batch: dict[str, dict[str, torch.Tensor]]) -> int:
+    """Return the sample count of a policy batch.
+
+    Args:
+        batch: Batch dictionary with observation and action sub-dicts.
+    """
+    for sub_dictionary in batch.values():
+        if not isinstance(sub_dictionary, dict):
+            continue
+        for value in sub_dictionary.values():
+            if isinstance(value, torch.Tensor):
+                return int(value.shape[0])
+    return 1
+
+
 class LightningPolicy(pl.LightningModule):
     """PyTorch Lightning wrapper around Policy.
 
@@ -72,7 +87,8 @@ class LightningPolicy(pl.LightningModule):
             Total loss tensor
         """
         loss_output: LossOutput = self.policy.compute_loss(batch)
-        self.train_metrics.add_loss_output(loss_output)
+        batch_size = _batch_size_of(batch)
+        self.train_metrics.add_loss_output(loss_output, batch_size=batch_size)
         # Log only on epoch to avoid batch size dependency in plots
         self.log(
             "train_loss",
@@ -80,6 +96,7 @@ class LightningPolicy(pl.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
+            batch_size=batch_size,
         )
         return loss_output.total_loss
 
@@ -119,13 +136,15 @@ class LightningPolicy(pl.LightningModule):
             Total loss tensor
         """
         loss_output: LossOutput = self.policy.compute_loss(batch)
-        self.val_metrics.add_loss_output(loss_output)
+        batch_size = _batch_size_of(batch)
+        self.val_metrics.add_loss_output(loss_output, batch_size=batch_size)
         self.log(
             "val_loss",
             loss_output.total_loss,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
+            batch_size=batch_size,
         )
         return loss_output.total_loss
 

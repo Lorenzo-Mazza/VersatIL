@@ -149,6 +149,7 @@ class TestTrainingStep:
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
+                batch_size=1,
             )
 
 
@@ -232,6 +233,7 @@ class TestValidationStep:
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
+                batch_size=1,
             )
 
 
