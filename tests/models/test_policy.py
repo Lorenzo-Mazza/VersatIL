@@ -453,10 +453,23 @@ class TestForward:
         pipeline.return_value = features
         policy = policy_factory(encoding_pipeline=pipeline)
         batch = batch_dictionary_factory()
+        batch_actions = batch[SampleKey.ACTION.value]
+        predicted_keys = [
+            key for key in batch_actions if key != SampleKey.IS_PAD_ACTION.value
+        ]
+        policy.action_space.predicted_action_keys = predicted_keys
+        batch_actions["metadata_only_label"] = torch.zeros(2, 4)
+
         policy.forward(batch=batch)
+
+        expected_actions = {
+            key: value
+            for key, value in batch_actions.items()
+            if key != "metadata_only_label"
+        }
         policy.algorithm.forward.assert_called_once_with(
             features=features,
-            actions=batch[SampleKey.ACTION.value],
+            actions=expected_actions,
             network=policy.decoder,
         )
 

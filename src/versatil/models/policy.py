@@ -198,11 +198,32 @@ class Policy(nn.Module):
         observation = self._strip_metadata_passthrough_observations(
             observation=batch[SampleKey.OBSERVATION.value]
         )
-        actions = batch.get(SampleKey.ACTION.value)
+        actions = self._filter_predicted_actions(
+            actions=batch.get(SampleKey.ACTION.value)
+        )
         features = self._build_algorithm_features(observation=observation)
         return self.algorithm.forward(
             features=features, actions=actions, network=self.decoder
         )
+
+    def _filter_predicted_actions(
+        self,
+        actions: dict[str, torch.Tensor] | None,
+    ) -> dict[str, torch.Tensor] | None:
+        """Keep only predicted action keys and the padding mask.
+
+        Metadata-only action keys are loss and logging inputs; letting them
+        reach the algorithm would condition variational posteriors on labels
+        inference cannot access.
+
+        Args:
+            actions: Action dictionary from the batch, if present.
+        """
+        if actions is None:
+            return None
+        allowed_keys = set(self.action_space.predicted_action_keys)
+        allowed_keys.add(SampleKey.IS_PAD_ACTION.value)
+        return {key: value for key, value in actions.items() if key in allowed_keys}
 
     def compute_loss(
         self,
