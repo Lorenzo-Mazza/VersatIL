@@ -12,14 +12,23 @@ from versatil.models.decoding.constants import MoERoutingType
 
 @dataclass
 class ActionHeadBlockConfig:
-    """Base configuration for action head blocks."""
+    """Base configuration for action head blocks.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+    """
 
     _target_: str = MISSING
 
 
 @dataclass
 class LayerNormBlockConfig(ActionHeadBlockConfig):
-    """Configuration for layer-normalization action-head block."""
+    """Configuration for layer-normalization action-head block.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        input_dimension: Input and output feature dimension.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.LayerNormBlock"
     input_dimension: int = MISSING
@@ -27,7 +36,17 @@ class LayerNormBlockConfig(ActionHeadBlockConfig):
 
 @dataclass
 class MLPBlockConfig(ActionHeadBlockConfig):
-    """Configuration for MLP block in action head."""
+    """Configuration for MLP block in action head.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        input_dimension: Input dimension.
+        hidden_dimensions: List of hidden dimensions.
+        output_dim: Output dimension (None to keep same as last hidden).
+        activation: Activation function name.
+        dropout: Dropout rate.
+        normalization: Whether to apply layer normalization before MLP.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.MLPBlock"
     input_dimension: int = MISSING  # Set by parent head
@@ -40,7 +59,15 @@ class MLPBlockConfig(ActionHeadBlockConfig):
 
 @dataclass
 class AttentionBlockConfig(ActionHeadBlockConfig):
-    """Configuration for attention block in action head."""
+    """Configuration for attention block in action head.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        embedding_dimension: Embedding dimension.
+        number_of_heads: Number of attention heads.
+        dropout: Dropout rate.
+        normalization: Whether to apply layer normalization.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.AttentionBlock"
     embedding_dimension: int = MISSING
@@ -51,7 +78,13 @@ class AttentionBlockConfig(ActionHeadBlockConfig):
 
 @dataclass
 class ResidualBlockConfig(ActionHeadBlockConfig):
-    """Configuration for residual wrapper block."""
+    """Configuration for residual wrapper block.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        block: Block to wrap with residual connection.
+        dropout: Dropout rate after block.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.ResidualBlock"
     block: dict[str, Any] = MISSING
@@ -60,7 +93,14 @@ class ResidualBlockConfig(ActionHeadBlockConfig):
 
 @dataclass
 class AdaNormBlockConfig(ActionHeadBlockConfig):
-    """Configuration for adaptive normalization action-head block."""
+    """Configuration for adaptive normalization action-head block.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        input_dimension: Action embedding feature dimension.
+        conditioning_dimension: Conditioning vector dimension.
+        activation: Activation used inside the modulation projection.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.AdaNormBlock"
     input_dimension: int = MISSING
@@ -74,6 +114,11 @@ class ActionHeadConfig:
 
     Note:
         output dimension is set by the decoder based on the action key.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        input_dimension: Set from decoder embedding_dimension.
+        blocks: Head blocks applied in order.
     """
 
     _target_: str = "versatil.models.decoding.action_heads.ActionHead"
@@ -83,7 +128,14 @@ class ActionHeadConfig:
 
 @dataclass
 class ConditionalActionHeadConfig:
-    """Configuration for a conditioned action head."""
+    """Configuration for a conditioned action head.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        input_dimension: Input action-token embedding dimension.
+        conditioning_dimension: Conditioning vector dimension.
+        blocks: Conditional blocks applied before the output projection.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.ConditionalActionHead"
     input_dimension: int = MISSING
@@ -93,7 +145,15 @@ class ConditionalActionHeadConfig:
 
 @dataclass
 class GaussianHeadConfig:
-    """Configuration for GaussianHead that outputs mean and logvar."""
+    """Configuration for GaussianHead that outputs mean and logvar.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        input_dimension: Input embedding dimension from decoder.
+        blocks: Blocks to apply before output projection.
+        min_logvar: Minimum value for logvar clamping.
+        max_logvar: Maximum value for logvar clamping.
+    """
 
     _target_: str = "versatil.models.decoding.action_heads.GaussianHead"
     input_dimension: int = MISSING
@@ -114,6 +174,23 @@ class MixtureOfExpertsHeadConfig:
         base_expert is instantiated by Hydra, then cloned num_experts times
         by MoEHead to create separate expert networks with independent weights.
         output_dim is set by the decoder based on the action key.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        device: Device to place the module on.
+        experts: Optional pre-instantiated expert action heads.
+        base_expert: Single expert instance to clone num_experts times.
+        num_experts: Number of experts to create from base_expert (optional for lazy
+            init).
+        gating_input_dim: Input dimension for gating network (None for external
+            routing).
+        gating_hidden_dims: Hidden layer dimensions for gating network.
+        routing_type: Routing strategy ("soft" or "top_k").
+        top_k: Number of experts to use for top-k routing.
+        temperature: Temperature for softmax scaling of routing weights.
+        learnable_temperature: Whether temperature should be a learnable parameter.
+        gating_dropout: Dropout rate in gating network.
+        gating_normalization: Whether to normalize inputs to gating network.
     """
 
     _target_: str = "versatil.models.decoding.action_heads.MoEHead"

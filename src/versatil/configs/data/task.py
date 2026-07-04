@@ -17,6 +17,7 @@ class ActionSpaceConfig:
     """Configuration for action space.
 
     Attributes:
+        _target_: Import path instantiated by Hydra.
         actions_metadata: Dict of all action metadata, indexed by zarr store key.
             Values are OnTheFlyActionMetadataConfig or PrecomputedActionMetadataConfig subclasses.
         use_gripper_class_weights: Whether to use class weights for binary gripper.
@@ -36,6 +37,7 @@ class ObservationSpaceConfig:
     """Configuration for observation space.
 
     Attributes:
+        _target_: Import path instantiated by Hydra.
         observations_metadata: Dict of all observation metadata, indexed by zarr store key.
             Values are ObservationMetadataConfig subclasses,
             RGBCameraMetadataConfig, or DepthCameraMetadataConfig.
@@ -50,6 +52,7 @@ class TaskSpaceConfig:
     """Task space specific configuration for the experiment run.
 
     Attributes:
+        _target_: Import path instantiated by Hydra.
         dataset_schema: Dataset schema configuration, defining what dataset and zarr store the task uses.
         dataloader: Data loading and preprocessing configuration.
         action_space: Action space configuration used by the task at runtime.

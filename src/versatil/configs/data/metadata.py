@@ -19,7 +19,23 @@ from versatil.data.constants import (
 
 @dataclass
 class ObservationMetadataConfig:
-    """Config for ObservationMetadata."""
+    """Config for ObservationMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        raw_data_column_keys: List of keys in the raw dataset corresponding to the
+            observation.
+        dimension: Dimension that will be used to store the observation in the zarr
+            store.
+        dtype: Numpy dtype the values are stored as.
+        is_numerical: Whether the observation is numerical rather than text.
+        needs_normalization: Whether the observation is normalized by the fitted
+            normalizer.
+        slice_start: Optional starting index for slicing a larger stored observation
+            vector.
+        slice_end: Optional ending index (exclusive) for slicing a larger stored
+            observation vector.
+    """
 
     _target_: str = "versatil.data.metadata.ObservationMetadata"
     raw_data_column_keys: list[str] = MISSING
@@ -33,7 +49,12 @@ class ObservationMetadataConfig:
 
 @dataclass
 class PositionObservationMetadataConfig(ObservationMetadataConfig):
-    """Config for PositionObservationMetadata."""
+    """Config for PositionObservationMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        frame: Coordinate frame of the position observation.
+    """
 
     _target_: str = "versatil.data.metadata.PositionObservationMetadata"
     frame: str = CoordinateSystem.ROBOT_BASE.value
@@ -41,7 +62,13 @@ class PositionObservationMetadataConfig(ObservationMetadataConfig):
 
 @dataclass
 class OrientationObservationMetadataConfig(ObservationMetadataConfig):
-    """Config for OrientationObservationMetadata."""
+    """Config for OrientationObservationMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        frame: Coordinate frame of the orientation observation.
+        orientation_representation: Representation of the orientation.
+    """
 
     _target_: str = "versatil.data.metadata.OrientationObservationMetadata"
     frame: str = CoordinateSystem.ROBOT_BASE.value
@@ -50,7 +77,13 @@ class OrientationObservationMetadataConfig(ObservationMetadataConfig):
 
 @dataclass
 class GripperObservationMetadataConfig(ObservationMetadataConfig):
-    """Config for GripperObservationMetadata."""
+    """Config for GripperObservationMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        gripper_type: Type of gripper ('binary' or 'continuous').
+        binary_gripper_range: Range for binary gripper ('zero_one' or 'minus_one_one').
+    """
 
     _target_: str = "versatil.data.metadata.GripperObservationMetadata"
     gripper_type: str = GripperType.BINARY.value
@@ -59,7 +92,18 @@ class GripperObservationMetadataConfig(ObservationMetadataConfig):
 
 @dataclass
 class CameraMetadataConfig:
-    """Config for CameraMetadata."""
+    """Config for CameraMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        camera_key: Camera identifier within the dataset.
+        dtype: Numpy dtype the images are stored as.
+        channels: Number of image channels.
+        image_width: Target image width.
+        image_height: Target image height.
+        max_pixel_value: Optional value used to scale image tensors after resizing and
+            channel reordering.
+    """
 
     _target_: str = "versatil.data.metadata.CameraMetadata"
     camera_key: str = MISSING
@@ -72,7 +116,17 @@ class CameraMetadataConfig:
 
 @dataclass
 class RGBCameraMetadataConfig:
-    """Config for RGBCameraMetadata."""
+    """Config for RGBCameraMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        camera_key: Key in the raw dataset corresponding to the RGB camera.
+        dtype: Zarr storage dtype for RGB values.
+        image_width: Target image width.
+        image_height: Target image height.
+        max_pixel_value: Value used to scale RGB image tensors after resizing and
+            channel reordering.
+    """
 
     _target_: str = "versatil.data.metadata.RGBCameraMetadata"
     camera_key: str = MISSING
@@ -84,7 +138,17 @@ class RGBCameraMetadataConfig:
 
 @dataclass
 class DepthCameraMetadataConfig:
-    """Config for DepthCameraMetadata."""
+    """Config for DepthCameraMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        camera_key: Key in the raw dataset corresponding to the depth camera.
+        dtype: Zarr storage dtype for depth values.
+        image_width: Target image width.
+        image_height: Target image height.
+        max_pixel_value: Optional value used to scale depth image tensors after resizing
+            and channel reordering.
+    """
 
     _target_: str = "versatil.data.metadata.DepthCameraMetadata"
     camera_key: str = MISSING
@@ -96,7 +160,18 @@ class DepthCameraMetadataConfig:
 
 @dataclass
 class ActionMetadataConfig:
-    """Config for ActionMetadata."""
+    """Config for ActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        prediction_dimension: Dimension for model prediction. May differ from storage,
+            e.g., class labels stored as 1 column but predicted as n_classes logits.
+        is_numerical: Whether the action is numerical rather than text.
+        needs_normalization: Whether the action is normalized by the fitted normalizer.
+        dtype: Numpy dtype the values are stored as.
+        is_precomputed: Whether the action is stored in the dataset instead of computed
+            on the fly.
+    """
 
     _target_: str = "versatil.data.metadata.ActionMetadata"
     prediction_dimension: int = MISSING
@@ -108,7 +183,14 @@ class ActionMetadataConfig:
 
 @dataclass
 class OnTheFlyActionMetadataConfig:
-    """Config for OnTheFlyActionMetadata."""
+    """Config for OnTheFlyActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        source_metadata: Metadata of the source observation used to compute the action.
+        computation_method: Method to compute the action, default 'delta' for
+            subtraction between consecutive observations.
+    """
 
     _target_: str = "versatil.data.metadata.OnTheFlyActionMetadata"
     source_metadata: Any = MISSING
@@ -117,7 +199,20 @@ class OnTheFlyActionMetadataConfig:
 
 @dataclass
 class PrecomputedActionMetadataConfig:
-    """Config for PrecomputedActionMetadata."""
+    """Config for PrecomputedActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        raw_data_column_keys: List of keys in the raw dataset corresponding to the
+            action.
+        storage_dimension: Dimension that will be used to store the action in the zarr
+            store.
+        prediction_dimension: Dimension for model prediction. May differ from storage,
+            e.g., class labels stored as 1 column but predicted as n_classes logits.
+        is_numerical: Whether the action is numerical rather than text.
+        needs_normalization: Whether the action is normalized by the fitted normalizer.
+        dtype: Numpy dtype the values are stored as.
+    """
 
     _target_: str = "versatil.data.metadata.PrecomputedActionMetadata"
     raw_data_column_keys: list[str] = MISSING
@@ -130,7 +225,13 @@ class PrecomputedActionMetadataConfig:
 
 @dataclass
 class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
-    """Config for PositionActionMetadata."""
+    """Config for PositionActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        frame: Coordinate frame of the position, camera or robot base.
+        computation_method: Whether actions are deltas or next-timestep poses.
+    """
 
     _target_: str = "versatil.data.metadata.PositionActionMetadata"
     frame: str = MISSING
@@ -139,7 +240,13 @@ class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
 
 @dataclass
 class OrientationActionMetadataConfig(PrecomputedActionMetadataConfig):
-    """Config for OrientationActionMetadata."""
+    """Config for OrientationActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        frame: Coordinate frame of the orientation, camera or robot base.
+        orientation_representation: Representation of the orientation.
+    """
 
     _target_: str = "versatil.data.metadata.OrientationActionMetadata"
     frame: str = MISSING
@@ -148,7 +255,14 @@ class OrientationActionMetadataConfig(PrecomputedActionMetadataConfig):
 
 @dataclass
 class GripperActionMetadataConfig(PrecomputedActionMetadataConfig):
-    """Config for GripperActionMetadata."""
+    """Config for GripperActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        gripper_type: Type of gripper action ('binary' or 'continuous').
+        binary_gripper_range: Range for binary gripper action ('zero_one' or
+            'minus_one_one').
+    """
 
     _target_: str = "versatil.data.metadata.GripperActionMetadata"
     gripper_type: str = MISSING

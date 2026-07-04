@@ -14,6 +14,7 @@ class DatasetMetadataConfig:
     """Configuration for the raw dataset metadata used to create the dataset zarr store.
 
     Attributes:
+        _target_: Import path instantiated by Hydra.
         observations: Dict of observations (ObservationMetadataConfig subclasses,
             RGBCameraMetadataConfig, or DepthCameraMetadataConfig).
             Keys are zarr store keys to assign to each observation.

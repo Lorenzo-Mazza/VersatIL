@@ -12,7 +12,8 @@ from versatil.models.adaptation.constants import (
 class LoRAAdaptationConfig:
     """Hydra configuration for Low-Rank Adaptation.
 
-    Args:
+    Attributes:
+        _target_: Import path instantiated by Hydra.
         enabled: Whether Hydra should instantiate LoRA adaptation for the
             target module.
         rank: Adapter rank ``r``. Higher ranks increase adapter capacity and

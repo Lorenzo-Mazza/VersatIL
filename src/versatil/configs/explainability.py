@@ -34,6 +34,8 @@ class ExplainabilityConfig:
     """Hydra config for generating xAI insights on policy predictions.
 
     Attributes:
+        online: Socket inference client settings for the online source.
+        writer: Explanation writer settings.
         _target_: Import path instantiated by Hydra.
         checkpoint_path: Directory containing the checkpoint, config, and
             normalizer/tokenizer files used to restore the policy.

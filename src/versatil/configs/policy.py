@@ -10,7 +10,22 @@ from versatil.configs.loss import CompositeLossConfig
 
 @dataclass
 class PolicyConfig:
-    """Hydra config for constructing a policy from encoding, algorithm, decoder, and loss configs."""
+    """Hydra config for constructing a policy from encoding, algorithm, decoder, and loss configs.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        encoding_pipeline: Observation encoding pipeline.
+        algorithm: Decoding algorithm (diffusion, flow matching, etc.).
+        decoder: Action decoder architecture.
+        observation_space: Observation space configuration.
+        action_space: Action space configuration.
+        prediction_horizon: Number of future actions to predict.
+        observation_horizon: Number of past observations to condition on.
+        device: Device to run on.
+        loss: Loss module for training.
+        metadata_passthrough: Mapping from source dictionaries to metadata keys for
+            logging/visualization.
+    """
 
     _target_: str = "versatil.models.policy.Policy"
     encoding_pipeline: EncodingPipelineConfig = MISSING
