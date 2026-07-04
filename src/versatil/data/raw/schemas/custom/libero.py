@@ -1,6 +1,5 @@
 """Dataset schema for LIBERO simulation datasets (HDF5 format)."""
 
-import albumentations as A
 import h5py
 import numpy as np
 
@@ -9,6 +8,7 @@ from versatil.data.metadata import (
     CameraMetadata,
     ObservationMetadata,
 )
+from versatil.data.preprocessing.resizers import build_camera_resizer
 from versatil.data.raw.schemas.hdf5 import Hdf5DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
@@ -72,15 +72,11 @@ class LiberoSchema(Hdf5DatasetSchema):
     def extract_episode(
         self,
         demo_group: h5py.Group,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract all data from a LIBERO demo group.
 
         Args:
             demo_group: h5py Group for a single episode demonstration.
-            resizer: Albumentations resizer with interpolation (e.g. RGB images)
-            depth_resizer: Albumentations resizer with nearest neighbor (e.g. for depth images)
 
         Returns:
             Dictionary mapping zarr keys to numpy arrays
@@ -118,12 +114,9 @@ class LiberoSchema(Hdf5DatasetSchema):
             if cam not in obs_group:
                 raise ValueError(f"Camera key '{cam}' not found in HDF5 obs group")
             raw_images = obs_group[cam][:]
-            if cam_metadata.is_depth:
-                images = [depth_resizer(image=img)["image"] for img in raw_images]
-                data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)
-            else:
-                images = [resizer(image=img)["image"] for img in raw_images]
-                data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)
+            camera_resizer = build_camera_resizer(camera_metadata=cam_metadata)
+            images = [camera_resizer(image=img)["image"] for img in raw_images]
+            data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)
 
         if self.extract_language_from_filename:
             episode_len = self._get_episode_length(demo_group)

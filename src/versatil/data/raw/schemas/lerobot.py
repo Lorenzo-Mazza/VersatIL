@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import albumentations as A
 import av
 import cv2
 import numpy as np
@@ -21,6 +20,7 @@ import pyarrow.parquet as pq
 
 from versatil.data.constants import LeRobotPathsV30, ObsKey
 from versatil.data.metadata import CameraMetadata
+from versatil.data.preprocessing.resizers import build_camera_resizer
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
@@ -471,16 +471,11 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
     def extract_episode(
         self,
         episode_id: int,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract and convert a complete episode to zarr format.
 
         Args:
-            episode_id: Index of the episode to extract.
-            resizer: Albumentations transform for resizing RGB images.
-            depth_resizer: Albumentations transform for resizing depth images
-                (currently unused but kept for API consistency with base class).
+            episode_id: Index of the episode to extract.                (currently unused but kept for API consistency with base class).
 
         Returns:
             Dictionary mapping Zarr keys to numpy arrays ready for storage.
@@ -514,8 +509,10 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                         f"The camera key: {camera_key} does not exist in the dataset."
                     )
 
+                camera_resizer = build_camera_resizer(camera_metadata=obs)
                 resized_frames = [
-                    resizer(image=np.array(f))["image"] for f in frames[camera_key]
+                    camera_resizer(image=np.array(f))["image"]
+                    for f in frames[camera_key]
                 ]
                 data[zarr_key] = np.stack(resized_frames).astype(obs.dtype)
 

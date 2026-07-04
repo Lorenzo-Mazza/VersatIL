@@ -19,6 +19,7 @@ from versatil.data.constants import (
     ProprioKey,
 )
 from versatil.data.metadata import CameraMetadata, ObservationMetadata
+from versatil.data.preprocessing.resizers import build_camera_resizer
 from versatil.data.raw.schemas.csv import CsvDatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
@@ -221,15 +222,11 @@ class TSODatasetSchema(CsvDatasetSchema):
     def extract_episode(
         self,
         episode: pd.DataFrame,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract all data from a TSO episode, optionally cropping/resizing images.
 
         Args:
             episode: DataFrame with episode data.
-            resizer: Albumentations resizer for RGB images.
-            depth_resizer: Albumentations resizer for depth images.
 
         Returns:
             Dictionary mapping zarr keys to numpy arrays.
@@ -250,17 +247,18 @@ class TSODatasetSchema(CsvDatasetSchema):
 
         for zarr_key, cam_metadata in self.metadata.cameras.items():
             camera = cam_metadata.raw_camera_key
+            camera_resizer = build_camera_resizer(camera_metadata=cam_metadata)
             if cam_metadata.is_depth:
                 left_column = self._get_rgb_column(Cameras.LEFT.value)
                 paths = [self._compute_depth_path(p) for p in episode[left_column]]
                 images = [
-                    depth_resizer(image=np.load(p))["image"][..., np.newaxis]
+                    camera_resizer(image=np.load(p))["image"][..., np.newaxis]
                     for p in paths
                 ]  # (H, W, 1)
             else:
                 column = self._get_rgb_column(camera)
                 images = [
-                    resizer(image=self._read_rgb_image(p, camera))["image"]
+                    camera_resizer(image=self._read_rgb_image(p, camera))["image"]
                     for p in episode[column]
                 ]
             data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)

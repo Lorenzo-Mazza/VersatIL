@@ -466,8 +466,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
         assert Cameras.AGENTVIEW.value in data
@@ -546,8 +544,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             data = schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
         assert ObsKey.LANGUAGE.value in data
@@ -587,8 +583,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             lerobot_schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
     def test_processes_vector_observation_without_slicing(
@@ -629,8 +623,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
         assert "state" in data
@@ -700,8 +692,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             data = schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
         assert data["state"].shape == (3, 3)
@@ -743,8 +733,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             lerobot_schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
     def test_processes_precomputed_actions_without_slicing(
@@ -785,8 +773,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
         assert data["action"].shape == (3, 7)
@@ -843,8 +829,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             data = schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
         assert data["action"].shape == (3, 3)
@@ -897,8 +881,6 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         ):
             schema.extract_episode(
                 episode_id=0,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
 

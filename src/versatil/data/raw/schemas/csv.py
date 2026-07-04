@@ -2,7 +2,6 @@
 
 import abc
 
-import albumentations as A
 import numpy as np
 import pandas as pd
 
@@ -45,8 +44,6 @@ class CsvDatasetSchema(DatasetSchema):
     def extract_episode(
         self,
         episode: pd.DataFrame,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract all data from an episode DataFrame."""
         ...
