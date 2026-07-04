@@ -7,6 +7,7 @@ import torch
 
 from versatil.checkpoint_loading.base import (
     BaseCheckpointLoader,
+    strip_compiled_prefixes,
     versatil_checkpoint_safe_globals,
 )
 from versatil.training.constants import (
@@ -51,6 +52,7 @@ class FloatCheckpointLoader(BaseCheckpointLoader):
             self._policy.set_tokenizer(self._tokenizer)
 
         self._policy.to(self._device).eval()
+        self._policy.device = self._device
         with torch.serialization.safe_globals(versatil_checkpoint_safe_globals()):
             checkpoint = torch.load(
                 checkpoint_file,
@@ -62,8 +64,9 @@ class FloatCheckpointLoader(BaseCheckpointLoader):
             training_config=self._config.training,
         )
         state_dict_key = CheckpointKey.STATE_DICT.value
-        lightning_module.load_state_dict(checkpoint[state_dict_key], strict=False)
+        checkpoint_state = strip_compiled_prefixes(checkpoint[state_dict_key])
+        lightning_module.load_state_dict(checkpoint_state, strict=False)
         self._validate_checkpoint_loading(
-            checkpoint_state_dict=checkpoint[state_dict_key],
+            checkpoint_state_dict=checkpoint_state,
             model_state_dict=lightning_module.state_dict(),
         )

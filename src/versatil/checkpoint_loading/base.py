@@ -34,6 +34,24 @@ from versatil.training.constants import CheckpointKey
 from versatil.validation import validate_experiment
 
 
+def strip_compiled_prefixes(
+    state_dict: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """Remove torch.compile module prefixes from checkpoint keys.
+
+    Checkpoints saved from a compiled policy carry ``_orig_mod.`` segments in
+    their state-dict keys; loading them into an uncompiled module would
+    silently skip every affected weight under ``strict=False``.
+
+    Args:
+        state_dict: Checkpoint state dict, possibly from a compiled module.
+    """
+    compiled_marker = "_orig_mod."
+    return {
+        key.replace(compiled_marker, ""): value for key, value in state_dict.items()
+    }
+
+
 def versatil_checkpoint_safe_globals() -> list[type | object]:
     """Classes trusted when unpickling checkpoints with weights_only=True.
 

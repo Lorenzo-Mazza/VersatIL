@@ -6,6 +6,7 @@ import torch
 
 from versatil.checkpoint_loading.base import (
     BaseCheckpointLoader,
+    strip_compiled_prefixes,
     versatil_checkpoint_safe_globals,
 )
 from versatil.models.exportable_policy import ExportablePolicy
@@ -50,6 +51,7 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
             self._policy.set_tokenizer(self._tokenizer)
 
         self._policy.to(self._device).eval()
+        self._policy.device = self._device
         self._policy.encoding_pipeline.set_output_dtype(torch.float32)
         self._materialize_lazy_modules()
         self._quantization.prepare_model(model=self._policy)
@@ -67,9 +69,10 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
             training_config=self._config.training,
         )
         state_dict_key = CheckpointKey.STATE_DICT.value
-        lightning_module.load_state_dict(checkpoint[state_dict_key], strict=False)
+        checkpoint_state = strip_compiled_prefixes(checkpoint[state_dict_key])
+        lightning_module.load_state_dict(checkpoint_state, strict=False)
         self._validate_checkpoint_loading(
-            checkpoint_state_dict=checkpoint[state_dict_key],
+            checkpoint_state_dict=checkpoint_state,
             model_state_dict=lightning_module.state_dict(),
         )
 
@@ -82,5 +85,6 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
             observation_horizon=self.observation_horizon,
             tokenizer=self.tokenizer,
         )
+        example_inputs = tuple(tensor.to(self._device) for tensor in example_inputs)
         with torch.no_grad():
             exportable(*example_inputs)

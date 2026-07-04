@@ -82,7 +82,7 @@ class FloatPolicyRuntime(PolicyRuntime):
         """
         with (
             torch.autocast(
-                device_type=str(self.device),
+                device_type=self.device.type,
                 dtype=PrecisionType(self._precision).get_model_dtype(),
             ),
             torch.no_grad(),
