@@ -234,6 +234,7 @@ class CompressedPolicyRuntime(PolicyRuntime):
             normalized_obs = tokenize_observation(
                 observation=normalized_obs,
                 obs_tokenizer=tokenizer.observation_tokenizer,
+                batched=True,
             )
         observation_tensors = tuple(normalized_obs[key] for key in self.input_keys)
         output_tensors = self._run_compressed_model(

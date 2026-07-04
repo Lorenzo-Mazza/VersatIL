@@ -155,13 +155,21 @@ class ObservationTokenizer:
             f"(model={self.tokenizer_model}, vocab_size={self.vocab_size})"
         )
 
-    def tokenize(self, observations: dict[str, Any]) -> dict[str, torch.Tensor]:
+    def tokenize(
+        self,
+        observations: dict[str, Any],
+        batched: bool = False,
+    ) -> dict[str, torch.Tensor]:
         """Tokenize observations into unified prompt.
 
         Args:
-            observations: Dict with observation data (can be batched or single sample)
-                - Language keys: list[str] or list[list[str]]
-                - Continuous keys: torch.Tensor or np.ndarray
+            observations: Dict with observation data.
+                - Language keys: list[str], or list[list[str]] when batched
+                - Continuous keys: torch.Tensor or np.ndarray, with a leading
+                  batch dimension when batched
+            batched: Whether inputs carry a leading batch dimension in front
+                of the observation horizon, producing per-timestep prompts
+                reshaped back to (B, T, seq).
 
         Returns:
             Dict with:
@@ -171,25 +179,27 @@ class ObservationTokenizer:
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted before encoding")
 
-        # TODO: temporal dimension should be explicitly passed to this function, not inferred from inputs.
-        first_tensor = next(
-            (v for v in observations.values() if isinstance(v, torch.Tensor)), None
-        )
-        has_time_dim = first_tensor is not None and first_tensor.ndim >= 3
         batch_size, time_steps = None, None
-        if has_time_dim:
-            batch_size = first_tensor.shape[0]
-            time_steps = first_tensor.shape[1]
-        else:
-            first_nested_list = next(
-                (v for v in observations.values() if _is_nested_language_list(v)),
+        if batched:
+            first_tensor = next(
+                (v for v in observations.values() if isinstance(v, torch.Tensor)),
                 None,
             )
-            if first_nested_list is not None:
-                has_time_dim = True
+            if first_tensor is not None:
+                batch_size = first_tensor.shape[0]
+                time_steps = first_tensor.shape[1]
+            else:
+                first_nested_list = next(
+                    (v for v in observations.values() if _is_nested_language_list(v)),
+                    None,
+                )
+                if first_nested_list is None:
+                    raise ValueError(
+                        "Batched tokenization requires at least one tensor or "
+                        "nested language list to derive the batch layout."
+                    )
                 batch_size = len(first_nested_list)
                 time_steps = len(first_nested_list[0])
-        if has_time_dim:
             observations = {
                 key: _flatten_time_dim(value=value)
                 for key, value in observations.items()
@@ -208,7 +218,7 @@ class ObservationTokenizer:
             is_pad = ~tokenized["attention_mask"].to(torch.bool)
         else:
             is_pad = tokens == self.language_tokenizer.pad_token_id
-        if has_time_dim:
+        if batched:
             # Reshape (B*T, seq) -> (B, T, seq)
             tokens = tokens.reshape(batch_size, time_steps, -1)
             is_pad = is_pad.reshape(batch_size, time_steps, -1)

@@ -537,7 +537,7 @@ class TestObservationTokenizerTokenize:
         observations = {
             "test_key": torch.zeros((batch_size, time_steps, 4), dtype=torch.float32)
         }
-        result = tokenizer.tokenize(observations)
+        result = tokenizer.tokenize(observations, batched=True)
         tokens = result[SampleKey.TOKENIZED_OBSERVATIONS.value]
         assert tokens.shape == (batch_size, time_steps, max_token_len)
 
@@ -573,7 +573,7 @@ class TestObservationTokenizerTokenize:
         else:
             observations = {proprio_key: values, ObsKey.LANGUAGE.value: language}
 
-        result = tokenizer.tokenize(observations)
+        result = tokenizer.tokenize(observations, batched=True)
 
         tokens = result[SampleKey.TOKENIZED_OBSERVATIONS.value]
         is_pad = result[SampleKey.IS_PAD_OBSERVATION.value]

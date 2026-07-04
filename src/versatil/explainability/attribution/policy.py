@@ -97,6 +97,7 @@ def prepare_policy_observation_for_explanation(
             prepared_observation = tokenize_observation(
                 observation=prepared_observation,
                 obs_tokenizer=policy.tokenizer.observation_tokenizer,
+                batched=True,
             )
     else:
         prepared_observation = policy._strip_metadata_passthrough_observations(

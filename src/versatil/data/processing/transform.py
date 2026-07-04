@@ -132,9 +132,18 @@ def tokenize_sample(
 
 
 def tokenize_observation(
-    observation: dict[str, torch.Tensor], obs_tokenizer: ObservationTokenizer
+    observation: dict[str, torch.Tensor],
+    obs_tokenizer: ObservationTokenizer,
+    batched: bool = False,
 ) -> dict[str, torch.Tensor]:
-    """Tokenize observations."""
+    """Tokenize observations.
+
+    Args:
+        observation: Observation dictionary.
+        obs_tokenizer: Fitted observation tokenizer.
+        batched: Whether observations carry a leading batch dimension in
+            front of the observation horizon.
+    """
     obs_copy = observation.copy()
     obs_to_tokenize = {}
     for key in obs_tokenizer.observation_keys:
@@ -144,7 +153,7 @@ def tokenize_observation(
             raise KeyError(
                 f"Observation key '{key}' not found in sample for tokenization."
             )
-    tokenized = obs_tokenizer.tokenize(obs_to_tokenize)
+    tokenized = obs_tokenizer.tokenize(obs_to_tokenize, batched=batched)
     obs_copy[SampleKey.TOKENIZED_OBSERVATIONS.value] = tokenized[
         SampleKey.TOKENIZED_OBSERVATIONS.value
     ]
