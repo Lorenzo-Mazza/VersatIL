@@ -125,7 +125,16 @@ jobs:
       - name: Run integration tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -m "integration and not slow and not requires_gpu and not requires_executorch" --tb=short -q --junitxml=report-integration.xml
+          python -m pytest tests/ -m "integration and not slow and not requires_gpu and not requires_executorch" --cov=versatil --cov-report=xml:coverage-integration.xml --tb=short -q --junitxml=report-integration.xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage-integration.xml
+          disable_search: true
+          flags: integration
+          name: integration-tests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -160,7 +169,16 @@ jobs:
       - name: Run ExecuTorch tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -m "requires_executorch and not slow and not requires_gpu" --tb=short -q --junitxml=report-executorch.xml
+          python -m pytest tests/ -m "requires_executorch and not slow and not requires_gpu" --cov=versatil --cov-report=xml:coverage-executorch.xml --tb=short -q --junitxml=report-executorch.xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage-executorch.xml
+          disable_search: true
+          flags: executorch
+          name: executorch-tests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
