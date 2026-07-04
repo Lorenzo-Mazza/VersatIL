@@ -14,10 +14,7 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
-    LearningRateMonitor,
-    ModelCheckpoint,
     StochasticWeightAveraging,
-    TQDMProgressBar,
 )
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
@@ -33,12 +30,8 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.models.policy import Policy
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
-from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
-from versatil.training.callbacks.ema import EMACallback
-from versatil.training.callbacks.gradient_norm import GradientNormCallback
+from versatil.training.callback_factory import build_training_callbacks
 from versatil.training.callbacks.provider import CallbackProvider
-from versatil.training.callbacks.reduce_lr_on_plateau import ReduceLROnPlateauCallback
-from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
@@ -134,8 +127,9 @@ class Workspace:
         self.logger = self._create_logger()
         self._setup_data()
         self._setup_policy()
-        self.lightning_policy._train_dataloader = self.train_loader
-        self.lightning_policy._val_dataloader = self.val_loader
+        self.lightning_policy.set_dataloaders(
+            train_loader=self.train_loader, val_loader=self.val_loader
+        )
         self._setup_trainer()
         resume_checkpoint_path = None
         if self.config.experiment.resume_from is not None:
@@ -320,142 +314,13 @@ class Workspace:
         Returns:
             List of Lightning callbacks
         """
-        callbacks = [TQDMProgressBar(refresh_rate=1)]
-        logging.info("Added TQDM progress bar callback (refresh every batch)")
-        has_validation = self.val_loader is not None
-
-        if self.config.training.use_ema:
-            ema_callback = EMACallback(
-                power=self.config.training.ema_power,
-            )
-            callbacks.append(ema_callback)
-            logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
-
-        if self.config.experiment.save_checkpoints:
-            if has_validation:
-                checkpoint_callback_best = ModelCheckpoint(
-                    dirpath=self.output_dir,
-                    filename="best-{epoch:02d}-{val_loss:.4f}",
-                    monitor="val_loss",
-                    mode="min",
-                    save_top_k=3,
-                    save_last=True,
-                    verbose=True,
-                    auto_insert_metric_name=False,
-                )
-            else:
-                # training_step logs "train_loss" with on_step=False, so
-                # Lightning never creates a "train_loss_epoch" variant; the
-                # plain key already holds the epoch aggregate.
-                checkpoint_callback_best = ModelCheckpoint(
-                    dirpath=self.output_dir,
-                    filename="best-{epoch:02d}-{train_loss:.4f}",
-                    monitor="train_loss",
-                    mode="min",
-                    save_top_k=3,
-                    save_last=True,
-                    verbose=True,
-                    auto_insert_metric_name=False,
-                )
-            callbacks.append(checkpoint_callback_best)
-            logging.info(
-                f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
-            )
-
-            checkpoint_callback_latest = ModelCheckpoint(
-                dirpath=self.output_dir,
-                filename="latest-{epoch:02d}",
-                monitor="epoch",
-                mode="max",
-                save_top_k=-1,
-                every_n_epochs=self.config.experiment.checkpoint_every,
-                save_last=True,
-                verbose=True,
-                auto_insert_metric_name=False,
-                save_on_train_epoch_end=True,
-            )
-            callbacks.append(checkpoint_callback_latest)
-            logging.info(
-                f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
-            )
-        else:
-            logging.info("Skipping ModelCheckpoint callbacks (save_checkpoints=False)")
-
-        early_stopping_patience = self.config.training.early_stopping_patience
-        if not has_validation:
-            logging.info("Skipping EarlyStopping callback (no validation data)")
-        elif early_stopping_patience is None:
-            logging.info(
-                "Skipping EarlyStopping callback (early_stopping_patience=None)"
-            )
-        else:
-            early_stopping_callback = ResumableEarlyStopping(
-                monitor="val_loss",
-                mode="min",
-                patience=early_stopping_patience,
-                verbose=True,
-            )
-            callbacks.append(early_stopping_callback)
-            logging.info(
-                f"Added EarlyStopping callback (patience={early_stopping_patience})"
-            )
-
-        gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
-        callbacks.append(gradient_norm_callback)
-        logging.info("Added GradientNorm callback (log every 50 steps)")
-
-        lr_monitor_callback = LearningRateMonitor(logging_interval="step")
-        callbacks.append(lr_monitor_callback)
-        logging.info("Added LearningRateMonitor callback (logging per step)")
-
-        if self.config.training.swa_lrs is not None:
-            # Calculate start epoch based on fraction of total epochs
-            swa_epoch_start = int(
-                self.config.training.swa_epoch_start * self.config.training.num_epochs
-            )
-            swa_callback = StochasticWeightAveraging(
-                swa_lrs=self.config.training.swa_lrs,
-                swa_epoch_start=swa_epoch_start,
-                annealing_epochs=self.config.training.swa_annealing_epochs,
-            )
-            callbacks.append(swa_callback)
-            logging.info(
-                f"Added SWA callback (learning_rate={self.config.training.swa_lrs}, "
-                f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
-            )
-
-        training_stages = self.config.training.stages
-        if training_stages and self.config.training.reduce_lr_on_plateau:
-            raise ValueError(
-                "training.stages does not support reduce_lr_on_plateau in v1."
-            )
-        if training_stages:
-            training_stage_callback = TrainingStageCallback(
-                stages=training_stages,
-                learning_rate_schedule_active=(
-                    self.config.training.lr_schedule is not None
-                ),
-            )
-            callbacks.append(training_stage_callback)
-            logging.info(
-                f"Added TrainingStage callback ({len(training_stages)} stages)"
-            )
-
-        if self.config.training.reduce_lr_on_plateau:
-            monitor = "val_loss" if has_validation else "train_loss"
-            reduce_lr_callback = ReduceLROnPlateauCallback(
-                monitor=monitor,
-                patience=self.config.training.reduce_lr_patience,
-                cooldown=self.config.training.reduce_lr_cooldown,
-            )
-            callbacks.append(reduce_lr_callback)
-            logging.info(
-                f"Added ReduceLROnPlateau callback (monitor={monitor}, patience={self.config.training.reduce_lr_patience})"
-            )
-
-        component_callbacks = self._collect_component_callbacks()
-        callbacks.extend(component_callbacks)
-
+        callbacks = build_training_callbacks(
+            experiment_config=self.config.experiment,
+            training_config=self.config.training,
+            output_dir=self.output_dir,
+            has_validation=self.val_loader is not None,
+        )
+        callbacks.extend(self._collect_component_callbacks())
         return callbacks
 
     def _collect_component_callbacks(self) -> list:

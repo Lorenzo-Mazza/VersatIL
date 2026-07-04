@@ -342,6 +342,20 @@ class LightningPolicy(pl.LightningModule):
         """
         return self.policy.predict_action(obs_dict)
 
+    def set_dataloaders(
+        self,
+        train_loader: torch.utils.data.DataLoader,
+        val_loader: torch.utils.data.DataLoader | None,
+    ) -> None:
+        """Attach the dataloaders returned by the Lightning dataloader hooks.
+
+        Args:
+            train_loader: Training dataloader.
+            val_loader: Optional validation dataloader.
+        """
+        self._train_dataloader = train_loader
+        self._val_dataloader = val_loader
+
     def train_dataloader(self) -> torch.utils.data.DataLoader:
         """Return training dataloader for Lightning."""
         return self._train_dataloader

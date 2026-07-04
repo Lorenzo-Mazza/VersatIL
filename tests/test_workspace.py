@@ -817,7 +817,9 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch("versatil.workspace.StochasticWeightAveraging") as mock_swa_cls:
+        with patch(
+            "versatil.training.callback_factory.StochasticWeightAveraging"
+        ) as mock_swa_cls:
             mock_swa_cls.return_value = MagicMock(spec=StochasticWeightAveraging)
             workspace._create_callbacks()
 
@@ -1032,7 +1034,9 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = MagicMock()
 
-        with patch("versatil.workspace.ReduceLROnPlateauCallback") as mock_reduce_cls:
+        with patch(
+            "versatil.training.callback_factory.ReduceLROnPlateauCallback"
+        ) as mock_reduce_cls:
             mock_reduce_cls.return_value = MagicMock(spec=ReduceLROnPlateauCallback)
             workspace._create_callbacks()
 
@@ -1057,7 +1061,9 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch("versatil.workspace.ReduceLROnPlateauCallback") as mock_reduce_cls:
+        with patch(
+            "versatil.training.callback_factory.ReduceLROnPlateauCallback"
+        ) as mock_reduce_cls:
             mock_reduce_cls.return_value = MagicMock(spec=ReduceLROnPlateauCallback)
             workspace._create_callbacks()
 
@@ -1766,8 +1772,9 @@ class TestRun:
 
             workspace.run()
 
-            assert mock_lightning._train_dataloader == mock_train_loader
-            assert mock_lightning._val_dataloader == mock_val_loader
+            mock_lightning.set_dataloaders.assert_called_once_with(
+                train_loader=mock_train_loader, val_loader=mock_val_loader
+            )
 
 
 @pytest.mark.unit
