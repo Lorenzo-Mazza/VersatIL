@@ -155,8 +155,7 @@ import site
 print(site.getsitepackages()[0])
 PY
 )
-# The wheel build already enables XNNPACK, pybindings, and quantized kernels
-# through its pybind preset. CUDA and OpenVINO must be disabled explicitly
+# CUDA and OpenVINO must be disabled explicitly
 # because setup.py auto-enables them when nvcc / Linux are detected; the LLM
 # kernels are preset defaults this deployment does not need.
 CMAKE_PREFIX_PATH="$SITE_PACKAGES" \
@@ -170,7 +169,7 @@ cd ../versatil
 pip install flatbuffers "ruamel.yaml" sympy tabulate pytorch-tokenizers \
     expecttest hypothesis kgb parameterized
 
-# Verify: all ExecuTorch-gated tests should pass.
+# Now all ExecuTorch-gated tests should pass.
 pytest -m requires_executorch -o addopts=""
 ```
 
