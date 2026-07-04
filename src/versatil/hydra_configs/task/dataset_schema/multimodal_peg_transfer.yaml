@@ -6,7 +6,7 @@ _target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
 dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:multimodal_peg_transfer/dataset.zarr}
 dataset_folders:
-  - ${multimodal_peg_transfer_dir:}
+  - ${dataset_dir:VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR}
 use_rectified_images: false
 rgb_image_crops:
   ${cameras:LEFT}:

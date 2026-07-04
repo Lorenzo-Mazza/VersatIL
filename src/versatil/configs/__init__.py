@@ -616,6 +616,13 @@ def register_resolvers():
         OmegaConf.register_resolver(
             "env", lambda key, default=None: os.environ.get(key, default)
         )
+    if not OmegaConf.has_resolver("dataset_dir"):
+        OmegaConf.register_resolver(
+            "dataset_dir",
+            lambda env_var, subpath="": str(
+                Path(os.environ.get(env_var, ".")) / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("checkpoint_dir"):
         OmegaConf.register_resolver(
             "checkpoint_dir",
@@ -635,93 +642,6 @@ def register_resolvers():
             "cache_dir",
             lambda: os.environ.get(
                 "VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")
-            ),
-        )
-    if not OmegaConf.has_resolver("bowel_retraction_dir"):
-        OmegaConf.register_resolver(
-            "bowel_retraction_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_BOWEL_RETRACTION_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("libero_hdf5_dir"):
-        OmegaConf.register_resolver(
-            "libero_hdf5_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_LIBERO_HDF5_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("libero_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "libero_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_LIBERO_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("libero_plus_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "libero_plus_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_LIBERO_PLUS_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("metaworld_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "metaworld_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("pusht_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "pusht_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_PUSHT_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("kitchen_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "kitchen_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_KITCHEN_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("block_pushing_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "block_pushing_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_DIR", "."))
-                / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("block_pushing_lerobot_abs_dir"):
-        OmegaConf.register_resolver(
-            "block_pushing_lerobot_abs_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR", "."))
-                / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("ant_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "ant_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_ANT_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("ur3_lerobot_dir"):
-        OmegaConf.register_resolver(
-            "ur3_lerobot_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_UR3_LEROBOT_DIR", ".")) / subpath
-            ),
-        )
-    if not OmegaConf.has_resolver("multimodal_peg_transfer_dir"):
-        OmegaConf.register_resolver(
-            "multimodal_peg_transfer_dir",
-            lambda subpath="": str(
-                Path(os.environ.get("VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR", "."))
-                / subpath
             ),
         )
     if not OmegaConf.has_resolver("prunable_layer"):

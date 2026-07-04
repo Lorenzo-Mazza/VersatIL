@@ -299,37 +299,25 @@ class TestPathResolvers:
         cfg = OmegaConf.create({"weights": "${dformer_weights:NYU}"})
         assert cfg.weights == DFormerPretrainedWeights.NYU.value
 
-    def test_bowel_retraction_dir_resolver_uses_env_variable(self):
+    def test_dataset_dir_resolver_uses_named_env_variable(self):
         with patch.dict(
             os.environ,
             {"VERSATIL_BOWEL_RETRACTION_DIR": "/data/bowel_retraction"},
         ):
-            cfg = OmegaConf.create({"dir": "${bowel_retraction_dir:}"})
+            cfg = OmegaConf.create(
+                {"dir": "${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR}"}
+            )
             assert cfg.dir == "/data/bowel_retraction"
 
-    def test_bowel_retraction_dir_resolver_appends_subpath(self):
+    def test_dataset_dir_resolver_appends_subpath(self):
         with patch.dict(
             os.environ,
-            {"VERSATIL_BOWEL_RETRACTION_DIR": "/data/bowel_retraction"},
+            {"VERSATIL_LIBERO_HDF5_DIR": "/data/libero"},
         ):
-            cfg = OmegaConf.create({"dir": "${bowel_retraction_dir:v1}"})
-            assert cfg.dir == str(Path("/data/bowel_retraction") / "v1")
-
-    def test_multimodal_peg_transfer_dir_resolver_uses_env_variable(self):
-        with patch.dict(
-            os.environ,
-            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
-        ):
-            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:}"})
-            assert cfg.dir == "/data/multimodal_peg_transfer"
-
-    def test_multimodal_peg_transfer_dir_resolver_appends_subpath(self):
-        with patch.dict(
-            os.environ,
-            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
-        ):
-            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:session_1}"})
-            assert cfg.dir == str(Path("/data/multimodal_peg_transfer") / "session_1")
+            cfg = OmegaConf.create(
+                {"dir": "${dataset_dir:VERSATIL_LIBERO_HDF5_DIR,libero_10}"}
+            )
+            assert cfg.dir == str(Path("/data/libero") / "libero_10")
 
 
 @pytest.mark.unit

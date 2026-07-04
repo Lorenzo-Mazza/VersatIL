@@ -90,6 +90,18 @@ is renamed `VLMEncoder` with a new config path, and loss modules moved from
   latent at deployment while keeping training and validation stochastic.
 
 ### Changed
+- Algorithms receive only predicted action keys plus the padding mask, so
+  metadata-only labels can no longer condition variational posteriors on
+  inputs inference cannot access.
+- Raw dataset import resizes every camera with its own configured resolution
+  through a shared per-camera resizer builder, instead of the first camera's
+  dimensions.
+- Epoch metrics weight every sample equally instead of every batch, and
+  train/val losses log with an explicit batch size.
+- The twelve per-dataset directory resolvers collapse into one
+  `${dataset_dir:ENV_VAR,subpath}` resolver; lazy-module warmup restores
+  buffers and RNG state through a reusable guard in
+  versatil.common.module_state.
 - SpatialRGBEncoder and SpatialDepthEncoder share one SpatialBackboneEncoder
   implementation parameterized by input channels and camera modality.
 - Compression metadata carries the instantiable PT2E backend node, so

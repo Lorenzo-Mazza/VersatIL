@@ -4,5 +4,5 @@ defaults:
 
 _target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
 dataset_type: ${dataset_type:KITCHEN}
-dataset_path: ${kitchen_lerobot_dir:}
+dataset_path: ${dataset_dir:VERSATIL_KITCHEN_LEROBOT_DIR}
 zarr_path: ${zarr_dir:kitchen.zarr}

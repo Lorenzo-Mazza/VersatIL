@@ -4,5 +4,5 @@ defaults:
 
 _target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
 dataset_type: ${dataset_type:UR3}
-dataset_path: ${ur3_lerobot_dir:}
+dataset_path: ${dataset_dir:VERSATIL_UR3_LEROBOT_DIR}
 zarr_path: ${zarr_dir:ur3.zarr}

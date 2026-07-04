@@ -7,5 +7,5 @@ _target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
 dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:bowel_retraction/in_vivo/dataset.zarr}
 dataset_folders:
-  - ${bowel_retraction_dir:in_vivo}
-  - ${bowel_retraction_dir:invivo_041225}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,in_vivo}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,invivo_041225}

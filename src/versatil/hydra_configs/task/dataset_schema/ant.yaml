@@ -4,5 +4,5 @@ defaults:
 
 _target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
 dataset_type: ${dataset_type:ANT}
-dataset_path: ${ant_lerobot_dir:}
+dataset_path: ${dataset_dir:VERSATIL_ANT_LEROBOT_DIR}
 zarr_path: ${zarr_dir:ant.zarr}

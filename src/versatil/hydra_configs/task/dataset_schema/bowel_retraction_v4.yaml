@@ -7,9 +7,9 @@ _target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
 dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:bowel_retraction/phantom_exvivo/dataset.zarr}
 dataset_folders:
-  - ${bowel_retraction_dir:v1}
-  - ${bowel_retraction_dir:v2}
-  - ${bowel_retraction_dir:ex_vivo}
-  - ${bowel_retraction_dir:ex_vivo2}
-  - ${bowel_retraction_dir:multi_camera_exp}
-  - ${bowel_retraction_dir:multi_camera_exp2}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,v1}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,v2}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,ex_vivo}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,ex_vivo2}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,multi_camera_exp}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,multi_camera_exp2}

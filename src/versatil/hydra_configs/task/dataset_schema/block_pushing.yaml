@@ -4,5 +4,5 @@ defaults:
 
 _target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
 dataset_type: ${dataset_type:BLOCK_PUSHING}
-dataset_path: ${block_pushing_lerobot_dir:}
+dataset_path: ${dataset_dir:VERSATIL_BLOCK_PUSHING_LEROBOT_DIR}
 zarr_path: ${zarr_dir:block_pushing.zarr}

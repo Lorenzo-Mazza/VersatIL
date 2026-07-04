@@ -7,5 +7,5 @@ _target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
 dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:bowel_retraction/fixed_viewpoint_phantom/dataset.zarr}
 dataset_folders:
-  - ${bowel_retraction_dir:v1}
-  - ${bowel_retraction_dir:v2}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,v1}
+  - ${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR,v2}

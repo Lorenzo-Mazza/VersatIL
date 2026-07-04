@@ -24,6 +24,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
+from versatil.common.module_state import module_side_effects_guard
 from versatil.common.omegaconf_ops import make_config_yaml_safe
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
@@ -564,6 +565,7 @@ class Workspace:
         self.lightning_policy.to(device)
         self.lightning_policy.train()
         with (
+            module_side_effects_guard(module=self.lightning_policy),
             torch.no_grad(),
             torch.autocast(
                 device_type=device.type,
