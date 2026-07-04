@@ -489,3 +489,28 @@ class TestBinaryMaximumMeanDiscrepancyLossForward:
         bandwidths = [call.kwargs["bandwidth"] for call in kernel_spy.call_args_list]
         assert bandwidths[0] is not None
         assert bandwidths[0] == bandwidths[1] == bandwidths[2]
+
+
+class TestMMDBranches:
+    def test_missing_prior_latent_raises_without_fixed_gaussian(self):
+        loss = MaximumMeanDiscrepancyLoss(use_fixed_gaussian_as_prior=False)
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: torch.randn(4, 8),
+            LatentKey.PRIOR_LATENT.value: None,
+        }
+        with pytest.raises(ValueError, match="Prior latent is required"):
+            loss(predictions, {})
+
+    @pytest.mark.parametrize("kernel_type", ["rbf", "imq"])
+    @pytest.mark.parametrize("use_median_heuristic", [True, False])
+    def test_kernel_variants_produce_finite_loss(
+        self, kernel_type, use_median_heuristic
+    ):
+        loss = MaximumMeanDiscrepancyLoss(
+            use_fixed_gaussian_as_prior=True,
+            kernel_type=kernel_type,
+            use_median_heuristic=use_median_heuristic,
+        )
+        predictions = {LatentKey.POSTERIOR_LATENT.value: torch.randn(6, 8)}
+        output = loss(predictions, {})
+        assert output.total_loss.isfinite()

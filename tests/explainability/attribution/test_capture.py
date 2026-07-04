@@ -8,6 +8,7 @@ import torch.nn as nn
 
 from versatil.data.constants import Cameras
 from versatil.explainability.attribution.capture import (
+    select_tensor_output,
     ActivationCapture,
     GradientCapture,
 )
@@ -182,3 +183,26 @@ def test_activation_capture_selects_real_per_camera_vlm_activation(
     assert activation.dim() == 3
     assert activation.shape[0] == 1
     assert camera_target.invocation_index == 1
+
+
+@pytest.mark.unit
+class TestSelectTensorOutput:
+    def test_tensor_passthrough(self):
+        tensor = torch.zeros(2, 3)
+        assert select_tensor_output(tensor, output_index=None) is tensor
+
+    def test_indexed_output(self):
+        tensor = torch.ones(2)
+        assert select_tensor_output((None, tensor), output_index=1) is tensor
+
+    def test_indexed_none_raises(self):
+        with pytest.raises(RuntimeError, match="has no tensor"):
+            select_tensor_output((None, None), output_index=1)
+
+    def test_first_tensor_fallback(self):
+        tensor = torch.ones(2)
+        assert select_tensor_output((None, tensor), output_index=None) is tensor
+
+    def test_no_tensor_anywhere_raises(self):
+        with pytest.raises(RuntimeError, match="did not produce a tensor"):
+            select_tensor_output((None, None), output_index=None)

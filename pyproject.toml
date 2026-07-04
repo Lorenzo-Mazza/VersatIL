@@ -266,3 +266,9 @@ packages = ["src/versatil"]
 omit = [
 
 ]
+
+[tool.coverage.report]
+exclude_also = [
+  # numba-compiled functions execute as machine code; coverage cannot trace them
+  "@numba.jit",
+]

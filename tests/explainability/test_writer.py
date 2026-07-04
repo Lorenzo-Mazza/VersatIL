@@ -101,3 +101,60 @@ class TestExplanationWriterFilenames:
             / "all"
             / "batch_4_gradcam_plus_plus.pt"
         )
+
+
+@pytest.mark.unit
+class TestWriterHelpers:
+    @pytest.mark.parametrize(
+        "image_format", ["", "nested/png", "\\bad", ".", "notaformat"]
+    )
+    def test_invalid_overlay_extension_raises(self, image_format: str):
+        with pytest.raises(ValueError):
+            ExplanationWriter.normalize_image_extension(image_format)
+
+    def test_extension_gains_leading_dot(self):
+        assert ExplanationWriter.normalize_image_extension("PNG ") == ".png"
+
+    def test_single_channel_image_is_replicated_to_rgb(self):
+        image = torch.rand(1, 4, 4)
+        array = ExplanationWriter.image_tensor_to_numpy(image)
+        assert array.shape == (4, 4, 3)
+        assert np.allclose(array[..., 0], array[..., 1])
+
+    def test_invalid_channel_count_raises(self):
+        with pytest.raises(ValueError, match="1 or 3 channels"):
+            ExplanationWriter.image_tensor_to_numpy(torch.rand(2, 4, 4))
+
+    def test_out_of_range_image_is_rescaled(self):
+        image = torch.tensor([[[-1.0, 3.0]]]).repeat(3, 1, 1)
+        array = ExplanationWriter.image_tensor_to_numpy(image)
+        assert float(array.min()) >= 0.0
+        assert float(array.max()) <= 1.0
+
+    @pytest.fixture
+    def writer(self, tmp_path: Path) -> ExplanationWriter:
+        return ExplanationWriter(
+            output_directory=tmp_path,
+            image_weight=0.5,
+            overlay_image_format="png",
+        )
+
+    def test_sample_label_prefers_sample_indices(self, writer: ExplanationWriter):
+        label = writer.sample_label(
+            metadata={"sample_indices": [7, 9]}, batch_index=1, batch_counter=0
+        )
+        assert label == "sample_9"
+
+    def test_sample_label_uses_environment_and_timestep(
+        self, writer: ExplanationWriter
+    ):
+        label = writer.sample_label(
+            metadata={"environment_indices": [4], "timestep": 12},
+            batch_index=0,
+            batch_counter=3,
+        )
+        assert label == "env_4_step_12"
+
+    def test_sample_label_falls_back_to_batch_counter(self, writer: ExplanationWriter):
+        label = writer.sample_label(metadata={}, batch_index=2, batch_counter=5)
+        assert label == "batch_5_row_2"

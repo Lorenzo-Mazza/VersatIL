@@ -360,3 +360,57 @@ class TestGripperMixtureNLLossForward:
                 {DecoderOutputKey.ROUTING_WEIGHTS.value: torch.zeros(1)},
                 {"wrong": torch.zeros(1)},
             )
+
+
+class TestMixtureLossEdgeBranches:
+    def test_padded_timesteps_excluded_from_per_step_mixture(self):
+        batch_size, horizon, num_experts, action_dim = 1, 2, 2, 2
+        target = torch.zeros(batch_size, horizon, action_dim)
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[:, 1] = 100.0  # padded step is wildly wrong
+        routing_weights = torch.tensor([[[0.5, 0.5], [0.5, 0.5]]])  # (B, T, K)
+        is_pad = torch.tensor([[False, True]])
+        predictions = {
+            "position_mean": means,
+            "position_logvar": torch.zeros(
+                batch_size, horizon, num_experts, action_dim
+            ),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        padded_output = loss(predictions, {"position": target}, is_pad=is_pad)
+        means_clean = means.clone()
+        means_clean[:, 1] = 0.0
+        predictions_clean = dict(predictions, position_mean=means_clean)
+        clean_output = loss(predictions_clean, {"position": target}, is_pad=is_pad)
+        torch.testing.assert_close(padded_output.total_loss, clean_output.total_loss)
+
+    def test_continuous_gripper_learned_variance(
+        self, continuous_gripper_metadata_factory
+    ):
+        metadata = continuous_gripper_metadata_factory()
+        loss = GripperMixtureNLLoss(
+            key="gripper",
+            actions_metadata=metadata,
+            weight=1.0,
+            learned_variance=True,
+        )
+        batch_size, horizon, num_experts = 2, 3, 2
+        predictions = {
+            f"gripper_{DecoderOutputKey.MEAN.value}": torch.zeros(
+                batch_size, horizon, num_experts, 1
+            ),
+            f"gripper_{DecoderOutputKey.LOGVAR.value}": torch.zeros(
+                batch_size, horizon, num_experts, 1
+            ),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: torch.tensor([[0.5, 0.5]]),
+        }
+        targets = {"gripper": torch.zeros(batch_size, horizon, 1)}
+        output = loss(predictions, targets)
+        assert output.total_loss.isfinite()
+
+    def test_missing_target_key_raises(self, continuous_gripper_metadata_factory):
+        metadata = continuous_gripper_metadata_factory()
+        loss = GripperMixtureNLLoss(key="gripper", actions_metadata=metadata)
+        with pytest.raises(ValueError, match="Targets must contain"):
+            loss({}, {})

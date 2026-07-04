@@ -10,6 +10,7 @@ import torch
 
 import versatil.endpoints.explain as explain_endpoint
 from versatil.configs.explainability import ExplanationWriterConfig
+from versatil.configs.inference_client import InferenceClientConfig
 from versatil.data.constants import Cameras
 from versatil.explainability.constants import ExplanationSourceType, ExplanationType
 from versatil.explainability.runner import ExplainabilityRunner
@@ -339,3 +340,66 @@ def test_endpoint_is_hydra_facing_and_not_schema_specific():
     assert "pd.read_csv" not in endpoint_source
     assert "get_image_path_column" not in endpoint_source
     assert "Cameras.LEFT" not in endpoint_source
+
+
+class TestRunnerValidation:
+    def _make_runner(self, tmp_path: Path, **overrides):
+        checkpoint_loader = MagicMock()
+        checkpoint_loader.config = MagicMock()
+        checkpoint_loader.policy = MagicMock()
+        arguments = {
+            "checkpoint_path": str(tmp_path / "checkpoint"),
+            "checkpoint_name": "last.ckpt",
+            "output_directory": str(tmp_path / "out"),
+            "device": "cpu",
+        }
+        arguments.update(overrides)
+        with patch(
+            "versatil.explainability.runner.FloatCheckpointLoader",
+            return_value=checkpoint_loader,
+        ):
+            return ExplainabilityRunner(**arguments)
+
+    def test_auto_device_and_default_output_directory(self, tmp_path: Path):
+        runner = self._make_runner(tmp_path, device="auto", output_directory=None)
+        assert runner.device.type in ("cpu", "cuda")
+        assert "explainability" in str(runner.output_directory)
+
+    def test_invalid_source_raises(self, tmp_path: Path):
+        with pytest.raises(ValueError):
+            self._make_runner(tmp_path, source="not_a_source")
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"sample_stride": 0},
+            {"max_samples": 0},
+        ],
+    )
+    def test_invalid_sampling_raises(self, tmp_path: Path, overrides):
+        with pytest.raises(ValueError):
+            self._make_runner(tmp_path, **overrides)
+
+    @pytest.mark.parametrize(
+        "online_overrides",
+        [
+            {"model_server_port": 0},
+            {"action_execution_horizon": 0},
+            {"update_rate_hz": 0.0},
+            {"temporal_max_timesteps": 0},
+            {"compression_type": "bogus"},
+        ],
+    )
+    def test_invalid_online_configuration_raises(
+        self, tmp_path: Path, online_overrides
+    ):
+        with pytest.raises(ValueError):
+            self._make_runner(
+                tmp_path,
+                source=ExplanationSourceType.ONLINE_INFERENCE.value,
+                online=InferenceClientConfig(**online_overrides),
+            )
+
+    def test_invalid_explanation_type_raises(self, tmp_path: Path):
+        with pytest.raises(ValueError):
+            self._make_runner(tmp_path, explanation_types=["not_a_method"])
