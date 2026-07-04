@@ -219,6 +219,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grouped-query attention, matching their 8-head/2-KV-head layout.
 
 ### Fixed
+- Diffusion sample-prediction targets no longer carry the padding mask;
+  encoders validate that every input shares one (batch, time) layout before
+  temporal flattening; discrete token sampling returns (B, 1) ids in both
+  deterministic and stochastic modes; AttentionBlock rejects 2D input that
+  torch attention would treat as an unbatched sequence; joint attention masks
+  are validated against declared stream lengths; and MoE routing, spatial
+  softmax, RMSNorm, geometric decay, and attention head counts validate their
+  parameters instead of producing NaNs, dead routing, or division errors.
 - Action padding masks take the union of component requirements, so mixed
   precomputed and on-the-fly action spaces no longer train on edge-padded
   values at episode starts.

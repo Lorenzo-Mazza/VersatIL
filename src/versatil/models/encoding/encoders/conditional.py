@@ -53,11 +53,18 @@ class ConditionalEncoder(EncodingMixin):
         Returns:
             Flattened inputs, flattened conditioning, batch_size, temporal_length.
         """
-        first_tensor = next(iter(inputs.values()))
-        batch_size = first_tensor.shape[0]
-        temporal_length = first_tensor.shape[1]
+        first_key = next(iter(inputs))
+        batch_size = inputs[first_key].shape[0]
+        temporal_length = inputs[first_key].shape[1]
         flattened = {}
         for key, tensor in inputs.items():
+            if tensor.shape[:2] != (batch_size, temporal_length):
+                raise ValueError(
+                    f"Encoder input '{key}' has leading dimensions "
+                    f"{tuple(tensor.shape[:2])} but '{first_key}' has "
+                    f"({batch_size}, {temporal_length}); all inputs must share "
+                    "one (batch, time) layout."
+                )
             flattened[key] = tensor.reshape(
                 batch_size * temporal_length, *tensor.shape[2:]
             )

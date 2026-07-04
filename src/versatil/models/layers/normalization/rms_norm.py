@@ -34,6 +34,8 @@ class RMSNorm(nn.Module):
             elementwise_affine: Whether to learn scaling parameters
         """
         super().__init__()
+        if epsilon <= 0.0:
+            raise ValueError(f"epsilon must be positive, got {epsilon}.")
         self.epsilon = epsilon
         self.elementwise_affine = elementwise_affine
 

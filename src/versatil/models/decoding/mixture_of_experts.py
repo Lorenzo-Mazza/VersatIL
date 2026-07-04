@@ -57,9 +57,17 @@ class BaseMixtureOfExperts(nn.Module):
                 f"Invalid routing_type: {routing_type}. Expected one of {valid_routing_types}"
             )
 
+        if num_experts < 1:
+            raise ValueError(f"num_experts must be positive, got {num_experts}.")
+        if not 1 <= top_k <= num_experts:
+            raise ValueError(
+                f"top_k must be in [1, num_experts={num_experts}], got {top_k}."
+            )
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be positive, got {temperature}.")
         self.num_experts = num_experts
         self.routing_type = routing_type
-        self.top_k = min(top_k, num_experts)
+        self.top_k = top_k
         self.has_gating_network = gating_input_dim is not None
         self.gating_network: nn.Sequential | None
         if self.has_gating_network:

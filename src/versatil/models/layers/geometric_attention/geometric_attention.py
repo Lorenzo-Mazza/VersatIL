@@ -43,6 +43,10 @@ class GeometricSelfAttention(nn.Module):
             use_raster_positions: Whether rotary encoding uses flattened raster
                 grid positions (the DFormerv2 reference convention).
         """
+        if number_of_heads < 1:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
         super().__init__()
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads

@@ -49,6 +49,12 @@ class SpatialDecayMask(nn.Module):
         Returns:
             Decay rates of shape (number_of_heads,).
         """
+        if initial_decay <= 0.0 or decay_range < 0.0:
+            raise ValueError(
+                "Decay parameters must satisfy initial_decay > 0 and "
+                f"decay_range >= 0, got initial_decay={initial_decay}, "
+                f"decay_range={decay_range}; other values produce NaN rates."
+            )
         head_indices = torch.arange(number_of_heads, dtype=torch.float)
         decay_offsets = decay_range * head_indices / number_of_heads
         decay_rates = torch.log(1 - 2 ** (-initial_decay - decay_offsets))
@@ -107,6 +113,12 @@ class SpatialDecayMask(nn.Module):
             If FULL: Single mask of shape (number_of_heads, H*W, H*W).
             If SEPARABLE: Tuple of (height_mask, width_mask) each (number_of_heads, H, H) and (number_of_heads, W, W).
         """
+        valid_modes = [mode.value for mode in AttentionDecompositionMode]
+        if decomposition_mode not in valid_modes:
+            raise ValueError(
+                f"Unknown decomposition_mode '{decomposition_mode}'; "
+                f"expected one of {valid_modes}."
+            )
         if decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:
             height_distances = self.compute_1d_distance_matrix(height)
             width_distances = self.compute_1d_distance_matrix(width)
@@ -115,7 +127,6 @@ class SpatialDecayMask(nn.Module):
             width_mask = width_distances * self.decay_rates[:, None, None]
 
             return height_mask, width_mask
-        else:
-            distances = self.compute_2d_distance_matrix(height, width)
-            mask = distances * self.decay_rates[:, None, None]
-            return (mask,)
+        distances = self.compute_2d_distance_matrix(height, width)
+        mask = distances * self.decay_rates[:, None, None]
+        return (mask,)

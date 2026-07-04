@@ -146,11 +146,13 @@ class Diffusion(DecodingAlgorithm):
         # Add noise to all action components using shared diffusion process
         noisy_actions: dict[str, torch.Tensor] = {}
         noise: dict[str, torch.Tensor] = {}
+        clean_actions: dict[str, torch.Tensor] = {}
         is_pad = None
         for key, action in actions.items():
             if key == SampleKey.IS_PAD_ACTION.value:
                 is_pad = action
                 continue  # Skip padding mask
+            clean_actions[key] = action
             noisy_actions[key], noise[key] = add_noise_to_tensor(
                 clean=action,
                 noise_scheduler=self.noise_scheduler,
@@ -164,12 +166,10 @@ class Diffusion(DecodingAlgorithm):
         if self.prediction_type == PredictionType.EPSILON.value:
             target = noise
         elif self.prediction_type == PredictionType.SAMPLE.value:
-            target = actions
+            target = clean_actions
         elif self.prediction_type == PredictionType.VELOCITY.value:
             velocity = {}
-            for key, action in actions.items():
-                if key == SampleKey.IS_PAD_ACTION.value:
-                    continue
+            for key, action in clean_actions.items():
                 velocity[key] = self.noise_scheduler.get_velocity(
                     sample=action, noise=noise[key], timesteps=timesteps
                 )

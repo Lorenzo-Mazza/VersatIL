@@ -202,5 +202,17 @@ class JointAttentionBase(nn.Module):
             mask_secondary = torch.zeros(
                 batch_size, sequence_length_secondary, dtype=torch.bool, device=device
             )
+        expected_shapes = {
+            "primary": (mask_primary, sequence_length_primary),
+            "secondary": (mask_secondary, sequence_length_secondary),
+        }
+        for stream, (mask, expected_length) in expected_shapes.items():
+            if mask.shape != (batch_size, expected_length):
+                raise ValueError(
+                    f"Joint attention {stream} mask has shape "
+                    f"{tuple(mask.shape)}, expected "
+                    f"({batch_size}, {expected_length}); a mismatched mask "
+                    "would silently mask the wrong positions."
+                )
         joint_mask = torch.cat([mask_primary, mask_secondary], dim=1)  # (B, S+T)
         return joint_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, S+T)

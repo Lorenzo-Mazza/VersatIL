@@ -153,6 +153,12 @@ class AttentionBlock(ActionHeadBlock):
         Returns:
             Output with residual (B, prediction horizon, embedding_dimension)
         """
+        if action_embedding.dim() != 3:
+            raise ValueError(
+                "AttentionBlock expects (B, horizon, embedding) input, got "
+                f"{tuple(action_embedding.shape)}; a 2D tensor would run "
+                "attention across the batch as if it were a sequence."
+            )
         normed = self.norm(action_embedding)
         attn_out, _ = self.attention(normed, normed, normed)
         result: torch.Tensor = action_embedding + self.dropout(attn_out)

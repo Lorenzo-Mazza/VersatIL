@@ -209,9 +209,18 @@ class DiscreteDecoder(ActionDecoder):
         )
 
     def _sample_next_action_token(self, logits: torch.Tensor) -> torch.Tensor:
-        """Sample or greedily choose the next action token from logits."""
-        logits_scaled = logits / self.temperature.clamp(min=0.01)
+        """Sample or greedily choose the next action token from logits.
+
+        Args:
+            logits: Token logits of shape ``(B, 1, V)`` or ``(B, V)``.
+
+        Returns:
+            Token ids of shape ``(B, 1)`` for both sampling modes.
+        """
+        if logits.dim() == 3:
+            logits = logits.squeeze(1)
         if self.deterministic:
-            return torch.argmax(logits, dim=-1)
+            return torch.argmax(logits, dim=-1, keepdim=True)
+        logits_scaled = logits / self.temperature.clamp(min=0.01)
         probs = torch.softmax(logits_scaled, dim=-1)
-        return torch.multinomial(probs.squeeze(1), num_samples=1)
+        return torch.multinomial(probs, num_samples=1)

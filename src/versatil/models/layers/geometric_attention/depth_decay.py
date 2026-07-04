@@ -90,6 +90,12 @@ class DepthAwareDecayMask(nn.Module):
             If FULL: Single mask of shape (B, number_of_heads, H*W, H*W).
             If SEPARABLE: Tuple of (height_mask, width_mask).
         """
+        valid_modes = [mode.value for mode in AttentionDecompositionMode]
+        if decomposition_mode not in valid_modes:
+            raise ValueError(
+                f"Unknown decomposition_mode '{decomposition_mode}'; "
+                f"expected one of {valid_modes}."
+            )
         if decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:
             height_depth_diffs = self.compute_1d_depth_difference_matrix(
                 depth_map, axis=Axis.HEIGHT.value, height=height, width=width

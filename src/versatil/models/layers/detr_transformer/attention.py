@@ -12,6 +12,10 @@ class FlashAttention(nn.Module):
         self, embedding_dimension: int, number_of_heads: int, dropout: float = 0.0
     ):
         super().__init__()
+        if number_of_heads < 1:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
         if embedding_dimension % number_of_heads != 0:
             raise ValueError(
                 "Attention layer embedding_dimension must be divisible by number_of_heads."

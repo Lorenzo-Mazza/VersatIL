@@ -92,7 +92,7 @@ class TestBaseMixtureOfExpertsInitialization:
             MoERoutingType.TOP_K.value,
         ],
     )
-    @pytest.mark.parametrize("top_k", [1, 3])
+    @pytest.mark.parametrize("top_k", [1, 2])
     @pytest.mark.parametrize("temperature", [0.5, 2.0])
     def test_stores_configuration(
         self,
@@ -110,14 +110,14 @@ class TestBaseMixtureOfExpertsInitialization:
         )
         assert moe.num_experts == num_experts
         assert moe.routing_type == routing_type
-        assert moe.top_k == min(top_k, num_experts)
+        assert moe.top_k == top_k
         assert moe.temperature.item() == pytest.approx(temperature)
 
     @pytest.mark.parametrize(
         "num_experts, expectation",
         [
             (0, pytest.raises(ValueError, match="Must provide at least one expert")),
-            (1, does_not_raise()),
+            (1, pytest.raises(ValueError, match="top_k must be in")),
             (4, does_not_raise()),
         ],
     )
@@ -518,27 +518,25 @@ class TestApplyRouting:
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
 
-    def test_topk_clamps_to_num_experts(
+    @pytest.mark.parametrize("top_k", [0, 10])
+    def test_out_of_range_topk_raises(
         self,
         moe_factory: Callable[..., BaseMixtureOfExperts],
-        expert_outputs_factory: Callable[..., list[torch.Tensor]],
-        routing_weights_factory: Callable[..., torch.Tensor],
+        top_k: int,
     ):
-        num_experts = 3
-        moe = moe_factory(
-            num_experts=num_experts,
-            routing_type=MoERoutingType.TOP_K.value,
-            top_k=10,
-        )
-        # top_k should be clamped to num_experts
-        assert moe.top_k == num_experts
-        outputs = expert_outputs_factory(num_experts=num_experts)
-        weights = routing_weights_factory(num_experts=num_experts)
-        result = moe._apply_routing(
-            expert_outputs=outputs,
-            weights=weights,
-        )
-        assert result.shape == outputs[0].shape
+        with pytest.raises(ValueError, match="top_k must be in"):
+            moe_factory(
+                num_experts=3,
+                routing_type=MoERoutingType.TOP_K.value,
+                top_k=top_k,
+            )
+
+    def test_zero_temperature_raises(
+        self,
+        moe_factory: Callable[..., BaseMixtureOfExperts],
+    ):
+        with pytest.raises(ValueError, match="temperature must be positive"):
+            moe_factory(num_experts=3, temperature=0.0)
 
     def test_unknown_routing_type_raises(
         self,
