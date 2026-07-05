@@ -18,7 +18,6 @@ depth_winsorize_quantiles: [0.01, 0.99]
 winsorize_kinematics: true
 kinematics_winsorize_quantiles: [0.01, 0.99]
 
-rotation_augmentation: null
 
 skip_initial_episode_steps: 0
 downsample_factor: 1

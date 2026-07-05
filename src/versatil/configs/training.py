@@ -235,7 +235,7 @@ class TrainingConfig:
 
     # Stochastic Weight Averaging (SWA)
     swa_lrs: float | None = None  # If not None, enables SWA with this learning rate
-    swa_epoch_start: float = 0.5  # Start SWA at this fraction of total epochs (default: 80% through training)
+    swa_epoch_start: float = 0.8  # Start SWA at this fraction of total epochs
     swa_annealing_epochs: int = (
         10  # Number of epochs to anneal learning rate to swa_lrs
     )

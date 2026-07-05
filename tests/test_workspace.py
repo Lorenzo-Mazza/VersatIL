@@ -60,7 +60,6 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         checkpoint_every: int = 10,
         save_checkpoints: bool = True,
         val_every: int = 1,
-        plot_every: int = 200,
         validate_loss_keys: bool = True,
     ) -> MagicMock:
         config = MagicMock(spec=ExperimentConfig)
@@ -78,7 +77,6 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         config.checkpoint_every = checkpoint_every
         config.save_checkpoints = save_checkpoints
         config.val_every = val_every
-        config.plot_every = plot_every
         config.validate_loss_keys = validate_loss_keys
         return config
 

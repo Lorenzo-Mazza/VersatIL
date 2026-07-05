@@ -41,8 +41,6 @@ class DataLoaderConfig:
         color_augmentation: Whether color augmentations are applied to camera images.
         spatial_augmentation: Whether spatial augmentations are applied to camera
             images.
-        rotation_augmentation: Whether rotation augmentations are applied to camera
-            images.
         skip_initial_episode_steps: : Whether to skip the initial n steps of each
             episode due to recording artifacts.
         downsample_factor: : Whether to downsample each dataset episode by taking every
@@ -92,7 +90,6 @@ class DataLoaderConfig:
     spatial_augmentation: AugmentationPipelineConfig | None = field(
         default_factory=AugmentationPipelineConfig
     )
-    rotation_augmentation: AugmentationPipelineConfig | None = None
     #: Whether to skip the initial n steps of each episode due to recording artifacts.
     skip_initial_episode_steps: int = 0
     #: Whether to downsample each dataset episode by taking every n-th step.

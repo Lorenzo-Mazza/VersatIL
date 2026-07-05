@@ -67,5 +67,4 @@ class TestExperimentConfig:
         assert config.checkpoint_every == 100
         assert config.save_checkpoints is True
         assert config.val_every == 1
-        assert config.plot_every == 200
         assert config.validate_loss_keys is True

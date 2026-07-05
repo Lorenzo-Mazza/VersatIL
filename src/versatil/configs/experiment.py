@@ -26,7 +26,6 @@ class ExperimentConfig:
         checkpoint_every: Epoch interval between periodic checkpoints.
         save_checkpoints: Whether checkpoints are written at all.
         val_every: Epoch interval between validation runs.
-        plot_every: Epoch interval between figure-logging callbacks.
         validate_loss_keys: Whether loss modules are validated against decoder output
             keys.
     """
@@ -49,5 +48,4 @@ class ExperimentConfig:
         True  #: When False, skip ModelCheckpoint callbacks entirely.
     )
     val_every: int = 1
-    plot_every: int = 200
     validate_loss_keys: bool = True

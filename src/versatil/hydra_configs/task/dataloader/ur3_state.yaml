@@ -17,7 +17,6 @@ kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
 winsorize_depth: false
 winsorize_kinematics: false
 
-rotation_augmentation: null
 
 skip_initial_episode_steps: 0
 downsample_factor: 1

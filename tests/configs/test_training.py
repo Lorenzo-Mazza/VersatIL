@@ -353,7 +353,7 @@ class TestTrainingConfig:
         assert config.use_ema is True
         assert config.ema_power == 0.75
         assert config.swa_lrs is None
-        assert config.swa_epoch_start == 0.5
+        assert config.swa_epoch_start == 0.8
         assert config.swa_annealing_epochs == 10
         assert config.compile is False
         assert config.tune_lr is False

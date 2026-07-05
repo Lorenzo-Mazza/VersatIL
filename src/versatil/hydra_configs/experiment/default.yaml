@@ -19,4 +19,3 @@ float32_matmul_precision: ${float32_matmul:MEDIUM}
 
 checkpoint_every: 100
 val_every: 1
-plot_every: 100

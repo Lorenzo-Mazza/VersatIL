@@ -124,7 +124,6 @@ class TestDataLoaderConfig:
         assert isinstance(config.tokenization, TokenizationConfig)
         assert isinstance(config.color_augmentation, AugmentationPipelineConfig)
         assert isinstance(config.spatial_augmentation, AugmentationPipelineConfig)
-        assert config.rotation_augmentation is None
         assert config.skip_initial_episode_steps == 0
         assert config.downsample_factor == 1
         assert config.action_backward_shift == 0
