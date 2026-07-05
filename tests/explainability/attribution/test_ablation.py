@@ -58,6 +58,52 @@ def test_compute_ablation_maps_for_policy_selects_requested_camera_invocation(
     assert heatmaps[Cameras.LEFT.value].sum() > 0
 
 
+def test_batched_ablation_matches_per_sample_ablation(
+    explainability_encoding_pipeline_factory: Callable[[], nn.Module],
+    explainability_policy_factory: Callable[..., Policy],
+    camera_observation_factory: Callable[[], dict[str, torch.Tensor]],
+):
+    policy = explainability_policy_factory(
+        encoding_pipeline=explainability_encoding_pipeline_factory()
+    )
+    first_observation = camera_observation_factory()
+    # Rolling the channel axis changes per-channel score drops, so the second
+    # sample needs channel weights the first sample's weights cannot reproduce.
+    second_observation = {
+        key: value.roll(shifts=1, dims=2).square()
+        for key, value in first_observation.items()
+    }
+    batched_observation = {
+        key: torch.cat([first_observation[key], second_observation[key]], dim=0)
+        for key in first_observation
+    }
+
+    batched_heatmaps = compute_ablation_maps_for_policy(
+        policy=policy,
+        observation=batched_observation,
+        channel_batch_size=1,
+        preprocess_observation=False,
+    )
+    first_heatmaps = compute_ablation_maps_for_policy(
+        policy=policy,
+        observation=first_observation,
+        channel_batch_size=1,
+        preprocess_observation=False,
+    )
+    second_heatmaps = compute_ablation_maps_for_policy(
+        policy=policy,
+        observation=second_observation,
+        channel_batch_size=1,
+        preprocess_observation=False,
+    )
+
+    batched_heatmap = batched_heatmaps[Cameras.LEFT.value]
+    torch.testing.assert_close(batched_heatmap[0:1], first_heatmaps[Cameras.LEFT.value])
+    torch.testing.assert_close(
+        batched_heatmap[1:2], second_heatmaps[Cameras.LEFT.value]
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "policy_case_name",

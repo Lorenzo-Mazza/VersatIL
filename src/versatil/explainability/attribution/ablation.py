@@ -31,6 +31,18 @@ from versatil.explainability.vision_modules import resolve_camera_explanation_ta
 from versatil.models.policy import Policy
 
 
+def reduce_scores_per_sample(scores: torch.Tensor) -> torch.Tensor:
+    """Average objective scores over all non-batch dimensions.
+
+    Args:
+        scores: Objective scores with the observation batch as leading axis.
+
+    Returns:
+        Per-sample scores with shape ``(B,)``.
+    """
+    return scores.reshape(scores.shape[0], -1).mean(dim=1)
+
+
 def repeat_observation_batch(
     observation: ObservationBatch,
     repeat_count: int,
@@ -172,8 +184,9 @@ def compute_ablation_maps_for_policy(
     Note:
         Ablation-CAM is perturbation-based: each channel in the selected visual
         target activation is zeroed and the channel weight is the resulting
-        drop in the selected prediction score. It is kept separate from
-        gradient methods because it does not use backpropagation.
+        drop in the selected prediction score, computed per batch sample. It is
+        kept separate from gradient methods because it does not use
+        backpropagation.
 
     Args:
         policy: Policy instance to explain.
@@ -203,6 +216,8 @@ def compute_ablation_maps_for_policy(
         RuntimeError: If the selected visual module does not expose a compatible
             explainability target.
         RuntimeError: If target-layer activation capture fails.
+        RuntimeError: If the captured activation batch is not divisible by the
+            observation batch.
     """
     if channel_batch_size <= 0:
         raise ValueError(
@@ -237,13 +252,15 @@ def compute_ablation_maps_for_policy(
         )
         try:
             with torch.no_grad():
-                baseline_score = compute_policy_explanation_objective(
-                    policy=policy,
-                    observation=observation,
-                    actions=resolved_actions,
-                    preprocess_observation=preprocess_observation,
-                    output_selector=output_selector,
-                ).mean()
+                baseline_scores = reduce_scores_per_sample(
+                    scores=compute_policy_explanation_objective(
+                        policy=policy,
+                        observation=observation,
+                        actions=resolved_actions,
+                        preprocess_observation=preprocess_observation,
+                        output_selector=output_selector,
+                    )
+                )
         finally:
             capture_handle.remove()
 
@@ -256,8 +273,16 @@ def compute_ablation_maps_for_policy(
         sample_count, channel_count, feature_height, feature_width = (
             nchw_activation.shape
         )
+        batch_count = baseline_scores.shape[0]
+        if sample_count % batch_count != 0:
+            raise RuntimeError(
+                f"Captured activation batch {sample_count} is not divisible by "
+                f"the observation batch {batch_count}."
+            )
+        frames_per_sample = sample_count // batch_count
         drops = torch.zeros(
             channel_count,
+            batch_count,
             dtype=nchw_activation.dtype,
             device=nchw_activation.device,
         )
@@ -315,23 +340,28 @@ def compute_ablation_maps_for_policy(
             )
             try:
                 with torch.no_grad():
-                    ablated_scores = compute_policy_explanation_objective(
-                        policy=policy,
-                        observation=repeated_observation,
-                        actions=repeated_actions,
-                        preprocess_observation=preprocess_observation,
-                        output_selector=output_selector,
-                    ).reshape(current_channel_count, -1)
+                    ablated_scores = reduce_scores_per_sample(
+                        scores=compute_policy_explanation_objective(
+                            policy=policy,
+                            observation=repeated_observation,
+                            actions=repeated_actions,
+                            preprocess_observation=preprocess_observation,
+                            output_selector=output_selector,
+                        )
+                    ).reshape(current_channel_count, batch_count)
             finally:
                 ablation_handle.remove()
 
             drops[channel_start : channel_start + current_channel_count] = (
-                baseline_score - ablated_scores.mean(dim=1)
+                baseline_scores[None, :] - ablated_scores
             )
 
-        weights = F.relu(drops)
+        # (B, C) channel weights broadcast over each sample's temporal frames.
+        frame_weights = (
+            F.relu(drops).transpose(0, 1).repeat_interleave(frames_per_sample, dim=0)
+        )
         feature_heatmap = F.relu(
-            (weights[None, :, None, None] * nchw_activation).sum(dim=1)
+            (frame_weights[:, :, None, None] * nchw_activation).sum(dim=1)
         )
         feature_heatmap = feature_heatmap.reshape(
             sample_count,
