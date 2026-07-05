@@ -9,9 +9,7 @@ from versatil.configs.encoding.fusion import (
     ConcatFusionConfig,
     FusionConfig,
     MLPFusionConfig,
-    SpatialFusionConfig,
 )
-from versatil.models.encoding.fusion.constants import ConcatDimension
 from versatil.models.layers.activation import ActivationFunction
 
 
@@ -84,23 +82,6 @@ class TestMLPFusionConfig:
             mlp_hidden_dims=[128],
         )
         assert config.activation_name == ActivationFunction.GELU.value
-
-
-@pytest.mark.unit
-class TestSpatialFusionConfig:
-    def test_target_points_to_spatial_fusion(self):
-        config = SpatialFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dimension=256
-        )
-        assert (
-            config._target_ == "versatil.models.encoding.fusion.spatial.SpatialFusion"
-        )
-
-    def test_concat_dim_default_is_width_string(self):
-        config = SpatialFusionConfig(
-            input_features=["a", "b"], output_name="fused", hidden_dimension=256
-        )
-        assert config.concat_dim == ConcatDimension.WIDTH.value
 
 
 @pytest.mark.unit

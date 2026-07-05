@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from omegaconf import MISSING
 
-from versatil.models.encoding.fusion.constants import ConcatDimension
 from versatil.models.layers.activation import ActivationFunction
 
 
@@ -65,16 +64,3 @@ class MLPFusionConfig(FusionConfig):
     mlp_hidden_dims: list[int] = MISSING
     activation_name: str = ActivationFunction.GELU.value
     dropout: float = 0.1
-
-
-@dataclass
-class SpatialFusionConfig(FusionConfig):
-    """Configuration for spatial concatenation of feature maps.
-
-    Attributes:
-        _target_: Import path instantiated by Hydra.
-        concat_dim: Dimension along which spatial features are concatenated.
-    """
-
-    _target_: str = "versatil.models.encoding.fusion.spatial.SpatialFusion"
-    concat_dim: str = ConcatDimension.WIDTH.value

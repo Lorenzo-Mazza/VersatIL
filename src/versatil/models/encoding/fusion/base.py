@@ -112,7 +112,8 @@ class SequentialFusion(FusionModule, abc.ABC):
                 raise ValueError(
                     f"SequentialFusion requires flat or sequential features, "
                     f"but '{feat_name}' is spatial with dimension {metadata.dimension}. "
-                    f"Use SpatialFusion for spatial features."
+                    f"Spatial features cannot be fused; pass them to a decoder "
+                    f"that consumes spatial feature maps directly."
                 )
             feature_types[feat_name] = metadata.feature_type
             if metadata.feature_type == FeatureType.SEQUENTIAL.value:

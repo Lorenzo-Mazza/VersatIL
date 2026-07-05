@@ -112,7 +112,6 @@ from versatil.configs.encoding.fusion import (
     ConcatFusionConfig,
     FusionConfig,
     MLPFusionConfig,
-    SpatialFusionConfig,
 )
 from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.configs.experiment import ExperimentConfig
@@ -306,7 +305,6 @@ __all__ = [
     "ConcatFusionConfig",
     "AttentionFusionConfig",
     "MLPFusionConfig",
-    "SpatialFusionConfig",
     "CompositeLossConfig",
     "VICLatentLossConfig",
     "PosteriorGeometryLossConfig",

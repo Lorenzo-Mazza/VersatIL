@@ -73,7 +73,6 @@ from versatil.configs import (
     ResidualBlockConfig,
     SmolVLADecoderConfig,
     SpatialDepthEncoderConfig,
-    SpatialFusionConfig,
     SpatialRGBEncoderConfig,
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
@@ -279,11 +278,6 @@ def register(cs: ConfigStore) -> None:
         node=AttentionFusionConfig,
     )
     cs.store(group="policy/encoding_pipeline/fusion", name="mlp", node=MLPFusionConfig)
-    cs.store(
-        group="policy/encoding_pipeline/fusion",
-        name="spatial",
-        node=SpatialFusionConfig,
-    )
     cs.store(group="policy/decoder", name="base", node=DecodingNetworkConfig)
     cs.store(group="policy/decoder", name="act", node=ACTConfig)
     cs.store(group="policy/decoder", name="phase_act", node=PhaseACTConfig)
