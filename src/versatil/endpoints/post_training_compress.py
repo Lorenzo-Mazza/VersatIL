@@ -2,7 +2,8 @@
 
 Note:
     The full workflow is the following: load policy → validate → fuse layers → prune →
-    export → quantize → save .pt2 compressed checkpoint.
+    export → quantize → save the compressed checkpoint as a Torch Export ``.pt2``
+    or ExecuTorch ``.pte`` artifact, depending on the deployment backend.
 """
 
 import logging

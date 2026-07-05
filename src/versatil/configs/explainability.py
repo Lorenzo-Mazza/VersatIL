@@ -34,8 +34,6 @@ class ExplainabilityConfig:
     """Hydra config for generating xAI insights on policy predictions.
 
     Attributes:
-        online: Socket inference client settings for the online source.
-        writer: Explanation writer settings.
         _target_: Import path instantiated by Hydra.
         checkpoint_path: Directory containing the checkpoint, config, and
             normalizer/tokenizer files used to restore the policy.
@@ -72,22 +70,6 @@ class ExplainabilityConfig:
             to ``offline_dataset.zarr`` beside the first override path before
             episodic windows are sampled.
         batch_size: Number of sampled windows explained per attribution call.
-        model_server_address: Environment server address for online inference
-            mode.
-        model_server_port: Environment server port for online inference mode.
-        temporal_aggregation: Whether online inference should average
-            overlapping action predictions from consecutive policy calls.
-        action_execution_horizon: Number of actions sent from each predicted
-            chunk when temporal aggregation is disabled. ``None`` uses the
-            checkpoint prediction horizon.
-        update_rate_hz: Optional action-send rate limit for online inference.
-            ``None`` sends actions as soon as they are available.
-        temporal_max_timesteps: Maximum episode length tracked by temporal
-            aggregation state.
-        timing_log: Whether to log per-step preprocessing, inference, and
-            postprocessing timings in online mode.
-        compression_type: Image compression format requested from the online
-            environment server.
         explanation_types: Visual attribution methods to run. ``gradcam``
             handles both CNN feature maps and ViT patch-token maps internally.
         target_camera_keys: Optional camera-key allowlist. ``None`` explains all
@@ -95,14 +77,14 @@ class ExplainabilityConfig:
         target_vision_module_names: Optional visual module allowlist. Names
             include encoding-pipeline entries and decoder-owned VLM vision tower
             paths.
-        save_raw_heatmaps: Whether to save raw heatmap tensors as ``.pt`` files.
-        save_overlays: Whether to save image overlays for displayable camera
-            observations.
         channel_batch_size: Number of feature channels ablated per forward pass
             for Ablation-CAM.
-        image_weight: Blend weight for the original image when saving overlays.
-        overlay_image_format: File extension for overlay images, with or
-            without a leading dot.
+        online: Socket inference client settings for the online source, nested
+            under the ``online`` key (e.g. ``online.model_server_address``,
+            ``online.compression_type``). See ``InferenceClientConfig``.
+        writer: Explanation writer settings, nested under the ``writer`` key
+            (e.g. ``writer.save_raw_heatmaps``, ``writer.image_weight``). See
+            ``ExplanationWriterConfig``.
     """
 
     _target_: str = "versatil.explainability.runner.ExplainabilityRunner"

@@ -28,7 +28,9 @@ def normalize_sample(
     observation_space: ObservationSpace,
     action_space: ActionSpace,
 ) -> dict[str, dict[str, torch.Tensor]]:
-    """Normalize and tokenize a pre-built sample.
+    """Normalize a pre-built sample.
+
+    Tokenization is a separate step; see ``tokenize_observation``.
 
     Args:
         sample: Pre-built sample with observation and action dictionaries.
@@ -37,7 +39,7 @@ def normalize_sample(
         action_space: Action space configuration.
 
     Returns:
-        Normalized and tokenized sample.
+        Normalized sample.
     """
     sample_copy = sample.copy()  # Avoid modifying in-place
     observation = sample_copy[SampleKey.OBSERVATION.value]

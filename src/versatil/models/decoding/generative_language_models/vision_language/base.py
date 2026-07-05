@@ -96,7 +96,9 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
     @abc.abstractmethod
     def _compute_num_image_tokens(self, config: PretrainedConfig) -> int:
         """Return the number of image tokens per camera for this VLM."""
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Subclasses must return the number of image tokens per camera."
+        )
 
     @abc.abstractmethod
     def _embed_images(
@@ -112,12 +114,16 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
             (image_embeddings, image_pad_masks) — lists of tensors, one per camera
             or one combined, ready for concatenation with language embeddings.
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Subclasses must embed camera images into token sequences."
+        )
 
     @abc.abstractmethod
     def _get_language_model(self) -> nn.Module:
         """Return the language model submodule (e.g. ``vlm.language_model`` or ``vlm.text_model``)."""
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Subclasses must return the language model submodule."
+        )
 
     def _embed_language(self, token_ids: torch.Tensor) -> torch.Tensor:
         """Map token IDs to dense embeddings with the language-model embedding table."""

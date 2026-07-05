@@ -93,7 +93,9 @@ class WebPCodec(ArrayBytesCodec):
         self, input_byte_length: int, _chunk_spec: ArraySpec
     ) -> int:
         """Encoded size is data-dependent for WebP, so it cannot be precomputed."""
-        raise NotImplementedError
+        raise NotImplementedError(
+            "WebP encoded size is data-dependent and cannot be precomputed."
+        )
 
 
 register_codec(key=WEBP_CODEC_NAME, codec_cls=WebPCodec)

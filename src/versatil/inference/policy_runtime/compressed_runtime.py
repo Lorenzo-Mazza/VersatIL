@@ -37,8 +37,9 @@ class CompressedPolicyRuntime(PolicyRuntime):
         Args:
             device: Device to load the model onto.
             checkpoint_path: Path to the compressed checkpoint directory
-                containing compression_metadata.json, the .pt2 model,
-                and normalizer.pt.
+                containing compression_metadata.json, the model artifact
+                (Torch Export ``.pt2`` or ExecuTorch ``.pte``), and
+                normalizer.pt.
             compile_model: Whether to compile the model with
                 torch.compile before inference. For PT2E models on
                 CPU this enables inductor int8 kernel fusion and is

@@ -133,14 +133,14 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
         VariationalAlgorithmConfig(
             base_algorithm=FlowMatchingConfig(sigma=0.0, num_inference_steps=10),
             posterior_encoder=VAETransformerEncoderConfig(...),
-            prior=DiffusionPriorConfig(...)
+            prior=DiTPriorConfig(...)
         )
 
         # NEW: Diffusion with VAE + learned prior
         VariationalAlgorithmConfig(
             base_algorithm=DiffusionConfig(...),
             posterior_encoder=VAETransformerEncoderConfig(...),
-            prior=DiffusionPriorConfig(...)
+            prior=DiTPriorConfig(...)
         )
 
     Attributes:

@@ -56,7 +56,9 @@ class LightningPolicy(pl.LightningModule):
             policy: The policy to train
             training_config: Training configuration
             total_training_steps: Total number of training steps for LR scheduling.
-                Calculated as: (len(train_loader) * num_epochs) // gradient_accumulate_every
+                Calculated as ceil(len(train_loader) / gradient_accumulate_every)
+                * num_epochs, because Lightning flushes the final partial
+                accumulation window each epoch.
                 If None, will use trainer.estimated_stepping_batches as fallback.
         """
         super().__init__()

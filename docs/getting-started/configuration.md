@@ -120,7 +120,6 @@ class PolicyConfig:
     observation_horizon: int = "${task.observation_horizon}"
     device: str = "${experiment.device}"
     loss: CompositeLossConfig = MISSING
-    validate_loss_keys: bool = True
 ```
 
 - Fields set to `MISSING` are required and must be provided by a config file or CLI override.

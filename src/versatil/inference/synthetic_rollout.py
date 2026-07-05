@@ -90,7 +90,8 @@ def run_rollouts(
     At each step, the policy predicts a full action trajectory. With
     temporal aggregation enabled, overlapping predictions for the current
     timestep are averaged with exponential weights favoring more recent
-    queries. Without it, only the first predicted action is used.
+    queries. Without it, the policy executes the full predicted chunk
+    before replanning.
 
     Policy-input frames intentionally render without any goal marker.
     Per-mode expert goals are still drawn in the user-facing rollout

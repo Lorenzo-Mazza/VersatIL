@@ -20,8 +20,10 @@ from versatil.common.module_attr_mixin import ModuleAttrMixin
 class FeatureProjection(ModuleAttrMixin):
     """Projects features to a common embedding dimension.
 
-    It supports both flat features (B, C), sequential features (B, T, C), and spatial features
-     (B, Optional[T], C, H, W).
+    It supports algorithm-context features (B, C), temporal vectors (B, T, C),
+    token sequences (B, T, S, C), and spatial features (B, T, C, H, W). Only 5D
+    tensors are treated as spatial; every other rank is projected with a linear
+    layer over the final dimension.
 
     This module uses lazy initialization - projection layers are created on first forward pass.
     To support loading checkpoints, it overrides _load_from_state_dict to create layers
@@ -161,7 +163,9 @@ class FeatureProjection(ModuleAttrMixin):
             features: Dictionary of features to project
 
         Returns:
-            Dictionary of projected features with shape (B, Emb) or (B, T, Emb) or (B, Optional[T], Emb, H, W)
+            Dictionary of projected features. Spatial inputs come back as
+            (B, T, Emb, H, W); all other ranks keep their shape with the final
+            dimension projected to Emb.
         """
         projected = {}
         for feature_name, raw_feature in features.items():

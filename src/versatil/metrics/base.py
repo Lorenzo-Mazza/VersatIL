@@ -145,14 +145,17 @@ class BaseLoss(nn.Module, ABC):
 
     @abstractmethod
     def get_required_keys(self) -> set[str]:
-        """Get the set of keys this loss expects from the targets dictionary.
+        """Get the set of output keys this loss consumes.
 
-        This is used for validation to ensure the action space contains all
-        necessary keys for the configured loss. For composite losses, this should
-        recursively collect keys from all sub-losses.
+        Used at experiment validation to check every key the loss reads is
+        produced by the decoder, the algorithm, or a non-predicted action-space
+        entry (see ``experiment.validate_loss_keys``). Losses that read their
+        targets from the predictions dictionary report those keys here. For
+        composite losses, this should recursively collect keys from all
+        sub-losses.
 
         Returns:
-            Set of target dictionary keys required by this loss
+            Set of output keys required by this loss
         """
         raise NotImplementedError
 

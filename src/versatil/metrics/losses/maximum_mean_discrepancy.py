@@ -86,11 +86,16 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         targets: dict[str, torch.Tensor],
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
-        """Compute MMD between latent samples and standard Gaussian prior.
+        """Compute MMD between posterior samples and the configured prior.
+
         Args:
-            predictions: Must contain LatentKey.POSTERIOR_LATENT.value with shape (B, latent_dim).
-            targets: Unused (prior is implicit).
+            predictions: Must contain ``prior_target_key`` and, unless
+                ``use_fixed_gaussian_as_prior`` is True,
+                ``LatentKey.PRIOR_LATENT.value``, each with shape
+                (B, latent_dim).
+            targets: Unused; prior samples come from ``predictions``.
             is_pad: Unused.
+
         Returns:
             LossOutput with MMD loss.
         """

@@ -144,11 +144,12 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             rgb_image: RGB image tensor of shape (B*T, C, H, W); ``forward()``
                 flattens the temporal axis into the batch before
                 dispatching here.
-            depth_map: Depth map tensor of shape (B, 1, H, W).
+            depth_map: Depth map tensor of shape (B*T, 1, H, W), temporally
+                flattened like ``rgb_image``.
 
         Returns:
             Tuple of (features, H_patches, W_patches) where features has shape
-            (B, embedding_dimension, H_patches, W_patches).
+            (B*T, embedding_dimension, H_patches, W_patches).
         """
         features, H_patches, W_patches = self.patch_embed(
             rgb_image, return_patch_size=True

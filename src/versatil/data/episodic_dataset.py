@@ -61,16 +61,18 @@ class EpisodicDataset(data.Dataset):
             zarr_path: Path to zarr replay buffer
             action_space: TaskSpace action space config (what to predict and how)
             observation_space: TaskSpace observation space config (what to use as observation data)
+            dataloader_config: Data loading settings (splits, normalization
+                types, augmentation pipelines, downsampling, padding).
             pred_horizon: Prediction horizon, i.e. chunk size.
             obs_horizon: Observation horizon, i.e. history size.
             train: Whether to use training mode.
             seed: Random seed of the experiment.
             augment_images: Whether image augmentations are enabled. Defaults
+                to ``train`` so existing training and validation behavior is
+                unchanged.
             replay_buffer: Already-loaded replay buffer to reuse, avoiding a
                 second in-memory copy when train and validation datasets share
                 one store.
-                to ``train`` so existing training and validation behavior is
-                unchanged.
         """
         self.action_space = action_space
         self.observation_space = observation_space

@@ -435,11 +435,13 @@ class InferenceClient:
 
     def _get_actions_for_ready_environments(
         self,
-    ) -> dict[int, dict[str, list[float]]]:
+    ) -> dict[int, list[dict[str, list[float]]]]:
         """Run inference for environments with full observation buffers.
 
         Returns:
-            Dict mapping environment index to structured action dict.
+            Dict mapping environment index to the per-step structured action
+            dicts of the predicted chunk. Temporal aggregation produces a
+            single averaged step per environment.
         """
         ready_indices = []
         camera_batches: dict[str, list[torch.Tensor]] = {

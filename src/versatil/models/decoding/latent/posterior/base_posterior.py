@@ -20,7 +20,6 @@ class PosteriorLatentEncoder(ModuleAttrMixin, abc.ABC):
     Design:
         - Supports both action-only and action+observation conditioning
         - Returns dictionary with LatentKey.POSTERIOR_LATENT + algorithm-specific auxiliary outputs
-        - Provides sample_prior() for inference (when actions unavailable)
 
     """
 

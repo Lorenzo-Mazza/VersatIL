@@ -30,12 +30,15 @@ class TransformerInputBuilder(nn.Module):
     Note:
 
         This module:
-        i). projects multiple features into a common embedding dimension.
-          - Spatial feature maps (B, C, H, W) or temporal-spatial (B, T, C, H, W) are projected into the common channel
-          embedding dimension Emb using 1x1 convolutions, with output (B, Optional[T], Emb, H, W).
-          - Flat features (B, D) or sequential features (B, T, D) are projected using linear layer, with output
-           (B, Emb) or (B, T, Emb).
-        ii). Each spatial feature is flattened into token sequences of size (B, H*W, Emb) or (B, T*H*W, Emb)
+        i). projects multiple features into a common embedding dimension, following the
+          canonical rank contract:
+          - 5D spatial feature maps (B, T, C, H, W) are projected into the common channel
+          embedding dimension Emb using 1x1 convolutions, with output (B, T, Emb, H, W).
+          - 4D token sequences (B, T, S, D), 3D temporal vectors (B, T, D), and 2D
+          algorithm context (B, D) are projected using a linear layer.
+        ii). Each feature is flattened into a token sequence: spatial maps become
+          (B, T*H*W, Emb), token sequences (B, T*S, Emb), temporal vectors (B, T, Emb),
+          and algorithm context a single token (B, 1, Emb).
         iii). The feature tokens are concatenated together along the sequence dimension to produce a unified
           token sequence (B, Total_Seq, Emb).
 
@@ -66,10 +69,10 @@ class TransformerInputBuilder(nn.Module):
         >>> pos_enc = SinusoidalPositionalEncoding2D(embedding_dimension=256)
         >>> input_builder = TransformerInputBuilder(embedding_dimension=256, spatial_positional_encoding_layer=pos_enc)
         >>> features = {
-        ...     "rgb": torch.randn(8, 3, 16, 16),         # (B, C, H, W)
+        ...     "rgb": torch.randn(8, 1, 3, 16, 16),      # (B, T, C, H, W)
         ...     "depth": torch.randn(8, 5, 1, 32, 32),    # (B, T, C, H, W)
         ... }
-        >>> tokens, pos = input_builder(features)
+        >>> tokens, pos, padding_mask = input_builder(features)
         >>> tokens.shape  # (8, (16*16 + 5*32*32), 256)
         >>> pos.shape     # (8, (16*16 + 5*32*32), 256)
     """

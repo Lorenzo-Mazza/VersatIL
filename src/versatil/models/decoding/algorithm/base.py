@@ -49,7 +49,7 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         algorithm = VariationalAlgorithm(
             base_algorithm=BehavioralCloning(),
             posterior_encoder=VAETransformerEncoder(...),
-            prior=GaussianPrior(...)  # or DiffusionPrior(...) for learned prior
+            prior=GaussianPrior(...)  # or DiTPrior(...) for learned prior
         )
     """
 

@@ -1,7 +1,7 @@
 r"""Fixed Gaussian prior for variational inference.
 
 This module implements a standard Gaussian N(0, I) prior for latent variable models.
-Unlike learned priors (e.g., DiffusionPrior), this prior requires no training and
+Unlike learned priors (e.g., DiTPrior), this prior requires no training and
 simply samples from a standard normal distribution.
 
 This is the default prior used when no learned prior is specified, providing

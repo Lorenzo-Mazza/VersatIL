@@ -223,7 +223,8 @@ class SequenceSampler:
         """Gets one sequence as a dict of arrays.
 
         Uses the precomputed indices to slice the data.
-        If padding needed, repeats the first or last value.
+        If padding is needed, pads with zeros when ``pad_with_zeros`` is set
+        (the default) and repeats the first or last value otherwise.
         For limited keys, loads partial data and fills rest.
 
         Args:
