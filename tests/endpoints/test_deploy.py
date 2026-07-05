@@ -14,6 +14,7 @@ def _deployment_config(
     temporal_aggregation: bool = True,
     update_rate_hz: float | None = 10.0,
     request_timeout_seconds: float | None = 2.5,
+    compression_type: str = "jpeg",
 ) -> DictConfig:
     return OmegaConf.create(
         {
@@ -30,6 +31,7 @@ def _deployment_config(
                 "update_rate_hz": update_rate_hz,
                 "temporal_max_timesteps": 800,
                 "timing_log": True,
+                "compression_type": compression_type,
                 "request_timeout_seconds": request_timeout_seconds,
             },
         }
@@ -73,6 +75,7 @@ def test_main_wires_client_from_config(
     assert call_kwargs["temporal_aggregation"] is True
     assert call_kwargs["timing_log"] is True
     assert call_kwargs["update_rate_hz"] == 10.0
+    assert call_kwargs["compression_type"] == "jpeg"
 
     mock_client.run_episode.assert_called_once_with(max_steps=100)
     mock_client.shutdown.assert_called_once()

@@ -110,6 +110,7 @@ def main(config: DictConfig) -> None:
         action_transport=action_transport,
         temporal_aggregation=config.client.temporal_aggregation,
         action_execution_horizon=config.client.action_execution_horizon,
+        compression_type=config.client.compression_type,
         max_timesteps=config.client.temporal_max_timesteps,
         timing_log=config.client.timing_log,
         update_rate_hz=config.client.update_rate_hz,

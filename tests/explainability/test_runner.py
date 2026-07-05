@@ -181,10 +181,12 @@ class TestExplainabilityRunner:
         mock_observation_transport_class.assert_called_once_with(
             server_address="127.0.0.1",
             server_port=5555,
+            request_timeout_seconds=None,
         )
         mock_action_transport_class.assert_called_once_with(
             server_address="127.0.0.1",
             server_port=5555,
+            request_timeout_seconds=None,
         )
         mock_build_online_source.assert_called_once_with()
         mock_client_class.assert_called_once_with(

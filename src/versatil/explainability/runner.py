@@ -319,10 +319,12 @@ class ExplainabilityRunner:
         observation_transport = SocketObservationTransport(
             server_address=self.online.model_server_address,
             server_port=self.online.model_server_port,
+            request_timeout_seconds=self.online.request_timeout_seconds,
         )
         action_transport = SocketActionTransport(
             server_address=self.online.model_server_address,
             server_port=self.online.model_server_port,
+            request_timeout_seconds=self.online.request_timeout_seconds,
         )
         client = InferenceClient(
             policy_runtime=policy_runtime,
