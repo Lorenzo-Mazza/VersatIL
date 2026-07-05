@@ -290,7 +290,7 @@ select the pipeline-prefixed feature names, e.g. `left_rgb` and
 | `CONVNEXT_TINY` | `convnext_tiny.fb_in22k_ft_in1k` |
 | `CONVNEXT_BASE` | `convnext_base.fb_in22k_ft_in1k` |
 | `CONVNEXTV2_NANO` | `convnextv2_nano.fcmae_ft_in22k_in1k` |
-| `TINYVIT_21M` | `tiny_vit_21m_224.dist_in22k_ft_in1k` |
+| `TINY_VIT_21M` | `tiny_vit_21m_224.dist_in22k_ft_in1k` |
 | `SWIN_TINY` | `swin_tiny_patch4_window7_224.ms_in22k_ft_in1k` |
 | `SWIN_BASE` | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
 | `DINOV3_CONVNEXT_SMALL` | `convnext_small.dinov3_lvd1689m` |

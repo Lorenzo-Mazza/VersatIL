@@ -248,22 +248,18 @@ Decoder(
 
 #### 5. Observation and Action Spaces
 
-**TaskConfig** defines what data the experiment uses at runtime:
+**TaskSpace** (`src/versatil/data/task.py`) defines what data the experiment uses at runtime. It combines an ActionSpace, an ObservationSpace, a DatasetSchema, and the dataloader config, and validates at construction that every requested key exists in the schema with consistent metadata. Both spaces are metadata-driven: they hold a dict from zarr store key to a metadata object, and typed views are exposed as properties.
 
-**ObservationSpace** (`src/versatil/data/task.py:74-104`):
-- Which cameras to use (RGB/depth)
-- Whether to use proprioceptive data (robot/camera frame)
-- Language instructions
-- Gripper state
+**ObservationSpace** (`src/versatil/data/task.py`):
+- `observations_metadata: dict[str, ObservationMetadata | CameraMetadata]`, keyed by zarr store key
+- Typed views via properties: `cameras` / `rgb_cameras` / `depth_cameras`, `position_observations`, `orientation_observations`, etc.
 - Returns required Zarr keys via `get_required_zarr_keys()`
 
-**ActionSpace** (`src/versatil/data/task.py:18-70`):
-- Position (dim, camera frame vs robot frame)
-- Orientation (representation: roll/euler/quaternion)
-- Gripper (binary vs continuous)
-- Whether to predict deltas or absolute poses
-- Whether task has phases (for PhaseACT)
-- Returns required Zarr keys and total action dimension
+**ActionSpace** (`src/versatil/data/task.py`):
+- `actions_metadata: dict[str, ActionMetadata]`, keyed by zarr store key; values are `PrecomputedActionMetadata` subclasses (loaded from zarr) or `OnTheFlyActionMetadata` (computed from a source observation)
+- Typed views via properties: `position_actions`, `orientation_actions`, `gripper_actions`, `precomputed_actions`, `on_the_fly_actions`
+- Denoising settings (`denoise_actions`, `denoising_percentile`) and `use_gripper_class_weights` for binary grippers
+- Returns required Zarr keys via `get_required_zarr_keys()` and the total action dimension via `get_total_action_dim()`
 
 #### 6. Data Pipeline Flow
 
@@ -424,7 +420,7 @@ python -m versatil.endpoints.post_training_compress \
 - Use double quotes for strings: "foo" and not 'foo'.
 - Avoid plain hardcoded strings. Use constant string values through Enum.value
 - **Never use `object` as a type annotation** for return types or parameters. Use the actual type, a protocol, or a union.
-- Do not add package-level re-exports in `__init__.py` files outside `src/versatil/configs/__init__.py`. Import classes, functions, and constants from their defining modules. Config exports are acceptable only in `src/versatil/configs/__init__.py`, where they support the Hydra ConfigStore and the config API.
+- Do not add new package-level re-exports in `__init__.py` files. Import classes, functions, and constants from their defining modules. Existing re-exports (e.g. `models/layers`, `models/decoding/latent`, `data/tokenization`) are legacy and must not grow; new packages get empty or docstring-only `__init__.py` files. The exception is `src/versatil/configs/__init__.py`, whose exports support the Hydra ConfigStore and the config API.
 
 Additional standards:
 - Ruff formatter and linter (line length 88; lint target pinned to py313 to keep annotation imports at runtime for OmegaConf). Configuration in `pyproject.toml`.

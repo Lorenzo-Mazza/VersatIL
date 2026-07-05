@@ -59,7 +59,6 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
@@ -115,7 +114,6 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
@@ -159,7 +157,6 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
@@ -215,7 +212,6 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
