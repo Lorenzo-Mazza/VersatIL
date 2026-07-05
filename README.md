@@ -62,7 +62,7 @@ VersatIL requires Python 3.13 or 3.14 and is available on PyPI:
 # With uv
 uv venv --python 3.14
 source .venv/bin/activate
-uv pip install versatil
+uv pip install versatil --prerelease=allow
 
 # Or with mamba/conda
 mamba create -n versatil python=3.14 pip

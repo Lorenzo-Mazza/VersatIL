@@ -19,13 +19,18 @@ the package:
 # With uv
 uv venv --python 3.14
 source .venv/bin/activate
-uv pip install versatil
+uv pip install versatil --prerelease=allow
 
 # Or with mamba/conda
 mamba create -n versatil python=3.14 pip
 mamba activate versatil
 pip install versatil
 ```
+
+The `--prerelease=allow` flag is required with uv: Python 3.13/3.14 support
+in `hydra-core` and `omegaconf` is currently published as pre-releases, which
+plain `pip` accepts automatically but uv rejects for transitive dependencies,
+silently resolving an old versatil version instead.
 
 The default PyPI PyTorch wheel runs on both CPU-only and CUDA machines. The
 dedicated CPU-only or CUDA 13.0 wheel sets are selected through the
