@@ -9,7 +9,7 @@ defaults:
   - /task/dataloader: bowel_retraction
   - /task/action_space: deltas_cf_pos_gripper_phase
   - /task/observation_space: stereo_rgb
-  - /training: phase_act_default
+  - /training: moe_act_default
   - /policy/encoding_pipeline: stereo_rgb
   - /policy/decoder: phase_act_default
   - /policy/algorithm: bc_with_vae_gaussian

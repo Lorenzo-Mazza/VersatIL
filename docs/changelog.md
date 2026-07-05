@@ -139,7 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-05-11
 
 ### Added
-- End-to-end experiment config families for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, Multimodal Peg Transfer, and synthetic multimodal benchmarks, including state/RGB variants where supported.
+- End-to-end experiment config families for PushT, Block Pushing, Kitchen, Multimodal Ant, UR3 Block Push, and synthetic multimodal benchmarks, including state/RGB variants where supported.
 - LIBERO/LIBERO+ configs for GPT-style action transformers, Pi0/SmolVLA-style VLA policies, and vision/language encoder sweeps.
 - Dataset schema, Zarr metadata, observation/action-space configs, OmegaConf path resolvers, and `.env` variables for the new local/LeRobot-compatible benchmark families.
 - Synthetic multimodal benchmark generation, presets, rollout metrics, and training/evaluation configs for mode-recovery experiments.

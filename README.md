@@ -409,7 +409,6 @@ VERSATIL_PUSHT_LEROBOT_DIR=/path/to/pusht_lerobot
 VERSATIL_BLOCK_PUSHING_LEROBOT_DIR=/path/to/block_pushing_lerobot_rel
 VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR=/path/to/block_pushing_lerobot_abs
 VERSATIL_KITCHEN_LEROBOT_DIR=/path/to/kitchen_lerobot
-VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR=/path/to/multimodal_peg_transfer
 VERSATIL_ANT_LEROBOT_DIR=/path/to/ant_lerobot
 VERSATIL_UR3_LEROBOT_DIR=/path/to/ur3_lerobot
 
@@ -436,7 +435,6 @@ Ready-to-use end-to-end configs are organized by dataset under `src/versatil/hyd
 | Kitchen | `kitchen/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_kitchen_lerobot) | LeRobot wrapper of the original Franka Kitchen dataset from relay-policy-learning. |
 | Multimodal Ant | `ant/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_multimodal_ant_lerobot) | LeRobot wrapper of the original multimodal Ant navigation dataset. |
 | UR3 Block Push | `ur3/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_ur3_blockpush_lerobot) | LeRobot wrapper of the original UR3 block-push dataset from VQ-BeT. |
-| Multimodal Peg Transfer | `multimodal_peg_transfer/` | Local data | Peg-transfer surgical robot task configs. |
 | Synthetic | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs. |
 
 Each config is self-contained — just point to your data path and run.

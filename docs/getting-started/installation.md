@@ -172,7 +172,6 @@ VERSATIL_PUSHT_LEROBOT_DIR=/path/to/pusht_lerobot
 VERSATIL_BLOCK_PUSHING_LEROBOT_DIR=/path/to/block_pushing_lerobot_rel
 VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR=/path/to/block_pushing_lerobot_abs
 VERSATIL_KITCHEN_LEROBOT_DIR=/path/to/kitchen_lerobot
-VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR=/path/to/multimodal_peg_transfer
 VERSATIL_ANT_LEROBOT_DIR=/path/to/ant_lerobot
 VERSATIL_UR3_LEROBOT_DIR=/path/to/ur3_lerobot
 ```

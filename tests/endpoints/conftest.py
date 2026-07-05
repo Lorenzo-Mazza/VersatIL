@@ -542,7 +542,6 @@ E2E_REPRESENTATIVE_CONFIGS = (
     "end_to_end_training_runs/libero_lerobot/bcat",
     "end_to_end_training_runs/libero_plus/vision_sweep/siglip2_base",
     "end_to_end_training_runs/metaworld/bcat",
-    "end_to_end_training_runs/multimodal_peg_transfer/bcat",
     "end_to_end_training_runs/synthetic/bcat",
     "end_to_end_training_runs/ur3/act_flow_state",
 )
@@ -553,7 +552,7 @@ E2E_EXTRA_ARCHITECTURE_CONFIGS = (
     "end_to_end_training_runs/libero_lerobot/flow_dit_multimodal",
     "end_to_end_training_runs/libero_lerobot/mode_act",
     "end_to_end_training_runs/bowel_retraction/mixture_act",
-    "end_to_end_training_runs/bowel_retraction/phase_act",
+    "end_to_end_training_runs/bowel_retraction/moe_act",
 )
 
 TINY_SCALAR_FIELDS: dict[str, int] = {
