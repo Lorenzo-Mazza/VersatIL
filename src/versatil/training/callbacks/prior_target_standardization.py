@@ -130,8 +130,7 @@ class PriorTargetStandardizationCallback(Callback):
 
         standardizer.set_stats(mean=mean, std=std)
         logging.info(
-            "Fitted DiT prior latent standardizer from %s posterior targets.",
-            count,
+            f"Fitted DiT prior latent standardizer from {count} posterior targets."
         )
 
     def _should_fit(

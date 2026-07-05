@@ -108,8 +108,8 @@ class PostTrainingCompressor:
         quantization_workflow.validate_targets(model=policy)
         self._prepare_and_prune(policy=policy, modules=modules)
         exportable = ExportablePolicy.from_policy(policy)
-        logging.info("Input keys: %s", exportable.observation_keys)
-        logging.info("Output keys: %s", exportable.action_keys)
+        logging.info(f"Input keys: {exportable.observation_keys}")
+        logging.info(f"Output keys: {exportable.action_keys}")
         quantized = quantization_workflow.quantize(
             context=context,
             exportable=exportable,
@@ -138,7 +138,7 @@ class PostTrainingCompressor:
             denoising_thresholds=policy.get_denoising_thresholds(),
             pt2e_backend_config=pt2e_backend_config,
         )
-        logging.info("Compressed model saved to %s", output_directory)
+        logging.info(f"Compressed model saved to {output_directory}")
         if self.generate_report:
             report = QuantizationReport(
                 float_model=quantized.float_model,
@@ -147,7 +147,7 @@ class PostTrainingCompressor:
                 action_keys=policy.output_keys,
                 quantization_workflow=quantized.quantization_workflow,
             )
-            logging.info("\n%s", report.generate_report())
+            logging.info(f"\n{report.generate_report()}")
         return output_directory
 
     def resolve_modules(self) -> list[CompressionTarget]:
@@ -219,23 +219,20 @@ class PostTrainingCompressor:
                 else policy.get_submodule(module.module_path)
             )
             label = module.module_path or "(root)"
-            logging.info("Processing module %s", label)
+            logging.info(f"Processing module {label}")
             if module.preparation is not None:
                 if module.preparation.replace_frozen_batchnorm:
                     count = prepare_batchnorms_for_quantization(submodule)
-                    logging.info("Prepared %d BatchNorm modules in %s", count, label)
+                    logging.info(f"Prepared {count} BatchNorm modules in {label}")
                 if module.preparation.fuse_conv_batchnorm:
                     count = fuse_all_conv_batchnorm_pairs(submodule)
-                    logging.info("Fused %d Conv+BN pairs in %s", count, label)
+                    logging.info(f"Fused {count} Conv+BN pairs in {label}")
             for pruner in module.pruning:
                 total, zeroed = pruner.prune(module=submodule)
+                zeroed_percentage = 100.0 * zeroed / total if total > 0 else 0.0
                 logging.info(
-                    "Pruned %s with %s: %d/%d zeroed (%.1f%%)",
-                    label,
-                    type(pruner).__name__,
-                    zeroed,
-                    total,
-                    100.0 * zeroed / total if total > 0 else 0.0,
+                    f"Pruned {label} with {type(pruner).__name__}: "
+                    f"{zeroed}/{total} zeroed ({zeroed_percentage:.1f}%)"
                 )
 
     def _resolve_quantization_workflow(self) -> BaseQuantizationWorkflow:

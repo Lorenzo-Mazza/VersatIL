@@ -40,7 +40,7 @@ class FloatCheckpointLoader(BaseCheckpointLoader):
         checkpoint_file = os.path.join(self._checkpoint_path, self._checkpoint_name)
         if not os.path.exists(checkpoint_file):
             raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
-        logging.info("Loading policy checkpoint from %s", checkpoint_file)
+        logging.info(f"Loading policy checkpoint from {checkpoint_file}")
 
         self._policy = self._config.policy
         tokenizer_path = os.path.join(

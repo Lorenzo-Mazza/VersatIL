@@ -234,8 +234,8 @@ class Workspace:
         self._prepare_qat()
         if self.config.training.compile:
             logging.info(
-                "Compiling policy with torch.compile (mode=%s)...",
-                self.config.training.compile_mode,
+                "Compiling policy with torch.compile "
+                f"(mode={self.config.training.compile_mode})..."
             )
             self.policy = torch.compile(
                 self.policy, mode=self.config.training.compile_mode

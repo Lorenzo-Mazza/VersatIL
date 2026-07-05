@@ -301,7 +301,7 @@ class ExplainabilityRunner:
         )
         for batch in source:
             self.explain_batch(batch=batch)
-        logging.info("Saved explainability files to %s", self.output_directory)
+        logging.info(f"Saved explainability files to {self.output_directory}")
 
     def _run_online_inference(self) -> None:
         """Run online inference and explain ready observation windows.
@@ -345,7 +345,7 @@ class ExplainabilityRunner:
             )
         finally:
             client.shutdown()
-        logging.info("Saved explainability files to %s", self.output_directory)
+        logging.info(f"Saved explainability files to {self.output_directory}")
 
     def build_online_source(self) -> OnlineInferenceExplanationSource:
         """Build an online inference adapter for ``InferenceClient``.

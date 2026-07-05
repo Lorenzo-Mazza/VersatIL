@@ -239,7 +239,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         for target in targets:
             backend = target.pt2e_backend
             quantizers.append(backend.create_quantizer(module_path=target.module_path))
-            logger.info("PT2E target: %s", target.label)
+            logger.info(f"PT2E target: {target.label}")
 
         composed = ComposableQuantizer(quantizers)
         first_backend = targets[0].pt2e_backend
@@ -251,8 +251,8 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
                     for batch in calibration:
                         prepared(*batch)
             converted = convert_pt2e(prepared)
-        logger.info(
-            "PT2E done, static ops: %d",
-            str(converted.graph).count(FXNodePattern.QUANTIZE_PER_TENSOR.value),
+        static_op_count = str(converted.graph).count(
+            FXNodePattern.QUANTIZE_PER_TENSOR.value
         )
+        logger.info(f"PT2E done, static ops: {static_op_count}")
         return converted

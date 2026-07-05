@@ -118,12 +118,9 @@ class CompressedCheckpointLoader(BaseCheckpointLoader):
             self._tokenizer.to(self._device)
 
         logging.info(
-            "Loaded compressed checkpoint state from %s (%s, %d input keys, "
-            "%d output keys)",
-            self._checkpoint_path,
-            self._artifact_format,
-            len(self._input_keys),
-            len(self._output_keys),
+            f"Loaded compressed checkpoint state from {self._checkpoint_path} "
+            f"({self._artifact_format}, {len(self._input_keys)} input keys, "
+            f"{len(self._output_keys)} output keys)"
         )
 
     def _load_training_config(

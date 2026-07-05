@@ -185,12 +185,11 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
                 )
             )
             for name, reason in skipped:
-                logger.info("Skipping QAT module %s: %s", name, reason)
+                logger.info(f"Skipping QAT module {name}: {reason}")
             logger.info(
-                "Preparing %d nn.Linear modules in %s for QAT with %s.",
-                len(selected_names),
-                target.label,
-                type(target.quantize_config).__name__,
+                f"Preparing {len(selected_names)} nn.Linear modules in "
+                f"{target.label} for QAT with "
+                f"{type(target.quantize_config).__name__}."
             )
             quantize_(
                 model=model,
@@ -242,9 +241,9 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
                 target=target,
             )
             for name, reason in skipped:
-                logger.info("Skipping PTQ module %s: %s", name, reason)
+                logger.info(f"Skipping PTQ module {name}: {reason}")
             selected_names = set(selected)
-            logger.info("quantize_() target: %s", target.label)
+            logger.info(f"quantize_() target: {target.label}")
             quantize_(
                 model=model,
                 config=target.quantize_config,

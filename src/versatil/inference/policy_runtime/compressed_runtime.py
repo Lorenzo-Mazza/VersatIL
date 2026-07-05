@@ -199,10 +199,7 @@ class CompressedPolicyRuntime(PolicyRuntime):
         if backend is not None:
             backend.activate_environment()
             compiled = torch.compile(model)
-            logging.info(
-                "Compiled PT2E model with %s backend",
-                type(backend).__name__,
-            )
+            logging.info(f"Compiled PT2E model with {type(backend).__name__} backend")
         else:
             compiled = torch.compile(model)
             logging.info("Compiled model with inductor backend")

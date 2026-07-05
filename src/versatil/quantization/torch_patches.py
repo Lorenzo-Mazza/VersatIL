@@ -200,8 +200,8 @@ def register_torchao_patches() -> None:
     already_imported = [name for name in module_patches if name in sys.modules]
     if already_imported:
         logging.warning(
-            "torchao modules %s were imported before versatil registered its "
-            "compatibility patches; the patches do not apply to this process.",
-            already_imported,
+            f"torchao modules {already_imported} were imported before versatil "
+            "registered its compatibility patches; the patches do not apply to "
+            "this process."
         )
     sys.meta_path.insert(0, TorchaoPatchFinder(module_patches=module_patches))

@@ -1989,16 +1989,16 @@ class TestStepTimingLog:
             client.step()
 
             mock_log_info.assert_called_once()
-            call_args = mock_log_info.call_args[0]
-            format_string = call_args[0]
-            assert "[TIMING]" in format_string
+            logged_message = mock_log_info.call_args[0][0]
             # preprocess=0.1, inference=0.1, postprocess=0.1, total=0.7, fps=1/0.7
-            assert call_args[1] == 0  # timestep
-            assert call_args[2] == pytest.approx(0.1)  # preprocess duration
-            assert call_args[3] == pytest.approx(0.1)  # inference duration
-            assert call_args[4] == pytest.approx(0.1)  # postprocess duration
-            assert call_args[5] == pytest.approx(0.7)  # total duration
-            assert call_args[6] == pytest.approx(1.0 / 0.7)  # fps
+            assert logged_message == (
+                "[TIMING] Step 0: "
+                "preprocess=0.1000s "
+                "inference=0.1000s "
+                "postprocess=0.1000s "
+                "total=0.7000s "
+                f"fps={1.0 / 0.7:.1f}"
+            )
 
     def test_no_timing_log_when_disabled(
         self,

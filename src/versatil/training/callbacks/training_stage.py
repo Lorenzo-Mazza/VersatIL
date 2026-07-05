@@ -383,12 +383,9 @@ class TrainingStageCallback(Callback):
             optimizer=optimizer,
         )
         logging.info(
-            "Applied training stage '%s' at epoch %s: %s trainable tensors, "
-            "%s frozen tensors",
-            stage.name,
-            stage.start_epoch,
-            trainable_tensors,
-            frozen_tensors,
+            f"Applied training stage '{stage.name}' at epoch "
+            f"{stage.start_epoch}: {trainable_tensors} trainable tensors, "
+            f"{frozen_tensors} frozen tensors"
         )
 
     @staticmethod

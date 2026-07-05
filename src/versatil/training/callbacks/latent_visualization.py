@@ -132,9 +132,8 @@ class LatentVisualizationCallback(Callback):
                 trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
         except Exception:
             logger.warning(
-                "Skipping %s latent visualization logging at epoch %s.",
-                split,
-                trainer.current_epoch,
+                f"Skipping {split} latent visualization logging at epoch "
+                f"{trainer.current_epoch}.",
                 exc_info=True,
             )
         finally:

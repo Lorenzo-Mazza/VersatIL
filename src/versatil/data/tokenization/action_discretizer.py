@@ -170,9 +170,9 @@ class FastActionDiscretizer(ActionDiscretizer):
         clipped_token_array = np.clip(token_array, 0, self.token_count - 1)
         if not np.array_equal(clipped_token_array, token_array):
             logging.warning(
-                "FAST token sequence contains IDs outside [0, %d]; clipping "
-                "before decode. Decoded actions may be degraded.",
-                self.token_count - 1,
+                f"FAST token sequence contains IDs outside "
+                f"[0, {self.token_count - 1}]; clipping before decode. "
+                "Decoded actions may be degraded."
             )
         token_array = clipped_token_array
         decoded_tokens = bpe_tokenizer.decode(token_array.tolist())
@@ -203,15 +203,16 @@ class FastActionDiscretizer(ActionDiscretizer):
             + min_token
         )
         if coefficients.size != expected_coefficient_count:
-            logging.warning(
-                "FAST token sequence decodes to %d DCT coefficients, expected "
-                "%d; %s to the expected length. Decoded actions may be "
-                "degraded.",
-                coefficients.size,
-                expected_coefficient_count,
+            adjustment = (
                 "zero-padding"
                 if coefficients.size < expected_coefficient_count
-                else "truncating",
+                else "truncating"
+            )
+            logging.warning(
+                f"FAST token sequence decodes to {coefficients.size} DCT "
+                f"coefficients, expected {expected_coefficient_count}; "
+                f"{adjustment} to the expected length. Decoded actions may be "
+                "degraded."
             )
         if coefficients.size < expected_coefficient_count:
             return np.pad(

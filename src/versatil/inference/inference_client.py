@@ -140,12 +140,12 @@ class InferenceClient:
             and not temporal_aggregation
         ):
             logging.warning(
-                "Executing %d actions per observation with observation_horizon=%d: "
-                "the policy's history will hold frames %d steps apart, while "
-                "training windows are contiguous.",
-                self.action_execution_horizon,
-                policy_runtime.observation_horizon,
-                self.action_execution_horizon,
+                f"Executing {self.action_execution_horizon} actions per "
+                f"observation with "
+                f"observation_horizon={policy_runtime.observation_horizon}: "
+                f"the policy's history will hold frames "
+                f"{self.action_execution_horizon} steps apart, while training "
+                "windows are contiguous."
             )
         if self.action_execution_horizon > policy_runtime.prediction_horizon:
             raise ValueError(
@@ -233,7 +233,7 @@ class InferenceClient:
             try:
                 status = self.step()
             except Exception:
-                logging.exception("Fatal error at step %d", _step_idx)
+                logging.exception(f"Fatal error at step {_step_idx}")
                 raise
             if status == EpisodeStatus.FINISHED.value:
                 break
@@ -284,14 +284,12 @@ class InferenceClient:
             postprocessing_duration = time.time() - postprocessing_start
             total_duration = time.time() - step_start
             logging.info(
-                "[TIMING] Step %d: preprocess=%.4fs inference=%.4fs "
-                "postprocess=%.4fs total=%.4fs fps=%.1f",
-                self.timestep,
-                preprocessing_duration,
-                inference_duration,
-                postprocessing_duration,
-                total_duration,
-                1.0 / total_duration,
+                f"[TIMING] Step {self.timestep}: "
+                f"preprocess={preprocessing_duration:.4f}s "
+                f"inference={inference_duration:.4f}s "
+                f"postprocess={postprocessing_duration:.4f}s "
+                f"total={total_duration:.4f}s "
+                f"fps={1.0 / total_duration:.1f}"
             )
 
         self.timestep += 1
