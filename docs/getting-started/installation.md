@@ -10,7 +10,31 @@
 
 ## Setup
 
-### Option A: Miniforge/Mamba Environment
+### Option A: Install from PyPI
+
+Create a Python 3.13/3.14 environment with your preferred manager and install
+the package:
+
+```bash
+# With uv
+uv venv --python 3.14
+source .venv/bin/activate
+uv pip install versatil
+
+# Or with mamba/conda
+mamba create -n versatil python=3.14 pip
+mamba activate versatil
+pip install versatil
+```
+
+The default PyPI PyTorch wheel runs on both CPU-only and CUDA machines. The
+dedicated CPU-only or CUDA 13.0 wheel sets are selected through the
+`--extra cpu` / `--extra gpu` flags of the source installs below.
+
+### Option B: Source Install into a Miniforge/Mamba Environment
+
+Use a source install when you want to develop VersatIL itself or run the test
+suite.
 
 #### 1. Install Conda/Mamba
 
@@ -51,7 +75,7 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra 
 
 This installs all packages into the active conda environment.
 
-### Option B: uv Environment
+### Option C: Source Install with uv
 
 Use this path when you want a project-local `.venv` without conda, mamba, or
 Miniforge.
@@ -74,7 +98,7 @@ uv sync --python "$PYTHON_VERSION" --extra gpu
 # uv sync --python "$PYTHON_VERSION" --extra cpu
 ```
 
-Both setup paths install:
+Both source setup paths install:
 
 - **PyTorch 2.12.0** from the selected PyTorch wheel extra (`gpu` or `cpu`)
 - **Hydra + OmegaConf** for configuration

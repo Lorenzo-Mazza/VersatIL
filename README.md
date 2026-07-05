@@ -66,8 +66,30 @@ variables, and Hydra configs used for each paper.
 - NVIDIA driver compatible with CUDA 13.0 PyTorch wheels, only when installing the `gpu` extra.
 
 **Setup:**
-### Option A: Install into a Miniforge/Mamba environment
-Follow the Miniforge instructions at https://github.com/conda-forge/miniforge
+### Option A: Install from PyPI
+
+Create a Python 3.13/3.14 environment with your preferred manager and install
+the package:
+
+```bash
+# With uv
+uv venv --python 3.14
+source .venv/bin/activate
+uv pip install versatil
+
+# Or with mamba/conda
+mamba create -n versatil python=3.14 pip
+mamba activate versatil
+pip install versatil
+```
+
+The default PyPI PyTorch wheel runs on both CPU-only and CUDA machines. The
+dedicated CPU-only or CUDA 13.0 wheel sets are selected through the
+`--extra cpu` / `--extra gpu` flags of the source installs below.
+
+### Option B: Install from source into a Miniforge/Mamba environment
+Use a source install when you want to develop VersatIL itself or run the test
+suite. Follow the Miniforge instructions at https://github.com/conda-forge/miniforge
 
 ```bash
 # 1. Clone repository
@@ -93,7 +115,7 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra 
 pre-commit install
 ```
 
-### Option B: Install with uv directly
+### Option C: Install from source with uv directly
 This creates a project-local `.venv` and does not require conda, mamba, or
 Miniforge.
 
@@ -121,9 +143,9 @@ uv sync --python "$PYTHON_VERSION" --extra gpu
 pre-commit install
 ```
 
-With both options, `uv sync` installs the `dev` dependency group (pytest,
-pytest-cov, ruff, pre-commit) by default, so the environment is ready for
-development out of the box. Pass `--no-dev` for a runtime-only install.
+With both source options, `uv sync` installs the `dev` dependency group
+(pytest, pytest-cov, ruff, pre-commit) by default, so the environment is ready
+for development out of the box. Pass `--no-dev` for a runtime-only install.
 
 ### Optional ExecuTorch Dependency for Edge Deployment
 
