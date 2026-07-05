@@ -141,7 +141,7 @@ When adding a new component:
         dropout: float = 0.1
     ```
 
-2. Register it in the ConfigStore (`src/versatil/configs/__init__.py`):
+2. Register it in the ConfigStore (in the matching domain module under `src/versatil/configs/store/`, e.g. `policy.py`):
 
     ```python
     cs.store(group="policy/decoder", name="my_component", node=MyComponentConfig)

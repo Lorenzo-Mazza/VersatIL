@@ -356,7 +356,8 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
         """Encode a single camera's images through the FiLM backbone and pooling.
 
         Args:
-            images: Image tensor of shape (B, C, H, W).
+            images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
             conditioning: Conditioning tensor of shape (B, D).
 
         Returns:

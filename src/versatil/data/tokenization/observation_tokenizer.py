@@ -3,7 +3,7 @@
 This tokenizer:
 1. Takes multiple observation keys (language, proprio, gripper, etc.)
 2. Optionally bins continuous data into quantiles
-3. Creates a unified prompt string (e.g., "TaskSpace: grasp needle, State in robot frame: 127 143 89")
+3. Creates a unified prompt string (e.g., "Task: grasp needle, State in robot frame: 127 143 89")
 4. Tokenizes the prompt using a language model tokenizer
 5. Returns token IDs and padding masks
 """
@@ -50,7 +50,7 @@ class ObservationTokenizer:
     """Tokenizes multiple observation keys into a unified prompt.
 
     Creates prompts like:
-    "TaskSpace: grasp needle, State in robot frame: 127 143 89, State in camera frame: 88 201 43"
+    "Task: grasp needle, State in robot frame: 127 143 89, State in camera frame: 88 201 43"
 
     All specified observation keys are combined into a single string, then tokenized.
     """

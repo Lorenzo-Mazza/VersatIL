@@ -201,7 +201,8 @@ class SpatialBackboneEncoder(ImageEncoderMixin, Encoder):
         """Encode a single camera's images through the backbone and pooling.
 
         Args:
-            images: Image tensor of shape (B, C, H, W).
+            images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
 
         Returns:
             Pooled feature tensor.
@@ -224,7 +225,9 @@ class SpatialBackboneEncoder(ImageEncoderMixin, Encoder):
         """Encode images into features.
 
         Args:
-            inputs: Dict mapping camera keys to image tensors (B, C, H, W).
+            inputs: Dict mapping camera keys to image tensors (B*T, C, H, W);
+                ``forward()`` flattens the temporal axis into the batch
+                before dispatching here.
 
         Returns:
             Dict with image features. Single camera: key is the modality name.

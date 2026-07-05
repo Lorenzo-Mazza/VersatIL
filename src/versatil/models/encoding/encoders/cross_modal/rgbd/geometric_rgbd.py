@@ -141,7 +141,9 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         """Encode RGB and depth into joint RGBD features using geometric attention.
 
         Args:
-            rgb_image: RGB image tensor of shape (B, C, H, W).
+            rgb_image: RGB image tensor of shape (B*T, C, H, W); ``forward()``
+                flattens the temporal axis into the batch before
+                dispatching here.
             depth_map: Depth map tensor of shape (B, 1, H, W).
 
         Returns:

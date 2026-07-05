@@ -108,8 +108,11 @@ class SocketActionTransport:
         """Send actions and metadata to the server.
 
         Args:
-            actions: Dict mapping environment index to flat action list.
-            action_metadata: Dict describing the action space.
+            actions: Dict mapping environment index to a structured action
+                dict keyed by ``ActionComponent`` value, as produced by
+                ``ActionPostprocessor.format_action``.
+            action_metadata: Dict describing the action space, keyed by action
+                component with ``ActionMetadataField`` entries.
 
         Returns:
             Server acknowledgement response.

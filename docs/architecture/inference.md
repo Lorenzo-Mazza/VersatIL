@@ -42,7 +42,12 @@ The built-in [`SocketObservationTransport`][versatil.inference.socket_transport.
 
 ```python
 class SocketObservationTransport:
-    def __init__(self, server_address: str = "127.0.0.1", server_port: int = 5555): ...
+    def __init__(
+        self,
+        server_address: str = "127.0.0.1",
+        server_port: int = 5555,
+        request_timeout_seconds: float | None = None,
+    ): ...
 ```
 
 The transport sends requests via `ServerRoute` enums (e.g., `GET_OBSERVATION`, `REGISTER_CLIENT`, `SEND_ACTION`) and handles serialization/deserialization automatically.
@@ -60,12 +65,13 @@ class ObservationPreprocessor:
     def __init__(
         self,
         camera_keys: list[str],
-        proprioceptive_keys: list[str],
+        state_keys: list[str],
         has_language: bool,
-        camera_metadata: dict[str, RGBCameraMetadata | DepthCameraMetadata],
+        camera_metadata: dict[str, CameraMetadata],
         compression_type: str = "raw",
         rotate_images: bool = False,
-        depth_clamp_range: tuple[float, float] | None = None,
+        depth_clamp_ranges: dict[str, tuple[float, float]] | None = None,
+        state_dtypes: dict[str, str] | None = None,
     ): ...
 ```
 
@@ -99,8 +105,8 @@ def transform_camera_observations(
     """Returns dict mapping camera key to tensor (observation_horizon, C, H, W)."""
 ```
 
-!!! note "Depth Clamp Range"
-    The depth clamp range is exposed through `PolicyRuntime.depth_clamp_range`. Float runtimes read it from the policy normalizer, while compressed runtimes read it from the serialized compressed normalizer.
+!!! note "Depth Clamp Ranges"
+    Per-camera depth clamp ranges are exposed through `PolicyRuntime.depth_clamp_ranges`. Float runtimes read them from the policy normalizer, while compressed runtimes read them from the serialized compressed normalizer.
 
 ## Observation Buffering
 
@@ -163,7 +169,7 @@ Inference runs under `torch.autocast` with the configured precision and `torch.n
 [`PolicyRuntime`][versatil.inference.policy_runtime.base.PolicyRuntime] exposes key metadata through the composed checkpoint loader:
 
 - `denoising_thresholds` -- Per-action-key thresholds for denoising action data, if it was used during training, consumed by [`ActionPostprocessor`][versatil.inference.action_postprocessor.ActionPostprocessor]
-- `depth_clamp_range` -- Min/max depth map values from the normalizer, used by [`ObservationPreprocessor`][versatil.inference.observation_preprocessor.ObservationPreprocessor]
+- `depth_clamp_ranges` -- Per-camera min/max depth map values from the normalizer, used by [`ObservationPreprocessor`][versatil.inference.observation_preprocessor.ObservationPreprocessor]
 - `observation_space` / `action_space` -- The policy's task spaces
 - `prediction_horizon` / `observation_horizon` -- Temporal window sizes
 
@@ -293,12 +299,14 @@ class InferenceClient:
         observation_transport: ObservationTransport,
         action_transport: ActionTransport,
         temporal_aggregation: bool = False,
+        action_execution_horizon: int | None = None,
         favor_more_recent: bool = True,
         exponential_decay: float = 0.01,
         compression_type: str = "raw",
         max_timesteps: int = 800,
         timing_log: bool = False,
         update_rate_hz: float | None = None,
+        online_explanation_source: OnlineExplanationSource | None = None,
     ): ...
 ```
 

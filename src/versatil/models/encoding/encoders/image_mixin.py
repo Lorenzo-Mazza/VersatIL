@@ -20,7 +20,8 @@ def resize_to_target_size(
     the shorter dimension. No-op if images already match the target.
 
     Args:
-        images: Image tensor of shape (B, C, H, W).
+        images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
         target_height: Target height in pixels.
         target_width: Target width in pixels.
 
@@ -165,7 +166,8 @@ class ImageEncoderMixin(abc.ABC):
         """Encode a single camera's images into features.
 
         Args:
-            images: Image tensor of shape (B, C, H, W).
+            images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
 
         Returns:
             Feature tensor.
@@ -178,7 +180,9 @@ class ImageEncoderMixin(abc.ABC):
         """Dispatch single-image encoding across cameras.
 
         Args:
-            inputs: Dict mapping camera keys to image tensors (B, C, H, W).
+            inputs: Dict mapping camera keys to image tensors (B*T, C, H, W);
+                ``forward()`` flattens the temporal axis into the batch
+                before dispatching here.
 
         Returns:
             Dict with features keyed by modality (single) or

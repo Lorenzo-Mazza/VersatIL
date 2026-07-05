@@ -419,7 +419,7 @@ class MyDecoderConfig(DecodingNetworkConfig):
 
 ### 3. Register in ConfigStore
 
-Add the config to the Hydra ConfigStore in `src/versatil/configs/__init__.py`.
+Export the config dataclass from `src/versatil/configs/__init__.py` and register it in the Hydra ConfigStore in `src/versatil/configs/store/policy.py`.
 
 ### 4. Create YAML config
 

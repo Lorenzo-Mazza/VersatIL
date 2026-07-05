@@ -504,18 +504,20 @@ class MyEncoder(Encoder):
             )
         ]
 
-    def forward(
+    def encode(
         self,
         inputs: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
+        # inputs are temporally flattened: images arrive as (B*T, C, H, W).
         x = inputs[self.input_specification.keys[0]]
-        encoded = self.encode(x)  # Your encoding logic
-        return {"my_feature": encoded}
+        return {"my_feature": x}  # Your encoding logic
 ```
+
+Implement `encode()`, not `forward()`: the base `forward()` validates the canonical `(B, T, ...)` input layout, flattens the temporal axis into the batch before calling `encode()`, and restores it afterwards.
 
 ### 3. Register in the config store and add tests
 
-- Register the config dataclass in `src/versatil/configs/__init__.py`
+- Export the config dataclass from `src/versatil/configs/__init__.py` and register it in the ConfigStore in `src/versatil/configs/store/policy.py`
 - Add a YAML config in `src/versatil/hydra_configs/policy/encoding_pipeline/`
 - Write tests in `tests/models/encoding/`
 

@@ -324,7 +324,7 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 
 **Key properties on PolicyRuntime**:
 - `denoising_thresholds`: Per-action-key thresholds from policy checkpoint, zeroes small deltas
-- `depth_clamp_range`: Min/max from normalizer stats for depth images
+- `depth_clamp_ranges`: Per-camera min/max from normalizer stats for depth images
 
 **External packages used**:
 - `tso-robotics-sockets`: Generic socket transport + protocol keys (`ServerRoute`, `InferenceRequestKey`, etc.)
@@ -457,7 +457,7 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 6. **TransformerInputBuilder processes all features**: It projects and attends to every feature in the dict (except padding masks and `exclude_keys`). Decoders must filter features to only the keys declared in `decoder_input.keys` before passing to the input builder. Passing the full pipeline output unfiltered will silently include unintended features.
 7. **Renaming classes/configs**: When renaming a class, config, or loss module, you MUST also update:
    - The corresponding `*Config` dataclass in `src/versatil/configs/`
-   - The import, export, and ConfigStore registration in `src/versatil/configs/__init__.py` when it is a Hydra config
+   - The import and export in `src/versatil/configs/__init__.py`, and the ConfigStore registration in the matching `src/versatil/configs/store/` module, when it is a Hydra config
    - **ALL YAML files** in `src/versatil/hydra_configs/` that reference the old name (use `grep -r "OldName" src/versatil/hydra_configs/`)
    - Rename YAML files if the filename contains the old name
 

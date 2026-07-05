@@ -1,5 +1,6 @@
 """Creates a Zarr-based replay buffer dataset from synthetic episode generators."""
 
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -28,7 +29,7 @@ def create_replay_buffer_from_synthetic(schema: SyntheticSchema) -> None:
     Args:
         schema: SyntheticSchema instance with generation parameters and zarr path.
     """
-    print(
+    logging.info(
         f"Creating synthetic Zarr at {schema.zarr_path} "
         f"(task={schema.task_name}, episodes={schema.num_episodes})"
     )
@@ -73,7 +74,7 @@ def create_replay_buffer_from_synthetic(schema: SyntheticSchema) -> None:
         num_styles=schema.num_styles,
         noise_std=schema.noise_std,
     )
-    print(
+    logging.info(
         f"Created Zarr dataset with {len(episode_ends)} episodes, "
         f"{cumulative_length} total steps."
     )
@@ -115,7 +116,7 @@ def _save_training_visualization(
         noise_std=noise_std,
     )
     plt.close(figure)
-    print(f"Saved trajectory visualization to {output_path}")
+    logging.info(f"Saved trajectory visualization to {output_path}")
 
 
 def _create_zarr_arrays(

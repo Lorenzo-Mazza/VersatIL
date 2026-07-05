@@ -404,6 +404,7 @@ def _prepare_observation(
     Renders one frame per history timestep with progressive trails, and
     stacks all modalities along the temporal dimension to match the
     (B, T, ...) convention used during training.
+
     Args:
         position_history: Last obs_horizon Cartesian positions (x, y)
             in [0, 1]. Shape (obs_horizon, 2).
@@ -413,6 +414,8 @@ def _prepare_observation(
         trail: Full trail up to current step for rendering. Shape (N, 2)
             or None. Each history frame renders the trail up to its timestep.
         context_vector: One-hot context for conditional tasks, or None.
+        context_color: RGB color of the rendered context indicator for
+            conditional tasks, or None to render no indicator.
 
     Returns:
         Dict mapping observation keys to batched torch tensors
