@@ -341,7 +341,22 @@ class TestLeRobotDatasetSchemaV30Init:
 
         assert schema.dataset_path == Path("/data/lerobot_ds")
 
-    def test_creates_lerobot_metadata(
+    def test_init_does_not_load_raw_metadata(
+        self,
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        metadata = dataset_metadata_factory(observations={}, precomputed_actions={})
+
+        schema = LeRobotDatasetSchemaV30(
+            dataset_path="/data/nonexistent_lerobot_ds",
+            zarr_path="/tmp/test.zarr",
+            metadata=metadata,
+            dataset_type="metaworld",
+        )
+
+        assert schema.dataset_path == Path("/data/nonexistent_lerobot_ds")
+
+    def test_lerobot_metadata_loads_lazily_on_first_access(
         self,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -350,14 +365,19 @@ class TestLeRobotDatasetSchemaV30Init:
         with patch.object(
             LeRobotDatasetMetadataV30, "__init__", return_value=None
         ) as mock_init:
-            LeRobotDatasetSchemaV30(
+            schema = LeRobotDatasetSchemaV30(
                 dataset_path="/data/lerobot_ds",
                 zarr_path="/tmp/test.zarr",
                 metadata=metadata,
                 dataset_type="metaworld",
             )
+            mock_init.assert_not_called()
 
-        mock_init.assert_called_once_with(dataset_path="/data/lerobot_ds")
+            first_access = schema.lerobot_metadata
+            second_access = schema.lerobot_metadata
+
+        mock_init.assert_called_once_with(dataset_path=Path("/data/lerobot_ds"))
+        assert first_access is second_access
 
     def test_inherits_base_fields(
         self,

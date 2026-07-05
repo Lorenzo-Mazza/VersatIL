@@ -272,7 +272,8 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     Attributes:
         dataset_path: Root path to the LeRobot dataset directory.
-        lerobot_metadata: Metadata handler for accessing dataset structure.
+        lerobot_metadata: Metadata handler for accessing dataset structure,
+            loaded lazily on first conversion-time access.
         dataset_type: String with the dataset type used by the schema (e.g. libero, metaworld, etc.)
     """
 
@@ -287,8 +288,25 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         super().__init__(
             zarr_path=zarr_path, metadata=metadata, dataset_type=dataset_type
         )
-        # TODO: This forces the presence of LeRobot raw data, even when the zarr already exists. Need to refactor this.
-        self.lerobot_metadata = LeRobotDatasetMetadataV30(dataset_path=dataset_path)
+        self._lerobot_metadata: LeRobotDatasetMetadataV30 | None = None
+
+    @property
+    def lerobot_metadata(self) -> LeRobotDatasetMetadataV30:
+        """Raw LeRobot metadata, loaded on first access.
+
+        Lazy loading keeps zarr-only workflows independent of the raw dataset
+        directory: when the zarr store already exists, conversion never runs
+        and the raw data does not need to be present.
+        """
+        if self._lerobot_metadata is None:
+            self._lerobot_metadata = LeRobotDatasetMetadataV30(
+                dataset_path=self.dataset_path
+            )
+        return self._lerobot_metadata
+
+    @lerobot_metadata.setter
+    def lerobot_metadata(self, lerobot_metadata: LeRobotDatasetMetadataV30) -> None:
+        self._lerobot_metadata = lerobot_metadata
 
     def _get_frames_from_videos(
         self, query_timestamps: dict[str, list[float]], episode_index: int
