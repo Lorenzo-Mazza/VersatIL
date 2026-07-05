@@ -106,17 +106,17 @@ class TestSinusoidalPositionalEncoding1DInit:
         sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
     ):
         embedding_dimension = 64
-        maximum_length = 100
+        maximum_sequence_length = 100
         module = sinusoidal_1d_factory(
             embedding_dimension=embedding_dimension,
             precompute_encodings=True,
-            maximum_length=maximum_length,
+            maximum_sequence_length=maximum_sequence_length,
             position_source=PositionSource.TENSOR_INDICES.value,
         )
-        # Buffer should be (1, maximum_length, embedding_dimension)
+        # Buffer should be (1, maximum_sequence_length, embedding_dimension)
         assert module.precomputed_encodings.shape == (
             1,
-            maximum_length,
+            maximum_sequence_length,
             embedding_dimension,
         )
 
@@ -178,7 +178,7 @@ class TestSinusoidalPositionalEncoding1DInit:
             embedding_dimension=64,
             learnable_frequencies=True,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         buffers = dict(module.named_buffers())
         assert module.precompute_encodings is False
@@ -256,7 +256,7 @@ class TestSinusoidalPositionalEncoding1DForward:
         precomputed = sinusoidal_1d_factory(
             embedding_dimension=embedding_dimension,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         non_precomputed = sinusoidal_1d_factory(
             embedding_dimension=embedding_dimension,
@@ -281,7 +281,7 @@ class TestSinusoidalPositionalEncoding1DForward:
             embedding_dimension=embedding_dimension,
             learnable_frequencies=True,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_sequence_length=100,
         )
         tensor = sequence_tensor_factory(
             batch_size=2,

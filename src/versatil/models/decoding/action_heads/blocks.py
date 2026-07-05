@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.mlp import MLP
+from versatil.models.layers.normalization.ada_norm import AdaNorm
 
 
 class ActionHeadBlock(nn.Module, ABC):
@@ -16,11 +17,6 @@ class ActionHeadBlock(nn.Module, ABC):
     to create complex action prediction heads. Each block processes embeddings
     and outputs tensors with the same shape.
 
-    Example:
-        class CustomBlock(ActionHeadBlock):
-            def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
-                # Process action_embedding and return same-shaped output
-                return self.process(action_embedding)
     """
 
     @abstractmethod
@@ -36,6 +32,25 @@ class ActionHeadBlock(nn.Module, ABC):
         raise NotImplementedError
 
 
+class LayerNormBlock(ActionHeadBlock):
+    """Layer-normalization block for action heads."""
+
+    def __init__(self, input_dimension: int) -> None:
+        """Initialize the layer-normalization block.
+
+        Args:
+            input_dimension: Input and output feature dimension.
+        """
+        super().__init__()
+        self.input_dimension = input_dimension
+        self.output_dim = input_dimension
+        self.norm = nn.LayerNorm(input_dimension)
+
+    def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
+        """Apply layer normalization."""
+        return self.norm(action_embedding)
+
+
 class MLPBlock(ActionHeadBlock):
     """Multi-layer perceptron block for action heads.
 
@@ -45,33 +60,35 @@ class MLPBlock(ActionHeadBlock):
 
     def __init__(
         self,
-        input_dim: int,
-        hidden_dims: list[int] | None = None,
+        input_dimension: int,
+        hidden_dimensions: list[int] | None = None,
         output_dim: int | None = None,
         activation: str = ActivationFunction.GELU.value,
         dropout: float = 0.0,
         normalization: bool = True,
-    ):
+    ) -> None:
         """Initialize MLP block.
 
         Args:
-            input_dim: Input dimension
-            hidden_dims: List of hidden dimensions
+            input_dimension: Input dimension
+            hidden_dimensions: List of hidden dimensions
             output_dim: Output dimension (None to keep same as last hidden)
             activation: Activation function name
             dropout: Dropout rate
             normalization: Whether to apply layer normalization before MLP
         """
         super().__init__()
-        if output_dim is None and not hidden_dims:
-            raise ValueError("Either output_dim or hidden_dims must be specified.")
-        self.input_dim = input_dim
-        self.output_dim = output_dim or hidden_dims[-1]
-        self.norm = nn.LayerNorm(input_dim) if normalization else nn.Identity()
+        if output_dim is None and not hidden_dimensions:
+            raise ValueError(
+                "Either output_dim or hidden_dimensions must be specified."
+            )
+        self.input_dimension = input_dimension
+        self.output_dim = output_dim or hidden_dimensions[-1]
+        self.norm = nn.LayerNorm(input_dimension) if normalization else nn.Identity()
 
         self.mlp = MLP(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=hidden_dimensions,
             output_dim=output_dim,
             activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,
@@ -101,15 +118,15 @@ class AttentionBlock(ActionHeadBlock):
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int = 8,
+        number_of_heads: int = 8,
         dropout: float = 0.0,
         normalization: bool = True,
-    ):
+    ) -> None:
         """Initialize attention block.
 
         Args:
             embedding_dimension: Embedding dimension
-            num_heads: Number of attention heads
+            number_of_heads: Number of attention heads
             dropout: Dropout rate
             normalization: Whether to apply layer normalization
         """
@@ -117,11 +134,11 @@ class AttentionBlock(ActionHeadBlock):
         self.norm = (
             nn.LayerNorm(embedding_dimension) if normalization else nn.Identity()
         )
-        self.input_dim = embedding_dimension
+        self.input_dimension = embedding_dimension
         self.output_dim = embedding_dimension
         self.attention = nn.MultiheadAttention(
             embed_dim=embedding_dimension,
-            num_heads=num_heads,
+            num_heads=number_of_heads,
             dropout=dropout,
             batch_first=True,
         )
@@ -136,6 +153,12 @@ class AttentionBlock(ActionHeadBlock):
         Returns:
             Output with residual (B, prediction horizon, embedding_dimension)
         """
+        if action_embedding.dim() != 3:
+            raise ValueError(
+                "AttentionBlock expects (B, horizon, embedding) input, got "
+                f"{tuple(action_embedding.shape)}; a 2D tensor would run "
+                "attention across the batch as if it were a sequence."
+            )
         normed = self.norm(action_embedding)
         attn_out, _ = self.attention(normed, normed, normed)
         result: torch.Tensor = action_embedding + self.dropout(attn_out)
@@ -148,7 +171,7 @@ class ResidualBlock(ActionHeadBlock):
     Wraps another block and adds a residual connection around it.
     """
 
-    def __init__(self, block: ActionHeadBlock, dropout: float = 0.0):
+    def __init__(self, block: ActionHeadBlock, dropout: float = 0.0) -> None:
         """Initialize residual block.
 
         Args:
@@ -157,9 +180,9 @@ class ResidualBlock(ActionHeadBlock):
         """
         super().__init__()
         self.block = block
-        self.input_dim = block.input_dim
+        self.input_dimension = block.input_dimension
         self.output_dim = block.output_dim
-        if self.input_dim != self.output_dim:
+        if self.input_dimension != self.output_dim:
             raise ValueError(
                 "Input and output dimensions must match for ResidualBlock."
             )
@@ -178,3 +201,58 @@ class ResidualBlock(ActionHeadBlock):
             self.block(action_embedding)
         )
         return result
+
+
+class ConditionalActionHeadBlock(nn.Module, ABC):
+    """Abstract base class for action-head blocks with a conditioning input."""
+
+    @abstractmethod
+    def forward(
+        self,
+        action_embedding: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        """Process action embeddings with a conditioning vector."""
+        raise NotImplementedError
+
+
+class AdaNormBlock(ConditionalActionHeadBlock):
+    """Adaptive layer-normalization block for conditional action heads."""
+
+    def __init__(
+        self,
+        input_dimension: int,
+        conditioning_dimension: int,
+        activation: str = ActivationFunction.SILU.value,
+    ) -> None:
+        """Initialize adaptive normalization.
+
+        Args:
+            input_dimension: Action embedding feature dimension.
+            conditioning_dimension: Conditioning vector dimension.
+            activation: Activation used inside the modulation projection.
+        """
+        super().__init__()
+        self.input_dimension = input_dimension
+        self.output_dim = input_dimension
+        base_norm = nn.LayerNorm(
+            input_dimension,
+            elementwise_affine=False,
+            eps=1e-6,
+        )
+        self.ada_norm = AdaNorm(
+            base_norm=base_norm,
+            conditioning_dimension=conditioning_dimension,
+            feature_dim=input_dimension,
+            use_gate=False,
+            activation=activation,
+        )
+
+    def forward(
+        self,
+        action_embedding: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply adaptive normalization."""
+        modulated_embedding, _ = self.ada_norm(action_embedding, condition)
+        return modulated_embedding

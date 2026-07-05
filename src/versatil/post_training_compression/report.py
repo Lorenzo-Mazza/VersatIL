@@ -7,8 +7,9 @@ import torch
 import torch._inductor.config as inductor_config
 import torch.nn as nn
 
-from versatil.post_training_compression.constants import QuantizationStrategy
+from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.quantization.constants import (
+    FXNodeOp,
     FXNodePattern,
     QuantizableOperatorType,
     ReportMetricKey,
@@ -16,7 +17,7 @@ from versatil.quantization.constants import (
 
 
 class QuantizationReport:
-    """Analyzes a PTQ model and generates a comparison report."""
+    """Analyzes a quantized model and generates a report with a comparison against its floating point equivalent."""
 
     def __init__(
         self,
@@ -24,7 +25,7 @@ class QuantizationReport:
         quantized_model: nn.Module,
         example_inputs: tuple[torch.Tensor, ...],
         action_keys: list[str],
-        quantization_strategy: str = QuantizationStrategy.PT2E.value,
+        quantization_workflow: str = QuantizationWorkflow.PT2E.value,
     ) -> None:
         """Initialize with float and quantized models for comparison.
 
@@ -33,15 +34,15 @@ class QuantizationReport:
             quantized_model: Quantized model to compare against.
             example_inputs: Example inputs for running inference.
             action_keys: Ordered list of action output keys.
-            quantization_strategy: QuantizationStrategy value. PT2E
-                benchmarks with inductor compilation, QUANTIZE_API
+            quantization_workflow: QuantizationWorkflow value. PT2E
+                benchmarks with inductor compilation, eager PTQ
                 benchmarks eager execution.
         """
         self._float_model = float_model
         self._quantized_model = quantized_model
         self._example_inputs = example_inputs
         self._action_keys = action_keys
-        self._quantization_strategy = quantization_strategy
+        self._quantization_workflow = quantization_workflow
 
     def compute_operator_coverage(self) -> dict[str, dict[str, int]]:
         """Count quantized vs total operators in the quantized model's FX graph.
@@ -69,6 +70,8 @@ class QuantizationReport:
             return coverage
 
         for node in self._quantized_model.graph.nodes:
+            if node.op != FXNodeOp.CALL_FUNCTION.value:
+                continue
             target_name = str(node.target)
             operator_type = None
             if QuantizableOperatorType.CONV2D.value in target_name:
@@ -122,31 +125,32 @@ class QuantizationReport:
     def compute_size_reduction(self) -> dict[str, float]:
         """Compare model sizes (float32 bytes vs quantized bytes).
 
-        Counts parameter bytes for the float model and parameter + buffer
-        bytes for the quantized model (scales and zero points are stored
-        as buffers).
+        Counts parameter and buffer bytes for both models (quantization
+        scales and zero points are stored as buffers).
 
         Returns:
             Dict with "float_bytes", "quantized_bytes", "compression_ratio".
         """
-        float_bytes = sum(
-            parameter.numel() * parameter.element_size()
-            for parameter in self._float_model.parameters()
-        )
-        quantized_bytes = sum(
-            parameter.numel() * parameter.element_size()
-            for parameter in self._quantized_model.parameters()
-        )
-        quantized_bytes += sum(
-            buffer.numel() * buffer.element_size()
-            for buffer in self._quantized_model.buffers()
-        )
+        float_bytes = self._model_bytes(model=self._float_model)
+        quantized_bytes = self._model_bytes(model=self._quantized_model)
         compression_ratio = float_bytes / max(quantized_bytes, 1)
         return {
             ReportMetricKey.FLOAT_BYTES.value: float(float_bytes),
             ReportMetricKey.QUANTIZED_BYTES.value: float(quantized_bytes),
             ReportMetricKey.COMPRESSION_RATIO.value: compression_ratio,
         }
+
+    @staticmethod
+    def _model_bytes(model: nn.Module) -> int:
+        """Return the total parameter and buffer byte count of a model."""
+        parameter_bytes = sum(
+            parameter.numel() * parameter.element_size()
+            for parameter in model.parameters()
+        )
+        buffer_bytes = sum(
+            buffer.numel() * buffer.element_size() for buffer in model.buffers()
+        )
+        return parameter_bytes + buffer_bytes
 
     def compute_inference_timing(
         self,
@@ -157,7 +161,7 @@ class QuantizationReport:
 
         For PT2E models, compiles the quantized model with
         torch.compile(backend="inductor") to match the real inference
-        path. For quantize_api models, benchmarks eager execution.
+        path. For eager PTQ models, benchmarks eager execution.
 
         Args:
             warmup_runs: Number of warmup iterations before timing.
@@ -167,7 +171,7 @@ class QuantizationReport:
             Dict with "float_milliseconds", "quantized_milliseconds",
             "speedup".
         """
-        if self._quantization_strategy == QuantizationStrategy.PT2E.value:
+        if self._quantization_workflow == QuantizationWorkflow.PT2E.value:
             quantized_model = self._compile_for_benchmark()
         else:
             quantized_model = self._quantized_model

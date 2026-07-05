@@ -313,6 +313,4 @@ class TestExtractEpisode:
         ):
             schema.extract_episode(
                 episode_source=None,
-                resizer=MagicMock(),
-                depth_resizer=MagicMock(),
             )

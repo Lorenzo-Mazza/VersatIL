@@ -12,7 +12,11 @@ import torch.nn as nn
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DecoderOutputKey,
+    LatentKey,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.gpt_action_transformer import (
     GPTActionTransformer,
@@ -74,7 +78,7 @@ def gpt_transformer_factory(
         observation_space = mock_observation_space_factory()
         action_heads = {
             DecoderOutputKey.ACTION_LOGITS.value: action_head_factory(
-                input_dim=embedding_dimension
+                input_dimension=embedding_dimension
             )
         }
         return GPTActionTransformer(
@@ -106,6 +110,7 @@ def gpt_transformer_factory(
 
 
 class TestGPTActionTransformerInitialization:
+    @pytest.mark.unit
     def test_inherits_from_action_decoder(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -113,6 +118,7 @@ class TestGPTActionTransformerInitialization:
         decoder = gpt_transformer_factory()
         assert isinstance(decoder, ActionDecoder)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_layers", [1, 2])
     def test_stores_configuration(
@@ -151,6 +157,7 @@ class TestGPTActionTransformerInitialization:
         assert decoder.deterministic is False
         assert next(decoder.parameters()).device.type == "cpu"
 
+    @pytest.mark.unit
     def test_creates_components(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -159,6 +166,7 @@ class TestGPTActionTransformerInitialization:
         assert isinstance(decoder.input_sequence_builder, TransformerInputBuilder)
         assert isinstance(decoder.gpt_decoder, GPTDecoder)
 
+    @pytest.mark.unit
     def test_creates_learned_action_bos_embedding(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -167,6 +175,7 @@ class TestGPTActionTransformerInitialization:
         assert decoder.action_bos_embedding.shape == (1, 1, EMBEDDING_DIMENSION)
         assert decoder.action_bos_embedding.requires_grad is True
 
+    @pytest.mark.unit
     def test_decoder_input_requires_actions(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -174,6 +183,7 @@ class TestGPTActionTransformerInitialization:
         decoder = gpt_transformer_factory()
         assert decoder.decoder_input.requires_actions is True
 
+    @pytest.mark.unit
     def test_invalid_action_heads_key_raises(
         self,
         mock_action_space_factory: Callable[..., MagicMock],
@@ -183,13 +193,13 @@ class TestGPTActionTransformerInitialization:
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
         observation_space = mock_observation_space_factory()
         wrong_action_heads = {
-            "wrong_key": action_head_factory(input_dim=EMBEDDING_DIMENSION)
+            "wrong_key": action_head_factory(input_dimension=EMBEDDING_DIMENSION)
         }
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"GPTActionTransformer only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads."
-                f" Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value} in your hydra config."
+                "GPTActionTransformer with action_head_layout=vocabulary "
+                "expects action_heads keys {'action_logits'}, got {'wrong_key'}."
             ),
         ):
             GPTActionTransformer(
@@ -207,13 +217,15 @@ class TestGPTActionTransformerInitialization:
                 max_seq_len=MAX_SEQ_LEN,
             )
 
-    def test_supports_tokenized_actions_flag(
+    @pytest.mark.unit
+    def test_requires_tokenized_actions_flag(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
     ):
         decoder = gpt_transformer_factory()
-        assert decoder.supports_tokenized_actions is True
+        assert decoder.requires_tokenized_actions is True
 
+    @pytest.mark.unit
     def test_token_embedding_initially_none(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -221,6 +233,7 @@ class TestGPTActionTransformerInitialization:
         decoder = gpt_transformer_factory()
         assert decoder.token_embedding is None
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "learnable_temperature, expected_requires_grad",
         [
@@ -247,24 +260,9 @@ class TestGPTActionTransformerInitialization:
             rtol=1e-6,
         )
 
-    def test_loads_legacy_state_dict_without_action_bos_key(
-        self,
-        gpt_transformer_factory: Callable[..., GPTActionTransformer],
-    ):
-        decoder = gpt_transformer_factory()
-        state_dict = decoder.state_dict()
-        del state_dict["action_bos_embedding"]
-
-        reloaded_decoder = gpt_transformer_factory()
-        missing_keys, unexpected_keys = reloaded_decoder.load_state_dict(
-            state_dict, strict=True
-        )
-
-        assert missing_keys == []
-        assert unexpected_keys == []
-
 
 class TestGPTActionTransformerSetTokenizer:
+    @pytest.mark.unit
     def test_raises_without_tokenizer(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -278,6 +276,7 @@ class TestGPTActionTransformerSetTokenizer:
         ):
             decoder.set_tokenizer(tokenizer=None)
 
+    @pytest.mark.unit
     def test_raises_with_none_action_tokenizer(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -293,6 +292,7 @@ class TestGPTActionTransformerSetTokenizer:
         ):
             decoder.set_tokenizer(tokenizer=tokenizer)
 
+    @pytest.mark.unit
     def test_sets_vocab_size(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -304,6 +304,7 @@ class TestGPTActionTransformerSetTokenizer:
         decoder.set_tokenizer(tokenizer=tokenizer)
         assert decoder.vocab_size == base_vocab_size + 1
 
+    @pytest.mark.unit
     def test_creates_token_embedding(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -317,6 +318,7 @@ class TestGPTActionTransformerSetTokenizer:
         assert decoder.token_embedding.num_embeddings == effective_vocab_size
         assert decoder.token_embedding.embedding_dim == EMBEDDING_DIMENSION
 
+    @pytest.mark.unit
     def test_ties_output_weights_to_token_embedding(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -332,6 +334,7 @@ class TestGPTActionTransformerSetTokenizer:
 
 
 class TestGPTActionTransformerForward:
+    @pytest.mark.unit
     @pytest.mark.parametrize("actions_provided", [True, False])
     def test_raises_when_tokenizer_not_set(
         self,
@@ -358,6 +361,7 @@ class TestGPTActionTransformerForward:
         ):
             decoder(features=features, actions=actions)
 
+    @pytest.mark.unit
     def test_raises_when_training_actions_are_not_tokenized(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -381,6 +385,7 @@ class TestGPTActionTransformerForward:
         ):
             decoder(features=features, actions=actions)
 
+    @pytest.mark.unit
     def test_training_output_keys(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -398,6 +403,7 @@ class TestGPTActionTransformerForward:
         predictions = decoder(features=features, actions=actions)
         assert DecoderOutputKey.ACTION_LOGITS.value in predictions
 
+    @pytest.mark.unit
     def test_training_output_shape(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -420,42 +426,63 @@ class TestGPTActionTransformerForward:
         effective_vocab_size = VOCAB_SIZE + 1
         assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LENGTH, effective_vocab_size)
 
-    def test_ignores_features_not_declared_in_input_keys(
+    @pytest.mark.unit
+    def test_forward_passes_full_feature_dict_to_input_builder(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
         tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        input_key = "kept_features"
-        decoder = gpt_transformer_factory(
-            input_keys=[input_key],
-            dropout_rate=0.0,
-            attention_dropout=0.0,
-        )
+        decoder = gpt_transformer_factory(input_keys=["validated_feature"])
         decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
-        decoder.eval()
-        kept_features = torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION)
-        first_features = {
-            input_key: kept_features,
-            "unused_features": torch.zeros_like(kept_features),
+        feature_tokens = torch.ones(BATCH_SIZE, 2, EMBEDDING_DIMENSION)
+        predictions = {
+            DecoderOutputKey.ACTION_LOGITS.value: torch.ones(
+                BATCH_SIZE,
+                ACTION_TOKEN_LENGTH,
+                VOCAB_SIZE + 1,
+            )
         }
-        second_features = {
-            input_key: kept_features,
-            "unused_features": torch.full_like(kept_features, 9.0),
+        features = {
+            "validated_feature": torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION),
+            LatentKey.POSTERIOR_MU.value: torch.zeros(BATCH_SIZE, 4),
+            AlgorithmContextKey.TIMESTEP.value: torch.ones(BATCH_SIZE),
         }
         actions = tokenized_actions_factory(
             batch_size=BATCH_SIZE,
             action_token_length=ACTION_TOKEN_LENGTH,
             vocab_size=VOCAB_SIZE,
         )
-        with torch.no_grad():
-            first_predictions = decoder(features=first_features, actions=actions)
-            second_predictions = decoder(features=second_features, actions=actions)
+        input_builder_mock = MagicMock(
+            spec=decoder.input_sequence_builder.forward,
+            return_value=(feature_tokens, None, None),
+        )
+        training_mock = MagicMock(
+            spec=decoder._forward_training,
+            return_value=predictions,
+        )
+        with (
+            unittest.mock.patch.object(
+                decoder.input_sequence_builder,
+                "forward",
+                input_builder_mock,
+            ),
+            unittest.mock.patch.object(decoder, "_forward_training", training_mock),
+        ):
+            output = decoder(features=features, actions=actions)
+
+        input_builder_mock.assert_called_once_with(features)
+        training_mock.assert_called_once_with(
+            feature_tokens=feature_tokens,
+            feature_token_mask=None,
+            actions=actions,
+        )
         torch.testing.assert_close(
-            first_predictions[DecoderOutputKey.ACTION_LOGITS.value],
-            second_predictions[DecoderOutputKey.ACTION_LOGITS.value],
+            output[DecoderOutputKey.ACTION_LOGITS.value],
+            predictions[DecoderOutputKey.ACTION_LOGITS.value],
         )
 
+    @pytest.mark.unit
     def test_training_ignores_padded_prefix_token_values(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -501,62 +528,7 @@ class TestGPTActionTransformerForward:
             second_predictions[DecoderOutputKey.ACTION_LOGITS.value],
         )
 
-    def test_passes_selected_feature_padding_mask_to_input_builder(
-        self,
-        gpt_transformer_factory: Callable[..., GPTActionTransformer],
-        mock_tokenizer_factory: Callable[..., MagicMock],
-        tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        input_key = "kept_features"
-        padding_mask_key = f"{input_key}_{EncoderOutputKeys.PADDING_MASK.value}"
-        decoder = gpt_transformer_factory(input_keys=[input_key])
-        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
-        features = {
-            input_key: torch.ones(BATCH_SIZE, 1, EMBEDDING_DIMENSION),
-            padding_mask_key: torch.zeros(BATCH_SIZE, 1, dtype=torch.bool),
-            "unused_features": torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION),
-        }
-        actions = tokenized_actions_factory(
-            batch_size=BATCH_SIZE,
-            action_token_length=ACTION_TOKEN_LENGTH,
-            vocab_size=VOCAB_SIZE,
-        )
-        with unittest.mock.patch.object(
-            decoder.input_sequence_builder,
-            "forward",
-            wraps=decoder.input_sequence_builder.forward,
-        ) as input_builder_spy:
-            decoder(features=features, actions=actions)
-        builder_features = input_builder_spy.call_args.args[0]
-        assert input_key in builder_features
-        assert padding_mask_key in builder_features
-        assert "unused_features" not in builder_features
-
-    def test_raises_when_declared_input_feature_is_missing(
-        self,
-        gpt_transformer_factory: Callable[..., GPTActionTransformer],
-        mock_tokenizer_factory: Callable[..., MagicMock],
-        tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        input_key = "kept_features"
-        available_key = "other_features"
-        decoder = gpt_transformer_factory(input_keys=[input_key])
-        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
-        features = {available_key: torch.ones(BATCH_SIZE, EMBEDDING_DIMENSION)}
-        actions = tokenized_actions_factory(
-            batch_size=BATCH_SIZE,
-            action_token_length=ACTION_TOKEN_LENGTH,
-            vocab_size=VOCAB_SIZE,
-        )
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                f"GPTActionTransformer missing required input features ['{input_key}']. "
-                f"Available features: ['{available_key}']."
-            ),
-        ):
-            decoder(features=features, actions=actions)
-
+    @pytest.mark.unit
     @pytest.mark.parametrize("deterministic", [True, False])
     def test_inference_output_keys(
         self,
@@ -575,6 +547,7 @@ class TestGPTActionTransformerForward:
         predictions = decoder(features=features, actions=None)
         assert DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("deterministic", [True, False])
     def test_inference_output_shape(
         self,
@@ -599,10 +572,71 @@ class TestGPTActionTransformerForward:
         # prefix_len = 1 for a single flat feature projected to 1 token.
         # May terminate early if EOS is generated for all batch items.
         prefix_len = 1
-        max_generated_tokens = MAX_SEQ_LEN - prefix_len - 1
+        max_generated_tokens = min(
+            decoder.tokenizer.max_token_len,
+            MAX_SEQ_LEN - prefix_len - 1,
+        )
         assert 1 <= tokens.shape[1] <= max_generated_tokens
 
-    def test_forward_passes_latent_keys_from_features(
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "max_token_len, max_seq_len, expected_steps",
+        [
+            (3, 16, 3),
+            (256, 5, 2),
+        ],
+    )
+    def test_inference_caps_generation_by_tokenizer_and_context(
+        self,
+        gpt_transformer_factory: Callable[..., GPTActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        max_token_len: int,
+        max_seq_len: int,
+        expected_steps: int,
+    ):
+        prefix_length = 2
+        decoder = gpt_transformer_factory(max_seq_len=max_seq_len)
+        decoder.set_tokenizer(
+            tokenizer=mock_tokenizer_factory(max_token_len=max_token_len)
+        )
+        feature_tokens = torch.zeros(
+            BATCH_SIZE,
+            prefix_length,
+            EMBEDDING_DIMENSION,
+        )
+        predictions = {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(
+                BATCH_SIZE,
+                expected_steps,
+                dtype=torch.long,
+            )
+        }
+        generation_mock = MagicMock(
+            spec=decoder._run_cached_autoregressive_generation,
+            return_value=predictions,
+        )
+
+        with unittest.mock.patch.object(
+            decoder,
+            "_run_cached_autoregressive_generation",
+            generation_mock,
+        ):
+            output = decoder._forward_inference(
+                feature_tokens=feature_tokens,
+                feature_token_mask=None,
+            )
+
+        generation_mock.assert_called_once()
+        assert (
+            generation_mock.call_args.kwargs["max_generation_steps"] == expected_steps
+        )
+        torch.testing.assert_close(
+            output[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+            predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+        )
+
+    @pytest.mark.unit
+    def test_forward_does_not_pass_variational_metadata_through(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
@@ -624,13 +658,10 @@ class TestGPTActionTransformerForward:
         features[LatentKey.POSTERIOR_LOGVAR.value] = posterior_logvar
         actions = tokenized_actions_factory(batch_size=BATCH_SIZE)
         predictions = decoder(features=features, actions=actions)
-        assert LatentKey.POSTERIOR_MU.value in predictions
-        assert LatentKey.POSTERIOR_LOGVAR.value in predictions
-        assert torch.equal(predictions[LatentKey.POSTERIOR_MU.value], posterior_mu)
-        assert torch.equal(
-            predictions[LatentKey.POSTERIOR_LOGVAR.value], posterior_logvar
-        )
+        assert LatentKey.POSTERIOR_MU.value not in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value not in predictions
 
+    @pytest.mark.unit
     def test_inference_terminates_early_on_eos(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -666,6 +697,7 @@ class TestGPTActionTransformerForward:
         assert tokens.shape[1] == 1
         assert (tokens == eos_token_id).all()
 
+    @pytest.mark.unit
     def test_causal_masking_future_tokens_do_not_affect_past_predictions(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -710,6 +742,7 @@ class TestGPTActionTransformerForward:
         torch.testing.assert_close(original[:, :split, :], modified[:, :split, :])
         assert not torch.equal(original[:, split:, :], modified[:, split:, :])
 
+    @pytest.mark.unit
     def test_raises_if_sequence_too_long(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -743,6 +776,7 @@ class TestGPTActionTransformerForward:
         ):
             decoder(features=features, actions=actions)
 
+    @pytest.mark.unit
     def test_inference_raises_if_prefix_fills_sequence(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -768,6 +802,7 @@ class TestGPTActionTransformerForward:
         ):
             decoder(features=features, actions=None)
 
+    @pytest.mark.unit
     def test_training_does_not_use_generation_cache(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -789,6 +824,7 @@ class TestGPTActionTransformerForward:
             call_kwargs = mock_forward.call_args.kwargs
             assert call_kwargs.get("generation_cache") is None
 
+    @pytest.mark.unit
     def test_inference_uses_generation_cache(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -810,6 +846,7 @@ class TestGPTActionTransformerForward:
             first_call_kwargs = mock_forward.call_args_list[0].kwargs
             assert first_call_kwargs.get("generation_cache") is not None
 
+    @pytest.mark.unit
     def test_inference_feeds_bos_after_prefix_prefill(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],

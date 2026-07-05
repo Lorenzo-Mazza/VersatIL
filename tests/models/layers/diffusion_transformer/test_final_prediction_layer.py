@@ -99,7 +99,7 @@ class TestFinalPredictionLayerForward:
         )
         conditioning = condition_factory(
             batch_size=batch_size,
-            condition_dim=hidden_dimension,
+            conditioning_dimension=hidden_dimension,
         )
         output = layer(hidden_states, conditioning)
         assert output.shape == (batch_size, sequence_length, output_dimension)
@@ -122,7 +122,7 @@ class TestFinalPredictionLayerForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=hidden_dimension,
+            conditioning_dimension=hidden_dimension,
         )
         output = layer(hidden_states, conditioning)
         assert torch.allclose(output, torch.zeros_like(output), atol=1e-6)
@@ -148,11 +148,11 @@ class TestFinalPredictionLayerForward:
         )
         conditioning_a = condition_factory(
             batch_size=2,
-            condition_dim=hidden_dimension,
+            conditioning_dimension=hidden_dimension,
         )
         conditioning_b = condition_factory(
             batch_size=2,
-            condition_dim=hidden_dimension,
+            conditioning_dimension=hidden_dimension,
         )
         output_a = layer(hidden_states, conditioning_a)
         output_b = layer(hidden_states, conditioning_b)
@@ -176,7 +176,7 @@ class TestFinalPredictionLayerForward:
         )
         conditioning = condition_factory(
             batch_size=2,
-            condition_dim=hidden_dimension,
+            conditioning_dimension=hidden_dimension,
         )
         hidden_states.requires_grad_(True)
         output = layer(hidden_states, conditioning)

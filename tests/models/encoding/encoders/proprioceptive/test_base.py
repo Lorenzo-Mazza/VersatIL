@@ -55,7 +55,7 @@ def proprioceptive_encoder_factory() -> Callable[..., ProprioceptiveEncoder]:
         return ProprioceptiveEncoder(
             input_keys=input_keys,
             output_dim=output_dimension,
-            hidden_dims=hidden_dimensions,
+            hidden_dimensions=hidden_dimensions,
             activation=activation,
             dropout=dropout,
             pretrained=pretrained,
@@ -106,7 +106,7 @@ class TestProprioceptiveEncoderInitialization:
             activation=activation,
         )
         assert encoder.output_dim == output_dimension
-        assert encoder.hidden_dims == hidden_dimensions
+        assert encoder.hidden_dimensions == hidden_dimensions
         assert encoder.dropout == dropout
         assert encoder.activation_fn == expected_class
         assert encoder.input_specification.keys == expected_keys
@@ -141,7 +141,7 @@ class TestProprioceptiveEncoderBuildNetwork:
             hidden_dimensions=[128],
             frozen=frozen,
         )
-        encoder._build_network(input_dim=7)
+        encoder._build_network(input_dimension=7)
         for parameter in encoder.network.parameters():
             assert parameter.requires_grad is expected_requires_grad
 
@@ -316,7 +316,7 @@ class TestProprioceptiveEncoderModelDtype:
             output_dimension=8,
         )
         with patch.object(ProprioceptiveEncoder, "_apply_model_dtype") as mock_apply:
-            encoder._build_network(input_dim=7)
+            encoder._build_network(input_dimension=7)
         mock_apply.assert_called_once()
 
     @pytest.mark.integration

@@ -22,14 +22,16 @@ def moe_head_factory(
     def factory(
         mode: str = "explicit",
         num_experts: int = 3,
-        input_dim: int = 64,
+        input_dimension: int = 64,
         output_dim: int = 3,
         gating_input_dim: int = 32,
         routing_type: str = MoERoutingType.SOFT.value,
     ) -> MoEHead:
         if mode == "explicit":
             experts = [
-                action_head_factory(input_dim=input_dim, output_dim=output_dim)
+                action_head_factory(
+                    input_dimension=input_dimension, output_dim=output_dim
+                )
                 for _ in range(num_experts)
             ]
             return MoEHead(
@@ -38,7 +40,9 @@ def moe_head_factory(
                 routing_type=routing_type,
             )
         elif mode == "base_with_count":
-            base = action_head_factory(input_dim=input_dim, output_dim=output_dim)
+            base = action_head_factory(
+                input_dimension=input_dimension, output_dim=output_dim
+            )
             return MoEHead(
                 base_expert=base,
                 num_experts=num_experts,
@@ -46,7 +50,9 @@ def moe_head_factory(
                 routing_type=routing_type,
             )
         elif mode == "lazy":
-            base = action_head_factory(input_dim=input_dim, output_dim=output_dim)
+            base = action_head_factory(
+                input_dimension=input_dimension, output_dim=output_dim
+            )
             return MoEHead(
                 base_expert=base,
                 gating_input_dim=gating_input_dim,
@@ -75,6 +81,7 @@ def gating_tensor_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestMoEHeadInitialization:
     def test_explicit_experts_mode(
         self,
@@ -111,6 +118,7 @@ class TestMoEHeadInitialization:
             MoEHead()
 
 
+@pytest.mark.unit
 class TestMoEHeadSetNumExperts:
     def test_creates_experts_from_template(
         self,
@@ -166,7 +174,7 @@ class TestMoEHeadSetNumExperts:
         self,
         action_head_factory: Callable[..., ActionHead],
     ):
-        base = action_head_factory(input_dim=64, output_dim=3)
+        base = action_head_factory(input_dimension=64, output_dim=3)
         head = MoEHead(
             base_expert=base,
             gating_input_dim=32,
@@ -181,6 +189,7 @@ class TestMoEHeadSetNumExperts:
             head.set_num_experts(num_experts=3)
 
 
+@pytest.mark.unit
 class TestMoEHeadOutputDim:
     def test_raises_when_not_set(
         self,
@@ -204,6 +213,7 @@ class TestMoEHeadOutputDim:
             assert expert.output_dim == 7
 
 
+@pytest.mark.unit
 class TestMoEHeadForward:
     def test_raises_when_not_initialized(
         self,
@@ -229,7 +239,7 @@ class TestMoEHeadForward:
         head = moe_head_factory(
             mode="explicit",
             num_experts=3,
-            input_dim=64,
+            input_dimension=64,
             output_dim=5,
             gating_input_dim=32,
         )
@@ -252,19 +262,19 @@ class TestMoEHeadForward:
     ):
         batch_size = 2
         prediction_horizon = 8
-        input_dim = 64
+        input_dimension = 64
         gating_input_dim = 32
         head = moe_head_factory(
             mode="explicit",
             num_experts=num_experts,
-            input_dim=input_dim,
+            input_dimension=input_dimension,
             output_dim=output_dim,
             gating_input_dim=gating_input_dim,
         )
         features = embedding_tensor_factory(
             batch_size=batch_size,
             prediction_horizon=prediction_horizon,
-            embedding_dimension=input_dim,
+            embedding_dimension=input_dimension,
         )
         gating = gating_tensor_factory(
             batch_size=batch_size,

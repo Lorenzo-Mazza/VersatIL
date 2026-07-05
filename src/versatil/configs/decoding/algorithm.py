@@ -24,6 +24,9 @@ class DecodingAlgorithmConfig:
 
     Note: For variational algorithms, use VariationalAlgorithmConfig instead
     of setting latent_encoder on individual algorithms.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
     """
 
     _target_: str = MISSING
@@ -44,7 +47,23 @@ class BehavioralCloningConfig(DecodingAlgorithmConfig):
 
 @dataclass
 class DiffusionConfig(DecodingAlgorithmConfig):
-    """Diffusion algorithm configuration."""
+    """Diffusion algorithm configuration.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        scheduler_type: Type of diffusion scheduler ("ddpm" or "ddim").
+        num_train_timesteps: Number of diffusion steps during training.
+        num_inference_steps: Number of denoising steps during inference.
+        beta_start: Starting value of noise schedule.
+        beta_end: Ending value of noise schedule.
+        beta_schedule: Noise schedule type ("linear", "squaredcos_cap_v2", etc.).
+        prediction_type: What the network predicts ("epsilon" for noise, "sample" for
+            clean actions).
+        scheduler_variance_type: Variance type for DDPM scheduler.
+        clip_sample: Whether to clip samples to [-1, 1] during inference.
+        set_alpha_to_one: Whether to set final alpha to 1.
+        steps_offset: Offset for timestep calculation.
+    """
 
     _target_: str = "versatil.models.decoding.algorithm.diffusion.Diffusion"
 
@@ -64,7 +83,23 @@ class DiffusionConfig(DecodingAlgorithmConfig):
 
 @dataclass
 class FlowMatchingConfig(DecodingAlgorithmConfig):
-    """Flow Matching algorithm configuration."""
+    """Flow Matching algorithm configuration.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        sigma: Noise level for conditional flow matching (0 = deterministic OT).
+        ode_solver: ODE solver to use ("euler", "heun", or "rk4").
+        num_inference_steps: Number of integration steps during inference.
+        timestep_sampler: Timestep sampling strategy.
+        logit_mean: Mean for logit-normal (shifts mode; 0 centers at t=0.5).
+        logit_std: Std for logit-normal (smaller = more concentrated).
+        beta_alpha: First shape parameter for Beta distribution (pi0 uses 1.5).
+        beta_beta: Second shape parameter for Beta distribution (pi0 uses 1.0).
+        max_timestep: Upper bound s for Beta sampling (pi0 uses 0.999).
+        reverse_flow_convention: Reverse the time/velocity convention during inference.
+            When True, the inference loop remaps t to (1-t) and negates the predicted
+            velocity.
+    """
 
     _target_: str = "versatil.models.decoding.algorithm.flow_matching.FlowMatching"
     sigma: float = 0.0
@@ -98,17 +133,18 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
         VariationalAlgorithmConfig(
             base_algorithm=FlowMatchingConfig(sigma=0.0, num_inference_steps=10),
             posterior_encoder=VAETransformerEncoderConfig(...),
-            prior=DiffusionPriorConfig(...)
+            prior=DiTPriorConfig(...)
         )
 
         # NEW: Diffusion with VAE + learned prior
         VariationalAlgorithmConfig(
             base_algorithm=DiffusionConfig(...),
             posterior_encoder=VAETransformerEncoderConfig(...),
-            prior=DiffusionPriorConfig(...)
+            prior=DiTPriorConfig(...)
         )
 
-    Args:
+    Attributes:
+        _target_: Import path instantiated by Hydra.
         base_algorithm: The base decoding algorithm (BC, FlowMatching, Diffusion, etc.)
         posterior_encoder: Latent encoder for posterior q(z|a,s) (typically VAE)
         prior: Latent prior for p(z|s). If None, auto-creates GaussianPrior.

@@ -1,5 +1,6 @@
 """Tests for versatil.models.encoding.encoders.image_mixin module."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -7,7 +8,8 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.constants import DEPTH_CAMERAS, RGB_CAMERAS, Cameras
+from versatil.data.constants import CameraModality, Cameras, RawCameraKey
+from versatil.data.metadata import DepthCameraMetadata, RGBCameraMetadata
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.image_mixin import (
     DepthEncoderMixin,
@@ -16,6 +18,7 @@ from versatil.models.encoding.encoders.image_mixin import (
     RGBEncoderMixin,
     resize_to_target_size,
 )
+from versatil.models.input_specification import InputSpecification
 
 
 class ConcreteRGBEncoder(RGBEncoderMixin):
@@ -48,7 +51,6 @@ class MixinTestSpec:
 
     encoder_class: type[ImageEncoderMixin]
     single_key: str
-    camera_group: list[str]
     output_modality: str
 
 
@@ -58,7 +60,6 @@ class MixinTestSpec:
             MixinTestSpec(
                 encoder_class=ConcreteRGBEncoder,
                 single_key=Cameras.LEFT.value,
-                camera_group=RGB_CAMERAS,
                 output_modality=EncoderOutputKeys.RGB.value,
             ),
             id="rgb",
@@ -67,7 +68,6 @@ class MixinTestSpec:
             MixinTestSpec(
                 encoder_class=ConcreteDepthEncoder,
                 single_key=Cameras.DEPTH.value,
-                camera_group=DEPTH_CAMERAS,
                 output_modality=EncoderOutputKeys.DEPTH.value,
             ),
             id="depth",
@@ -76,7 +76,6 @@ class MixinTestSpec:
             MixinTestSpec(
                 encoder_class=ConcreteRGBDEncoder,
                 single_key=Cameras.LEFT.value,
-                camera_group=RGB_CAMERAS + DEPTH_CAMERAS,
                 output_modality=EncoderOutputKeys.RGBD.value,
             ),
             id="rgbd",
@@ -174,9 +173,44 @@ class TestMixinModality:
         encoder = mixin_spec.encoder_class(input_keys=[mixin_spec.single_key])
         assert encoder._output_modality == mixin_spec.output_modality
 
-    def test_camera_group_matches_mixin(self, mixin_spec: MixinTestSpec):
-        encoder = mixin_spec.encoder_class(input_keys=[mixin_spec.single_key])
-        assert encoder._camera_group == mixin_spec.camera_group
+
+class TestResolveIntermediateLayerIndex:
+    @pytest.mark.parametrize(
+        "intermediate_layer_index, expected_layer_index",
+        [
+            (None, 3),
+            (-1, 3),
+            (-2, 2),
+            (1, 1),
+        ],
+    )
+    def test_resolves_valid_indices(
+        self,
+        intermediate_layer_index: int | None,
+        expected_layer_index: int,
+    ):
+        layer_index = ImageEncoderMixin._resolve_intermediate_layer_index(
+            intermediate_layer_index=intermediate_layer_index,
+            output_count=4,
+        )
+        assert layer_index == expected_layer_index
+
+    @pytest.mark.parametrize("intermediate_layer_index", [-5, 4])
+    def test_raises_for_out_of_range_index(
+        self,
+        intermediate_layer_index: int,
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"intermediate_layer_index={intermediate_layer_index} is outside "
+                "the valid range for 4 intermediate layers."
+            ),
+        ):
+            ImageEncoderMixin._resolve_intermediate_layer_index(
+                intermediate_layer_index=intermediate_layer_index,
+                output_count=4,
+            )
 
 
 class TestSetupCameraKeys:
@@ -191,6 +225,61 @@ class TestSetupCameraKeys:
         encoder = mixin_spec.encoder_class(input_keys=[key, "tokenized_observations"])
         assert encoder.camera_keys == [key]
         assert encoder.is_multi_camera is False
+
+    def test_set_camera_metadata_stores_runtime_camera_keys(self):
+        encoder = ConcreteRGBDEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value]
+        )
+        encoder.input_specification = InputSpecification(
+            keys=[Cameras.LEFT.value, Cameras.DEPTH.value]
+        )
+        camera_metadata = {
+            Cameras.LEFT.value: RGBCameraMetadata(
+                camera_key=RawCameraKey.LEFT.value,
+                dtype="uint8",
+                image_width=32,
+                image_height=32,
+            ),
+            Cameras.DEPTH.value: DepthCameraMetadata(
+                camera_key=RawCameraKey.DEPTH.value,
+                dtype="float32",
+                image_width=32,
+                image_height=32,
+            ),
+        }
+
+        encoder.set_camera_metadata(camera_metadata=camera_metadata)
+
+        assert encoder.camera_keys == [Cameras.LEFT.value, Cameras.DEPTH.value]
+        assert (
+            encoder._camera_key_for_modality(modality=CameraModality.RGB)
+            == Cameras.LEFT.value
+        )
+        assert (
+            encoder._camera_key_for_modality(modality=CameraModality.DEPTH)
+            == Cameras.DEPTH.value
+        )
+
+    def test_camera_key_for_modality_raises_when_no_camera_matches(self):
+        encoder = ConcreteRGBEncoder(input_keys=[Cameras.LEFT.value])
+        encoder.input_specification = InputSpecification(keys=[Cameras.LEFT.value])
+        camera_metadata = {
+            Cameras.LEFT.value: RGBCameraMetadata(
+                camera_key=RawCameraKey.LEFT.value,
+                dtype="uint8",
+                image_width=32,
+                image_height=32,
+            )
+        }
+        encoder.set_camera_metadata(camera_metadata=camera_metadata)
+        expected_message = (
+            f"{ConcreteRGBEncoder.__name__} has no configured "
+            f"{CameraModality.DEPTH.value} camera. "
+            "Run experiment validation and EncodingPipeline setup before forward."
+        )
+
+        with pytest.raises(RuntimeError, match=re.escape(expected_message)):
+            encoder._camera_key_for_modality(modality=CameraModality.DEPTH)
 
 
 class TestSetupCameraKeysRGBMultiCamera:

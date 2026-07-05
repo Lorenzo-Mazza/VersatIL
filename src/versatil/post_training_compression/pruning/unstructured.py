@@ -22,8 +22,9 @@ class UnstructuredPruner(BasePruner):
 
         Args:
             amount: Fraction of weights to zero, must be in (0, 1).
-            layer_types: PrunableLayerType values to target. None
-                means all modules with a weight parameter.
+            layer_types: PrunableLayerType values to target. Defaults to
+                convolution and linear layers (normalization scales and
+                embedding tables are usually not good pruning targets).
 
         Raises:
             ValueError: If amount is not in the open interval (0, 1).
@@ -32,11 +33,14 @@ class UnstructuredPruner(BasePruner):
             raise ValueError(f"Pruning amount must be in (0, 1), got {amount}")
         self._amount = amount
         if layer_types is None:
-            self._layer_types = None
-        else:
-            self._layer_types = tuple(
-                PrunableLayerType(name).to_module_type() for name in layer_types
-            )
+            layer_types = [
+                PrunableLayerType.CONV1D.value,
+                PrunableLayerType.CONV2D.value,
+                PrunableLayerType.LINEAR.value,
+            ]
+        self._layer_types = tuple(
+            PrunableLayerType(name).to_module_type() for name in layer_types
+        )
 
     @property
     def amount(self) -> float:
@@ -67,10 +71,13 @@ class UnstructuredPruner(BasePruner):
                 getattr(child_module, PruningTargetAttribute.WEIGHT.value, None),
                 nn.Parameter,
             )
-            and (
-                self._layer_types is None or isinstance(child_module, self._layer_types)
-            )
+            and isinstance(child_module, self._layer_types)
         ]
+        if not parameters_to_prune:
+            raise ValueError(
+                "Unstructured pruning selected no modules; the target module "
+                f"contains no {[t.__name__ for t in self._layer_types]} layers."
+            )
         prune.global_unstructured(
             parameters_to_prune,
             pruning_method=prune.L1Unstructured,  # type: ignore[arg-type]

@@ -15,7 +15,7 @@ class AdaNorm(nn.Module):
     def __init__(
         self,
         base_norm: nn.Module,
-        condition_dim: int,
+        conditioning_dimension: int,
         feature_dim: int,
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
@@ -25,7 +25,7 @@ class AdaNorm(nn.Module):
 
         Args:
             base_norm: Normalization module applied before modulation.
-            condition_dim: Dimension of the conditioning vector.
+            conditioning_dimension: Dimension of the conditioning vector.
             feature_dim: Feature dimension to modulate.
             use_gate: Whether to return a learned residual gate.
             activation: Activation used inside the modulation projection.
@@ -33,11 +33,11 @@ class AdaNorm(nn.Module):
         """
         super().__init__()
         self.norm = base_norm
-        self.condition_dim = condition_dim
+        self.conditioning_dimension = conditioning_dimension
         self.feature_dim = feature_dim
         self.activation = activation
         self.modulation = ConditionalModulation(
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=feature_dim,
             use_shift=True,
             use_gate=use_gate,
@@ -52,7 +52,7 @@ class AdaNorm(nn.Module):
 
         Args:
             x: Input tensor to normalize and modulate.
-            condition: Conditioning tensor of shape ``(batch_size, condition_dim)``.
+            condition: Conditioning tensor of shape ``(batch_size, conditioning_dimension)``.
 
         Returns:
             Tuple of (normalized+modulated x, gate). Gate is a learned

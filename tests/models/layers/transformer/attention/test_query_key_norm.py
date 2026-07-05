@@ -35,8 +35,8 @@ class TestQueryKeyNormInitialization:
             head_dimension=head_dimension,
             epsilon=epsilon,
         )
-        assert norm.query_norm.eps == epsilon
-        assert norm.key_norm.eps == epsilon
+        assert norm.query_norm.epsilon == epsilon
+        assert norm.key_norm.epsilon == epsilon
 
     def test_query_and_key_norms_have_independent_weights(
         self,

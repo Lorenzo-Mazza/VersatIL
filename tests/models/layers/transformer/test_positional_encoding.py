@@ -24,7 +24,7 @@ from versatil.models.layers.transformer.positional_encoding import (
 def rope_encoding() -> RotaryPositionalEncoding1D:
     return RotaryPositionalEncoding1D(
         embedding_dimension=32,
-        num_heads=4,
+        number_of_heads=4,
     )
 
 
@@ -58,7 +58,7 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.SINUSOIDAL.value,
             embedding_dimension=32,
-            maximum_length=128,
+            maximum_sequence_length=128,
         )
         # Sinusoidal produces position-dependent additive encoding
         input_tensor = torch.zeros(1, 5, 32)
@@ -71,7 +71,7 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.LEARNED.value,
             embedding_dimension=32,
-            maximum_length=128,
+            maximum_sequence_length=128,
         )
         # Learned encoding produces additive positional encoding
         input_tensor = torch.zeros(1, 5, 32)
@@ -82,8 +82,8 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
         )
         # RoPE produces sine/cosine rotation components
         sine, cosine = encoding.compute_rotation_components(seq_len=5)
@@ -93,13 +93,13 @@ class TestCreatePositionalEncoding:
     def test_rope_without_num_heads_raises(self):
         with pytest.raises(
             ValueError,
-            match=re.escape("num_heads is required for RoPE positional encoding"),
+            match=re.escape("number_of_heads is required for RoPE positional encoding"),
         ):
             create_positional_encoding(
                 encoding_type=PositionalEncodingType.ROPE.value,
                 embedding_dimension=32,
-                maximum_length=128,
-                num_heads=None,
+                maximum_sequence_length=128,
+                number_of_heads=None,
             )
 
     def test_unsupported_type_raises(self):
@@ -113,22 +113,22 @@ class TestCreatePositionalEncoding:
             create_positional_encoding(
                 encoding_type="invalid_type",
                 embedding_dimension=32,
-                maximum_length=128,
+                maximum_sequence_length=128,
             )
 
     def test_rope_different_base_frequency_produces_different_rotations(self):
         encoding_a = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             base_frequency=5000.0,
         )
         encoding_b = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             base_frequency=10000.0,
         )
         sine_a, _ = encoding_a.compute_rotation_components(seq_len=5)
@@ -139,8 +139,8 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             learnable_frequencies=True,
         )
         # Learnable frequencies appear in the parameter list for optimizer
@@ -151,8 +151,8 @@ class TestCreatePositionalEncoding:
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.ROPE.value,
             embedding_dimension=32,
-            maximum_length=128,
-            num_heads=4,
+            maximum_sequence_length=128,
+            number_of_heads=4,
             learnable_frequencies=False,
         )
         # Non-learnable: gradient computation is disabled
@@ -211,6 +211,31 @@ class TestApplyRopePositionalEncoding:
         # Same input at different positions should produce different rotated output
         assert not torch.equal(result_at_zero, result_at_three)
 
+    def test_rope_attention_scores_depend_only_on_relative_distance(
+        self,
+        rope_encoding: RotaryPositionalEncoding1D,
+        query_key_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ):
+        queries, keys = query_key_factory(sequence_length=4)
+        rotated_queries, rotated_keys = apply_rope_positional_encoding(
+            queries=queries,
+            keys=keys,
+            positional_encoding=rope_encoding,
+            cache_position=0,
+        )
+        shift = 7
+        shifted_queries, shifted_keys = apply_rope_positional_encoding(
+            queries=queries,
+            keys=keys,
+            positional_encoding=rope_encoding,
+            cache_position=shift,
+        )
+        scores = torch.matmul(rotated_queries, rotated_keys.transpose(-2, -1))
+        shifted_scores = torch.matmul(shifted_queries, shifted_keys.transpose(-2, -1))
+        # Rotating query and key by the same offset must leave attention
+        # scores unchanged: RoPE encodes only relative distance.
+        torch.testing.assert_close(scores, shifted_scores, atol=1e-5, rtol=1e-5)
+
     def test_non_rope_encoding_returns_unchanged(
         self,
         query_key_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
@@ -218,7 +243,7 @@ class TestApplyRopePositionalEncoding:
         queries, keys = query_key_factory()
         sinusoidal = SinusoidalPositionalEncoding1D(
             embedding_dimension=32,
-            maximum_length=128,
+            maximum_sequence_length=128,
         )
         rotated_queries, rotated_keys = apply_rope_positional_encoding(
             queries=queries,

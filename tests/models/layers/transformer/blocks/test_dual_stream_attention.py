@@ -46,13 +46,13 @@ def block_factory(
             attention_normalization_primary=create_block_normalization(
                 normalization_type=NormalizationType.RMS_NORM.value,
                 dimension=EMBEDDING_DIMENSION,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             attention_normalization_secondary=create_block_normalization(
                 normalization_type=NormalizationType.RMS_NORM.value,
                 dimension=EMBEDDING_DIMENSION,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=0.0,
@@ -141,7 +141,7 @@ class TestDualStreamAttentionBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning = condition_factory(
-            batch_size=BATCH_SIZE, condition_dim=EMBEDDING_DIMENSION
+            batch_size=BATCH_SIZE, conditioning_dimension=EMBEDDING_DIMENSION
         )
         primary_out, secondary_out = block(
             hidden_states_primary=primary,
@@ -170,10 +170,10 @@ class TestDualStreamAttentionBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         cond_a = condition_factory(
-            batch_size=BATCH_SIZE, condition_dim=EMBEDDING_DIMENSION
+            batch_size=BATCH_SIZE, conditioning_dimension=EMBEDDING_DIMENSION
         )
         cond_b = condition_factory(
-            batch_size=BATCH_SIZE, condition_dim=EMBEDDING_DIMENSION
+            batch_size=BATCH_SIZE, conditioning_dimension=EMBEDDING_DIMENSION
         )
         primary_a, _ = block(
             hidden_states_primary=primary,

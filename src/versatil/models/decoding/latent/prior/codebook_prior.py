@@ -7,13 +7,15 @@ with the VQ posterior encoder — the codebook is set after construction
 via wire_posterior().
 """
 
-import weakref
 from typing import Any
 
 import torch
 from torch import nn
 
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    LatentKey,
+)
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.posterior.vq_encoder import VQPosteriorEncoder
 from versatil.models.decoding.latent.prior.state_condition_pool import (
@@ -106,7 +108,7 @@ class CodebookPrior(PriorLatentEncoder):
         self.embedding_dimension = embedding_dimension
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.temperature = temperature
-        self._residual_vq_ref: weakref.ReferenceType[ResidualVQ] | None = None
+        self._residual_vq_reference: tuple[ResidualVQ, ...] = ()
         self.state_condition_pool = StateConditionPool(
             embedding_dimension=embedding_dimension
         )
@@ -131,14 +133,13 @@ class CodebookPrior(PriorLatentEncoder):
             )
 
         self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=embedding_dimension,
-            has_time_dim=observation_horizon > 1,
+            embedding_dimension=embedding_dimension,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=embedding_dimension, normalize=True
             ),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=embedding_dimension,
-                maximum_length=1000,
+                maximum_sequence_length=1000,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
@@ -158,12 +159,12 @@ class CodebookPrior(PriorLatentEncoder):
     @property
     def residual_vq(self) -> ResidualVQ | None:
         """Return the posterior-owned VQ module without registering it as a child."""
-        if self._residual_vq_ref is None:
+        if not self._residual_vq_reference:
             return None
-        return self._residual_vq_ref()
+        return self._residual_vq_reference[0]
 
     def __getstate__(self) -> dict[str, Any]:
-        """Return copy-safe state without the posterior weak reference.
+        """Return copy-safe state without the posterior VQ reference.
 
         Returns:
             Module state with runtime wiring cleared. The owning
@@ -171,7 +172,7 @@ class CodebookPrior(PriorLatentEncoder):
             posterior after deepcopy or unpickling.
         """
         state = super().__getstate__()
-        state["_residual_vq_ref"] = None
+        state["_residual_vq_reference"] = ()
         return state
 
     def get_auxiliary_output_keys(self) -> set[str]:
@@ -218,7 +219,7 @@ class CodebookPrior(PriorLatentEncoder):
                 f"ResidualVQ num_layers ({residual_vq.num_layers}) does not match "
                 f"CodebookPrior num_residual_layers ({self.num_residual_layers})"
             )
-        self._residual_vq_ref = weakref.ref(residual_vq)
+        self._residual_vq_reference = (residual_vq,)
 
     def forward(
         self,
@@ -245,8 +246,8 @@ class CodebookPrior(PriorLatentEncoder):
         residual_vq = self.residual_vq
         if residual_vq is None:
             raise RuntimeError(
-                "CodebookPrior.residual_vq is not set or has been garbage-collected. "
-                "Call wire_posterior() before forward(), and keep the posterior alive."
+                "CodebookPrior.residual_vq is not set. "
+                "Call wire_posterior() before forward()."
             )
 
         input_observations = {
@@ -257,7 +258,7 @@ class CodebookPrior(PriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
+        input_observations[AlgorithmContextKey.CLASS_TOKEN.value] = cls_embedding
 
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations

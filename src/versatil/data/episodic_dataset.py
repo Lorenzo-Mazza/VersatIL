@@ -52,6 +52,8 @@ class EpisodicDataset(data.Dataset):
         obs_horizon: int,
         train: bool = True,
         seed: int = 42,
+        augment_images: bool | None = None,
+        replay_buffer: ReplayBuffer | None = None,
     ):
         """Initialize episodic dataset.
 
@@ -59,10 +61,18 @@ class EpisodicDataset(data.Dataset):
             zarr_path: Path to zarr replay buffer
             action_space: TaskSpace action space config (what to predict and how)
             observation_space: TaskSpace observation space config (what to use as observation data)
+            dataloader_config: Data loading settings (splits, normalization
+                types, augmentation pipelines, downsampling, padding).
             pred_horizon: Prediction horizon, i.e. chunk size.
             obs_horizon: Observation horizon, i.e. history size.
             train: Whether to use training mode.
             seed: Random seed of the experiment.
+            augment_images: Whether image augmentations are enabled. Defaults
+                to ``train`` so existing training and validation behavior is
+                unchanged.
+            replay_buffer: Already-loaded replay buffer to reuse, avoiding a
+                second in-memory copy when train and validation datasets share
+                one store.
         """
         self.action_space = action_space
         self.observation_space = observation_space
@@ -75,13 +85,14 @@ class EpisodicDataset(data.Dataset):
         self.depth_norm_type = dataloader_config.depth_norm_type
 
         self.train = train
+        self.augment_images = train if augment_images is None else augment_images
         self.seed = seed
         self.action_processor = ActionProcessor(action_space=action_space)
         self.image_processor = ImageProcessor(
             color_augmentation=dataloader_config.color_augmentation,
             spatial_augmentation=dataloader_config.spatial_augmentation,
             camera_metadata=observation_space.cameras,
-            train=train,
+            train=self.augment_images,
         )
         all_keys = list(
             set(
@@ -89,7 +100,9 @@ class EpisodicDataset(data.Dataset):
                 + action_space.get_required_zarr_keys()
             )
         )  # Remove duplicates
-        if self.preload_data_in_memory:
+        if replay_buffer is not None:
+            self.replay_buffer = replay_buffer
+        elif self.preload_data_in_memory:
             self.replay_buffer = ReplayBuffer.copy_from_path(
                 zarr_path=zarr_path, keys=all_keys
             )
@@ -109,6 +122,7 @@ class EpisodicDataset(data.Dataset):
         if dataloader_config.downsample_factor > 1:
             self._apply_downsampling(episode_mask, dataloader_config.downsample_factor)
             episode_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
+        self.episode_selection_mask = episode_mask
         self.episode_ends = self.replay_buffer.episode_ends[:]
         trailing_padded_actions = dataloader_config.trailing_padded_actions
         if trailing_padded_actions is None:
@@ -313,6 +327,8 @@ class EpisodicDataset(data.Dataset):
             min_kinematics_std=min_kinematics_std,
             min_kinematics_range=min_kinematics_range,
             action_sample_size=action_sample_size,
+            episode_selection_mask=self.episode_selection_mask,
+            seed=self.seed,
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(
@@ -370,7 +386,21 @@ class EpisodicDataset(data.Dataset):
                 f"got gripper_type={gripper_type} for key={key}"
             )
         gripper_actions = self.replay_buffer[key][:]
+        if not bool(np.all(self.episode_selection_mask)):
+            step_mask = np.zeros(len(gripper_actions), dtype=bool)
+            episode_start = 0
+            for episode_index, episode_end in enumerate(self.episode_ends):
+                if self.episode_selection_mask[episode_index]:
+                    step_mask[episode_start:episode_end] = True
+                episode_start = int(episode_end)
+            gripper_actions = gripper_actions[step_mask]
         gripper_actions = gripper_actions.reshape(-1)
-        number_of_positive_actions = (gripper_actions == 1).sum()
+        number_of_positive_actions = int((gripper_actions == 1).sum())
         number_of_negative_actions = len(gripper_actions) - number_of_positive_actions
+        if number_of_positive_actions == 0 or number_of_negative_actions == 0:
+            raise ValueError(
+                "Class-imbalance weighting needs both gripper classes in the "
+                f"training data; got {number_of_positive_actions} positive and "
+                f"{number_of_negative_actions} negative samples for key={key}."
+            )
         return number_of_negative_actions / number_of_positive_actions

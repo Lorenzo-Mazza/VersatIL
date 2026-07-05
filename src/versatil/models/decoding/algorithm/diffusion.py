@@ -18,8 +18,12 @@ See diffusion_process.py for detailed documentation of these components.
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.base import (
+    DecodingAlgorithm,
+    resolve_feature_reference,
+)
 from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
     BetaSchedule,
     DecoderOutputKey,
     PredictionType,
@@ -97,6 +101,10 @@ class Diffusion(DecodingAlgorithm):
         self.num_inference_steps = num_inference_steps
         self.prediction_type = prediction_type
 
+    def injected_feature_keys(self) -> set[str]:
+        """The conditioning timestep is provided by the algorithm."""
+        return {AlgorithmContextKey.TIMESTEP.value}
+
     def forward(
         self,
         network: ActionDecoder,
@@ -142,11 +150,13 @@ class Diffusion(DecodingAlgorithm):
         # Add noise to all action components using shared diffusion process
         noisy_actions: dict[str, torch.Tensor] = {}
         noise: dict[str, torch.Tensor] = {}
+        clean_actions: dict[str, torch.Tensor] = {}
         is_pad = None
         for key, action in actions.items():
             if key == SampleKey.IS_PAD_ACTION.value:
                 is_pad = action
                 continue  # Skip padding mask
+            clean_actions[key] = action
             noisy_actions[key], noise[key] = add_noise_to_tensor(
                 clean=action,
                 noise_scheduler=self.noise_scheduler,
@@ -154,18 +164,16 @@ class Diffusion(DecodingAlgorithm):
             )
 
         # Add timesteps to features for eventual conditioning
-        features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timesteps}
+        features_with_time = {**features, AlgorithmContextKey.TIMESTEP.value: timesteps}
 
         predictions = network(features=features_with_time, actions=noisy_actions)
         if self.prediction_type == PredictionType.EPSILON.value:
             target = noise
         elif self.prediction_type == PredictionType.SAMPLE.value:
-            target = actions
+            target = clean_actions
         elif self.prediction_type == PredictionType.VELOCITY.value:
             velocity = {}
-            for key, action in actions.items():
-                if key == SampleKey.IS_PAD_ACTION.value:
-                    continue
+            for key, action in clean_actions.items():
                 velocity[key] = self.noise_scheduler.get_velocity(
                     sample=action, noise=noise[key], timesteps=timesteps
                 )
@@ -175,13 +183,15 @@ class Diffusion(DecodingAlgorithm):
                 f"Unknown prediction_type: {self.prediction_type}. "
                 f"Expected one of {[e.value for e in PredictionType]}"
             )
-        return {
+        outputs = {
             **predictions,
             DecoderOutputKey.TARGET_DIFFUSION.value: target,
             DecoderOutputKey.NOISE.value: noise,
-            SampleKey.IS_PAD_ACTION.value: is_pad,
-            DecoderOutputKey.TIMESTEP.value: timesteps,
+            AlgorithmContextKey.TIMESTEP.value: timesteps,
         }
+        if is_pad is not None:
+            outputs[SampleKey.IS_PAD_ACTION.value] = is_pad
+        return outputs
 
     @property
     def predicts_in_action_space(self) -> bool:
@@ -212,10 +222,7 @@ class Diffusion(DecodingAlgorithm):
         Returns:
             Decoder output dictionary containing denoised action predictions.
         """
-        first_feature = next(iter(features.values()))
-        batch_size = first_feature.shape[0]
-        device = first_feature.device
-        dtype = first_feature.dtype
+        batch_size, device, dtype = resolve_feature_reference(features=features)
 
         # Initialize actions with random noise
         noisy_actions = {}
@@ -231,19 +238,24 @@ class Diffusion(DecodingAlgorithm):
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
         network.enable_encoder_cache()
-
-        # Iteratively denoise
-        for t in self.noise_scheduler.timesteps:
-            # Expand timestep to batch dimension
-            timestep = t.unsqueeze(0).expand(batch_size).to(device)
-            features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timestep}
-            model_output = network(features=features_with_time, actions=noisy_actions)
-            for key in noisy_actions:
-                if key in model_output:
-                    noisy_actions[key] = self.noise_scheduler.step(
-                        model_output[key], t, noisy_actions[key]
-                    ).prev_sample
-
-        network.disable_encoder_cache()
+        try:
+            # Iteratively denoise
+            for t in self.noise_scheduler.timesteps:
+                # Expand timestep to batch dimension
+                timestep = t.unsqueeze(0).expand(batch_size).to(device)
+                features_with_time = {
+                    **features,
+                    AlgorithmContextKey.TIMESTEP.value: timestep,
+                }
+                model_output = network(
+                    features=features_with_time, actions=noisy_actions
+                )
+                for key in noisy_actions:
+                    if key in model_output:
+                        noisy_actions[key] = self.noise_scheduler.step(
+                            model_output[key], t, noisy_actions[key]
+                        ).prev_sample
+        finally:
+            network.disable_encoder_cache()
 
         return noisy_actions

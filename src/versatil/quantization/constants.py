@@ -3,14 +3,23 @@
 from enum import StrEnum
 
 
-class QuantizationBackend(StrEnum):
+class PT2EBackendName(StrEnum):
     """Target backend for PT2E quantized operator lowering.
 
-    These backends are specific to the PT2E quantization path.
-    The quantize_() API path does not use backend selection.
+    These backends are specific to the PT2E quantization workflow.
+    The eager workflow does not use PT2E backend selection.
     """
 
     X86_INDUCTOR = "x86_inductor"
+    XNNPACK = "xnnpack"
+
+
+class QuantizationMode(StrEnum):
+    """Quantization workflow used to produce the deployable model."""
+
+    NONE = "none"
+    PT2E = "pt2e"
+    EAGER = "eager"
 
 
 class QuantizableOperatorType(StrEnum):
@@ -18,6 +27,12 @@ class QuantizableOperatorType(StrEnum):
 
     CONV2D = "conv2d"
     LINEAR = "linear"
+
+
+class FXNodeOp(StrEnum):
+    """FX graph node operation kinds relevant to reporting."""
+
+    CALL_FUNCTION = "call_function"
 
 
 class FXNodePattern(StrEnum):

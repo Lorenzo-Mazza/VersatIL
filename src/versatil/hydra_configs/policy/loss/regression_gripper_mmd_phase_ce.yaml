@@ -1,0 +1,47 @@
+# The syntax to validate against structured configs is always: `config_name in the configs.init.py`@`field path in the yaml file to validate`
+defaults:
+  - regression@loss_modules.moe_loss.base_loss.loss_modules.regression_loss
+  - gripper@loss_modules.moe_loss.base_loss.loss_modules.gripper_loss
+  - traj_len@loss_modules.moe_loss.base_loss.loss_modules.trajectory_length
+  - phase_classification@loss_modules.moe_loss.base_loss.loss_modules.phase_classification_loss
+  - mmd@loss_modules.moe_loss.base_loss.loss_modules.maximum_mean_discrepancy
+  - _self_
+
+_target_: versatil.metrics.losses.composite.CompositeLoss
+loss_modules:
+  moe_loss:
+    _target_: versatil.metrics.losses.mixture_of_experts.MoELoss
+    base_loss:
+      _target_: versatil.metrics.losses.composite.CompositeLoss
+      loss_modules:
+        regression_loss:
+          _target_: versatil.metrics.losses.regression.RegressionLoss
+          action_keys:
+            - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+          mse_weight: 0.0
+          l1_weight: 1.0
+          huber_weight: 0.0
+
+        gripper_loss:
+          _target_: versatil.metrics.losses.gripper.GripperLoss
+          key: ${proprio_key:GRIPPER_STATE}
+          actions_metadata: ${task.action_space.actions_metadata}
+          bce_weight: 0.05
+
+        maximum_mean_discrepancy:
+            weight: 10.0
+            bandwidth_multipliers: [50.0]
+
+        trajectory_length:
+            _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
+            weight: 0.0
+            action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+
+        phase_classification_loss:
+          key: ${tso_obs_key:PHASE_LABEL}
+          cross_entropy_weight: 0.1
+          entropy_weight: 0.01
+          label_smoothing: 0.0
+
+
+

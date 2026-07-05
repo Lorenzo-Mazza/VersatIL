@@ -278,3 +278,32 @@ class TestGaussianPriorSamplePrior:
         assert result[LatentKey.PRIOR_LATENT.value].device.type == "cuda"
         sample = prior.sample_prior(batch_size=2)
         assert sample.device.type == "cuda"
+
+
+@pytest.mark.unit
+class TestGaussianPriorConstantInference:
+    def test_forward_keeps_stochastic_prior_regardless_of_flag(self):
+        # Training/validation forward passes keep the stochastic prior draw
+        # (ACT/CVAE dynamics); the constant latent applies only at deployment
+        # through sample_prior.
+        prior = GaussianPrior(
+            latent_dimension=8,
+            device="cpu",
+            infer_constant_prior=True,
+        )
+        target_latents = torch.ones(4, 8)
+
+        output = prior.forward(target_latents=target_latents, observations={})
+
+        assert output[LatentKey.PRIOR_LATENT.value].abs().sum() > 0.0
+
+    def test_sample_prior_returns_constant_latent_when_configured(self):
+        prior = GaussianPrior(
+            latent_dimension=8,
+            device="cpu",
+            infer_constant_prior=True,
+        )
+
+        sampled = prior.sample_prior(batch_size=4, observations={})
+
+        torch.testing.assert_close(sampled, torch.zeros(4, 8))

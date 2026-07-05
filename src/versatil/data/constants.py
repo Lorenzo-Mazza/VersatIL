@@ -28,14 +28,17 @@ from versatil_constants.ur3 import UR3ProprioKey
 
 
 class Cameras(enum.Enum):
-    """Camera image keys used in the versatil pipeline and wire protocol."""
+    """Camera image keys used in the versatil pipeline and to wire server protocols, coming from `versatil_constants` library.
+
+    Note:
+        Cf. https://github.com/nct-tso-robotics/versatil_constants for the single source of truth for camera keys across all projects in the ecosystem.
+    """
 
     LEFT = TSOCamera.LEFT.value
     RIGHT = TSOCamera.RIGHT.value
     DEPTH = TSOCamera.DEPTH.value
-    AGENTVIEW = (
-        LiberoCamera.AGENTVIEW.value
-    )  # MetaWorldCamera.AGENTVIEW.value is identical
+    # Libero agent-view key is intentionally reused by MetaWorld, PushT, and Kitchen simulation constants.
+    AGENTVIEW = LiberoCamera.AGENTVIEW.value
     EYE_IN_HAND = LiberoCamera.EYE_IN_HAND.value
 
 
@@ -68,6 +71,13 @@ class RawCameraKey(enum.StrEnum):
     IMAGE_KITCHEN = "observation.image"
 
 
+class CameraModality(enum.StrEnum):
+    """Semantic camera modality derived from camera metadata."""
+
+    RGB = "rgb"
+    DEPTH = "depth"
+
+
 RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     # TSO (identity)
     RawCameraKey.LEFT.value: Cameras.LEFT.value,
@@ -82,15 +92,18 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     # Libero Plus LeRobot
     RawCameraKey.FRONT.value: Cameras.AGENTVIEW.value,
     RawCameraKey.WRIST.value: Cameras.EYE_IN_HAND.value,
-    # MetaWorld LeRobot
     RawCameraKey.IMAGE_METAWORLD.value: Cameras.AGENTVIEW.value,
-    # PushT LeRobot (same raw key as MetaWorld, mapped to AGENTVIEW)
     RawCameraKey.IMAGE_PUSHT.value: Cameras.AGENTVIEW.value,
+    RawCameraKey.IMAGE_KITCHEN.value: Cameras.AGENTVIEW.value,
 }
 
 
 class ProprioKey(enum.StrEnum):
-    """Proprioceptive observation keys for all supported environments."""
+    """Proprioceptive observation keys for all supported environments.
+
+    Note:
+        Cf. https://github.com/nct-tso-robotics/versatil_constants for the single source of truth for proprioceptive keys across all projects in the ecosystem.
+    """
 
     # TSO datasets proprioceptive keys
     ROBOT_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
@@ -107,7 +120,8 @@ class ProprioKey(enum.StrEnum):
     GRIPPER_STATE = LiberoProprioKey.GRIPPER_STATE.value
     GRIPPER_STATE_ACTION = LiberoProprioKey.GRIPPER_STATE_ACTION.value
 
-    # Synthetic data
+    # Synthetic data, these don't live in versatil_constants because they are never passed over the wire at inference time,
+    # but are only used locally within versatil for synthetic benchmarks.
     SYNTHETIC_POSITION = "synthetic_position"
     SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
 
@@ -136,7 +150,7 @@ class ProprioKey(enum.StrEnum):
     UR3_BLOCK2_POS = UR3ProprioKey.BLOCK2_POS.value
     UR3_EE_TARGET_ACTION = UR3ProprioKey.EE_TARGET_ACTION.value
 
-    # Block pushing (multimodal_push_seed) data
+    # Block pushing data
     BLOCK_PUSH_BLOCK1_POS = BlockPushProprioKey.BLOCK1_POS.value
     BLOCK_PUSH_BLOCK1_ANGLE = BlockPushProprioKey.BLOCK1_ANGLE.value
     BLOCK_PUSH_BLOCK2_POS = BlockPushProprioKey.BLOCK2_POS.value
@@ -183,6 +197,9 @@ class TokenPaddingStrategy(enum.StrEnum):
     LONGEST = "longest"
 
 
+PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER = "{instruction}"
+
+
 class ProprioceptiveType(enum.StrEnum):
     """Proprioceptive data types."""
 
@@ -197,6 +214,27 @@ class TokenizerType(enum.StrEnum):
 
     FAST = "fast"
     LANGUAGE = "language"
+
+
+class ActionDiscretizerType(enum.StrEnum):
+    """Continuous-action discretization strategies."""
+
+    FAST = "fast"
+    BINNED = "binned"
+
+
+class BinningStrategy(enum.StrEnum):
+    """Bin-edge placement strategies for value discretization."""
+
+    UNIFORM = "uniform"
+    QUANTILE = "quantile"
+
+
+class ActionTokenIdMappingType(enum.StrEnum):
+    """Mappings from action-local token IDs to model token IDs."""
+
+    IDENTITY = "identity"
+    LANGUAGE_VOCABULARY = "language_vocabulary"
 
 
 class DatasetType(enum.StrEnum):
@@ -230,7 +268,8 @@ class LeRobotPathsV30(enum.StrEnum):
         "images/{image_key}/episode-{episode_index:06d}/frame-{frame_index:06d}.png"
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """Return the string value used in path formatting."""
         return self.value
 
 
@@ -256,17 +295,6 @@ class MetadataPassthroughSource(enum.StrEnum):
 VALID_CAMERAS = [cam.value for cam in Cameras]
 VALID_RAW_CAMERA_KEYS = [key.value for key in RawCameraKey]
 
-RGB_CAMERAS = [
-    Cameras.LEFT.value,
-    Cameras.RIGHT.value,
-    Cameras.AGENTVIEW.value,
-    Cameras.EYE_IN_HAND.value,
-]
-
-DEPTH_CAMERAS = [
-    Cameras.DEPTH.value,
-]
-
 # Ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
 IMAGENET_RGB_MEAN: list[float] = [0.485, 0.456, 0.406]
 IMAGENET_RGB_STD: list[float] = [0.229, 0.224, 0.225]
@@ -275,5 +303,7 @@ IMAGENET_RGB_STD: list[float] = [0.229, 0.224, 0.225]
 # https://huggingface.co/openai/clip-vit-base-patch32/blob/main/preprocessor_config.json
 CLIP_RGB_MEAN: list[float] = [0.48145466, 0.4578275, 0.40821073]
 CLIP_RGB_STD: list[float] = [0.26862954, 0.26130258, 0.27577711]
+SIGLIP_RGB_MEAN: list[float] = [0.5, 0.5, 0.5]
+SIGLIP_RGB_STD: list[float] = [0.5, 0.5, 0.5]
 IMAGENET_DEPTH_MEAN: float = 0.48
 IMAGENET_DEPTH_STD: float = 0.28

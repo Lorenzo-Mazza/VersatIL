@@ -53,9 +53,11 @@ class SpatialSoftmaxPooling(PoolingHead):
 
     @property
     def output_dim(self) -> int:
+        """Two coordinates (x, y) per input channel."""
         return self.input_dimension * 2
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Compute per-channel spatial softmax keypoints from (B, C, H, W)."""
         result: torch.Tensor = self.spatial_softmax(features)
         return result
 
@@ -65,9 +67,11 @@ class GlobalAveragePooling(PoolingHead):
 
     @property
     def output_dim(self) -> int:
+        """Channel count of the pooled vector."""
         return self.input_dimension
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Average (B, C, H, W) over the spatial dimensions."""
         return features.mean(dim=[2, 3])
 
 
@@ -76,9 +80,11 @@ class MaxPooling(PoolingHead):
 
     @property
     def output_dim(self) -> int:
+        """Channel count of the pooled vector."""
         return self.input_dimension
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Max-reduce (B, C, H, W) over the spatial dimensions."""
         return torch.amax(features, dim=[2, 3])
 
 
@@ -91,9 +97,11 @@ class SpatialIdentityPooling(PoolingHead):
 
     @property
     def output_dim(self) -> tuple[int, int, int]:
+        """Channel count with dynamic spatial dimensions."""
         return self.input_dimension, -1, -1
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Return the spatial feature maps unchanged."""
         return features
 
 
@@ -106,9 +114,11 @@ class SpatialLearnedAggregationPooling(PoolingHead):
 
     @property
     def output_dim(self) -> int:
+        """Channel count of the aggregated vector."""
         return self.input_dimension
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Aggregate (B, C, H, W) through learned attention."""
         return self.learned_aggregation(features)
 
 
@@ -147,6 +157,7 @@ class TokenPoolingHead(PoolingHead):
 
     @property
     def output_dim(self) -> int | tuple[int, int]:
+        """Feature dimension, with sequence length when pooling is disabled."""
         if self.pooling_method == PoolingMethod.NONE.value:
             sequence_length = (
                 self.sequence_length - self.num_prefix_tokens

@@ -34,7 +34,7 @@ class FinalPredictionLayer(nn.Module):
         )
         self.ada_norm = AdaNorm(
             base_norm=base_norm,
-            condition_dim=hidden_dimension,
+            conditioning_dimension=hidden_dimension,
             feature_dim=hidden_dimension,
             use_gate=False,  # no gate needed at the end
             activation=activation,
@@ -50,8 +50,8 @@ class FinalPredictionLayer(nn.Module):
         """Predict the output with adaptive modulation.
 
         Args:
-            hidden_states: Input tensor (batch_size (B), sequence_length (S), hidden_dim (D)).
-            conditioning_embedding: Combined timestep + encoder conditioning (batch_size, hidden_dim).
+            hidden_states: Input tensor (batch_size (B), sequence_length (S), hidden_dimension (D)).
+            conditioning_embedding: Combined timestep + encoder conditioning (batch_size, hidden_dimension).
 
         Returns:
             Predicted tensor (batch_size, sequence_length, output_dim).

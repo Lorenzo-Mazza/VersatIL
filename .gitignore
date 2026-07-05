@@ -18,6 +18,7 @@ fuse.cfg
 
 # Generation results
 results/
+test_results/
 
 ray/auth.json
 
@@ -145,10 +146,19 @@ dmypy.json
 /src/endpoints/custom_configs/*
 a/yaml_configs/custom_configs/*
 
-uv.lock
 .venv*
+.codex 
 
 lightning_logs/
 src/endpoints/local_test/
 research_scripts/
 scripts/
+paper/
+paper_resources/
+paper_multimodality/
+nips_final/
+
+# Private dataset configs (multimodal peg transfer is not public)
+src/versatil/hydra_configs/end_to_end_training_runs/multimodal_peg_transfer/
+src/versatil/hydra_configs/task/dataset_schema/multimodal_peg_transfer.yaml
+src/versatil/hydra_configs/task/dataset_schema/zarr_meta/multimodal_peg_transfer.yaml

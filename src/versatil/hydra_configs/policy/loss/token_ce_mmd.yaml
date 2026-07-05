@@ -1,0 +1,13 @@
+defaults:
+  - token_loss@loss_modules.token_loss
+  - binary_mmd@loss_modules.maximum_mean_discrepancy
+  - _self_
+
+_target_: versatil.metrics.losses.composite.CompositeLoss
+loss_modules:
+    token_loss:
+      label_smoothing: 0.1
+
+    maximum_mean_discrepancy:
+      weight: 10.0
+

@@ -1,0 +1,7 @@
+defaults:
+  - /policy/decoder/action_head@joint_action: base
+  - _self_
+
+joint_action:
+  input_dimension: ${policy.decoder.expert_hidden_size}
+  blocks: null

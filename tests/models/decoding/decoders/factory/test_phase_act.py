@@ -2,7 +2,6 @@
 
 import re
 from collections.abc import Callable
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +9,7 @@ import torch
 from versatil_constants.tso import TSOObsKey
 
 from versatil.configs.experiment import ExperimentConfig
+from versatil.data.metadata import ActionMetadata
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey
@@ -45,10 +45,18 @@ def phase_action_space_factory(
         num_phases: int = NUM_PHASES,
     ) -> MagicMock:
         action_space = mock_action_space_factory(position_dim=position_dim)
-        action_space.actions_metadata[TSOObsKey.PHASE_LABEL.value] = SimpleNamespace(
-            requires_prediction_head=True,
-            prediction_dimension=num_phases,
-        )
+        phase_metadata = MagicMock(spec=ActionMetadata)
+        phase_metadata.requires_prediction_head = True
+        phase_metadata.prediction_dimension = num_phases
+        action_space.actions_metadata[TSOObsKey.PHASE_LABEL.value] = phase_metadata
+        action_space.predicted_action_dimensions = {
+            "position_action": position_dim,
+            TSOObsKey.PHASE_LABEL.value: num_phases,
+        }
+        action_space.predicted_action_keys = [
+            "position_action",
+            TSOObsKey.PHASE_LABEL.value,
+        ]
         action_space.get_total_action_dim.return_value = position_dim + num_phases
         return action_space
 
@@ -62,9 +70,9 @@ def lazy_moe_head_factory(
     """Factory for lazy-initialized MoEHead (no num_experts set yet)."""
 
     def factory(
-        input_dim: int = EMBEDDING_DIMENSION,
+        input_dimension: int = EMBEDDING_DIMENSION,
     ) -> MoEHead:
-        base_expert = action_head_factory(input_dim=input_dim)
+        base_expert = action_head_factory(input_dimension=input_dimension)
         return MoEHead(base_expert=base_expert)
 
     return factory
@@ -92,8 +100,8 @@ def phase_act_factory(
             num_phases=num_phases,
         )
         observation_space = mock_observation_space_factory()
-        phase_head = action_head_factory(input_dim=embedding_dimension)
-        moe_position_head = lazy_moe_head_factory(input_dim=embedding_dimension)
+        phase_head = action_head_factory(input_dimension=embedding_dimension)
+        moe_position_head = lazy_moe_head_factory(input_dimension=embedding_dimension)
         action_heads = {
             TSOObsKey.PHASE_LABEL.value: phase_head,
             "position_action": moe_position_head,
@@ -117,6 +125,7 @@ def phase_act_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestPhaseACTInitialization:
     def test_inherits_from_act(
         self,
@@ -152,13 +161,11 @@ class TestPhaseACTInitialization:
         action_heads = {
             "position_action": moe_position_head,
         }
-        missing_heads = {TSOObsKey.PHASE_LABEL.value}
-        configured_heads = {"position_action"}
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Action space requires heads for {missing_heads}, but they are not configured. "
-                f"Configured heads: {configured_heads}"
+                "PhaseACT requires 'phase_label' head for routing, but only "
+                "found: ['position_action']"
             ),
         ):
             PhaseACT(
@@ -185,8 +192,8 @@ class TestPhaseACTInitialization:
     ):
         action_space = phase_action_space_factory()
         observation_space = mock_observation_space_factory()
-        phase_head = action_head_factory(input_dim=EMBEDDING_DIMENSION)
-        position_head = action_head_factory(input_dim=EMBEDDING_DIMENSION)
+        phase_head = action_head_factory(input_dimension=EMBEDDING_DIMENSION)
+        position_head = action_head_factory(input_dimension=EMBEDDING_DIMENSION)
         action_heads = {
             TSOObsKey.PHASE_LABEL.value: phase_head,
             "position_action": position_head,
@@ -232,6 +239,7 @@ class TestPhaseACTInitialization:
         assert decoder.decoder_input.requires_actions is False
 
 
+@pytest.mark.integration
 class TestPhaseACTForward:
     def test_output_keys(
         self,
@@ -331,6 +339,7 @@ class TestPhaseACTForward:
         torch.testing.assert_close(routed_output, expert_0_output, atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.integration
 class TestPhaseACTTemporalObservation:
     @pytest.mark.parametrize(
         "observation_horizon, expects_temporal_pe",
@@ -353,6 +362,7 @@ class TestPhaseACTTemporalObservation:
             assert layer is None
 
 
+@pytest.mark.unit
 def test_auxiliary_output_keys(
     phase_act_factory: Callable[..., PhaseACT],
 ):
@@ -362,6 +372,7 @@ def test_auxiliary_output_keys(
     }
 
 
+@pytest.mark.unit
 def test_get_callbacks_returns_confusion_matrix(
     phase_act_factory: Callable[..., PhaseACT],
 ):

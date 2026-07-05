@@ -50,7 +50,7 @@ class PhaseACT(ACT):
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
         phase_routing_key: str = TSOObsKey.PHASE_LABEL.value,
-    ):
+    ) -> None:
         """Initialize PhaseACT decoder.
 
         Args:
@@ -71,10 +71,25 @@ class PhaseACT(ACT):
             normalize_before: Use pre-normalization.
             phase_routing_key: Key for the phase classifier head that provides routing weights.
         """
+        resolved_action_heads = resolve_dict_keys(action_heads)
+        if phase_routing_key not in resolved_action_heads:
+            raise ValueError(
+                f"PhaseACT requires '{phase_routing_key}' head for routing, "
+                f"but only found: {list(resolved_action_heads.keys())}"
+            )
+        if not any(
+            isinstance(resolved_action_heads[key], MoEHead)
+            for key in resolved_action_heads
+            if key != phase_routing_key
+        ):
+            raise ValueError(
+                "PhaseACT requires at least one MoE action head for phase-based routing."
+            )
+
         super().__init__(
             input_keys=input_keys,
             action_space=action_space,
-            action_heads=action_heads,
+            action_heads=resolved_action_heads,
             observation_space=observation_space,
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
@@ -89,20 +104,6 @@ class PhaseACT(ACT):
             normalize_before=normalize_before,
         )
         self.phase_routing_key = phase_routing_key
-        if self.phase_routing_key not in self.action_heads:
-            raise ValueError(
-                f"PhaseACT requires '{self.phase_routing_key}' head for routing, "
-                f"but only found: {list(self.action_heads.keys())}"
-            )
-        if not any(
-            isinstance(self.action_heads[key], MoEHead)
-            for key in self.action_heads
-            if key != self.phase_routing_key
-        ):
-            raise ValueError(
-                "PhaseACT requires at least one MoE action head for phase-based routing."
-            )
-
         self._initialize_moe_experts()
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:

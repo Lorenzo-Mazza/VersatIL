@@ -35,11 +35,15 @@ jobs:
     needs: [ruff-format, ruff-lint]
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v5
         with:
           cache-dependency-glob: pyproject.toml
@@ -55,38 +59,36 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
-          uv venv .venv
+          uv venv .venv --python ${{ matrix.python-version }}
           source .venv/bin/activate
-          uv sync --no-dev --no-sources --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
-          uv pip install pytest-cov
+          uv sync --python ${{ matrix.python-version }} --extra cpu
       - name: Run unit tests with coverage
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -m "not integration and not slow and not requires_gpu" --cov=versatil --cov-fail-under=90 --cov-report=xml:coverage.xml --cov-report=term-missing --tb=short -q --junitxml=report-unit.xml
+          python -m pytest tests/ -m "not integration and not slow and not requires_gpu and not requires_executorch" --cov=versatil --cov-fail-under=90 --cov-report=xml:coverage.xml --cov-report=term-missing --tb=short -q --junitxml=report-unit.xml
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-coverage-report
+          name: unit-coverage-report-${{ matrix.python-version }}
           path: coverage.xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
           disable_search: true
-          flags: unit
-          name: unit-tests
+          flags: unit-py${{ matrix.python-version }}
+          name: unit-tests-${{ matrix.python-version }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-report
+          name: unit-test-report-${{ matrix.python-version }}
           path: report-unit.xml
 
   integration-tests:
@@ -112,17 +114,25 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
-          uv venv .venv
+          uv venv .venv --python 3.14
           source .venv/bin/activate
-          uv sync --no-dev --no-sources --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --python 3.14 --extra cpu
       - name: Run integration tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -m "integration and not slow and not requires_gpu" --tb=short -q --junitxml=report-integration.xml
+          python -m pytest tests/ -m "integration and not slow and not requires_gpu and not requires_executorch" --cov=versatil --cov-report=xml:coverage-integration.xml --tb=short -q --junitxml=report-integration.xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage-integration.xml
+          disable_search: true
+          flags: integration
+          name: integration-tests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -130,9 +140,52 @@ jobs:
           name: integration-test-report
           path: report-integration.xml
 
+  executorch-tests:
+    runs-on: ubuntu-latest
+    needs: [ruff-format, ruff-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: pyproject.toml
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          VERSATIL_CACHE_DIR=/tmp/versatil/cache
+          VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
+          VERSATIL_ZARR_DIR=/tmp/versatil/zarr
+          EOF
+      - name: Install dependencies
+        run: |
+          uv venv .venv --python 3.13
+          source .venv/bin/activate
+          uv sync --python 3.13 --extra cpu --extra executorch
+      - name: Run ExecuTorch tests
+        run: |
+          source .venv/bin/activate
+          python -m pytest tests/ -m "requires_executorch and not slow and not requires_gpu" --cov=versatil --cov-report=xml:coverage-executorch.xml --tb=short -q --junitxml=report-executorch.xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage-executorch.xml
+          disable_search: true
+          flags: executorch
+          name: executorch-tests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: executorch-test-report
+          path: report-executorch.xml
+
   e2e-tests:
     runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests]
+    needs: [unit-tests, integration-tests, executorch-tests]
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     timeout-minutes: 30
     steps:
@@ -159,13 +212,12 @@ jobs:
           VERSATIL_CACHE_DIR=/tmp/versatil/cache
           VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
           VERSATIL_ZARR_DIR=/tmp/versatil/zarr
-          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
           EOF
       - name: Install dependencies
         run: |
-          uv venv .venv
+          uv venv .venv --python 3.14
           source .venv/bin/activate
-          uv sync --no-dev --no-sources --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --python 3.14 --extra cpu
       - name: Clean dependency caches before e2e
         run: |
           uv cache clean || true
@@ -174,7 +226,7 @@ jobs:
       - name: Run e2e tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/endpoints/test_end_to_end.py -m "slow" --tb=short -q --junitxml=report-e2e.xml
+          python -m pytest tests/endpoints/test_end_to_end.py -m "slow and not requires_executorch" --tb=short -q --junitxml=report-e2e.xml
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

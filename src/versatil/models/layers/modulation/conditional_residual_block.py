@@ -45,7 +45,7 @@ class ConditionalResidualBlock1D(nn.Module):
             ]
         )
         self.modulator = ConditionalModulation(
-            condition_dim=condition_dimension,
+            conditioning_dimension=condition_dimension,
             feature_dim=output_channels,
             use_shift=condition_predict_scale,
             activation=ActivationFunction.MISH.value,

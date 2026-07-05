@@ -3,7 +3,7 @@
 This tokenizer:
 1. Takes multiple observation keys (language, proprio, gripper, etc.)
 2. Optionally bins continuous data into quantiles
-3. Creates a unified prompt string (e.g., "TaskSpace: grasp needle, State in robot frame: 127 143 89")
+3. Creates a unified prompt string (e.g., "Task: grasp needle, State in robot frame: 127 143 89")
 4. Tokenizes the prompt using a language model tokenizer
 5. Returns token IDs and padding masks
 """
@@ -14,21 +14,43 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoTokenizer
 
 from versatil.data.constants import (
+    PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER,
     ObsKey,
     SampleKey,
     TokenPaddingStrategy,
 )
-from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
+from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
+from versatil.data.tokenization.huggingface import load_huggingface_tokenizer
+
+
+def _is_nested_language_list(value: Any) -> bool:
+    """Return whether a value is a batched language list of shape (B, T)."""
+    return isinstance(value, list) and len(value) > 0 and isinstance(value[0], list)
+
+
+def _flatten_time_dim(value: Any) -> Any:
+    """Merge the batch and time dimensions of one observation value.
+
+    Tensors of shape (B, T, ...) become (B*T, ...) and nested language lists
+    of shape (B, T) become flat lists of length B*T. Both orderings list all
+    timesteps of the first batch element before moving to the next, matching
+    torch's reshape, so tensor rows and language entries stay paired. Other
+    values pass through unchanged.
+    """
+    if isinstance(value, torch.Tensor) and value.ndim >= 3:
+        return value.reshape(-1, *value.shape[2:])
+    if _is_nested_language_list(value):
+        return [item for sublist in value for item in sublist]
+    return value
 
 
 class ObservationTokenizer:
     """Tokenizes multiple observation keys into a unified prompt.
 
     Creates prompts like:
-    "TaskSpace: grasp needle, State in robot frame: 127 143 89, State in camera frame: 88 201 43"
+    "Task: grasp needle, State in robot frame: 127 143 89, State in camera frame: 88 201 43"
 
     All specified observation keys are combined into a single string, then tokenized.
     """
@@ -42,7 +64,9 @@ class ObservationTokenizer:
         max_token_len: int = 256,
         device: torch.device | None = None,
         raw_text: bool = False,
+        prompt_template: str | None = None,
         padding_strategy: str = TokenPaddingStrategy.MAX_LENGTH.value,
+        trust_remote_code: bool = False,
     ):
         """Initialize observation tokenizer.
 
@@ -56,10 +80,25 @@ class ObservationTokenizer:
             raw_text: If True, pass language text through with only a trailing
                 newline appended (no ``Task:`` prefix, no lowercasing). Use for
                 VLM policies (SmolVLA, Pi0) that expect unformatted text.
+            prompt_template: Optional raw-text template with an
+                ``{instruction}`` placeholder wrapped around the language
+                instruction, which is lowercased and stripped before insertion
+                (OpenVLA convention). Requires ``raw_text=True``.
             padding_strategy: HuggingFace padding strategy. ``"max_length"``
                 pads all sequences to ``max_token_len``. ``"longest"`` pads to
                 the longest sequence in the batch.
+            trust_remote_code: Whether to allow tokenizers that ship custom
+                HuggingFace code (e.g. nvidia/llama-nemotron-embed).
         """
+        if prompt_template is not None:
+            if not raw_text:
+                raise ValueError("prompt_template requires raw_text=True.")
+            if PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER not in prompt_template:
+                raise ValueError(
+                    "prompt_template must contain an "
+                    f"'{PROMPT_TEMPLATE_INSTRUCTION_PLACEHOLDER}' placeholder, "
+                    f"got: {prompt_template!r}"
+                )
         self.tokenizer_model = tokenizer_model
         self.observation_keys = observation_keys
         self.bin_continuous_data = bin_continuous_data
@@ -67,13 +106,17 @@ class ObservationTokenizer:
         self.max_token_len = max_token_len
         self.device = device if device is not None else torch.device("cpu")
         self.raw_text = raw_text
+        self.prompt_template = prompt_template
         self.padding_strategy = padding_strategy
-        self.language_tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
+        self.trust_remote_code = trust_remote_code
+        self.language_tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=tokenizer_model, trust_remote_code=trust_remote_code
+        )
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
 
         self.vocab_size = len(self.language_tokenizer)
-        self.binning_tokenizers: dict[str, BinningTokenizer] = {}
+        self.binned_value_discretizers: dict[str, BinnedValueDiscretizer] = {}
         self._is_fitted = False
 
     def fit(self, observation_data: dict[str, np.ndarray]) -> None:
@@ -99,24 +142,34 @@ class ObservationTokenizer:
                 continue
 
             data = observation_data[key]
-            binning_tok = BinningTokenizer(num_bins=self.num_bins, device=self.device)
-            binning_tok.fit(data)
-            self.binning_tokenizers[key] = binning_tok
+            discretizer = BinnedValueDiscretizer(
+                num_bins=self.num_bins, device=self.device
+            )
+            discretizer.fit(data)
+            self.binned_value_discretizers[key] = discretizer
 
         self._is_fitted = True
         logging.info(
             f"Fitted observation tokenizer on {len(self.observation_keys)} keys "
-            f"({len(self.binning_tokenizers)} with binning) "
+            f"({len(self.binned_value_discretizers)} with binning) "
             f"(model={self.tokenizer_model}, vocab_size={self.vocab_size})"
         )
 
-    def tokenize(self, observations: dict[str, Any]) -> dict[str, torch.Tensor]:
+    def tokenize(
+        self,
+        observations: dict[str, Any],
+        batched: bool = False,
+    ) -> dict[str, torch.Tensor]:
         """Tokenize observations into unified prompt.
 
         Args:
-            observations: Dict with observation data (can be batched or single sample)
-                - Language keys: list[str] or list[list[str]]
-                - Continuous keys: torch.Tensor or np.ndarray
+            observations: Dict with observation data.
+                - Language keys: list[str], or list[list[str]] when batched
+                - Continuous keys: torch.Tensor or np.ndarray, with a leading
+                  batch dimension when batched
+            batched: Whether inputs carry a leading batch dimension in front
+                of the observation horizon, producing per-timestep prompts
+                reshaped back to (B, T, seq).
 
         Returns:
             Dict with:
@@ -126,38 +179,31 @@ class ObservationTokenizer:
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted before encoding")
 
-        # TODO: temporal dimension should be explicitly passed to this function, not inferred from inputs.
-        first_tensor = next(
-            (v for v in observations.values() if isinstance(v, torch.Tensor)), None
-        )
-        has_time_dim = first_tensor is not None and first_tensor.ndim >= 3
         batch_size, time_steps = None, None
-        if has_time_dim:
-            batch_size = first_tensor.shape[0]
-            time_steps = first_tensor.shape[1]
-            observations = {
-                k: v.reshape(-1, *v.shape[2:]) if isinstance(v, torch.Tensor) else v
-                for k, v in observations.items()
-            }
-        elif not has_time_dim:
-            first_nested_list = next(
-                (
-                    v
-                    for v in observations.values()
-                    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list)
-                ),
+        if batched:
+            first_tensor = next(
+                (v for v in observations.values() if isinstance(v, torch.Tensor)),
                 None,
             )
-            if first_nested_list is not None:
-                has_time_dim = True
+            if first_tensor is not None:
+                batch_size = first_tensor.shape[0]
+                time_steps = first_tensor.shape[1]
+            else:
+                first_nested_list = next(
+                    (v for v in observations.values() if _is_nested_language_list(v)),
+                    None,
+                )
+                if first_nested_list is None:
+                    raise ValueError(
+                        "Batched tokenization requires at least one tensor or "
+                        "nested language list to derive the batch layout."
+                    )
                 batch_size = len(first_nested_list)
                 time_steps = len(first_nested_list[0])
-                observations = {
-                    k: [item for sublist in v for item in sublist]
-                    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list)
-                    else v
-                    for k, v in observations.items()
-                }
+            observations = {
+                key: _flatten_time_dim(value=value)
+                for key, value in observations.items()
+            }
 
         prompts = self._build_prompts(observations)
         tokenized = self.language_tokenizer(
@@ -172,7 +218,7 @@ class ObservationTokenizer:
             is_pad = ~tokenized["attention_mask"].to(torch.bool)
         else:
             is_pad = tokens == self.language_tokenizer.pad_token_id
-        if has_time_dim:
+        if batched:
             # Reshape (B*T, seq) -> (B, T, seq)
             tokens = tokens.reshape(batch_size, time_steps, -1)
             is_pad = is_pad.reshape(batch_size, time_steps, -1)
@@ -240,8 +286,11 @@ class ObservationTokenizer:
                     else:
                         continue
 
-                    if self.bin_continuous_data and key in self.binning_tokenizers:
-                        binned = self.binning_tokenizers[key].encode(sample)
+                    if (
+                        self.bin_continuous_data
+                        and key in self.binned_value_discretizers
+                    ):
+                        binned = self.binned_value_discretizers[key].encode(sample)
                         sample_str = " ".join(
                             map(str, binned.cpu().float().numpy().flatten().tolist())
                         )
@@ -261,7 +310,12 @@ class ObservationTokenizer:
     def _build_raw_prompts(
         self, observations: dict[str, Any], batch_size: int
     ) -> list[str]:
-        """Build prompts by passing language text through with a trailing newline."""
+        """Build prompts from raw language text, optionally through a template.
+
+        Without a template the text passes through with a trailing newline.
+        With a template the lowercased instruction is inserted at the
+        ``{instruction}`` placeholder and the template is used verbatim.
+        """
         language_data = observations.get(ObsKey.LANGUAGE.value)
         if language_data is None:
             raise ValueError(
@@ -272,6 +326,11 @@ class ObservationTokenizer:
             text = self._extract_language_text(
                 data=language_data, index=i, batch_size=batch_size
             )
+            if self.prompt_template is not None:
+                prompts.append(
+                    self.prompt_template.format(instruction=text.lower().strip())
+                )
+                continue
             if not text.endswith("\n"):
                 text = text + "\n"
             prompts.append(text)
@@ -287,8 +346,8 @@ class ObservationTokenizer:
             Self for chaining
         """
         self.device = device
-        for tokenizer in self.binning_tokenizers.values():
-            tokenizer.to(device)
+        for discretizer in self.binned_value_discretizers.values():
+            discretizer.to(device)
         return self
 
     def state_dict(self) -> dict[str, Any]:
@@ -305,9 +364,12 @@ class ObservationTokenizer:
             "max_token_len": self.max_token_len,
             "vocab_size": self.vocab_size,
             "raw_text": self.raw_text,
+            "prompt_template": self.prompt_template,
             "padding_strategy": self.padding_strategy,
-            "binning_tokenizers": {
-                key: tok.state_dict() for key, tok in self.binning_tokenizers.items()
+            "trust_remote_code": self.trust_remote_code,
+            "binned_value_discretizers": {
+                key: discretizer.state_dict()
+                for key, discretizer in self.binned_value_discretizers.items()
             },
             "is_fitted": self._is_fitted,
         }
@@ -325,15 +387,21 @@ class ObservationTokenizer:
         self.max_token_len = state_dict["max_token_len"]
         self.vocab_size = state_dict["vocab_size"]
         self.raw_text = state_dict.get("raw_text", False)
+        self.prompt_template = state_dict.get("prompt_template")
         self.padding_strategy = state_dict.get(
             "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
         )
+        self.trust_remote_code = state_dict.get("trust_remote_code", False)
         self._is_fitted = state_dict["is_fitted"]
+        self.binned_value_discretizers = {}
 
-        for key, tok_state in state_dict["binning_tokenizers"].items():
-            binning_tok = BinningTokenizer(num_bins=self.num_bins, device=self.device)
-            binning_tok.load_state_dict(tok_state)
-            self.binning_tokenizers[key] = binning_tok
+        discretizer_states = state_dict["binned_value_discretizers"]
+        for key, discretizer_state in discretizer_states.items():
+            discretizer = BinnedValueDiscretizer(
+                num_bins=self.num_bins, device=self.device
+            )
+            discretizer.load_state_dict(discretizer_state)
+            self.binned_value_discretizers[key] = discretizer
 
     def save_pretrained(self, path: str | Path) -> None:
         """Save tokenizer to disk.
@@ -376,13 +444,16 @@ class ObservationTokenizer:
             max_token_len=state_dict["max_token_len"],
             device=device,
             raw_text=state_dict.get("raw_text", False),
+            prompt_template=state_dict.get("prompt_template"),
             padding_strategy=state_dict.get(
                 "padding_strategy", TokenPaddingStrategy.MAX_LENGTH.value
             ),
+            trust_remote_code=state_dict.get("trust_remote_code", False),
         )
         tokenizer.load_state_dict(state_dict)
-        tokenizer.language_tokenizer = AutoTokenizer.from_pretrained(
-            path / "language_tokenizer"
+        tokenizer.language_tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=path / "language_tokenizer",
+            trust_remote_code=tokenizer.trust_remote_code,
         )
         logging.info(f"Loaded observation tokenizer from {path}")
         return tokenizer

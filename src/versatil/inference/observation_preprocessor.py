@@ -1,13 +1,10 @@
 """Observation preprocessing for the inference pipeline."""
 
-import logging
-
 import numpy as np
 import torch
 from tso_robotics_sockets import CompressionType, decompress_array
 from versatil_constants.shared import ObsKey
 
-from versatil.data.constants import Cameras
 from versatil.data.metadata import CameraMetadata
 from versatil.data.processing.image_processor import ImageProcessor
 
@@ -27,7 +24,8 @@ class ObservationPreprocessor:
         camera_metadata: dict[str, CameraMetadata],
         compression_type: str = CompressionType.RAW.value,
         rotate_images: bool = False,
-        depth_clamp_range: tuple[float, float] | None = None,
+        depth_clamp_ranges: dict[str, tuple[float, float]] | None = None,
+        state_dtypes: dict[str, str] | None = None,
     ):
         """Initialize the observation preprocessor.
 
@@ -38,19 +36,28 @@ class ObservationPreprocessor:
             camera_metadata: Per-camera metadata with training-time image dimensions.
             compression_type: Compression format used by the server for images.
             rotate_images: Whether to flip images 180 degrees.
-            depth_clamp_range: Optional (min, max) for depth clamping.
+            depth_clamp_ranges: Optional per-camera (min, max) depth clamps.
+            state_dtypes: Numpy dtype names per state key from the training
+                observation metadata; unlisted keys parse as float32.
         """
         self.camera_keys = camera_keys
         self.state_keys = state_keys
         self.has_language = has_language
         self.compression_type = compression_type
         self.rotate_images = rotate_images
-        self.depth_clamp_range = depth_clamp_range
+        self.depth_clamp_ranges = depth_clamp_ranges or {}
+        self.state_dtypes = {
+            key: np.dtype(dtype_name)
+            for key, dtype_name in (state_dtypes or {}).items()
+        }
+        self.camera_metadata = camera_metadata
 
-        self.depth_key = Cameras.DEPTH.value
-        self.has_depth = self.depth_key in self.camera_keys
+        self.depth_camera_keys = [
+            key for key in self.camera_keys if self.camera_metadata[key].is_depth
+        ]
+        self.has_depth = len(self.depth_camera_keys) > 0
         self.rgb_camera_keys = [
-            key for key in self.camera_keys if key != self.depth_key
+            key for key in self.camera_keys if self.camera_metadata[key].is_rgb
         ]
 
         self.image_processor = ImageProcessor(
@@ -101,7 +108,9 @@ class ObservationPreprocessor:
                 image = np.ascontiguousarray(image[::-1, ::-1])
             observations[camera_key] = image
         for key in self.state_keys:
-            observations[key] = np.array(response[key], dtype=np.float32)
+            observations[key] = np.array(
+                response[key], dtype=self.state_dtypes.get(key, np.float32)
+            )
         if self.has_language:
             observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value]
         return {0: observations}
@@ -138,7 +147,8 @@ class ObservationPreprocessor:
                 observations[camera_key] = image
             for key in self.state_keys:
                 observations[key] = np.array(
-                    response[key][index_string], dtype=np.float32
+                    response[key][index_string],
+                    dtype=self.state_dtypes.get(key, np.float32),
                 )
             if self.has_language:
                 observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value][
@@ -154,7 +164,7 @@ class ObservationPreprocessor:
 
         Note:
             Uses ImageProcessor for per-camera resize and normalization.
-            Depth images are additionally clamped if depth_clamp_range is set.
+            Depth images are clamped to their camera's configured range.
 
         Args:
             recent_observations: Dict mapping key to list of images per timestep.
@@ -174,33 +184,12 @@ class ObservationPreprocessor:
             processed = self.image_processor.process(
                 images=images, camera_key=camera_key
             )
-            # TODO: this currently assumes that only a camera with key "depth" is a depth camera - should ideally be specified in metadata
-            if camera_key == self.depth_key and self.depth_clamp_range is not None:
-                depth_min, depth_max = self.depth_clamp_range
+            if (
+                self.camera_metadata[camera_key].is_depth
+                and camera_key in self.depth_clamp_ranges
+            ):
+                depth_min, depth_max = self.depth_clamp_ranges[camera_key]
                 processed = torch.clamp(processed, min=depth_min, max=depth_max)
             result[camera_key] = processed
 
         return result
-
-    @staticmethod
-    def _normalize_image_tensor(image: torch.Tensor) -> torch.Tensor:
-        """Normalize image tensor to [0, 1] range.
-
-        Args:
-            image: Image tensor from albumentations transform.
-
-        Returns:
-            Float tensor in [0, 1] range.
-        """
-        if image.dtype == torch.uint8:
-            return image.float() / 255.0
-        if image.max() > 1.0:
-            logging.warning(
-                "Received float image with max %.1f > 1.0, dividing by 255.",
-                image.max().item(),
-            )
-            return image / 255.0
-        logging.warning(
-            "Received float image already in [0, 1] range, skipping normalization."
-        )
-        return image

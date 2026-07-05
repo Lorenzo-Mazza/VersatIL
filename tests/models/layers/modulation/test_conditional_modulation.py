@@ -20,7 +20,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
     """Factory for ConditionalModulation instances."""
 
     def factory(
-        condition_dim: int = 32,
+        conditioning_dimension: int = 32,
         feature_dim: int = 16,
         use_shift: bool = True,
         use_gate: bool = False,
@@ -29,7 +29,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
         feature_axis: int = -1,
     ) -> ConditionalModulation:
         return ConditionalModulation(
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=feature_dim,
             use_shift=use_shift,
             use_gate=use_gate,
@@ -42,20 +42,20 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
 
 
 class TestConditionalModulationInitialization:
-    @pytest.mark.parametrize("condition_dim", [32, 64])
+    @pytest.mark.parametrize("conditioning_dimension", [32, 64])
     @pytest.mark.parametrize("feature_dim", [16, 32])
     @pytest.mark.parametrize("use_shift", [True, False])
     @pytest.mark.parametrize("use_gate", [True, False])
     def test_stores_configuration(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        condition_dim: int,
+        conditioning_dimension: int,
         feature_dim: int,
         use_shift: bool,
         use_gate: bool,
     ):
         module = modulation_factory(
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=feature_dim,
             use_shift=use_shift,
             use_gate=use_gate,
@@ -137,13 +137,13 @@ class TestConditionalModulationInitialization:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             activation=ActivationFunction.SWIGLU.value,
             init_strategy="xavier",
         )
         tensor = nchw_tensor_factory(batch_size=2, channels=feature_dim)
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
@@ -160,7 +160,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_shift=use_shift,
             init_strategy="zero",
@@ -170,7 +170,7 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output, _ = module(x=tensor, condition=condition)
         # gamma=0, beta=0 → x * (1+0) + 0 = x
@@ -184,7 +184,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             init_strategy="xavier",
         )
@@ -193,7 +193,7 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output, _ = module(x=tensor, condition=condition)
         assert not torch.allclose(output, tensor)
@@ -206,7 +206,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             init_strategy="xavier",
         )
@@ -215,8 +215,8 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=32)
-        condition_b = condition_factory(batch_size=2, condition_dim=32)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output_a, _ = module(x=tensor, condition=condition_a)
             output_b, _ = module(x=tensor, condition=condition_b)
@@ -230,7 +230,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_shift=False,
             init_strategy="xavier",
@@ -240,7 +240,7 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             projected = module.projection(condition)
             gamma = projected.split(feature_dim, dim=-1)[0]
@@ -257,7 +257,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_shift=True,
             init_strategy="xavier",
@@ -267,7 +267,7 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             projected = module.projection(condition)
             chunks = projected.split(feature_dim, dim=-1)
@@ -285,13 +285,13 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
         )
         tensor = nchw_tensor_factory(
             batch_size=2, channels=feature_dim, height=8, width=8
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
@@ -303,7 +303,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             feature_axis=1,
         )
@@ -313,7 +313,7 @@ class TestConditionalModulationForward:
             channels=feature_dim,
             sequence_length=20,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
@@ -325,7 +325,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
         )
         # (B=2, S=10, D=16) — S != feature_dim, D matches → Transformer path
@@ -334,7 +334,7 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
@@ -346,7 +346,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             init_strategy="xavier",
         )
@@ -355,7 +355,7 @@ class TestConditionalModulationForward:
             sequence_length=feature_dim,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             projected = module.projection(condition)
             chunks = projected.split(feature_dim, dim=-1)
@@ -374,13 +374,13 @@ class TestConditionalModulationForward:
         feature_dim = 16
         batch_size = 2
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
         )
         # (S=5, B=2, D=16) — x.size(1)==condition.size(0)
         data = rng.standard_normal((5, batch_size, feature_dim)).astype(np.float32)
         tensor = torch.from_numpy(data)
-        condition = condition_factory(batch_size=batch_size, condition_dim=32)
+        condition = condition_factory(batch_size=batch_size, conditioning_dimension=32)
         error_message = (
             f"Cannot match batch dimension: x.shape={tensor.shape}, "
             f"condition.shape={condition.shape}. Expected x.size(0) to equal "
@@ -397,14 +397,14 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_gate=True,
         )
         tensor = nchw_tensor_factory(
             batch_size=2, channels=feature_dim, height=8, width=8
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         result = module(x=tensor, condition=condition)
         assert len(result) == 2
         modulated, gate = result
@@ -419,7 +419,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_shift=False,
             use_gate=True,
@@ -427,7 +427,7 @@ class TestConditionalModulationForward:
         tensor = nchw_tensor_factory(
             batch_size=2, channels=feature_dim, height=8, width=8
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output, gate = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
         assert gate.shape == (2, feature_dim, 1, 1)
@@ -440,7 +440,7 @@ class TestConditionalModulationForward:
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_gate=False,
         )
@@ -449,7 +449,7 @@ class TestConditionalModulationForward:
             sequence_length=10,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         output, gate = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
         assert torch.equal(gate, torch.ones(1, dtype=tensor.dtype))
@@ -461,10 +461,10 @@ class TestConditionalModulationForward:
         condition_factory: Callable[..., torch.Tensor],
     ):
         feature_dim = 16
-        module = modulation_factory(condition_dim=32, feature_dim=feature_dim)
+        module = modulation_factory(conditioning_dimension=32, feature_dim=feature_dim)
         data = rng.standard_normal((5, 7, feature_dim)).astype(np.float32)
         tensor = torch.from_numpy(data)
-        condition = condition_factory(batch_size=3, condition_dim=32)
+        condition = condition_factory(batch_size=3, conditioning_dimension=32)
         with pytest.raises(
             ValueError,
             match=re.escape(
@@ -482,9 +482,9 @@ class TestConditionalModulationForward:
         flat_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
-        module = modulation_factory(condition_dim=32, feature_dim=16)
+        module = modulation_factory(conditioning_dimension=32, feature_dim=16)
         tensor = flat_tensor_factory(batch_size=2, feature_dimension=16)
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with pytest.raises(
             ValueError,
             match=re.escape(f"Unsupported input shape: {tensor.shape}"),

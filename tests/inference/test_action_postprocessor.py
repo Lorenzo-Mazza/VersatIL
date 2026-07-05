@@ -101,6 +101,25 @@ class TestPostprocessGripperAction:
 
         assert result[0] == 0.0
 
+    def test_binary_zero_one_small_positive_logit_maps_to_one(
+        self,
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        # sigmoid(0.2) ~ 0.55 > 0.5 => maps to 1. Without the sigmoid the
+        # raw logit 0.2 would be compared to 0.5 and wrongly map to 0.
+        metadata = gripper_action_metadata_factory(
+            gripper_type=GripperType.BINARY.value,
+            binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
+        )
+        raw_value = np.array([0.2])
+
+        result = ActionPostprocessor._postprocess_gripper_action(
+            raw_value=raw_value,
+            action_meta=metadata,
+        )
+
+        assert result[0] == 1.0
+
     def test_binary_zero_one_zero_logit_maps_to_zero(
         self,
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
@@ -154,6 +173,25 @@ class TestPostprocessGripperAction:
 
         # float(False) * 2.0 - 1.0 = -1.0
         assert result[0] == -1.0
+
+    def test_binary_minus_one_one_small_positive_logit_maps_to_one(
+        self,
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        # sigmoid(0.2) ~ 0.55 > 0.5 => 1.0 * 2.0 - 1.0 = 1.0. Without the
+        # sigmoid the raw logit 0.2 would wrongly map to -1.0.
+        metadata = gripper_action_metadata_factory(
+            gripper_type=GripperType.BINARY.value,
+            binary_gripper_range=BinaryGripperRange.MINUS_ONE_ONE.value,
+        )
+        raw_value = np.array([0.2])
+
+        result = ActionPostprocessor._postprocess_gripper_action(
+            raw_value=raw_value,
+            action_meta=metadata,
+        )
+
+        assert result[0] == 1.0
 
     def test_binary_minus_one_one_zero_logit_maps_to_minus_one(
         self,

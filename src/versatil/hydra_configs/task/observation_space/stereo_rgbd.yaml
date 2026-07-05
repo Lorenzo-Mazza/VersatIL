@@ -1,0 +1,26 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+observations_metadata:
+  ${cameras:LEFT}:
+    _target_: versatil.data.metadata.RGBCameraMetadata
+    camera_key: ${cameras:LEFT}
+    dtype: uint8
+    image_width: 480
+    image_height: 270
+
+  ${cameras:RIGHT}:
+    _target_: versatil.data.metadata.RGBCameraMetadata
+    camera_key: ${cameras:RIGHT}
+    dtype: uint8
+    image_width: 480
+    image_height: 270
+
+  ${cameras:DEPTH}:
+    _target_: versatil.data.metadata.DepthCameraMetadata
+    camera_key: ${cameras:DEPTH}
+    dtype: float32
+    image_width: 480
+    image_height: 270

@@ -359,12 +359,15 @@ def _create_linear_scaling_normalizer(
     Returns:
         Configured linear normalizer
     """
-    if isinstance(input_min, (int, float)):
-        scale = (output_max - output_min) / (input_max - input_min)
-        offset = output_min - scale * input_min
+    input_range = input_max - input_min
+    if isinstance(input_range, (int, float)):
+        if input_range == 0:
+            input_range = output_max - output_min
     else:
-        scale = (output_max - output_min) / (input_max - input_min)
-        offset = output_min - scale * input_min
+        zero_range = input_range == 0
+        input_range[zero_range] = output_max - output_min
+    scale = (output_max - output_min) / input_range
+    offset = output_min - scale * input_min
 
     scale = _to_tensor(scale, device=device)
     offset = _to_tensor(offset, device=device)

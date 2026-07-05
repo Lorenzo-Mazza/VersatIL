@@ -1,5 +1,6 @@
 """Tests for versatil.data.dataloader module."""
 
+import re
 import shutil
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -9,11 +10,21 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from versatil.configs.data.dataloader import DataLoaderConfig
-from versatil.data.constants import ActionComputationMethod, ProprioKey
+from versatil.configs.data.tokenizer import (
+    ActionDiscretizerConfig,
+    ActionTokenizationConfig,
+    TokenizationConfig,
+)
+from versatil.data.constants import (
+    ActionComputationMethod,
+    ActionDiscretizerType,
+    BinningStrategy,
+    KinematicsNormalizationType,
+    ProprioKey,
+)
 from versatil.data.dataloader import (
     _collect_dataset_paths,
     _ensure_zarr_exists,
-    _log_phase_distributions,
     get_dataloaders,
     validate_dataloader_config,
 )
@@ -34,12 +45,18 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
         skip_initial_episode_steps: int = 0,
         downsample_factor: int = 1,
         action_backward_shift: int = 0,
+        kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX.value,
+        tokenization: TokenizationConfig | None = None,
     ) -> DataLoaderConfig:
+        if tokenization is None:
+            tokenization = TokenizationConfig()
         return DataLoaderConfig(
             batch_size=batch_size,
             num_workers=num_workers,
             val_ratio=val_ratio,
             total_ratio=total_ratio,
+            kinematics_norm_type=kinematics_norm_type,
+            tokenization=tokenization,
             skip_initial_episode_steps=skip_initial_episode_steps,
             downsample_factor=downsample_factor,
             action_backward_shift=action_backward_shift,
@@ -83,12 +100,14 @@ def mock_hydra_config_factory() -> Callable[..., MagicMock]:
         denoise_actions: bool = False,
         has_gripper_actions: bool = False,
         use_gripper_class_weights: bool = False,
+        downsample_factor: int = 1,
     ) -> MagicMock:
         dataloader_config = DataLoaderConfig(
             batch_size=batch_size,
             num_workers=num_workers,
             shuffle=shuffle,
             val_ratio=val_ratio,
+            downsample_factor=downsample_factor,
         )
         schema = MagicMock(spec=DatasetSchema)
         schema.zarr_path = "/tmp/test.zarr"
@@ -153,6 +172,71 @@ class TestValidateDataloaderConfig:
 
         with expectation:
             validate_dataloader_config(config)
+
+    @pytest.mark.parametrize(
+        "binning_strategy, kinematics_norm_type, expectation",
+        [
+            (
+                BinningStrategy.UNIFORM.value,
+                KinematicsNormalizationType.MIN_MAX.value,
+                does_not_raise(),
+            ),
+            (
+                BinningStrategy.QUANTILE.value,
+                KinematicsNormalizationType.GAUSSIAN.value,
+                does_not_raise(),
+            ),
+            (
+                BinningStrategy.UNIFORM.value,
+                KinematicsNormalizationType.GAUSSIAN.value,
+                pytest.raises(
+                    ValueError,
+                    match="Uniform action binning requires min-max",
+                ),
+            ),
+            (
+                BinningStrategy.UNIFORM.value,
+                KinematicsNormalizationType.DEMEAN.value,
+                pytest.raises(
+                    ValueError,
+                    match="Uniform action binning requires min-max",
+                ),
+            ),
+        ],
+    )
+    def test_uniform_binning_requires_min_max_normalization(
+        self,
+        dataloader_config_factory,
+        binning_strategy,
+        kinematics_norm_type,
+        expectation,
+    ):
+        tokenization = TokenizationConfig(
+            tokenize_actions=True,
+            action_tokenizer=ActionTokenizationConfig(
+                action_discretizer=ActionDiscretizerConfig(
+                    type=ActionDiscretizerType.BINNED.value,
+                    binning_strategy=binning_strategy,
+                ),
+            ),
+        )
+        config = dataloader_config_factory(
+            kinematics_norm_type=kinematics_norm_type,
+            tokenization=tokenization,
+        )
+
+        with expectation:
+            validate_dataloader_config(config)
+
+    def test_uniform_binning_check_skipped_without_action_tokenization(
+        self, dataloader_config_factory
+    ):
+        config = dataloader_config_factory(
+            kinematics_norm_type=KinematicsNormalizationType.GAUSSIAN.value,
+            tokenization=TokenizationConfig(tokenize_actions=False),
+        )
+
+        validate_dataloader_config(config)
 
     @pytest.mark.parametrize(
         "num_workers, expectation",
@@ -320,7 +404,7 @@ class TestCollectDatasetPaths:
 
     def test_nonexistent_folder_raises(self, tmp_path):
         missing = tmp_path / "missing"
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(FileNotFoundError, match=re.escape(str(missing))):
             _collect_dataset_paths(
                 dataset_folders=[str(missing)],
                 episode_filename="episode.csv",
@@ -393,25 +477,13 @@ class TestEnsureZarrExists:
             mock_path_class.return_value.exists.return_value = True
             mock_replay_buffer.create_from_path.return_value = mock_buffer
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_replay_buffer.create_from_path.assert_called_once()
 
-    def test_existing_zarr_preloads_into_memory(self, mock_dataset_schema_factory):
-        required_keys = ["left", "right"]
-        schema = mock_dataset_schema_factory(required_keys=required_keys)
-
-        with (
-            patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
-        ):
-            mock_path_class.return_value.exists.return_value = True
-
-            _ensure_zarr_exists(schema=schema, preload_in_memory=True)
-
-            mock_replay_buffer.copy_from_path.assert_called_once()
-
-    def test_missing_keys_triggers_recreation(self, mock_dataset_schema_factory):
+    def test_missing_keys_raises_without_deleting_store(
+        self, mock_dataset_schema_factory
+    ):
         schema = mock_dataset_schema_factory(
             schema_type=Hdf5DatasetSchema,
             required_keys=["left", "right", "depth"],
@@ -430,13 +502,19 @@ class TestEnsureZarrExists:
             mock_path_class.return_value.exists.return_value = True
             mock_replay_buffer.create_from_path.return_value = mock_buffer
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            with pytest.raises(ValueError, match="missing keys"):
+                _ensure_zarr_exists(schema=schema)
 
-            mock_shutil.rmtree.assert_called_once()
-            mock_create.assert_called_once_with(schema=schema)
+            mock_shutil.rmtree.assert_not_called()
+            mock_create.assert_not_called()
 
-    def test_preload_failure_triggers_recreation(self, mock_dataset_schema_factory):
-        schema = mock_dataset_schema_factory(schema_type=Hdf5DatasetSchema)
+    def test_missing_keys_recreates_when_opted_in(self, mock_dataset_schema_factory):
+        schema = mock_dataset_schema_factory(
+            schema_type=Hdf5DatasetSchema,
+            required_keys=["left", "right", "depth"],
+        )
+        mock_buffer = MagicMock()
+        mock_buffer.keys.return_value = ["left", "right"]
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
@@ -447,14 +525,17 @@ class TestEnsureZarrExists:
             ) as mock_create,
         ):
             mock_path_class.return_value.exists.return_value = True
-            mock_replay_buffer.copy_from_path.side_effect = Exception("Memory error")
+            mock_replay_buffer.create_from_path.return_value = mock_buffer
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=True)
+            _ensure_zarr_exists(
+                schema=schema,
+                recreate_on_missing_keys=True,
+            )
 
             mock_shutil.rmtree.assert_called_once()
             mock_create.assert_called_once_with(schema=schema)
 
-    def test_load_failure_triggers_recreation(self, mock_dataset_schema_factory):
+    def test_corrupt_store_triggers_recreation(self, mock_dataset_schema_factory):
         schema = mock_dataset_schema_factory(schema_type=Hdf5DatasetSchema)
 
         with (
@@ -468,7 +549,7 @@ class TestEnsureZarrExists:
             mock_path_class.return_value.exists.return_value = True
             mock_replay_buffer.create_from_path.side_effect = Exception("Corrupt zarr")
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_shutil.rmtree.assert_called_once()
             mock_create.assert_called_once_with(schema=schema)
@@ -484,7 +565,7 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_create.assert_called_once_with(schema=schema)
 
@@ -505,7 +586,7 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_collect.assert_called_once_with(
                 dataset_folders=schema.dataset_folders,
@@ -529,7 +610,7 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema, preload_in_memory=False)
+            _ensure_zarr_exists(schema=schema)
 
             mock_create.assert_called_once_with(schema=schema)
 
@@ -547,23 +628,7 @@ class TestEnsureZarrExists:
             ):
                 _ensure_zarr_exists(
                     schema=schema,
-                    preload_in_memory=False,
                 )
-
-
-@pytest.mark.unit
-class TestLogPhaseDistributions:
-    def test_logs_warning_and_returns(self):
-        train_dataset = MagicMock()
-        val_dataset = MagicMock()
-
-        with patch("versatil.data.dataloader.logging") as mock_logging:
-            _log_phase_distributions(
-                train_dataset=train_dataset,
-                val_dataset=val_dataset,
-            )
-
-            mock_logging.warning.assert_called_once()
 
 
 @pytest.mark.unit
@@ -627,6 +692,28 @@ class TestGetDataloaders:
         _, val_loader, _, _, _ = get_dataloaders(config=config)
 
         assert val_loader.dataset is self.mock_val_dataset
+
+    def test_validation_reuses_train_buffer_without_downsampling(
+        self, mock_hydra_config_factory
+    ):
+        config = mock_hydra_config_factory(val_ratio=0.2, downsample_factor=1)
+
+        get_dataloaders(config=config)
+
+        val_call = self.mock_episodic_dataset.call_args_list[1]
+        assert val_call.kwargs["replay_buffer"] is self.mock_train_dataset.replay_buffer
+
+    def test_validation_reloads_buffer_when_downsampling(
+        self, mock_hydra_config_factory
+    ):
+        # Downsampling replaces the training buffer with a train-only copy;
+        # sharing it would leak training episodes into the validation split.
+        config = mock_hydra_config_factory(val_ratio=0.2, downsample_factor=2)
+
+        get_dataloaders(config=config)
+
+        val_call = self.mock_episodic_dataset.call_args_list[1]
+        assert val_call.kwargs["replay_buffer"] is None
 
     def test_skips_validation_when_val_ratio_zero(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(val_ratio=0.0)

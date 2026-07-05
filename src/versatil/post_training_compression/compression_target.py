@@ -1,53 +1,44 @@
-"""Compression target defining what to apply to a policy submodule."""
+"""Compression target defining preparation and pruning for a policy submodule."""
 
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.post_training_compression.pruning.base import BasePruner
-from versatil.quantization.strategies import (
-    PT2EStrategy,
-    QuantizeApiStrategy,
-)
 
 
 class CompressionTarget:
-    """Defines preparation, pruning, and quantization for a PyTorch submodule.
-
-    Validates quantization config invariants on construction.
-    """
+    """Stores preparation and pruning components for one PyTorch submodule."""
 
     def __init__(
         self,
         module_path: str,
         preparation: PreparationConfig | None = None,
         pruning: list[BasePruner] | None = None,
-        quantization: PT2EStrategy | QuantizeApiStrategy | None = None,
     ) -> None:
-        """Initialize and validate compression components.
+        """Initialize compression components.
 
         Args:
             module_path: Dotted path to the target submodule,
                 or empty string for the full policy.
             preparation: BN replacement and fusion settings.
             pruning: Pruning strategies to apply sequentially.
-            quantization: Quantization strategy or None to skip.
-
-        Raises:
-            ValueError: If quantize_() config uses static activation
-                (only supported via PT2E).
         """
         self.module_path = module_path
         self.preparation = preparation
         self.pruning: list[BasePruner] = pruning or []
-        self.quantization = quantization
-        self._validate_quantization()
 
-    def _validate_quantization(self) -> None:
-        """Validate that quantize_() configs don't use static activation."""
-        if not isinstance(self.quantization, QuantizeApiStrategy):
-            return
-        if hasattr(self.quantization.quantize_config, "act_quant_scale"):
-            label = self.module_path or "(root)"
-            raise ValueError(
-                f"Module '{label}' uses a static activation quantize_() "
-                f"config. Static quantization is only supported via PT2E. "
-                f"Use PT2EStrategy or a dynamic/weight-only config."
-            )
+    def overlaps(self, other: "CompressionTarget") -> bool:
+        """Return whether two targets can select the same submodule.
+
+        Args:
+            other: Target to compare against this target.
+
+        Returns:
+            Whether either target is root, both targets are the same path, or
+            one target is nested under the other.
+        """
+        if self.module_path == "" or other.module_path == "":
+            return True
+        return (
+            self.module_path == other.module_path
+            or self.module_path.startswith(other.module_path + ".")
+            or other.module_path.startswith(self.module_path + ".")
+        )

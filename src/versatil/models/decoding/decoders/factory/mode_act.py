@@ -19,25 +19,21 @@ from versatil.models.decoding.constants import (
     GMMInitStrategy,
     MixtureSamplingMode,
 )
-from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.decoders import DecoderInput
+from versatil.models.decoding.decoders.parallel_transformer import (
+    BaseParallelTransformerDecoder,
+)
 from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.mlp import MLP
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding2D,
-)
 from versatil.models.layers.transformer.bidirectional_decoder import (
     BidirectionalDecoder,
 )
 
 
-class MixtureOfDensitiesActionTransformer(ActionDecoder):
+class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
     """Mixture Density Network Transformer for multi-modal action prediction.
 
     Note:
@@ -76,7 +72,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         gating_feature_key: str | None = None,
         gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value,
         inference_sampling_mode: str = MixtureSamplingMode.STOCHASTIC_MEAN.value,
-    ):
+    ) -> None:
         """Initialize MODE-ACT decoder.
 
         Args:
@@ -125,11 +121,9 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
             device=device,
+            embedding_dimension=embedding_dimension,
         )
 
-        self.embedding_dimension = embedding_dimension
-        self.prediction_horizon = prediction_horizon
-        self.observation_horizon = observation_horizon
         self.number_of_layers = number_of_layers
         self.activation = activation
         self.dropout_rate = dropout_rate
@@ -158,8 +152,8 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         self._build_transformer_components()
         self._build_mixture_heads()
         self._build_gating_network(
-            input_dim=embedding_dimension,
-            hidden_dims=gating_hidden_dims,
+            input_dimension=embedding_dimension,
+            hidden_dimensions=gating_hidden_dims,
             activation=gating_activation,
             dropout=gating_dropout,
             normalization=gating_normalization,
@@ -184,27 +178,13 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
 
     def _build_transformer_components(self) -> None:
         """Build core transformer encoder-decoder and positional encodings."""
-        image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension, normalize=True
-        )
-        temporal_positional_encoding = None
-        if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension
-            )
-        self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=image_positional_encoding,
-            flat_positional_encoding_layer=LearnedPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension,
-            ),
-            temporal_positional_encoding_layer=temporal_positional_encoding,
-        )
+        self.input_sequence_builder = self._build_parallel_input_sequence_builder()
         self.action_queries = nn.Parameter(
             torch.randn(self.prediction_horizon, self.embedding_dimension)
-        )
-        self.mode_query = nn.Parameter(torch.randn(1, self.embedding_dimension))
+        )  # (prediction_horizon, embedding_dimension)
+        self.mode_query = nn.Parameter(
+            torch.randn(1, self.embedding_dimension)
+        )  # (1, embedding_dimension)
         self.action_decoder = BidirectionalDecoder(
             number_of_layers=self.number_of_layers,
             embedding_dimension=self.embedding_dimension,
@@ -234,8 +214,8 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
 
     def _build_gating_network(
         self,
-        input_dim: int,
-        hidden_dims: list[int] | None,
+        input_dimension: int,
+        hidden_dimensions: list[int] | None,
         activation: str,
         dropout: float,
         normalization: bool,
@@ -243,22 +223,22 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         """Build gating MLP for computing mixture weights.
 
         Args:
-            input_dim: Input feature dimension.
-            hidden_dims: List of hidden layer dimensions.
+            input_dimension: Input feature dimension.
+            hidden_dimensions: List of hidden layer dimensions.
             activation: Activation function name.
             dropout: Dropout rate.
             normalization: Whether to apply layer normalization before MLP.
         """
-        if hidden_dims is None or len(hidden_dims) == 0:
-            hidden_dims = [input_dim // 2]
+        if hidden_dimensions is None or len(hidden_dimensions) == 0:
+            hidden_dimensions = [input_dimension // 2]
 
         layers: list[nn.Module] = []
         if normalization:
-            layers.append(nn.LayerNorm(input_dim))
+            layers.append(nn.LayerNorm(input_dimension))
 
         gating_mlp = MLP(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=hidden_dimensions,
             output_dim=self.num_mixture_components,
             activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,
@@ -472,20 +452,20 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
                 - {action_key}_{output_key}: Stacked outputs (B, T, K, D) for each head
                 - routing_weights: Mixture weights (B, K)
         """
-        obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
-            features
-        )
-        if obs_pos_encodings is not None:
-            obs_tokens = obs_tokens + obs_pos_encodings
+        obs_tokens, obs_padding_mask = self._build_parallel_observation_tokens(
+            input_sequence_builder=self.input_sequence_builder,
+            features=features,
+            add_positional_encodings=True,
+        )  # (B, observation_token_count, embedding_dimension), (B, observation_token_count)
         batch_size = obs_tokens.shape[0]
-        mode_query_expanded = self.mode_query.unsqueeze(0).expand(
-            batch_size, -1, -1
-        )  # (B, 1, emb)
-        action_queries_expanded = self.action_queries.unsqueeze(0).expand(
-            batch_size,
-            -1,
-            -1,  # (B, T, emb
-        )
+        mode_query_expanded = self._expand_parallel_query_tensor(
+            query=self.mode_query,
+            batch_size=batch_size,
+        )  # (B, 1, embedding_dimension)
+        action_queries_expanded = self._expand_parallel_query_tensor(
+            query=self.action_queries,
+            batch_size=batch_size,
+        )  # (B, prediction_horizon, embedding_dimension)
         all_queries = torch.cat(
             [mode_query_expanded, action_queries_expanded], dim=1
         )  # (B, T+1, emb)
@@ -494,7 +474,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             encoded_features=obs_tokens,
             query_padding_mask=None,
             memory_padding_mask=obs_padding_mask,
-        )
+        )  # (B, prediction_horizon + 1, embedding_dimension)
         mode_embedding = attended[:, 0, :]  # (B, emb)
         action_embeddings = attended[:, 1:, :]  # (B, T, emb)
         if self.gating_feature_key is not None:
@@ -502,8 +482,8 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         else:
             gating_input = mode_embedding
 
-        gating_logits = self.gating_network(gating_input)
-        routing_weights = F.softmax(gating_logits / self.temperature, dim=-1)
+        gating_logits = self.gating_network(gating_input)  # (B, K)
+        routing_weights = F.softmax(gating_logits / self.temperature, dim=-1)  # (B, K)
         predictions = self._apply_mixture_heads(action_embeddings)
         predictions[DecoderOutputKey.ROUTING_WEIGHTS.value] = routing_weights
         return predictions
@@ -514,7 +494,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         """Apply K mixture heads to action embeddings and stack outputs.
 
         Args:
-            action_embeddings: (B, T, embedding_dim)
+            action_embeddings: (B, T, embedding_dimension)
 
         Returns:
             Dictionary with stacked outputs. For GaussianHead:

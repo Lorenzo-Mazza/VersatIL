@@ -239,7 +239,7 @@ class TestDiTPriorInitialization:
 
         assert prior.prior_target_key == LatentKey.POSTERIOR_LATENT.value
         assert prior.latent_standardizer.enabled is False
-        assert prior.latent_standardizer.eps == pytest.approx(1e-5)
+        assert prior.latent_standardizer.epsilon == pytest.approx(1e-5)
         assert prior.latent_standardization_max_batches == 3
         assert prior.latent_standardizer.require_fitted is True
 

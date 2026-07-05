@@ -11,7 +11,7 @@ class LatentStandardizer(nn.Module):
         self,
         latent_dimension: int,
         enabled: bool = True,
-        eps: float = 1e-6,
+        epsilon: float = 1e-6,
         require_fitted: bool = False,
     ):
         """Initialize standardizer buffers.
@@ -19,13 +19,13 @@ class LatentStandardizer(nn.Module):
         Args:
             latent_dimension: Size of the latent vector to standardize.
             enabled: Whether standardization should be applied after fitting.
-            eps: Numerical epsilon used for clamping and division.
+            epsilon: Numerical epsilon used for clamping and division.
             require_fitted: Whether transform calls should raise before stats exist.
         """
         super().__init__()
         self.latent_dimension = latent_dimension
         self.enabled = enabled
-        self.eps = eps
+        self.epsilon = epsilon
         self.require_fitted = require_fitted
         self.register_buffer("mean", torch.zeros(latent_dimension))
         self.register_buffer("std", torch.ones(latent_dimension))
@@ -93,7 +93,7 @@ class LatentStandardizer(nn.Module):
             )
         flattened_latents = latents.detach().reshape(-1, self.latent_dimension).float()
         mean = flattened_latents.mean(dim=0)
-        std = flattened_latents.std(dim=0, unbiased=False).clamp(min=self.eps)
+        std = flattened_latents.std(dim=0, unbiased=False).clamp(min=self.epsilon)
         self.set_stats(mean=mean, std=std)
 
     def standardize(self, latents: torch.Tensor) -> torch.Tensor:
@@ -109,7 +109,7 @@ class LatentStandardizer(nn.Module):
             return latents
         mean = self.mean.to(device=latents.device, dtype=latents.dtype)
         std = self.std.to(device=latents.device, dtype=latents.dtype)
-        return (latents - mean) / (std + self.eps)
+        return (latents - mean) / (std + self.epsilon)
 
     def unstandardize(self, latents: torch.Tensor) -> torch.Tensor:
         """Map DiT prior samples back to decoder latent space.
@@ -124,4 +124,4 @@ class LatentStandardizer(nn.Module):
             return latents
         mean = self.mean.to(device=latents.device, dtype=latents.dtype)
         std = self.std.to(device=latents.device, dtype=latents.dtype)
-        return latents * (std + self.eps) + mean
+        return latents * (std + self.epsilon) + mean

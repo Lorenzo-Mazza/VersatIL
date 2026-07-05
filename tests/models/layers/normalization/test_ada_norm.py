@@ -12,22 +12,22 @@ from versatil.models.layers.normalization.rms_norm import RMSNorm
 
 
 class TestAdaNormInitialization:
-    @pytest.mark.parametrize("condition_dim", [16, 64])
+    @pytest.mark.parametrize("conditioning_dimension", [16, 64])
     @pytest.mark.parametrize("feature_dim", [32, 128])
     @pytest.mark.parametrize("use_gate", [True, False])
     def test_stores_configuration(
         self,
         ada_norm_factory: Callable[..., AdaNorm],
-        condition_dim: int,
+        conditioning_dimension: int,
         feature_dim: int,
         use_gate: bool,
     ):
         norm = ada_norm_factory(
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=feature_dim,
             use_gate=use_gate,
         )
-        assert norm.condition_dim == condition_dim
+        assert norm.conditioning_dimension == conditioning_dimension
         assert norm.feature_dim == feature_dim
         assert norm.modulation.feature_dim == feature_dim
 
@@ -41,7 +41,7 @@ class TestAdaNormInitialization:
     ):
         feature_dim = 64
         norm = ada_norm_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_gate=use_gate,
         )
@@ -50,7 +50,7 @@ class TestAdaNormInitialization:
             sequence_length=8,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         base_norm = nn.LayerNorm(feature_dim, elementwise_affine=False)
         normalized = base_norm(tensor)
         with torch.no_grad():
@@ -69,7 +69,7 @@ class TestAdaNormInitialization:
         init_strategy: str,
     ):
         norm = ada_norm_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=64,
             init_strategy=init_strategy,
         )
@@ -90,7 +90,7 @@ class TestAdaNormInitialization:
         ada_norm_factory: Callable[..., AdaNorm],
     ):
         norm = ada_norm_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=64,
             activation=ActivationFunction.MISH.value,
         )
@@ -107,7 +107,7 @@ class TestAdaNormForward:
         feature_dim = 64
         batch_size = 2
         norm = ada_norm_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_gate=True,
         )
@@ -116,7 +116,7 @@ class TestAdaNormForward:
             sequence_length=8,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=batch_size, condition_dim=32)
+        condition = condition_factory(batch_size=batch_size, conditioning_dimension=32)
         _, gate = norm(features, condition)
         assert gate.shape == (batch_size, 1, feature_dim)
 
@@ -128,7 +128,7 @@ class TestAdaNormForward:
     ):
         feature_dim = 64
         norm = ada_norm_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_gate=False,
             init_strategy="xavier",
@@ -138,8 +138,8 @@ class TestAdaNormForward:
             sequence_length=8,
             embedding_dimension=feature_dim,
         )
-        condition_a = condition_factory(batch_size=2, condition_dim=32)
-        condition_b = condition_factory(batch_size=2, condition_dim=32)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output_a, _ = norm(features, condition_a)
             output_b, _ = norm(features, condition_b)
@@ -163,7 +163,7 @@ class TestAdaNormForward:
         feature_dim = 64
         base_norm = base_norm_class(feature_dim)
         norm = ada_norm_factory(
-            condition_dim=32,
+            conditioning_dimension=32,
             feature_dim=feature_dim,
             use_gate=False,
             base_norm=base_norm,
@@ -173,7 +173,7 @@ class TestAdaNormForward:
             sequence_length=8,
             embedding_dimension=feature_dim,
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             ada_output, _ = norm(features, condition)
             base_output = base_norm(features)

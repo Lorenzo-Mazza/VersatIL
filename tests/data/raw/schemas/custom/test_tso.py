@@ -981,9 +981,7 @@ class TestTSOExtractEpisode:
         episode = tso_episode_factory(num_rows=5)
 
         with mock_cv2_factory():
-            data = schema.extract_episode(
-                episode=episode, resizer=noop_resizer, depth_resizer=noop_resizer
-            )
+            data = schema.extract_episode(episode=episode)
 
         proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
         assert proprio_key in data
@@ -1007,9 +1005,7 @@ class TestTSOExtractEpisode:
         episode = tso_episode_factory(num_rows=3)
 
         with mock_cv2_factory():
-            data = schema.extract_episode(
-                episode=episode, resizer=noop_resizer, depth_resizer=noop_resizer
-            )
+            data = schema.extract_episode(episode=episode)
 
         assert Cameras.LEFT.value in data
         assert Cameras.RIGHT.value in data
@@ -1050,9 +1046,7 @@ class TestTSOExtractEpisode:
         )
 
         with mock_cv2_factory():
-            data = schema.extract_episode(
-                episode=episode, resizer=noop_resizer, depth_resizer=noop_resizer
-            )
+            data = schema.extract_episode(episode=episode)
 
         assert TSOObsKey.PHASE_LABEL.value in data
         assert data[TSOObsKey.PHASE_LABEL.value].dtype == np.int32
@@ -1129,9 +1123,7 @@ class TestTSOExtractEpisode:
                 "versatil.data.raw.schemas.custom.tso.np.load",
                 return_value=mock_depth,
             ):
-                data = schema.extract_episode(
-                    episode=episode, resizer=noop_resizer, depth_resizer=noop_resizer
-                )
+                data = schema.extract_episode(episode=episode)
 
         assert Cameras.DEPTH.value in data
         assert data[Cameras.DEPTH.value].shape == (2, 64, 64, 1)

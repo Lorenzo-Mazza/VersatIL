@@ -1,6 +1,7 @@
 """Tests for versatil.models.decoding.latent.prior.uniform_codebook_prior module."""
 
 import copy
+import gc
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -49,7 +50,7 @@ def test_algorithm_deepcopy_rewires_prior_to_copied_codebook(
     prior = uniform_prior_factory(latent_dimension=8)
     posterior = _PosteriorOwner(
         ResidualVQ(
-            input_dim=8,
+            input_dimension=8,
             code_dim=8,
             num_codes=prior.num_codes,
             num_layers=prior.num_residual_layers,
@@ -179,6 +180,24 @@ class TestUniformCodebookPriorWirePosterior:
         assert mock_posterior.residual_vq.training is True
 
     @pytest.mark.unit
+    def test_wired_residual_vq_survives_posterior_garbage_collection(
+        self,
+        uniform_prior_factory: Callable[..., UniformCodebookPrior],
+        mock_vq_posterior_factory: Callable[..., MagicMock],
+    ) -> None:
+        batch_size = 2
+        latent_dimension = 8
+        prior = uniform_prior_factory(latent_dimension=latent_dimension)
+        posterior = mock_vq_posterior_factory(code_dim=latent_dimension)
+        prior.wire_posterior(posterior)
+        del posterior
+        gc.collect()
+
+        sample = prior.sample_prior(batch_size=batch_size)
+
+        assert sample.shape == (batch_size, latent_dimension)
+
+    @pytest.mark.unit
     def test_raises_on_code_dim_mismatch(
         self,
         uniform_prior_factory: Callable[..., UniformCodebookPrior],
@@ -258,9 +277,8 @@ class TestUniformCodebookPriorForward:
         with pytest.raises(
             RuntimeError,
             match=re.escape(
-                "UniformCodebookPrior.residual_vq is not set or has been "
-                "garbage-collected. Call wire_posterior() before forward(), "
-                "and keep the posterior alive."
+                "UniformCodebookPrior.residual_vq is not set. "
+                "Call wire_posterior() before forward()."
             ),
         ):
             prior.forward(target_latents=target, observations={})
@@ -329,9 +347,8 @@ class TestUniformCodebookPriorForwardIntegration:
         with pytest.raises(
             RuntimeError,
             match=re.escape(
-                "UniformCodebookPrior.residual_vq is not set or has been "
-                "garbage-collected. Call wire_posterior() before sample_prior(), "
-                "and keep the posterior alive."
+                "UniformCodebookPrior.residual_vq is not set. "
+                "Call wire_posterior() before sample_prior()."
             ),
         ):
             prior.sample_prior(batch_size=4)

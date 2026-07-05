@@ -11,26 +11,26 @@ from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.constants import DecoderOutputKey
 
 
-class TestGaussianHeadInitialization:
-    @pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
-    @pytest.mark.parametrize("max_logvar", [4.0, 2.0])
-    def test_stores_configuration(
-        self,
-        gaussian_head_factory: Callable[..., GaussianHead],
-        min_logvar: float,
-        max_logvar: float,
-    ):
-        head = gaussian_head_factory(min_logvar=min_logvar, max_logvar=max_logvar)
-        assert head.min_logvar == min_logvar
-        assert head.max_logvar == max_logvar
+@pytest.mark.unit
+@pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
+@pytest.mark.parametrize("max_logvar", [4.0, 2.0])
+def test_gaussian_head_stores_configuration(
+    gaussian_head_factory: Callable[..., GaussianHead],
+    min_logvar: float,
+    max_logvar: float,
+):
+    head = gaussian_head_factory(min_logvar=min_logvar, max_logvar=max_logvar)
+    assert head.min_logvar == min_logvar
+    assert head.max_logvar == max_logvar
 
 
+@pytest.mark.unit
 class TestGaussianHeadSetOutputDim:
     def test_creates_mean_projection(
         self,
         gaussian_head_factory: Callable[..., GaussianHead],
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(3)
         assert head.output_proj is not None
         assert head.output_proj.out_features == 3
@@ -39,19 +39,20 @@ class TestGaussianHeadSetOutputDim:
         self,
         gaussian_head_factory: Callable[..., GaussianHead],
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(3)
         assert head._logvar_proj is not None
         assert head._logvar_proj.out_features == 3
 
     def test_projection_uses_last_block_dim(self):
-        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
-        head = GaussianHead(input_dim=64, blocks=blocks)
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = GaussianHead(input_dimension=64, blocks=blocks)
         head.set_output_dim(3)
         assert head.output_proj.in_features == 32
         assert head._logvar_proj.in_features == 32
 
 
+@pytest.mark.unit
 class TestGaussianHeadForward:
     def test_raises_if_output_dim_not_set(
         self,
@@ -71,7 +72,7 @@ class TestGaussianHeadForward:
         gaussian_head_factory: Callable[..., GaussianHead],
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(3)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
@@ -86,7 +87,7 @@ class TestGaussianHeadForward:
         embedding_tensor_factory: Callable[..., torch.Tensor],
         output_dim: int,
     ):
-        head = gaussian_head_factory(input_dim=64)
+        head = gaussian_head_factory(input_dimension=64)
         head.set_output_dim(output_dim)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
@@ -101,7 +102,7 @@ class TestGaussianHeadForward:
         min_logvar = -5.0
         max_logvar = 2.0
         head = gaussian_head_factory(
-            input_dim=64,
+            input_dimension=64,
             min_logvar=min_logvar,
             max_logvar=max_logvar,
         )
@@ -112,3 +113,39 @@ class TestGaussianHeadForward:
         logvar = result[DecoderOutputKey.LOGVAR.value]
         assert logvar.min().item() >= min_logvar
         assert logvar.max().item() <= max_logvar
+
+    def test_mean_equals_mean_projection_of_applied_blocks(
+        self,
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = GaussianHead(input_dimension=64, blocks=blocks)
+        head.set_output_dim(3)
+        head.eval()
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        expected_mean = head.output_proj(head._apply_blocks(embedding))
+        result = head(embedding)
+        torch.testing.assert_close(result[DecoderOutputKey.MEAN.value], expected_mean)
+
+    def test_mean_and_logvar_use_independent_projections(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        head = gaussian_head_factory(
+            input_dimension=64, max_logvar=100.0, min_logvar=-100.0
+        )
+        head.set_output_dim(3)
+        head.eval()
+        embedding = embedding_tensor_factory(embedding_dimension=64)
+        baseline = head(embedding)[DecoderOutputKey.MEAN.value].clone()
+        # Mutating only the logvar projection must leave the mean untouched.
+        with torch.no_grad():
+            head._logvar_proj.weight.add_(5.0)
+            head._logvar_proj.bias.add_(5.0)
+        mutated = head(embedding)
+        torch.testing.assert_close(mutated[DecoderOutputKey.MEAN.value], baseline)
+        assert not torch.allclose(
+            mutated[DecoderOutputKey.LOGVAR.value],
+            head.output_proj(embedding),
+        )

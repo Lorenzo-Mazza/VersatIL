@@ -1,9 +1,0 @@
-defaults:
-  - token_loss@loss_modules.token_loss
-  - _self_
-
-_target_: versatil.metrics.composite.CompositeLoss
-loss_modules:
-    token_loss:
-      label_smoothing: 0.1
-

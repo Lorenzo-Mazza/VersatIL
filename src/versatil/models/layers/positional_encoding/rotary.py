@@ -8,7 +8,7 @@ class RotaryPositionalEncoding(nn.Module):
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         base_frequency: float = 10000.0,
         learnable_frequencies: bool = False,
     ):
@@ -16,7 +16,7 @@ class RotaryPositionalEncoding(nn.Module):
 
         Args:
             embedding_dimension: Full model embedding dimension.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             base_frequency: Base frequency for geometric spacing.
             learnable_frequencies: Whether frequency bands are trainable.
 
@@ -28,18 +28,20 @@ class RotaryPositionalEncoding(nn.Module):
             raise ValueError(
                 f"embedding_dimension must be positive, got {embedding_dimension}."
             )
-        if num_heads <= 0:
-            raise ValueError(f"num_heads must be positive, got {num_heads}.")
-        if embedding_dimension % num_heads != 0:
+        if number_of_heads <= 0:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
+        if embedding_dimension % number_of_heads != 0:
             raise ValueError(
                 f"embedding_dimension ({embedding_dimension}) must be divisible "
-                f"by num_heads ({num_heads})."
+                f"by number_of_heads ({number_of_heads})."
             )
         if base_frequency <= 0.0:
             raise ValueError(f"base_frequency must be positive, got {base_frequency}.")
         self.embedding_dimension = embedding_dimension
-        self.num_heads = num_heads
-        self.head_dimension = embedding_dimension // num_heads
+        self.number_of_heads = number_of_heads
+        self.head_dimension = embedding_dimension // number_of_heads
 
         if self.head_dimension % 2 != 0:
             raise ValueError("head_dimension must be even for rotary encoding")
@@ -71,27 +73,6 @@ class RotaryPositionalEncoding(nn.Module):
         return result
 
     @staticmethod
-    def _compute_frequencies_half(
-        dimension: int, base_frequency: float
-    ) -> torch.Tensor:
-        """Compute frequency bands without repetition for ``apply_rotation_half``.
-
-        Returns (dimension // 2,) frequencies matching the Gemma/LLaMA split-half
-        convention where cos/sin are broadcast across the full head dimension.
-
-        Args:
-            dimension: Embedding dimension per head.
-            base_frequency: Base frequency for computation.
-
-        Returns:
-            Frequency tensor of shape (dimension // 2,).
-        """
-        half_dimension = dimension // 2
-        exponents = torch.arange(half_dimension, dtype=torch.float32) / half_dimension
-        result: torch.Tensor = 1.0 / (base_frequency**exponents)
-        return result
-
-    @staticmethod
     def apply_rotation(
         tensor: torch.Tensor, sine: torch.Tensor, cosine: torch.Tensor
     ) -> torch.Tensor:
@@ -101,7 +82,7 @@ class RotaryPositionalEncoding(nn.Module):
         This is the original RoFormer/VersatIL convention.
 
         Args:
-            tensor: Input (B, num_heads, L, head_dim).
+            tensor: Input (B, number_of_heads, L, head_dim).
             sine: Sine components matching sequence + head_dim shape.
             cosine: Cosine components matching sequence + head_dim shape.
 
@@ -124,7 +105,7 @@ class RotaryPositionalEncoding(nn.Module):
         Splits the last dimension in half: ``[-second_half, first_half]``.
 
         Args:
-            tensor: Input (B, num_heads, L, head_dim).
+            tensor: Input (B, number_of_heads, L, head_dim).
             sine: Sine components matching sequence + head_dim shape.
             cosine: Cosine components matching sequence + head_dim shape.
 
@@ -159,13 +140,70 @@ class RotaryPositionalEncoding1D(RotaryPositionalEncoding):
         return sine_components, cosine_components
 
 
+class RasterRotaryPositionalEncoding2D(RotaryPositionalEncoding):
+    """Rotary encoding over flattened raster positions of a 2D grid.
+
+    Matches the DFormerv2 reference convention: every token is rotated by its
+    flattened index ``row * width + column`` with a single frequency band
+    spanning the full head dimension, spaced as
+    ``1 / base_frequency ** linspace(0, 1, head_dim // 2)`` with the endpoint
+    included. Pretrained DFormerv2 checkpoints require exactly this scheme.
+    """
+
+    def __init__(
+        self,
+        embedding_dimension: int,
+        number_of_heads: int,
+        base_frequency: float = 10000.0,
+        learnable_frequencies: bool = False,
+    ):
+        """Initialize raster rotary encoding with endpoint-spaced frequencies.
+
+        Args:
+            embedding_dimension: Full model embedding dimension.
+            number_of_heads: Number of attention heads.
+            base_frequency: Base frequency for geometric spacing.
+            learnable_frequencies: Whether frequency bands are trainable.
+        """
+        super().__init__(
+            embedding_dimension=embedding_dimension,
+            number_of_heads=number_of_heads,
+            base_frequency=base_frequency,
+            learnable_frequencies=learnable_frequencies,
+        )
+        half_dimension = self.head_dimension // 2
+        exponents = torch.linspace(0, 1, half_dimension)
+        frequencies = 1.0 / (base_frequency**exponents)
+        with torch.no_grad():
+            self.frequencies.copy_(frequencies.repeat_interleave(2))
+
+    def compute_rotation_components(
+        self, height: int, width: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Computes sine and cosine components for raster grid positions.
+
+        Args:
+            height: Grid height.
+            width: Grid width.
+
+        Returns:
+            Tuple of (sine, cosine) tensors of shape (H, W, head_dim).
+        """
+        device = self.frequencies.device
+        position_indices = torch.arange(height * width, device=device)
+        angles = position_indices[:, None] * self.frequencies[None, :]
+        sine_components = torch.sin(angles).reshape(height, width, -1)
+        cosine_components = torch.cos(angles).reshape(height, width, -1)
+        return sine_components, cosine_components
+
+
 class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
     """Rotary positional encoding for 2D spatial grids."""
 
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         base_frequency: float = 10000.0,
         learnable_frequencies: bool = False,
     ):
@@ -173,7 +211,7 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
 
         Args:
             embedding_dimension: Full model embedding dimension.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             base_frequency: Base frequency for geometric spacing.
             learnable_frequencies: Whether frequency bands are trainable.
 
@@ -182,7 +220,7 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
         """
         super().__init__(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             base_frequency=base_frequency,
             learnable_frequencies=learnable_frequencies,
         )

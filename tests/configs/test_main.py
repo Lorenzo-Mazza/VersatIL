@@ -6,7 +6,6 @@ import pytest
 
 from versatil.configs.data.task import TaskSpaceConfig
 from versatil.configs.experiment import ExperimentConfig
-from versatil.configs.inference import InferenceConfig
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
 from versatil.configs.training import TrainingConfig
@@ -22,7 +21,6 @@ class TestMainConfig:
             "task",
             "training",
             "policy",
-            "inference",
             "quantization",
         }
         assert expected == field_names
@@ -42,10 +40,6 @@ class TestMainConfig:
     def test_policy_default_is_policy_config(self):
         config = MainConfig()
         assert isinstance(config.policy, PolicyConfig)
-
-    def test_inference_default_is_inference_config(self):
-        config = MainConfig()
-        assert isinstance(config.inference, InferenceConfig)
 
     def test_defaults_list_has_expected_structure(self):
         config = MainConfig()

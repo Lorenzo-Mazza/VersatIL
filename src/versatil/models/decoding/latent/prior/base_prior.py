@@ -3,12 +3,12 @@
 import abc
 
 import torch
-from torch import nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 from versatil.models.decoding.constants import LatentKey
 
 
-class PriorLatentEncoder(nn.Module, abc.ABC):
+class PriorLatentEncoder(ModuleAttrMixin, abc.ABC):
     """Abstract base class for prior parametrizations over a latent space z, which can be either learned (through a NN)
       or fixed.
 
@@ -22,7 +22,7 @@ class PriorLatentEncoder(nn.Module, abc.ABC):
 
     """
 
-    def __init__(self, latent_dimension: int, device: str):
+    def __init__(self, latent_dimension: int, device: str) -> None:
         """Initialize latent prior.
 
         Args:
@@ -99,6 +99,6 @@ class PriorLatentEncoder(nn.Module, abc.ABC):
             observations: Optional dictionary of conditioning features
 
         Returns:
-            Sampled latent embeddings, shape (batch_size, embedding_dim)
+            Sampled latent embeddings, shape (batch_size, embedding_dimension)
         """
         raise NotImplementedError

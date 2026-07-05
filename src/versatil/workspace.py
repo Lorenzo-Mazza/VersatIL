@@ -1,6 +1,7 @@
 """Workspace for training and evaluating policies using PyTorch Lightning."""
 
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -13,8 +14,6 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
-    LearningRateMonitor,
-    ModelCheckpoint,
     StochasticWeightAveraging,
 )
 from pytorch_lightning.loggers import WandbLogger
@@ -22,18 +21,17 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
+from versatil.common.module_state import module_side_effects_guard
+from versatil.common.omegaconf_ops import make_config_yaml_safe
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.models.policy import Policy
-from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
-from versatil.training.callbacks.ema import EMACallback
-from versatil.training.callbacks.gradient_norm import GradientNormCallback
+from versatil.quantization.workflows.none import NoQuantizationWorkflow
+from versatil.training.callback_factory import build_training_callbacks
 from versatil.training.callbacks.provider import CallbackProvider
-from versatil.training.callbacks.reduce_lr_on_plateau import ReduceLROnPlateauCallback
-from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
@@ -44,10 +42,10 @@ class Workspace:
     This workspace handles:
     - Data loading and normalization
     - Policy instantiation and wrapping with Lightning
-    - Trainer setup with callbacks (EMA, checkpointing, confusion matrix)
-    - Distributed training via DDP
+    - Trainer setup with callbacks
+    - Policy training
     - WandB logging
-    - Checkpointing with save_top_k and save_last
+    - Checkpointing
     """
 
     def __init__(self, config: DictConfig, original_yaml_config: DictConfig):
@@ -59,6 +57,7 @@ class Workspace:
         """
         self.config: MainConfig = config
         self.original_yaml_config = original_yaml_config
+        self._normalize_quantization_workflow()
         hydra_cfg = HydraConfig.get()
         main_config_name = (
             hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
@@ -68,9 +67,12 @@ class Workspace:
         self.exp_name = f"{main_config_name}/{additional_exp_name}{sweep_suffix}"
         self.config.experiment.name = self.exp_name
         self.original_yaml_config.experiment.name = self.exp_name
+        # Only the config basename goes on disk: checkpoint_folder already
+        # carries the dataset, so the full Hydra config path would nest
+        # checkpoints as <dataset>/end_to_end_training_runs/<dataset>/<model>.
         self.output_dir = (
             Path(config.experiment.checkpoint_folder)
-            / main_config_name
+            / Path(main_config_name).name
             / f"{additional_exp_name}{sweep_suffix}"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,7 +118,7 @@ class Workspace:
         resolved_config = OmegaConf.to_container(
             self.original_yaml_config, resolve=True
         )
-        resolved_config_dict = OmegaConf.create(resolved_config)
+        resolved_config_dict = OmegaConf.create(make_config_yaml_safe(resolved_config))
         OmegaConf.save(resolved_config_dict, config_path)
         logging.info(f"Config saved to {config_path}")
 
@@ -125,8 +127,9 @@ class Workspace:
         self.logger = self._create_logger()
         self._setup_data()
         self._setup_policy()
-        self.lightning_policy._train_dataloader = self.train_loader
-        self.lightning_policy._val_dataloader = self.val_loader
+        self.lightning_policy.set_dataloaders(
+            train_loader=self.train_loader, val_loader=self.val_loader
+        )
         self._setup_trainer()
         resume_checkpoint_path = None
         if self.config.experiment.resume_from is not None:
@@ -155,7 +158,6 @@ class Workspace:
         """Set random seeds for reproducibility."""
         seed = self.config.experiment.seed
         torch.manual_seed(seed)
-        np.random.default_rng(seed)
         np.random.seed(seed)  # Legacy: required by some third-party libraries
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
@@ -216,11 +218,11 @@ class Workspace:
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
         self.policy.set_gripper_class_weights(self.gripper_class_weights)
-        # Calculate total training steps for learning-rate scheduling
-        # Steps per epoch = len(train_loader) // gradient_accumulate_every
-        # Total steps = steps_per_epoch * num_epochs
-        steps_per_epoch = (
-            len(self.train_loader) // self.config.training.gradient_accumulate_every
+        # Calculate total training steps for learning-rate scheduling. Lightning
+        # flushes the final partial accumulation window each epoch, so the
+        # optimizer step count per epoch is the ceiling, not the floor.
+        steps_per_epoch = math.ceil(
+            len(self.train_loader) / self.config.training.gradient_accumulate_every
         )
         total_training_steps = steps_per_epoch * self.config.training.num_epochs
         self.lightning_policy = LightningPolicy(
@@ -229,10 +231,11 @@ class Workspace:
             total_training_steps=total_training_steps,
         )
         self._initialize_lazy_modules()
+        self._prepare_qat()
         if self.config.training.compile:
             logging.info(
-                "Compiling policy with torch.compile (mode=%s)...",
-                self.config.training.compile_mode,
+                "Compiling policy with torch.compile "
+                f"(mode={self.config.training.compile_mode})..."
             )
             self.policy = torch.compile(
                 self.policy, mode=self.config.training.compile_mode
@@ -240,6 +243,19 @@ class Workspace:
             self.lightning_policy.policy = self.policy
         logging.info(f"Policy created: {self.policy.__class__.__name__}")
         logging.info(f"Total training steps: {total_training_steps}")
+
+    def _prepare_qat(self) -> None:
+        """Apply QAT fake quantization before optimizer construction."""
+        quantization = self.config.quantization
+        if not quantization.is_qat:
+            return
+        logging.info("Preparing policy for quantization-aware training...")
+        quantization.prepare_model(model=self.policy)
+
+    def _normalize_quantization_workflow(self) -> None:
+        """Use an explicit no-quantization workflow when config omits quantization."""
+        if self.config.quantization is None:
+            self.config.quantization = NoQuantizationWorkflow()
 
     def _setup_trainer(self):
         """Setup PyTorch Lightning trainer with callbacks and logger."""
@@ -256,6 +272,9 @@ class Workspace:
             logging.info(
                 f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
             )
+        # 0 is out of Lightning's documented contract, but None requires an
+        # integer val_check_interval; validation stays disabled here through
+        # limit_val_batches=0 and the absent val dataloader.
         val_every = (
             self.config.experiment.val_every if self.val_loader is not None else 0
         )
@@ -295,138 +314,13 @@ class Workspace:
         Returns:
             List of Lightning callbacks
         """
-        callbacks = []
-        has_validation = self.val_loader is not None
-
-        if self.config.training.use_ema:
-            ema_callback = EMACallback(
-                power=self.config.training.ema_power,
-            )
-            callbacks.append(ema_callback)
-            logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
-
-        if self.config.experiment.save_checkpoints:
-            if has_validation:
-                checkpoint_callback_best = ModelCheckpoint(
-                    dirpath=self.output_dir,
-                    filename="best-{epoch:02d}-{val_loss:.4f}",
-                    monitor="val_loss",
-                    mode="min",
-                    save_top_k=3,
-                    save_last=True,
-                    verbose=True,
-                    auto_insert_metric_name=False,
-                )
-            else:
-                checkpoint_callback_best = ModelCheckpoint(
-                    dirpath=self.output_dir,
-                    filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
-                    monitor="train_loss_epoch",
-                    mode="min",
-                    save_top_k=3,
-                    save_last=True,
-                    verbose=True,
-                    auto_insert_metric_name=False,
-                )
-            callbacks.append(checkpoint_callback_best)
-            logging.info(
-                f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
-            )
-
-            checkpoint_callback_latest = ModelCheckpoint(
-                dirpath=self.output_dir,
-                filename="latest-{epoch:02d}",
-                monitor="epoch",
-                mode="max",
-                save_top_k=-1,
-                every_n_epochs=self.config.experiment.checkpoint_every,
-                save_last=True,
-                verbose=True,
-                auto_insert_metric_name=False,
-                save_on_train_epoch_end=not has_validation,
-            )
-            callbacks.append(checkpoint_callback_latest)
-            logging.info(
-                f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
-            )
-        else:
-            logging.info("Skipping ModelCheckpoint callbacks (save_checkpoints=False)")
-
-        early_stopping_patience = self.config.training.early_stopping_patience
-        if not has_validation:
-            logging.info("Skipping EarlyStopping callback (no validation data)")
-        elif early_stopping_patience is None:
-            logging.info(
-                "Skipping EarlyStopping callback (early_stopping_patience=None)"
-            )
-        else:
-            early_stopping_callback = ResumableEarlyStopping(
-                monitor="val_loss",
-                mode="min",
-                patience=early_stopping_patience,
-                verbose=True,
-            )
-            callbacks.append(early_stopping_callback)
-            logging.info(
-                f"Added EarlyStopping callback (patience={early_stopping_patience})"
-            )
-
-        gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
-        callbacks.append(gradient_norm_callback)
-        logging.info("Added GradientNorm callback (log every 50 steps)")
-
-        lr_monitor_callback = LearningRateMonitor(logging_interval="step")
-        callbacks.append(lr_monitor_callback)
-        logging.info("Added LearningRateMonitor callback (logging per step)")
-
-        if self.config.training.swa_lrs is not None:
-            # Calculate start epoch based on fraction of total epochs
-            swa_epoch_start = int(
-                self.config.training.swa_epoch_start * self.config.training.num_epochs
-            )
-            swa_callback = StochasticWeightAveraging(
-                swa_lrs=self.config.training.swa_lrs,
-                swa_epoch_start=swa_epoch_start,
-                annealing_epochs=self.config.training.swa_annealing_epochs,
-            )
-            callbacks.append(swa_callback)
-            logging.info(
-                f"Added SWA callback (learning_rate={self.config.training.swa_lrs}, "
-                f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
-            )
-
-        training_stages = self.config.training.stages
-        if training_stages and self.config.training.reduce_lr_on_plateau:
-            raise ValueError(
-                "training.stages does not support reduce_lr_on_plateau in v1."
-            )
-        if training_stages:
-            training_stage_callback = TrainingStageCallback(
-                stages=training_stages,
-                learning_rate_schedule_active=(
-                    self.config.training.lr_schedule is not None
-                ),
-            )
-            callbacks.append(training_stage_callback)
-            logging.info(
-                f"Added TrainingStage callback ({len(training_stages)} stages)"
-            )
-
-        if self.config.training.reduce_lr_on_plateau:
-            monitor = "val_loss" if has_validation else "train_loss"
-            reduce_lr_callback = ReduceLROnPlateauCallback(
-                monitor=monitor,
-                patience=self.config.training.reduce_lr_patience,
-                cooldown=self.config.training.reduce_lr_cooldown,
-            )
-            callbacks.append(reduce_lr_callback)
-            logging.info(
-                f"Added ReduceLROnPlateau callback (monitor={monitor}, patience={self.config.training.reduce_lr_patience})"
-            )
-
-        component_callbacks = self._collect_component_callbacks()
-        callbacks.extend(component_callbacks)
-
+        callbacks = build_training_callbacks(
+            experiment_config=self.config.experiment,
+            training_config=self.config.training,
+            output_dir=self.output_dir,
+            has_validation=self.val_loader is not None,
+        )
+        callbacks.extend(self._collect_component_callbacks())
         return callbacks
 
     def _collect_component_callbacks(self) -> list:
@@ -536,6 +430,7 @@ class Workspace:
         self.lightning_policy.to(device)
         self.lightning_policy.train()
         with (
+            module_side_effects_guard(module=self.lightning_policy),
             torch.no_grad(),
             torch.autocast(
                 device_type=device.type,
@@ -594,67 +489,8 @@ class Workspace:
             )
 
         self.trainer.callbacks = original_callbacks
+        self.lightning_policy.train_metrics.reset()
+        self.lightning_policy.val_metrics.reset()
         if self.config.training.tune_lr:
             self.save_config()
             logging.info("Saved updated config with tuned hyperparameters")
-
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load model from checkpoint.
-
-        Args:
-            checkpoint_path: Path to checkpoint file
-        """
-        logging.info(f"Loading checkpoint from: {checkpoint_path}")
-        checkpoint = torch.load(
-            checkpoint_path,
-            map_location=self.config.experiment.device,
-            weights_only=False,
-        )
-        if self.policy is None:
-            raise RuntimeError("Policy must be initialized before loading checkpoint")
-        if self.lightning_policy is None:
-            raise RuntimeError(
-                "LightningPolicy must be initialized before loading checkpoint"
-            )
-        if "state_dict" not in checkpoint:
-            raise ValueError("Checkpoint format not recognized")
-
-        self.lightning_policy.load_state_dict(checkpoint["state_dict"])
-        logging.info("Checkpoint loaded successfully")
-
-        # We need to load explicitly the tokenizer because it's not a torch.nn.Module , differently from the normalizer.
-        tokenizer_path = self.output_dir / "tokenizer"
-        if tokenizer_path.exists():
-            device = torch.device(self.config.experiment.device)
-            self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=device)
-            self.policy.set_tokenizer(self.tokenizer)
-            logging.info(f"Tokenizer loaded from {tokenizer_path}")
-        else:
-            self.tokenizer = None
-
-    def predict(self, obs_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Predict actions from observations.
-
-        Args:
-            obs_dict: Dictionary of observation tensors
-
-        Returns:
-            Predicted actions
-        """
-        if self.lightning_policy is None:
-            raise RuntimeError("Policy not initialized. Call run() first.")
-        if self.policy is None:
-            raise RuntimeError("Policy must be initialized. Call run() first.")
-        policy = self.policy
-        if (
-            self.config.training.use_ema
-            and self.trainer is not None
-            and hasattr(self.trainer, "callbacks")
-        ):
-            for callback in self.trainer.callbacks:
-                if isinstance(callback, EMACallback) and callback.ema_model is not None:
-                    policy = callback.ema_model
-                    break
-        policy.eval()
-        with torch.no_grad():
-            return policy.predict_action(obs_dict)

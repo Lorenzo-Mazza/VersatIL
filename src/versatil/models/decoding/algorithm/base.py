@@ -9,6 +9,31 @@ import torch.nn as nn
 from versatil.models.decoding.decoders.base import ActionDecoder
 
 
+def resolve_feature_reference(
+    features: dict[str, torch.Tensor],
+) -> tuple[int, torch.device, torch.dtype]:
+    """Return batch size, device, and dtype for tensors created from features.
+
+    Feature dicts mix encoder outputs with integer token ids and boolean
+    padding masks, and their ordering follows decoder configuration, so the
+    reference must come from a floating-point feature rather than whichever
+    value happens to be first.
+
+    Args:
+        features: Encoded features keyed by name.
+
+    Raises:
+        ValueError: If the feature dict is empty.
+    """
+    if len(features) == 0:
+        raise ValueError("Cannot infer batch size from an empty feature dict.")
+    for value in features.values():
+        if isinstance(value, torch.Tensor) and value.is_floating_point():
+            return value.shape[0], value.device, value.dtype
+    first_value = next(iter(features.values()))
+    return first_value.shape[0], first_value.device, torch.float32
+
+
 class DecodingAlgorithm(nn.Module, abc.ABC):
     """Base class for decoding algorithms.
 
@@ -24,7 +49,7 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         algorithm = VariationalAlgorithm(
             base_algorithm=BehavioralCloning(),
             posterior_encoder=VAETransformerEncoder(...),
-            prior=GaussianPrior(...)  # or DiffusionPrior(...) for learned prior
+            prior=GaussianPrior(...)  # or DiTPrior(...) for learned prior
         )
     """
 
@@ -50,6 +75,14 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
             Decoder output dictionary containing predictions and any algorithm-specific outputs.
         """
         raise NotImplementedError
+
+    def injected_feature_keys(self) -> set[str]:
+        """Feature keys this algorithm adds to the decoder features itself.
+
+        Decoders may declare these in their input specification even though
+        they never come from observations or the encoding pipeline.
+        """
+        return set()
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Get keys for auxiliary outputs this algorithm adds to the decoder output.

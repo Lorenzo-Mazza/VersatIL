@@ -827,7 +827,8 @@ def _weighted_mode_counts(
     fractional_counts = [total_episodes * weight for weight in normalized]
     base_counts = [int(count) for count in fractional_counts]
     remainders = [
-        fractional - base for fractional, base in zip(fractional_counts, base_counts)
+        fractional - base
+        for fractional, base in zip(fractional_counts, base_counts, strict=True)
     ]
     deficit = total_episodes - sum(base_counts)
     sorted_indices = sorted(

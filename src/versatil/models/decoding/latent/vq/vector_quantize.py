@@ -17,9 +17,9 @@ class VectorQuantize(nn.Module):
     """Single-layer vector quantizer with straight-through gradients.
 
     Args:
-        input_dim: Dimension of the input vectors from the encoder.
+        input_dimension: Dimension of the input vectors from the encoder.
         code_dim: Dimension of each codebook vector. If different from
-            input_dim, linear projections are added.
+            input_dimension, linear projections are added.
         num_codes: Number of codebook entries (K).
         ema_decay: EMA decay for codebook updates.
         dead_code_threshold: Cluster size below which a code is replaced.
@@ -28,7 +28,7 @@ class VectorQuantize(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         num_codes: int,
         ema_decay: float = 0.99,
@@ -36,24 +36,26 @@ class VectorQuantize(nn.Module):
         kmeans_init: bool = True,
     ):
         super().__init__()
-        if input_dim <= 0:
-            raise ValueError(f"input_dim must be positive, got {input_dim}.")
+        if input_dimension <= 0:
+            raise ValueError(
+                f"input_dimension must be positive, got {input_dimension}."
+            )
         if code_dim <= 0:
             raise ValueError(f"code_dim must be positive, got {code_dim}.")
         if num_codes <= 0:
             raise ValueError(f"num_codes must be positive, got {num_codes}.")
-        self.input_dim = input_dim
+        self.input_dimension = input_dimension
         self.code_dim = code_dim
         self.num_codes = num_codes
 
-        needs_projection = input_dim != code_dim
+        needs_projection = input_dimension != code_dim
         self.project_in = (
-            nn.Linear(input_dim, code_dim, bias=False)
+            nn.Linear(input_dimension, code_dim, bias=False)
             if needs_projection
             else nn.Identity()
         )
         self.project_out = (
-            nn.Linear(code_dim, input_dim, bias=False)
+            nn.Linear(code_dim, input_dimension, bias=False)
             if needs_projection
             else nn.Identity()
         )
@@ -72,12 +74,12 @@ class VectorQuantize(nn.Module):
         """Quantize input via nearest codebook lookup with straight-through gradient.
 
         Args:
-            z_e: Encoder output, shape (B, input_dim).
+            z_e: Encoder output, shape (B, input_dimension).
 
         Returns:
             Tuple of:
                 z_q: Quantized output with straight-through gradient,
-                    shape (B, input_dim).
+                    shape (B, input_dimension).
                 indices: Codebook indices, shape (B,).
                 z_e_projected: Pre-quantization encoder output in code space,
                     shape (B, code_dim). Carries gradient; used as the
@@ -94,6 +96,6 @@ class VectorQuantize(nn.Module):
         # Straight-through estimator: forward uses quantized, backward uses z_e_projected
         z_q = z_e_projected + (quantized - z_e_projected).detach()  # (B, code_dim)
 
-        z_q = self.project_out(z_q)  # (B, input_dim)
+        z_q = self.project_out(z_q)  # (B, input_dimension)
 
         return z_q, indices, z_e_projected, quantized.detach()

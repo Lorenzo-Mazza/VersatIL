@@ -130,8 +130,7 @@ class PriorTargetStandardizationCallback(Callback):
 
         standardizer.set_stats(mean=mean, std=std)
         logging.info(
-            "Fitted DiT prior latent standardizer from %s posterior targets.",
-            count,
+            f"Fitted DiT prior latent standardizer from {count} posterior targets."
         )
 
     def _should_fit(
@@ -235,7 +234,7 @@ class PriorTargetStandardizationCallback(Callback):
                 observations, actions = self._split_batch(batch=batch)
                 observations = to_device(observations, device=device)
                 actions = to_device(actions, device=device)
-                features = policy.encoding_pipeline(observations)
+                features = policy._build_algorithm_features(observation=observations)
                 posterior_output = algorithm.posterior_encoder.encode(
                     actions=actions,
                     observations=features,
@@ -269,7 +268,7 @@ class PriorTargetStandardizationCallback(Callback):
             )
         mean = sum_latents / count
         variance = (sum_squared_latents / count) - mean.square()
-        std = variance.clamp(min=standardizer.eps**2).sqrt()
+        std = variance.clamp(min=standardizer.epsilon**2).sqrt()
         return mean, std, int(count.item())
 
     @staticmethod

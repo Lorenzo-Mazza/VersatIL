@@ -122,74 +122,6 @@ class TestEncoderInputValidation:
             input_specification.validate()
 
     @pytest.mark.parametrize(
-        "keys, one_of_groups, expectation",
-        [
-            (["left"], [["left", "right"]], does_not_raise()),
-            (
-                ["left", "right"],
-                [["left", "right"]],
-                pytest.raises(
-                    ValueError,
-                    match=r"Exactly one from \['left', 'right'\] required, got \{'(left|right)', '(left|right)'\}",
-                ),
-            ),
-            (
-                ["depth"],
-                [["left", "right"]],
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        f"Exactly one from ['left', 'right'] required, got {set()}"
-                    ),
-                ),
-            ),
-        ],
-    )
-    def test_one_of_groups_validation(
-        self,
-        encoder_input_factory: Callable[..., EncoderInput],
-        keys: list[str],
-        one_of_groups: list[list[str]],
-        expectation,
-    ):
-        input_specification = encoder_input_factory(
-            keys=keys, one_of_groups=one_of_groups
-        )
-        with expectation:
-            input_specification.validate()
-
-    @pytest.mark.parametrize(
-        "keys, at_least_one_of_groups, expectation",
-        [
-            (["left"], [["left", "right"]], does_not_raise()),
-            (["left", "right"], [["left", "right"]], does_not_raise()),
-            (
-                ["depth"],
-                [["left", "right"]],
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        f"At least one from ['left', 'right'] required, got {set()}"
-                    ),
-                ),
-            ),
-        ],
-    )
-    def test_at_least_one_of_groups_validation(
-        self,
-        encoder_input_factory: Callable[..., EncoderInput],
-        keys: list[str],
-        at_least_one_of_groups: list[list[str]],
-        expectation,
-    ):
-        input_specification = encoder_input_factory(
-            keys=keys,
-            at_least_one_of_groups=at_least_one_of_groups,
-        )
-        with expectation:
-            input_specification.validate()
-
-    @pytest.mark.parametrize(
         "conditioning_key, conditioning_required, expectation",
         [
             ("rgb_embedding", ["rgb_embedding"], does_not_raise()),
@@ -282,17 +214,13 @@ class TestEncodingMixinInitialization:
         assert encoder.input_specification.keys == expected_keys
 
     @pytest.mark.parametrize(
-        "cuda_available, expected_device_type",
-        [
-            (False, "cpu"),
-            (True, "cuda"),
-        ],
+        "cuda_available",
+        [False, True],
     )
-    def test_device_defaults_based_on_cuda_availability(
+    def test_device_defaults_based_on_cuda_runtime_support(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
         cuda_available: bool,
-        expected_device_type: str,
     ):
         input_specification = encoder_input_factory()
         with patch(
@@ -303,7 +231,18 @@ class TestEncodingMixinInitialization:
                 input_specification=input_specification,
                 device=None,
             )
+        expected_device_type = (
+            "cuda" if cuda_available and torch.version.cuda is not None else "cpu"
+        )
         assert encoder.device.type == expected_device_type
+
+    def test_defaults_to_no_explainability_targets(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+    ):
+        encoder = concrete_encoder_factory(device="cpu")
+        assert encoder.get_explainability_targets() == []
+        assert not encoder.is_vision_encoder()
 
     def test_validates_input_specification_on_init(
         self,

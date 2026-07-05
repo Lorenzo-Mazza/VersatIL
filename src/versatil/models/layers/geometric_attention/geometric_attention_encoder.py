@@ -10,6 +10,38 @@ from versatil.models.layers.geometric_attention import GeometricSelfAttention
 from versatil.models.layers.mlp import MLP
 
 
+class GeometricFeedForwardNetwork(nn.Module):
+    """DFormerv2-style feed-forward network with an inner depthwise convolution.
+
+    Mirrors the reference FeedForwardNetwork: fc1 -> GELU -> 3x3 depthwise
+    convolution with an inner residual -> fc2. The convolution injects local
+    spatial mixing that a plain MLP lacks, and pretrained DFormerv2
+    checkpoints carry its weights.
+    """
+
+    def __init__(self, embedding_dimension: int, ffn_dimension: int):
+        """Initialize the feed-forward network.
+
+        Args:
+            embedding_dimension: Input and output feature dimension.
+            ffn_dimension: Hidden dimension between the two linears.
+        """
+        super().__init__()
+        self.fc1 = nn.Linear(embedding_dimension, ffn_dimension)
+        self.fc2 = nn.Linear(ffn_dimension, embedding_dimension)
+        self.dwconv = DepthwiseConv2D(
+            dimension=ffn_dimension, kernel_size=3, stride=1, padding=1
+        )
+        self.activation = nn.GELU()
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Apply the feed-forward network to (B, H, W, C) features."""
+        features = self.activation(self.fc1(features))
+        residual = features
+        features = self.dwconv(features) + residual
+        return self.fc2(features)
+
+
 class GeometricAttentionEncoderBlock(nn.Module):
     """Geometric attention encoder block for conditioning with depth maps on RGB images.
 
@@ -21,7 +53,7 @@ class GeometricAttentionEncoderBlock(nn.Module):
         self,
         decomposition_mode: AttentionDecompositionMode,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         ffn_dimension: int,
         drop_path_rate: float = 0.0,
         use_layer_scale: bool = False,
@@ -33,13 +65,15 @@ class GeometricAttentionEncoderBlock(nn.Module):
         depthwise_padding: int = 2,
         input_positional_kernel_size: int = 3,
         input_positional_padding: int = 1,
+        use_raster_positions: bool = False,
+        use_feedforward_convolution: bool = False,
     ):
         """Initializes the geometric attention encoder block.
 
         Args:
             decomposition_mode: Attention mode (full or separable).
             embedding_dimension: Feature dimension.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             ffn_dimension: Hidden dimension for the fully-connected layer that follows the self-attention layer.
             drop_path_rate: Stochastic depth rate.
             use_layer_scale: Whether to use layer scaling.
@@ -51,6 +85,11 @@ class GeometricAttentionEncoderBlock(nn.Module):
             depthwise_padding: Padding for value positional encoding.
             input_positional_kernel_size: Kernel size for input positional encoding.
             input_positional_padding: Padding for input positional encoding.
+            use_raster_positions: Whether rotary encoding uses flattened raster
+                grid positions (the DFormerv2 reference convention).
+            use_feedforward_convolution: Whether the feed-forward network uses
+                the DFormerv2 inner depthwise convolution instead of a plain
+                MLP. Required for pretrained DFormerv2 checkpoints.
         """
         super().__init__()
         self.use_layer_scale = use_layer_scale
@@ -61,23 +100,31 @@ class GeometricAttentionEncoderBlock(nn.Module):
 
         self.attention = GeometricSelfAttention(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             value_dimension_factor=value_dimension_factor,
             decomposition_mode=decomposition_mode.value,
             initial_decay=initial_decay,
             decay_range=decay_range,
             depthwise_convolution_kernel_size=depthwise_kernel_size,
             depthwise_convolution_padding=depthwise_padding,
+            use_raster_positions=use_raster_positions,
         )
 
         self.drop_path = DropPath(drop_path_rate)
-        self.mlp = MLP(
-            input_dim=embedding_dimension,
-            hidden_dims=[ffn_dimension],
-            output_dim=embedding_dimension,
-            activation_function=nn.GELU,
-            dropout=0.0,
-        )
+        self.mlp: nn.Module
+        if use_feedforward_convolution:
+            self.mlp = GeometricFeedForwardNetwork(
+                embedding_dimension=embedding_dimension,
+                ffn_dimension=ffn_dimension,
+            )
+        else:
+            self.mlp = MLP(
+                input_dimension=embedding_dimension,
+                hidden_dimensions=[ffn_dimension],
+                output_dim=embedding_dimension,
+                activation_function=nn.GELU,
+                dropout=0.0,
+            )
 
         self.input_positional_encoding = DepthwiseConv2D(
             dimension=embedding_dimension,

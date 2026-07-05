@@ -50,6 +50,7 @@ class SyntheticRolloutCallback(Callback):
         image_size: int = 64,
         log_every_n_epochs: int = 1,
     ):
+        """Initialize rollout generation and logging parameters."""
         super().__init__()
         self.task_name = task_name
         self.num_modes = num_modes

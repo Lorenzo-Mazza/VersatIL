@@ -14,12 +14,16 @@ import logging
 import torch
 import torch.nn as nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 
-class FeatureProjection(nn.Module):
+
+class FeatureProjection(ModuleAttrMixin):
     """Projects features to a common embedding dimension.
 
-    It supports both flat features (B, C), sequential features (B, T, C), and spatial features
-     (B, Optional[T], C, H, W).
+    It supports algorithm-context features (B, C), temporal vectors (B, T, C),
+    token sequences (B, T, S, C), and spatial features (B, T, C, H, W). Only 5D
+    tensors are treated as spatial; every other rank is projected with a linear
+    layer over the final dimension.
 
     This module uses lazy initialization - projection layers are created on first forward pass.
     To support loading checkpoints, it overrides _load_from_state_dict to create layers
@@ -27,7 +31,7 @@ class FeatureProjection(nn.Module):
 
     Example:
         ```
-        feature_projection = FeatureProjection(embedding_dim=256)
+        feature_projection = FeatureProjection(embedding_dimension=256)
         >>> flat_features = {
         ...     "language": torch.randn(8, 64),
         ...     "proprio": torch.randn(8, 128),
@@ -40,25 +44,19 @@ class FeatureProjection(nn.Module):
 
     def __init__(
         self,
-        embedding_dim: int,
-        has_time_dim: bool = False,
+        embedding_dimension: int,
     ):
         """Initialize feature projection module.
 
         Args:
-            embedding_dim: Target embedding dimension for all features
-            has_time_dim: Whether features may have a time dimension (default: False)
+            embedding_dimension: Target embedding dimension for all features
         """
         super().__init__()
-        self.embedding_dim = embedding_dim
-        self.has_time_dim = has_time_dim
+        self.embedding_dimension = embedding_dimension
         # These two dicts are doing exactly the same mathematical operation. But using linear projections
         # for spatial features would require transposing the tensors,  so we use conv2d instead.
         self.linear_projections = nn.ModuleDict()
         self.spatial_projections = nn.ModuleDict()
-        # Dummy buffer to track the module's device without relying on parameters (which may not exist yet in lazy init).
-        # This ensures lazy-created layers are initialized on the correct device, preventing mismatches in multi-GPU or distributed setups.
-        self.register_buffer("_device_tracker", torch.zeros(1))
 
     def _load_from_state_dict(
         self,
@@ -100,8 +98,8 @@ class FeatureProjection(nn.Module):
                     if feature_name not in spatial_features:
                         spatial_features[feature_name] = {}
                     spatial_features[feature_name][param_name] = value
-        device = self._device_tracker.device
-        dtype = self._device_tracker.dtype
+        device = self.device
+        dtype = self.dtype
         for feature_name, params in linear_features.items():
             if feature_name not in self.linear_projections and "weight" in params:
                 weight = params["weight"]
@@ -132,27 +130,25 @@ class FeatureProjection(nn.Module):
     def _create_projection_layer(
         self,
         feature: torch.Tensor,
+        is_spatial: bool,
     ) -> nn.Module:
-        """Create projection layer for feature."""
-        if len(feature.shape) < 4:  # flat (B, C) or sequential (B, T, C)
-            channel_dim = feature.shape[-1]
-            if channel_dim == self.embedding_dim:
-                return nn.Identity()
-            layer: nn.Module = nn.Linear(channel_dim, self.embedding_dim)
-            return layer.to(
-                device=self._device_tracker.device, dtype=self._device_tracker.dtype
-            )
+        """Create projection layer for feature.
+
+        Args:
+            feature: Tensor the layer will project, already flattened to
+                (B*T, C, H, W) for spatial features.
+            is_spatial: Whether the feature is a spatial map projected over
+                its channel axis instead of its last axis.
+        """
+        channel_dim = feature.shape[1] if is_spatial else feature.shape[-1]
+        if channel_dim == self.embedding_dimension:
+            return nn.Identity()
+        layer: nn.Module
+        if is_spatial:
+            layer = nn.Conv2d(channel_dim, self.embedding_dimension, kernel_size=1)
         else:
-            if len(feature.shape) == 4:  # spatial (B, C, H, W)
-                channel_dim = feature.shape[1]
-            else:
-                raise ValueError(f"Unsupported feature shape: {feature.shape}")
-            if channel_dim == self.embedding_dim:
-                return nn.Identity()
-            layer = nn.Conv2d(channel_dim, self.embedding_dim, kernel_size=1)
-            return layer.to(
-                device=self._device_tracker.device, dtype=self._device_tracker.dtype
-            )
+            layer = nn.Linear(channel_dim, self.embedding_dimension)
+        return layer.to(device=self.device, dtype=self.dtype)
 
     def forward(
         self,
@@ -167,28 +163,30 @@ class FeatureProjection(nn.Module):
             features: Dictionary of features to project
 
         Returns:
-            Dictionary of projected features with shape (B, Emb) or (B, T, Emb) or (B, Optional[T], Emb, H, W)
+            Dictionary of projected features. Spatial inputs come back as
+            (B, T, Emb, H, W); all other ranks keep their shape with the final
+            dimension projected to Emb.
         """
         projected = {}
-        for feature_name, feature in features.items():
+        for feature_name, raw_feature in features.items():
             B, T = None, None
-            if feature.ndim == 5:
-                B, T, _, _, _ = feature.shape
+            # Pipeline features always carry (B, T, ...): 5D spatial maps,
+            # 4D token sequences, 3D vectors. 2D tensors are algorithm
+            # context (e.g. latents) without a time axis.
+            is_spatial = raw_feature.ndim == 5
+            feature = raw_feature
+            if is_spatial:
+                B, T = feature.shape[0], feature.shape[1]
                 feature = feature.reshape(B * T, *feature.shape[2:])  # (B*T, C, H, W)
-                is_spatial = True
-            elif self.has_time_dim and feature.ndim == 4:
-                B, T, _, _ = feature.shape
-                feature = feature.reshape(B * T, *feature.shape[2:])
-                is_spatial = False
-            else:
-                is_spatial = len(feature.shape) > 3
             projection_dict = (
                 self.spatial_projections if is_spatial else self.linear_projections
             )
             if feature_name not in projection_dict:
-                projection_dict[feature_name] = self._create_projection_layer(feature)
+                projection_dict[feature_name] = self._create_projection_layer(
+                    feature=feature, is_spatial=is_spatial
+                )
             feature_projection = projection_dict[feature_name](feature)
-            if self.has_time_dim and B is not None and T is not None:
+            if B is not None and T is not None:
                 feature_projection = feature_projection.reshape(
                     B, T, *feature_projection.shape[1:]
                 )

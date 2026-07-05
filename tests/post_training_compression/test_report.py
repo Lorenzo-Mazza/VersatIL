@@ -9,9 +9,9 @@ import pytest
 import torch
 import torch.nn as nn
 
-from versatil.post_training_compression.constants import QuantizationStrategy
+from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.report import QuantizationReport
-from versatil.quantization.constants import ReportMetricKey
+from versatil.quantization.constants import FXNodeOp, ReportMetricKey
 
 REPORT_MODULE = "versatil.post_training_compression.report"
 
@@ -78,7 +78,7 @@ def report_factory(
         batch_size: int = 2,
         action_keys: list[str] | None = None,
         quantized_model: nn.Module | None = None,
-        quantization_strategy: str = QuantizationStrategy.QUANTIZE_API.value,
+        quantization_workflow: str = QuantizationWorkflow.EAGER.value,
     ) -> QuantizationReport:
         if action_keys is None:
             action_keys = [f"action_{index}" for index in range(num_outputs)]
@@ -102,7 +102,7 @@ def report_factory(
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=action_keys,
-            quantization_strategy=quantization_strategy,
+            quantization_workflow=quantization_workflow,
         )
 
     return factory
@@ -115,6 +115,7 @@ def quantized_model_mock_factory() -> Callable[..., MagicMock]:
     def factory(
         node_targets: list[str] | None = None,
         node_args: list[list] | None = None,
+        node_ops: list[str] | None = None,
     ) -> MagicMock:
         if node_targets is None:
             node_targets = []
@@ -122,6 +123,11 @@ def quantized_model_mock_factory() -> Callable[..., MagicMock]:
         for index, target in enumerate(node_targets):
             node = MagicMock()
             node.target = target
+            node.op = (
+                node_ops[index]
+                if node_ops and index < len(node_ops)
+                else FXNodeOp.CALL_FUNCTION.value
+            )
             node.args = node_args[index] if node_args and index < len(node_args) else []
             nodes.append(node)
         mock_graph = MagicMock()
@@ -176,13 +182,40 @@ class TestOperatorCoverage:
             quantized_model=quantized_model,
             example_inputs=example_inputs_factory(),
             action_keys=["action_0"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         coverage = report.compute_operator_coverage()
 
         assert coverage[expected_key][ReportMetricKey.TOTAL.value] == 1
         assert coverage[expected_key][ReportMetricKey.QUANTIZED.value] == 0
+
+    def test_get_attr_nodes_are_not_counted_as_operators(
+        self,
+        float_model_factory: Callable[..., nn.Module],
+        example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+        quantized_model_mock_factory: Callable[..., MagicMock],
+    ):
+        # Unlifted exports emit get_attr nodes with parameter FQNs like
+        # "linear_projections.weight" that must not inflate operator totals.
+        quantized_model = quantized_model_mock_factory(
+            node_targets=[
+                "linear_projections.weight",
+                "torch.ops.aten.linear.default",
+            ],
+            node_ops=["get_attr", FXNodeOp.CALL_FUNCTION.value],
+        )
+
+        report = QuantizationReport(
+            float_model=float_model_factory(num_outputs=1),
+            quantized_model=quantized_model,
+            example_inputs=example_inputs_factory(),
+            action_keys=["action_0"],
+        )
+
+        coverage = report.compute_operator_coverage()
+
+        assert coverage["linear"][ReportMetricKey.TOTAL.value] == 1
 
     def test_detects_quantized_nodes_with_dequantize_args(
         self,
@@ -233,7 +266,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -267,7 +300,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -292,7 +325,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -327,7 +360,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position", "gripper"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -350,7 +383,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         size = report.compute_size_reduction()
@@ -377,7 +410,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         size = report.compute_size_reduction()
@@ -390,6 +423,31 @@ class TestSizeReduction:
             size[ReportMetricKey.QUANTIZED_BYTES.value]
             == quantized_param_bytes + buffer_bytes
         )
+
+    def test_includes_buffers_in_float_bytes(self):
+        float_model = nn.Linear(in_features=4, out_features=2, bias=False)
+        float_model.register_buffer("running_mean", torch.zeros(4))
+
+        quantized_model = nn.Linear(in_features=4, out_features=2, bias=False)
+
+        example_inputs = (torch.zeros(1, 4),)
+
+        report = QuantizationReport(
+            float_model=float_model,
+            quantized_model=quantized_model,
+            example_inputs=example_inputs,
+            action_keys=["position"],
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
+        )
+
+        size = report.compute_size_reduction()
+
+        param_bytes = 4 * 2 * 4  # 8 params * 4 bytes
+        float_buffer_bytes = 4 * 4  # running_mean (float32)
+        assert (
+            size[ReportMetricKey.FLOAT_BYTES.value] == param_bytes + float_buffer_bytes
+        )
+        assert size[ReportMetricKey.QUANTIZED_BYTES.value] == param_bytes
 
     def test_compression_ratio_handles_zero_quantized_bytes(self):
         float_model = nn.Linear(in_features=4, out_features=2, bias=False)
@@ -405,7 +463,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         size = report.compute_size_reduction()
@@ -525,7 +583,7 @@ class TestInferenceTiming:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
         )
 
         timing = report.compute_inference_timing(
@@ -542,19 +600,19 @@ class TestInferenceTiming:
         )
 
     @pytest.mark.parametrize(
-        "strategy, should_compile",
+        "workflow, should_compile",
         [
-            (QuantizationStrategy.PT2E.value, True),
-            (QuantizationStrategy.QUANTIZE_API.value, False),
+            (QuantizationWorkflow.PT2E.value, True),
+            (QuantizationWorkflow.EAGER.value, False),
         ],
-        ids=["pt2e_compiles", "quantize_api_skips_compile"],
+        ids=["pt2e_compiles", "eager_skips_compile"],
     )
     @patch("versatil.post_training_compression.report.torch.compile")
-    def test_pt2e_strategy_compiles_quantize_api_does_not(
+    def test_pt2e_workflow_compiles_eager_does_not(
         self,
         mock_compile,
         report_factory,
-        strategy,
+        workflow,
         should_compile,
     ):
         mock_compile.return_value = MagicMock(
@@ -563,7 +621,7 @@ class TestInferenceTiming:
         report = report_factory(
             num_outputs=1,
             action_keys=["position"],
-            quantization_strategy=strategy,
+            quantization_workflow=workflow,
         )
 
         report.compute_inference_timing(
@@ -573,7 +631,7 @@ class TestInferenceTiming:
 
         assert mock_compile.called == should_compile
 
-    def test_pt2e_strategy_uses_compiled_model_for_benchmark(
+    def test_pt2e_workflow_uses_compiled_model_for_benchmark(
         self,
         report_factory: Callable[..., QuantizationReport],
     ):
@@ -581,7 +639,7 @@ class TestInferenceTiming:
         report = report_factory(
             num_outputs=1,
             action_keys=["position"],
-            quantization_strategy=QuantizationStrategy.PT2E.value,
+            quantization_workflow=QuantizationWorkflow.PT2E.value,
         )
 
         with (

@@ -5,27 +5,43 @@ from enum import StrEnum
 from torch import nn
 
 
-class QuantizationStrategy(StrEnum):
-    """Quantization strategy used during compression."""
+class QuantizationWorkflow(StrEnum):
+    """Quantization workflow used during compression."""
 
     PT2E = "pt2e"
-    QUANTIZE_API = "quantize_api"
+    EAGER = "eager"
+    NONE = "none"
+
+
+class ArtifactFormat(StrEnum):
+    """Deployment artifact format emitted by deployment backends."""
+
+    TORCH_EXPORT_PT2 = "torch_export_pt2"
+    EXECUTORCH_PTE = "executorch_pte"
+
+
+class DeploymentBackendName(StrEnum):
+    """Deployment backend identifiers stored in metadata."""
+
+    TORCH_INDUCTOR = "torch_inductor"
+    EXECUTORCH_XNNPACK = "executorch_xnnpack"
 
 
 class CompressionMetadataKey(StrEnum):
-    """Keys used in compression metadata JSON files (.pt2 format)."""
+    """Keys used in compression metadata JSON files."""
 
     MODEL_FILE = "model_file"
     NORMALIZER_FILE = "normalizer_file"
+    ARTIFACT_FORMAT = "artifact_format"
+    DEPLOYMENT_BACKEND = "deployment_backend"
     INPUT_KEYS = "input_keys"
     OUTPUT_KEYS = "output_keys"
     TORCHAO_VERSION = "torchao_version"
     TORCH_VERSION = "torch_version"
     TRAINING_CHECKPOINT_PATH = "training_checkpoint_path"
-    QUANTIZATION_STRATEGY = "quantization_strategy"
-    IS_DYNAMIC = "is_dynamic"
-    IS_QAT = "is_qat"
-    REDUCE_RANGE = "reduce_range"
+    QUANTIZATION_WORKFLOW = "quantization_workflow"
+    DENOISING_THRESHOLDS = "denoising_thresholds"
+    PT2E_BACKEND = "pt2e_backend"
 
 
 class CompressionFilename(StrEnum):
@@ -34,12 +50,13 @@ class CompressionFilename(StrEnum):
     QUANTIZATION_CONFIG = "quantization_config.yaml"
     COMPRESSION_METADATA = "compression_metadata.json"
     COMPRESSED_MODEL = "compressed_policy.pt2"
+    EXECUTORCH_MODEL = "compressed_policy.pte"
     NORMALIZER = "normalizer.pt"
     TOKENIZER_DIR = "tokenizer"
 
 
 class PrunableLayerType(StrEnum):
-    """Common layer types targeted by pruning strategies."""
+    """Layer types targeted by pruning strategies."""
 
     CONV1D = "conv1d"
     CONV2D = "conv2d"

@@ -28,7 +28,9 @@ def normalize_sample(
     observation_space: ObservationSpace,
     action_space: ActionSpace,
 ) -> dict[str, dict[str, torch.Tensor]]:
-    """Normalize and tokenize a pre-built sample.
+    """Normalize a pre-built sample.
+
+    Tokenization is a separate step; see ``tokenize_observation``.
 
     Args:
         sample: Pre-built sample with observation and action dictionaries.
@@ -37,7 +39,7 @@ def normalize_sample(
         action_space: Action space configuration.
 
     Returns:
-        Normalized and tokenized sample.
+        Normalized sample.
     """
     sample_copy = sample.copy()  # Avoid modifying in-place
     observation = sample_copy[SampleKey.OBSERVATION.value]
@@ -132,9 +134,18 @@ def tokenize_sample(
 
 
 def tokenize_observation(
-    observation: dict[str, torch.Tensor], obs_tokenizer: ObservationTokenizer
+    observation: dict[str, torch.Tensor],
+    obs_tokenizer: ObservationTokenizer,
+    batched: bool = False,
 ) -> dict[str, torch.Tensor]:
-    """Tokenize observations."""
+    """Tokenize observations.
+
+    Args:
+        observation: Observation dictionary.
+        obs_tokenizer: Fitted observation tokenizer.
+        batched: Whether observations carry a leading batch dimension in
+            front of the observation horizon.
+    """
     obs_copy = observation.copy()
     obs_to_tokenize = {}
     for key in obs_tokenizer.observation_keys:
@@ -144,7 +155,7 @@ def tokenize_observation(
             raise KeyError(
                 f"Observation key '{key}' not found in sample for tokenization."
             )
-    tokenized = obs_tokenizer.tokenize(obs_to_tokenize)
+    tokenized = obs_tokenizer.tokenize(obs_to_tokenize, batched=batched)
     obs_copy[SampleKey.TOKENIZED_OBSERVATIONS.value] = tokenized[
         SampleKey.TOKENIZED_OBSERVATIONS.value
     ]
@@ -162,8 +173,9 @@ def tokenize_actions(
     """Tokenize actions."""
     actions_to_tokenize = actions.copy()
     action_components = []
-    for key in sorted(action_space.actions_metadata.keys()):
-        meta = action_space.actions_metadata[key]
+    # Iterate in metadata insertion order — the same canonical order
+    # predicted_action_keys and the joint action layout use.
+    for key, meta in action_space.actions_metadata.items():
         if meta.is_numerical and meta.requires_prediction_head:
             action_tensor = actions_to_tokenize[key]
             if action_tensor.ndim == 1:
@@ -201,8 +213,7 @@ def detokenize_actions(
     actions = torch.stack(detokenized_actions, dim=0)  # (B, pred_horizon, action_dim)
     action_dict = {}
     current_idx = 0
-    for key in sorted(action_space.actions_metadata.keys()):
-        meta = action_space.actions_metadata[key]
+    for key, meta in action_space.actions_metadata.items():
         if meta.is_numerical and meta.requires_prediction_head:
             dim = meta.prediction_dimension
             action_dict[key] = actions[..., current_idx : current_idx + dim]
@@ -223,18 +234,20 @@ def detokenize_actions(
                 if gripper_meta.gripper_type == GripperType.BINARY.value:
                     if (
                         gripper_meta.binary_gripper_range
-                        == BinaryGripperRange.ZERO_ONE.value
-                    ):
-                        action_dict[key] = torch.round(action_dict[key]).long()
-                    elif (
-                        gripper_meta.binary_gripper_range
                         == BinaryGripperRange.MINUS_ONE_ONE.value
                     ):
-                        action_dict[key] = torch.sign(action_dict[key]).long()
+                        action_dict[key] = torch.where(
+                            action_dict[key] > 0.0, 1, -1
+                        ).long()
                     else:
-                        logging.warning(
-                            "Gripper type is binary but range is not set. Assuming {0,1}."
-                        )
-                        action_dict[key] = torch.round(action_dict[key]).long()
+                        if (
+                            gripper_meta.binary_gripper_range
+                            != BinaryGripperRange.ZERO_ONE.value
+                        ):
+                            logging.warning(
+                                "Gripper type is binary but range is not set. "
+                                "Assuming {0,1}."
+                            )
+                        action_dict[key] = (action_dict[key] > 0.5).long()
 
     return action_dict

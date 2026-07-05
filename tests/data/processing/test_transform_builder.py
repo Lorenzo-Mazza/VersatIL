@@ -12,6 +12,9 @@ import zarr.storage
 
 from versatil.data.constants import (
     CLIP_RGB_MEAN,
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
+    BinningStrategy,
     Cameras,
     ImageNormalizationType,
     KinematicsNormalizationType,
@@ -21,10 +24,19 @@ from versatil.data.metadata import (
     ObservationMetadata,
     OnTheFlyActionMetadata,
     PositionObservationMetadata,
+    PrecomputedActionMetadata,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.processing.transform_builder import TransformBuilder
+from versatil.data.processing.transform_builder import (
+    TransformBuilder,
+    _build_action_discretizer,
+    _build_token_id_mapping,
+)
 from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization.action_discretizer import BinnedActionDiscretizer
+from versatil.data.tokenization.action_token_id_mapping import (
+    IdentityActionTokenIdMapping,
+)
 
 
 def _numpy_to_zarr_array(array: np.ndarray) -> zarr.Array:
@@ -96,6 +108,7 @@ def transform_builder_factory(
         tokenization_config: MagicMock = None,
         use_zarr: bool = False,
         action_sample_size: int = 2048,
+        episode_selection_mask: np.ndarray | None = None,
     ) -> TransformBuilder:
         action_space = action_space_factory(
             actions_metadata=actions_metadata or {},
@@ -127,6 +140,7 @@ def transform_builder_factory(
             depth_norm_type=depth_norm_type,
             tokenization_config=tokenization_config,
             action_sample_size=action_sample_size,
+            episode_selection_mask=episode_selection_mask,
         )
 
     return factory
@@ -316,7 +330,7 @@ class TestCreateActionChunksForTokenizer:
         # Only second episode: 9 actions, pred_horizon=4 → 6 chunks
         assert chunks.shape == (6, 4, 2)
 
-    def test_concatenates_multiple_action_keys_in_sorted_order(
+    def test_concatenates_multiple_action_keys_in_metadata_order(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         rng: np.random.Generator,
@@ -587,6 +601,34 @@ class TestComputeDepthStatsStreaming:
         assert stats_single["max"] == pytest.approx(stats_chunked["max"], abs=1e-5)
         assert stats_single["mean"] == pytest.approx(stats_chunked["mean"], abs=1e-4)
         assert stats_single["std"] == pytest.approx(stats_chunked["std"], abs=1e-4)
+
+    def test_winsorized_stats_reproducible_across_global_rng_state(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        # Large enough that the quantile reservoir must subsample pixels.
+        depth_data = rng.uniform(0.5, 5.0, (300, 20, 20)).astype(np.float32)
+
+        def compute_stats() -> dict[str, float]:
+            builder = self._make_depth_builder(
+                transform_builder_factory,
+                camera_metadata_factory,
+                depth_data,
+            )
+            return builder._compute_depth_stats_streaming(
+                camera_key=Cameras.DEPTH.value,
+                winsorize=True,
+            )
+
+        np.random.seed(0)
+        first = compute_stats()
+        np.random.seed(1)
+        np.random.random(999)
+        second = compute_stats()
+
+        assert first == second
 
 
 class TestLogCameraStatsSampled:
@@ -976,6 +1018,82 @@ class TestCreateNormalizerAndTokenizer:
         stats = normalizer["position"].get_input_stats()
         assert stats["max"].item() < 900.0
 
+    def test_precomputed_action_episode_final_rows_included_in_stats(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+        rng: np.random.Generator,
+    ):
+        action_metadata = precomputed_action_metadata_factory(
+            storage_dimension=1,
+            prediction_dimension=1,
+        )
+        precomputed_actions = rng.uniform(-0.5, 0.5, (10, 1)).astype(np.float32)
+        # The first episode's final row holds the dataset maximum. It is a
+        # valid precomputed training target and must be covered by the stats.
+        precomputed_actions[4] = 999.0
+
+        builder = transform_builder_factory(
+            actions_metadata={"action": action_metadata},
+            replay_buffer_data={"action": precomputed_actions},
+            n_steps=10,
+            episode_ends=np.array([5, 10]),
+        )
+        builder.action_processor.compute_sample_actions.return_value = (
+            {"action": precomputed_actions[:9]},
+            {"action": action_metadata},
+        )
+
+        normalizer, _ = builder.create_normalizer_and_tokenizer()
+
+        # Winsorization clips the extreme, but the fitted max must still be
+        # far above the sub-unit bulk of the data.
+        stats = normalizer["action"].get_input_stats()
+        assert stats["max"].item() > 900.0
+
+    def test_unselected_episodes_are_excluded_from_fitted_statistics(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        rng: np.random.Generator,
+    ):
+        position_source = position_observation_metadata_factory(dimension=1)
+        position_data = rng.standard_normal((10, 1)).astype(np.float32)
+
+        builder = transform_builder_factory(
+            observations_metadata={"position": position_source},
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                ),
+            },
+            replay_buffer_data={"position": position_data},
+            n_steps=10,
+            episode_ends=np.array([5, 10]),
+            # Second episode is the validation split: its actions must not
+            # leak into the fitted normalizer statistics.
+            episode_selection_mask=np.array([True, False]),
+        )
+        all_actions = rng.standard_normal((9, 1)).astype(np.float32)
+        all_actions[6] = 999.0  # Inside the unselected (validation) episode
+
+        builder.action_processor.compute_sample_actions.return_value = (
+            {"position": all_actions},
+            {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                )
+            },
+        )
+
+        normalizer, _ = builder.create_normalizer_and_tokenizer()
+
+        stats = normalizer["position"].get_input_stats()
+        assert stats["max"].item() < 900.0
+
 
 class TestCreateTokenizer:
     def test_raises_when_observation_tokenizer_config_missing(
@@ -1056,11 +1174,18 @@ class TestCreateTokenizer:
         transform_builder_factory: Callable[..., TransformBuilder],
     ):
         mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = True
 
         mock_config = MagicMock()
         mock_config.tokenize_observations = False
         mock_config.tokenize_actions = True
-        mock_config.action_tokenizer.use_pretrained_fast = True
+        mock_config.action_tokenizer.action_discretizer.type = "fast"
+        mock_config.action_tokenizer.action_discretizer.use_pretrained = True
+        mock_config.action_tokenizer.action_discretizer.tokenizer_model = (
+            "physical-intelligence/fast"
+        )
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
@@ -1084,6 +1209,95 @@ class TestCreateTokenizer:
             action_tokenizer=mock_action_instance,
         )
 
+    def test_pretrained_fast_discretizer_records_chunk_shape(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+        rng: np.random.Generator,
+    ):
+        mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = True
+
+        mock_config = MagicMock()
+        mock_config.tokenize_observations = False
+        mock_config.tokenize_actions = True
+        mock_config.action_tokenizer.action_discretizer.type = (
+            ActionDiscretizerType.FAST.value
+        )
+        mock_config.action_tokenizer.action_discretizer.use_pretrained = True
+        mock_config.action_tokenizer.action_discretizer.tokenizer_model = (
+            "physical-intelligence/fast"
+        )
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
+
+        builder = transform_builder_factory(
+            tokenization_config=mock_config,
+            prediction_horizon=4,
+        )
+        action_meta = {"action": precomputed_action_metadata_factory()}
+        action_data = {"action": rng.standard_normal((9, 3)).astype(np.float32)}
+
+        with (
+            patch("versatil.data.tokenization.action_discretizer.load_fast_processor"),
+            patch(
+                "versatil.data.processing.transform_builder.ActionTokenizer",
+                return_value=mock_action_instance,
+            ) as mock_action_class,
+            patch("versatil.data.processing.transform_builder.Tokenizer"),
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data=action_data, action_meta=action_meta
+            )
+
+        action_discretizer = mock_action_class.call_args.kwargs["action_discretizer"]
+        assert action_discretizer.time_horizon == 4
+        assert action_discretizer.action_dim == 3
+
+    def test_creates_action_tokenizer_with_uniform_binned_discretizer(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ):
+        mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = True
+
+        mock_config = MagicMock()
+        mock_config.tokenize_observations = False
+        mock_config.tokenize_actions = True
+        mock_config.action_tokenizer.action_discretizer.type = (
+            ActionDiscretizerType.BINNED.value
+        )
+        mock_config.action_tokenizer.action_discretizer.binning_strategy = (
+            BinningStrategy.UNIFORM.value
+        )
+        mock_config.action_tokenizer.action_discretizer.num_bins = 256
+        mock_config.action_tokenizer.action_discretizer.min_value = -1.0
+        mock_config.action_tokenizer.action_discretizer.max_value = 1.0
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
+
+        builder = transform_builder_factory(tokenization_config=mock_config)
+
+        with (
+            patch(
+                "versatil.data.processing.transform_builder.ActionTokenizer",
+                return_value=mock_action_instance,
+            ) as mock_action_class,
+            patch("versatil.data.processing.transform_builder.Tokenizer"),
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data={}, action_meta={}
+            )
+
+        action_discretizer = mock_action_class.call_args.kwargs["action_discretizer"]
+        assert isinstance(action_discretizer, BinnedActionDiscretizer)
+        assert action_discretizer.token_count == 256
+        assert (
+            action_discretizer.binner.binning_strategy == BinningStrategy.UNIFORM.value
+        )
+        assert action_discretizer.binner.min_value == -1.0
+        assert action_discretizer.binner.max_value == 1.0
+
     def test_fits_action_tokenizer_when_not_pretrained(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -1091,11 +1305,18 @@ class TestCreateTokenizer:
         rng: np.random.Generator,
     ):
         mock_action_instance = MagicMock()
+        mock_action_instance._is_fitted = False
 
         mock_config = MagicMock()
         mock_config.tokenize_observations = False
         mock_config.tokenize_actions = True
-        mock_config.action_tokenizer.use_pretrained_fast = False
+        mock_config.action_tokenizer.action_discretizer.type = "fast"
+        mock_config.action_tokenizer.action_discretizer.use_pretrained = False
+        mock_config.action_tokenizer.action_discretizer.tokenizer_model = (
+            "physical-intelligence/fast"
+        )
+        mock_config.action_tokenizer.token_id_mapping.type = "identity"
+        mock_config.action_tokenizer.max_token_len = 64
 
         action_metadata = on_the_fly_action_metadata_factory()
         builder = transform_builder_factory(
@@ -1149,3 +1370,32 @@ class TestCreateTokenizer:
 
         assert "pass-through" in caplog.text
         mock_obs_instance.fit.assert_called_with({})
+
+
+class TestTokenizerComponentBuilders:
+    def test_unsupported_discretizer_type_raises(self):
+        config = MagicMock()
+        config.type = "unsupported"
+        with pytest.raises(ValueError, match="Unsupported action discretizer type"):
+            _build_action_discretizer(
+                config, device="cpu", time_horizon=4, action_dim=2
+            )
+
+    def test_identity_token_id_mapping(self):
+        config = MagicMock()
+        config.type = ActionTokenIdMappingType.IDENTITY.value
+        mapping = _build_token_id_mapping(config)
+        assert isinstance(mapping, IdentityActionTokenIdMapping)
+
+    def test_language_vocabulary_mapping_requires_model(self):
+        config = MagicMock()
+        config.type = ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+        config.language_tokenizer_model = None
+        with pytest.raises(ValueError, match="language_tokenizer_model"):
+            _build_token_id_mapping(config)
+
+    def test_unsupported_token_id_mapping_raises(self):
+        config = MagicMock()
+        config.type = "unsupported"
+        with pytest.raises(ValueError, match="Unsupported action token-id mapping"):
+            _build_token_id_mapping(config)

@@ -1,8 +1,0 @@
-defaults:
-  - lerobot
-  - zarr_meta/metaworld_mt50@metadata
-
-_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
-dataset_type: ${dataset_type:METAWORLD}
-dataset_path: ${metaworld_lerobot_dir:}
-zarr_path: ${zarr_dir:metaworld_mt50.zarr}

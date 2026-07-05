@@ -1,11 +1,16 @@
 """Mixture of Experts (MoE) decoder for action prediction."""
 
 import copy
+from dataclasses import replace
 
 import torch
 import torch.nn as nn
 
-from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
+from versatil.models.decoding.constants import (
+    DecoderOutputKey,
+    LatentKey,
+    MoERoutingType,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 from versatil.models.layers.activation import ActivationFunction
@@ -29,13 +34,31 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         learnable_temperature: bool = False,
         gating_dropout: float = 0.1,
         gating_normalization: bool = True,
-    ):
+    ) -> None:
         expert_list = self._create_experts_from_config(
             base_expert=base_expert, num_experts=num_experts
         )
+        self.action_head_layout = base_expert.action_head_layout
+        gating_keys = [gating_feature_key]
+        if (
+            inference_gating_key is not None
+            and inference_gating_key != gating_feature_key
+        ):
+            gating_keys.append(inference_gating_key)
+        moe_input = replace(
+            base_expert.decoder_input,
+            keys=[
+                *base_expert.decoder_input.keys,
+                *[
+                    key
+                    for key in gating_keys
+                    if key not in base_expert.decoder_input.keys
+                ],
+            ],
+        )
         ActionDecoder.__init__(
             self,
-            decoder_input=base_expert.decoder_input,
+            decoder_input=moe_input,
             observation_space=base_expert.observation_space,
             action_space=base_expert.action_space,
             action_heads=dict(base_expert.action_heads),
@@ -59,7 +82,7 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_normalization=gating_normalization,
         )
         self.expert_decoders = nn.ModuleList(expert_list)
-        self.base_expert = base_expert
+        self._base_expert_input_keys = set(base_expert.decoder_input.keys)
         self.num_experts = num_experts
         self.gating_feature_key = gating_feature_key
         self.inference_gating_key = (
@@ -67,8 +90,24 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             if inference_gating_key is not None
             else gating_feature_key
         )
-        self.action_keys = list(base_expert.action_heads.keys())
-        self.action_heads = base_expert.action_heads
+        self.action_keys = self._get_routed_output_keys(base_expert=base_expert)
+        self.action_heads = self.expert_decoders[0].action_heads
+
+    @staticmethod
+    def _get_routed_output_keys(base_expert: ActionDecoder) -> list[str]:
+        """Return expert output keys that must be routed across experts."""
+        loss_output_keys = base_expert.get_loss_output_keys()
+        action_space_keys = [
+            action_key
+            for action_key in base_expert.action_space.predicted_action_keys
+            if action_key in loss_output_keys
+        ]
+        non_action_space_keys = [
+            output_key
+            for output_key in loss_output_keys
+            if output_key not in action_space_keys
+        ]
+        return [*action_space_keys, *non_action_space_keys]
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """MoE decoder produces routing weights and per-expert outputs."""
@@ -119,31 +158,35 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
                 - Combined predictions from routed experts (action keys)
                 - routing_weights: Computed routing weights
                 - expert_outputs: Individual expert prediction dictionaries
+
+        Raises:
+            KeyError: If the gating key for the current mode (gating_feature_key
+                in training, inference_gating_key in eval) is missing from
+                ``features``.
         """
         if self.training:
             gating_key = self.gating_feature_key
         else:
             gating_key = self.inference_gating_key
+        if gating_key not in features:
+            raise KeyError(
+                f"MoE gating feature '{gating_key}' is missing from decoder "
+                f"features {sorted(features)}. Algorithm-injected latents are "
+                f"exposed under '{LatentKey.POSTERIOR_LATENT.value}' during "
+                "both training and inference."
+            )
         gating_feature = features[gating_key]  # (B, embedding dimension)
         mixing_probabilities = self.compute_routing_weights(
             gating_feature
         )  # (B, num_experts)
         expert_features = {
-            key: value for key, value in features.items() if key != gating_key
+            key: value
+            for key, value in features.items()
+            if key != gating_key or key in self._base_expert_input_keys
         }
-        expert_outputs = [None] * len(self.expert_decoders)
-        if (
-            torch.cuda.is_available()
-            and expert_features[next(iter(expert_features))].is_cuda
-        ):
-            streams = [torch.cuda.Stream() for _ in self.expert_decoders]
-            for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
-                with torch.cuda.stream(stream):
-                    expert_outputs[i] = expert(expert_features, actions)
-            torch.cuda.synchronize()
-        else:
-            for i, expert in enumerate(self.expert_decoders):
-                expert_outputs[i] = expert(expert_features, actions)
+        expert_outputs = [
+            expert(expert_features, actions) for expert in self.expert_decoders
+        ]
         combined_outputs = self._combine_expert_outputs(
             expert_outputs=expert_outputs, weights=mixing_probabilities
         )

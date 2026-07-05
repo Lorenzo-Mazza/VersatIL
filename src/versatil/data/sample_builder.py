@@ -149,6 +149,7 @@ class SampleBuilder:
     ) -> dict[str, torch.Tensor]:
         """Process images and return them as a dictionary of tensors."""
         image_dict = {}
+        self.image_processor.begin_sample()
         for cam in self.observation_space.cameras:
             # the sampler now fetches action_backward_shift extra prior observations at the start of padded_data, effectively offsetting the entire sequence
             img = padded_data[cam][
@@ -211,27 +212,25 @@ class SampleBuilder:
 
         action_positions = np.arange(self.pred_horizon) + action_slice_start
 
-        if self.action_space.has_only_precomputed_actions:
-            # Precomputed actions are read directly from zarr at action_positions[t].
-            is_pad = np.logical_or(
+        # A timestep is padded if any action component at that timestep needs a
+        # position outside the valid window. Precomputed actions are read from
+        # zarr at the current position; on-the-fly actions read the next
+        # position, and deltas additionally read the current one. Mixed action
+        # spaces take the union of these requirements.
+        needs_current_position = (
+            self.action_space.has_precomputed_actions
+            or self.action_space.has_delta_actions
+        )
+        needs_next_position = self.action_space.has_on_the_fly_actions
+
+        is_pad = np.zeros(self.pred_horizon, dtype=bool)
+        if needs_current_position:
+            is_pad |= np.logical_or(
                 action_positions < sample_start_idx,
                 action_positions >= sample_end_idx,
             )
-        elif self.action_space.has_delta_actions:
-            # On-the-fly deltas need both current and next positions in range.
-            is_pad = np.logical_or(
-                np.logical_or(
-                    action_positions < sample_start_idx,
-                    action_positions >= sample_end_idx,
-                ),
-                np.logical_or(
-                    action_positions + 1 < sample_start_idx,
-                    action_positions + 1 >= sample_end_idx,
-                ),
-            )
-        else:
-            # On-the-fly absolute-next-timestep actions need the next position in range.
-            is_pad = np.logical_or(
+        if needs_next_position:
+            is_pad |= np.logical_or(
                 action_positions + 1 < sample_start_idx,
                 action_positions + 1 >= sample_end_idx,
             )

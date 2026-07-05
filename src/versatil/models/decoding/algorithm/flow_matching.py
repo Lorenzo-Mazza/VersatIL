@@ -3,8 +3,15 @@
 import torch
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
+from versatil.models.decoding.algorithm.base import (
+    DecodingAlgorithm,
+    resolve_feature_reference,
+)
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DecoderOutputKey,
+    ODESolver,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.layers.denoising.conditional_flow_matching import (
     ConditionalFlowMatcher,
@@ -76,7 +83,7 @@ class VelocityWrapper:
         network_time = 1.0 - time if self.reverse_convention else time
         features_with_time = {
             **self.features,
-            DecoderOutputKey.TIMESTEP.value: network_time,
+            AlgorithmContextKey.TIMESTEP.value: network_time,
         }
         velocities = self.network(
             features=features_with_time, actions=current_trajectory
@@ -181,6 +188,10 @@ class FlowMatching(DecodingAlgorithm):
         """Configured maximum sampled timestep."""
         return self.timestep_sampling_config.max_timestep
 
+    def injected_feature_keys(self) -> set[str]:
+        """The conditioning timestep is provided by the algorithm."""
+        return {AlgorithmContextKey.TIMESTEP.value}
+
     def forward(
         self,
         network: ActionDecoder,
@@ -237,15 +248,17 @@ class FlowMatching(DecodingAlgorithm):
             interpolated_actions[key] = x_t
             target_velocities[key] = u_t
 
-        features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: times}
+        features_with_time = {**features, AlgorithmContextKey.TIMESTEP.value: times}
         predictions = network(features=features_with_time, actions=interpolated_actions)
-        return {
+        outputs = {
             **predictions,
             DecoderOutputKey.TARGET_VELOCITY.value: target_velocities,
             DecoderOutputKey.NOISE.value: noise,
-            DecoderOutputKey.TIMESTEP.value: times,
-            SampleKey.IS_PAD_ACTION.value: is_pad,
+            AlgorithmContextKey.TIMESTEP.value: times,
         }
+        if is_pad is not None:
+            outputs[SampleKey.IS_PAD_ACTION.value] = is_pad
+        return outputs
 
     @property
     def predicts_in_action_space(self) -> bool:
@@ -277,13 +290,37 @@ class FlowMatching(DecodingAlgorithm):
         Returns:
             Decoder output dictionary containing action predictions.
         """
-        first_feature = next(iter(features.values()))
-        batch_size = first_feature.shape[0]
-        device = first_feature.device
-        dtype = first_feature.dtype
+        batch_size, device, dtype = resolve_feature_reference(features=features)
 
         network.enable_encoder_cache()
+        try:
+            return self._integrate_prediction(
+                network=network,
+                features=features,
+                batch_size=batch_size,
+                device=device,
+                dtype=dtype,
+            )
+        finally:
+            network.disable_encoder_cache()
 
+    def _integrate_prediction(
+        self,
+        network: ActionDecoder,
+        features: dict[str, torch.Tensor],
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> dict[str, torch.Tensor]:
+        """Integrate the flow ODE from noise to actions.
+
+        Args:
+            network: The action decoder network module.
+            features: Encoded features conditioning the velocity field.
+            batch_size: Batch size of the prediction.
+            device: Device for the sampled noise trajectory.
+            dtype: Dtype for the sampled noise trajectory.
+        """
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
             if not meta.requires_prediction_head:
@@ -327,7 +364,5 @@ class FlowMatching(DecodingAlgorithm):
                 :, current_offset : current_offset + flat_action_dimension
             ].view(shapes[key])  # (B, H, D_k)
             current_offset += flat_action_dimension
-
-        network.disable_encoder_cache()
 
         return result

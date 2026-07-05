@@ -3,8 +3,6 @@
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
-import albumentations as A
-import cv2
 import numpy as np
 
 from versatil.data.preprocessing.create_zarr_from_csv import (
@@ -30,8 +28,6 @@ class TestIterCsvEpisodes:
             _iter_csv_episodes(
                 schema=schema,
                 sorted_paths=["/path/1/data.csv", "/path/2/data.csv"],
-                resizer=A.NoOp(),
-                depth_resizer=A.NoOp(),
             )
         )
 
@@ -50,22 +46,16 @@ class TestIterCsvEpisodes:
             cameras={},
             extract_return={"position": np.zeros((5, 3), dtype=np.float32)},
         )
-        resizer = A.NoOp()
-        depth_resizer = A.NoOp()
 
         list(
             _iter_csv_episodes(
                 schema=schema,
                 sorted_paths=["/path/1/data.csv"],
-                resizer=resizer,
-                depth_resizer=depth_resizer,
             )
         )
 
         schema.extract_episode.assert_called_once_with(
             episode=mock_dataframe,
-            resizer=resizer,
-            depth_resizer=depth_resizer,
         )
 
     @patch("versatil.data.preprocessing.create_zarr_from_csv.pd.read_csv")
@@ -84,8 +74,6 @@ class TestIterCsvEpisodes:
             _iter_csv_episodes(
                 schema=schema,
                 sorted_paths=["/data/1/ep.csv", "/data/2/ep.csv"],
-                resizer=A.NoOp(),
-                depth_resizer=A.NoOp(),
             )
         )
 
@@ -94,56 +82,6 @@ class TestIterCsvEpisodes:
 
 
 class TestCreateReplayBuffer:
-    @patch("versatil.data.preprocessing.create_zarr_from_csv.A.Resize")
-    @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")
-    def test_cameras_with_dimensions_creates_resize_transforms(
-        self,
-        mock_create_zarr,
-        mock_resize_class,
-        mock_schema_factory: Callable[..., MagicMock],
-        mock_camera_metadata_factory: Callable[..., MagicMock],
-    ):
-        camera = mock_camera_metadata_factory(image_width=128, image_height=96)
-        schema = mock_schema_factory(
-            cameras={"left": camera},
-            extract_return={"position": np.zeros((5, 3), dtype=np.float32)},
-        )
-
-        create_replay_buffer(
-            schema=schema,
-            datasets_paths=["/data/1/ep.csv"],
-        )
-
-        # Source always creates both an RGB resizer and a depth resizer
-        # (with INTER_NEAREST) whenever cameras have dimensions
-        assert mock_resize_class.call_count == 2
-        mock_resize_class.assert_any_call(height=96, width=128)
-        mock_resize_class.assert_any_call(
-            height=96,
-            width=128,
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-    @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")
-    def test_cameras_without_dimensions_creates_noop_transforms(
-        self,
-        mock_create_zarr,
-        mock_schema_factory: Callable[..., MagicMock],
-        mock_camera_metadata_factory: Callable[..., MagicMock],
-    ):
-        camera = mock_camera_metadata_factory(image_width=None, image_height=None)
-        schema = mock_schema_factory(
-            cameras={"left": camera},
-            extract_return={"position": np.zeros((5, 3), dtype=np.float32)},
-        )
-
-        create_replay_buffer(
-            schema=schema,
-            datasets_paths=["/data/1/ep.csv"],
-        )
-
-        mock_create_zarr.assert_called_once()
-
     @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")
     def test_no_cameras_creates_noop_transforms(
         self,
@@ -173,7 +111,7 @@ class TestCreateReplayBuffer:
         mock_read_csv.return_value = MagicMock()
         call_order = []
         schema = mock_schema_factory(cameras={})
-        schema.extract_episode.side_effect = lambda episode, resizer, depth_resizer: {
+        schema.extract_episode.side_effect = lambda episode: {
             "position": np.zeros((5, 3), dtype=np.float32)
         }
 

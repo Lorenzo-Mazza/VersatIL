@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - /post_training_compression
+  - _self_
+
+checkpoint_path: ???
+checkpoint_name: last.ckpt
+output_directory: null
+calibration_steps: 16
+preparation:
+  replace_frozen_batchnorm: true
+  fuse_conv_batchnorm: true
+pruning:
+  - _target_: versatil.post_training_compression.pruning.UnstructuredPruner
+    amount: 0.2
+modules:
+  - module_path: decoder
+
+quantization:
+  _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
+  targets:
+    - _target_: versatil.quantization.module_target.PT2EQuantizationModuleTarget
+      module_path: decoder
+      pt2e_backend:
+        _target_: versatil.quantization.pt2e.backends.x86_inductor.X86InductorBackend
+        is_dynamic: false

@@ -59,6 +59,8 @@ class ConfusionMatrixCallback(Callback):
             trainer: Lightning trainer
             pl_module: Lightning module
         """
+        if trainer.sanity_checking:
+            return
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
         cm = pl_module.val_metrics.compute_confusion_matrix()

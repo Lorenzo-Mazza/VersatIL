@@ -8,8 +8,12 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.models.decoding.action_heads.conditional import ConditionalActionHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, DiTType
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    DiTType,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.diffusion_action_transformer import (
     DiffusionActionTransformer,
@@ -44,7 +48,7 @@ POSITION_DIM = 3
 def diffusion_transformer_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
-    action_head_factory: Callable[..., ActionHead],
+    conditional_action_head_factory: Callable[..., ConditionalActionHead],
 ) -> Callable[..., DiffusionActionTransformer]:
     """Factory for DiffusionActionTransformer with small dimensions."""
 
@@ -71,7 +75,7 @@ def diffusion_transformer_factory(
         attention_dropout: float = 0.0,
         use_gating: bool = True,
         input_keys: list[str] | None = None,
-        action_heads: dict[str, ActionHead] | None = None,
+        action_heads: dict[str, ConditionalActionHead] | None = None,
     ) -> DiffusionActionTransformer:
         if input_keys is None:
             input_keys = ["rgb_features"]
@@ -84,8 +88,10 @@ def diffusion_transformer_factory(
         )
         if action_heads is None:
             action_heads = {
-                key: action_head_factory(input_dim=embedding_dimension)
-                for key in action_space.actions_metadata
+                "joint_action": conditional_action_head_factory(
+                    input_dimension=embedding_dimension,
+                    conditioning_dimension=embedding_dimension,
+                )
             }
         observation_space = mock_observation_space_factory()
         return DiffusionActionTransformer(
@@ -115,6 +121,7 @@ def diffusion_transformer_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestDiffusionActionTransformerInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -218,38 +225,42 @@ class TestDiffusionActionTransformerInitialization:
         assert hasattr(decoder, "noisy_input_projection")
         assert isinstance(decoder.noisy_input_projection, MLP)
 
-    def test_action_heads_blocks_cleared(
+    def test_raises_for_non_conditional_action_head(
         self,
         mock_action_space_factory: Callable[..., MagicMock],
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
-        head = ActionHead(input_dim=EMBEDDING_DIMENSION)
-        dummy_block = torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)
-        dummy_block.output_dim = EMBEDDING_DIMENSION
-        head.blocks = torch.nn.ModuleList([dummy_block])
-        action_heads = {"position_action": head}
-        decoder = DiffusionActionTransformer(
-            input_keys=["rgb_features"],
-            action_space=action_space,
-            action_heads=action_heads,
-            observation_space=mock_observation_space_factory(),
-            observation_horizon=OBSERVATION_HORIZON,
-            prediction_horizon=PREDICTION_HORIZON,
-            device="cpu",
-            max_sequence_length=MAX_SEQUENCE_LENGTH,
-            embedding_dimension=EMBEDDING_DIMENSION,
-            timestep_embedding_dimension=TIMESTEP_EMBEDDING_DIMENSION,
-            number_of_heads=NUMBER_OF_HEADS,
-            number_of_layers=NUMBER_OF_LAYERS,
-            feedforward_dimension=FEEDFORWARD_DIMENSION,
-            activation=ActivationFunction.GELU.value,
-            normalization_type=NormalizationType.RMS_NORM.value,
-        )
-        for action_key in decoder.action_heads:
-            assert len(decoder.action_heads[action_key].blocks) == 0
+        head = ActionHead(input_dimension=EMBEDDING_DIMENSION)
+        action_heads = {"joint_action": head}
+        with pytest.raises(
+            ValueError,
+            match=(
+                "DiffusionActionTransformer requires a ConditionalActionHead "
+                "because DiT decoder hidden states are projected with timestep "
+                "conditioning."
+            ),
+        ):
+            DiffusionActionTransformer(
+                input_keys=["rgb_features"],
+                action_space=action_space,
+                action_heads=action_heads,
+                observation_space=mock_observation_space_factory(),
+                observation_horizon=OBSERVATION_HORIZON,
+                prediction_horizon=PREDICTION_HORIZON,
+                device="cpu",
+                max_sequence_length=MAX_SEQUENCE_LENGTH,
+                embedding_dimension=EMBEDDING_DIMENSION,
+                timestep_embedding_dimension=TIMESTEP_EMBEDDING_DIMENSION,
+                number_of_heads=NUMBER_OF_HEADS,
+                number_of_layers=NUMBER_OF_LAYERS,
+                feedforward_dimension=FEEDFORWARD_DIMENSION,
+                activation=ActivationFunction.GELU.value,
+                normalization_type=NormalizationType.RMS_NORM.value,
+            )
 
 
+@pytest.mark.integration
 class TestDiffusionActionTransformerForward:
     def test_raises_without_actions(
         self,
@@ -288,7 +299,7 @@ class TestDiffusionActionTransformerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             ),
         ):
@@ -302,7 +313,7 @@ class TestDiffusionActionTransformerForward:
     ):
         decoder = diffusion_transformer_factory(input_keys=["rgb_features"])
         features = {
-            DecoderOutputKey.TIMESTEP.value: torch.from_numpy(
+            AlgorithmContextKey.TIMESTEP.value: torch.from_numpy(
                 rng.standard_normal((BATCH_SIZE,)).astype(np.float32)
             ),
         }
@@ -361,7 +372,7 @@ class TestDiffusionActionTransformerForward:
             assert output_tensor.shape == (
                 BATCH_SIZE,
                 prediction_horizon,
-                decoder.action_heads[action_key].output_dim,
+                actions[action_key].shape[-1],
             )
 
     def test_timestep_squeeze_from_two_dimensions(
@@ -376,8 +387,8 @@ class TestDiffusionActionTransformerForward:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        features[DecoderOutputKey.TIMESTEP.value] = features[
-            DecoderOutputKey.TIMESTEP.value
+        features[AlgorithmContextKey.TIMESTEP.value] = features[
+            AlgorithmContextKey.TIMESTEP.value
         ].unsqueeze(-1)
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
@@ -396,12 +407,12 @@ class TestDiffusionActionTransformerForward:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        timestep = features[AlgorithmContextKey.TIMESTEP.value]
         actions = noisy_actions_factory()
         with torch.no_grad():
             decoder(features=features, actions=actions)
             decoder(features=features, actions=actions)
-        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
+        assert features[AlgorithmContextKey.TIMESTEP.value] is timestep
 
     def test_with_multiple_action_heads(
         self,
@@ -459,9 +470,11 @@ class TestDiffusionActionTransformerForward:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(BATCH_SIZE)
+        features_t0[AlgorithmContextKey.TIMESTEP.value] = torch.zeros(BATCH_SIZE)
         features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
-        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 99.0)
+        features_t99[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 99.0
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_t0 = decoder(features=features_t0, actions=actions)
@@ -470,6 +483,7 @@ class TestDiffusionActionTransformerForward:
             torch.testing.assert_close(output_t0[action_key], output_t99[action_key])
 
 
+@pytest.mark.integration
 class TestDiffusionActionTransformerTemporal:
     def test_observation_horizon_greater_than_one_creates_temporal_pe(
         self,
@@ -490,6 +504,7 @@ class TestDiffusionActionTransformerTemporal:
         assert decoder.input_builder.temporal_positional_encoding_layer is None
 
 
+@pytest.mark.integration
 class TestDiffusionActionTransformerEncoderCaching:
     def test_enable_sets_caching_flag_and_clears_cache(
         self,

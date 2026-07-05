@@ -1,6 +1,7 @@
 """Tests for Hydra YAML configuration composition and validation."""
 
 import glob
+import re
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -11,11 +12,20 @@ from hydra.errors import ConfigCompositionException
 from omegaconf import ListConfig, OmegaConf
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.configs.training import TrainingConfig, TrainingStageConfig
-from versatil.data.constants import ImageNormalizationType
-from versatil.models.decoding.constants import LatentKey
+from versatil.data.constants import (
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
+    BinningStrategy,
+    ImageNormalizationType,
+    ObsKey,
+    ProprioKey,
+)
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.decoding.constants import LatentKey, TimeConditioning
 
-HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
+HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
 
 ALL_YAML_FILES = sorted(
     glob.glob(
@@ -67,6 +77,30 @@ VLM_IMAGE_NORM_CONFIGS = [
         ImageNormalizationType.MINUS_ONE_TO_ONE.value,
         "paligemma",
         id="paligemma-pi0",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/pi0_fast",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "paligemma",
+        id="paligemma-pi0-fast",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/pi05",
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        "paligemma",
+        id="paligemma-pi05",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/openvla",
+        ImageNormalizationType.ZERO_TO_ONE.value,
+        "prism",
+        id="prismatic-openvla",
+    ),
+    pytest.param(
+        "end_to_end_training_runs/libero_lerobot/openvla_oft",
+        ImageNormalizationType.ZERO_TO_ONE.value,
+        "prism",
+        id="prismatic-openvla-oft",
     ),
     pytest.param(
         "end_to_end_training_runs/libero_lerobot/smolvla",
@@ -142,9 +176,159 @@ class TestHydraComposition:
                 value = encoder.get(field)
                 if isinstance(value, str):
                     model_identifiers.append(value.lower())
+        vlm_backbone = config.policy.decoder.get("vlm_backbone")
+        if vlm_backbone is not None:
+            value = vlm_backbone.get("model_name")
+            if isinstance(value, str):
+                model_identifiers.append(value.lower())
         assert any(
             expected_model_identifier in identifier for identifier in model_identifiers
         )
+
+    def test_pi0_fast_uses_paligemma_fast_action_tokens(self) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(
+                config_name="end_to_end_training_runs/libero_lerobot/pi0_fast"
+            )
+
+        tokenization = config.task.dataloader.tokenization
+        action_tokenizer = tokenization.action_tokenizer
+
+        assert tokenization.tokenize_observations is True
+        assert tokenization.tokenize_actions is True
+        assert tokenization.observation_tokenizer.observation_keys == [
+            ObsKey.LANGUAGE.value,
+            ProprioKey.EE_POS.value,
+            ProprioKey.EE_ORI.value,
+            ProprioKey.GRIPPER_STATE.value,
+        ]
+        assert (
+            action_tokenizer.action_discretizer.type == ActionDiscretizerType.FAST.value
+        )
+        assert action_tokenizer.action_discretizer.use_pretrained is False
+        assert (
+            action_tokenizer.token_id_mapping.type
+            == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+        )
+        assert (
+            action_tokenizer.token_id_mapping.language_tokenizer_model
+            == config.policy.decoder.vlm_backbone.model_name
+        )
+        assert config.policy.encoding_pipeline.encoders == {}
+
+    def test_openvla_and_pi0_fast_use_expected_prefix_attention(self) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            openvla_preset = compose(config_name="policy/decoder/openvla")
+            pi0_fast_config = compose(config_name="policy/decoder/pi0_fast")
+
+        assert openvla_preset.policy.decoder.causal_prefix is True
+        assert pi0_fast_config.policy.decoder.causal_prefix is False
+
+    def test_openvla_libero_uses_prismatic_uniform_language_tokens(self) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(
+                config_name="end_to_end_training_runs/libero_lerobot/openvla"
+            )
+
+        tokenization = config.task.dataloader.tokenization
+        action_tokenizer = tokenization.action_tokenizer
+
+        assert config.task.prediction_horizon == 1
+        assert config.policy.encoding_pipeline.encoders == {}
+        assert tokenization.tokenize_observations is True
+        assert tokenization.tokenize_actions is True
+        assert tokenization.observation_tokenizer.raw_text is True
+        assert tokenization.observation_tokenizer.observation_keys == [
+            ObsKey.LANGUAGE.value
+        ]
+        assert (
+            action_tokenizer.action_discretizer.type
+            == ActionDiscretizerType.BINNED.value
+        )
+        assert (
+            action_tokenizer.action_discretizer.binning_strategy
+            == BinningStrategy.UNIFORM.value
+        )
+        assert action_tokenizer.action_discretizer.num_bins == 256
+        assert action_tokenizer.action_discretizer.min_value == -1.0
+        assert action_tokenizer.action_discretizer.max_value == 1.0
+        assert action_tokenizer.max_token_len == 8
+        assert (
+            action_tokenizer.token_id_mapping.type
+            == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+        )
+        assert (
+            action_tokenizer.token_id_mapping.language_tokenizer_model
+            == tokenization.observation_tokenizer.tokenizer_model
+        )
+        assert config.policy.loss.loss_modules.token_loss.label_smoothing == 0.0
+        assert action_tokenizer.token_id_mapping.num_special_tokens_to_skip == 0
+        lora_config = config.policy.decoder.vlm_backbone.lora_config
+        assert lora_config.rank == 32
+        assert lora_config.alpha == 16
+        assert lora_config.dropout == 0.0
+        assert lora_config.target_modules == LoRATargetModulePreset.ALL_LINEAR.value
+        assert lora_config.bias == "none"
+        assert lora_config.init_lora_weights == "gaussian"
+
+    def test_openvla_oft_libero_uses_prismatic_l1_regression(self) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(
+                config_name="end_to_end_training_runs/libero_lerobot/openvla_oft"
+            )
+
+        tokenization = config.task.dataloader.tokenization
+        decoder = config.policy.decoder
+        loss_modules = config.policy.loss.loss_modules
+
+        assert config.task.prediction_horizon == 8
+        assert config.policy.encoding_pipeline.encoders == {}
+        assert tokenization.tokenize_observations is True
+        assert tokenization.tokenize_actions is False
+        assert tokenization.observation_tokenizer.raw_text is True
+        assert decoder.slots_per_action_dimension is True
+        assert decoder.causal_action_slots is True
+        assert list(decoder.action_heads.keys()) == ["joint_action"]
+        action_head = decoder.action_heads.joint_action
+        assert action_head.input_dimension == 28672
+        assert len(action_head.blocks) == 4
+        assert (
+            action_head.blocks[0]._target_
+            == "versatil.models.decoding.action_heads.blocks.MLPBlock"
+        )
+        assert action_head.blocks[0].input_dimension == 28672
+        assert list(action_head.blocks[0].hidden_dimensions) == [4096]
+        assert (
+            action_head.blocks[-1]._target_
+            == "versatil.models.decoding.action_heads.blocks.LayerNormBlock"
+        )
+        assert action_head.blocks[-1].input_dimension == 4096
+        assert "BehavioralCloning" in config.policy.algorithm._target_
+        assert loss_modules.regression_loss.mse_weight == 0.0
+        assert loss_modules.regression_loss.l1_weight == 1.0
+        assert loss_modules.gripper_loss.mse_weight == 0.0
+        assert loss_modules.gripper_loss.l1_weight == 0.05
+
+    def test_pi05_libero_uses_adanorm_with_tokenized_proprio(self) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+            config = compose(config_name="end_to_end_training_runs/libero_lerobot/pi05")
+
+        decoder = config.policy.decoder
+        tokenization = config.task.dataloader.tokenization
+
+        assert config.task.prediction_horizon == 10
+        assert config.policy.encoding_pipeline.encoders == {}
+        assert decoder.input_keys == []
+        assert decoder.time_conditioning == TimeConditioning.ADANORM.value
+        assert decoder.proprioceptive_feature_key is None
+        assert tokenization.observation_tokenizer.max_token_len == 200
+        assert tokenization.observation_tokenizer.raw_text is False
+        assert tokenization.observation_tokenizer.observation_keys == [
+            ObsKey.LANGUAGE.value,
+            ProprioKey.EE_POS.value,
+            ProprioKey.EE_ORI.value,
+            ProprioKey.GRIPPER_STATE.value,
+        ]
 
     @pytest.mark.parametrize(
         "preset_name", ["vae_frozen_prior", "vae_frozen_prior_with_backbone"]
@@ -256,86 +440,128 @@ class TestHydraComposition:
         pytest.param(
             "training/default",
             ["fake_key=1"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'fake_key'."),
+            ),
             id="training_default-unknown_key-fake_key",
         ),
         pytest.param(
             "training/ema_cosine_schedule",
             ["bogus=true"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'bogus'."),
+            ),
             id="training_ema_cosine-unknown_key-bogus",
         ),
         pytest.param(
             "policy/algorithm/behavioral_cloning",
             ["nonexistent=5"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'nonexistent'."),
+            ),
             id="behavioral_cloning-unknown_key-nonexistent",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["wrong_param=10"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'wrong_param'."),
+            ),
             id="diffusion-unknown_key-wrong_param",
         ),
         pytest.param(
             "policy/algorithm/flow_matching",
             ["bad_key=0.5"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'bad_key'."),
+            ),
             id="flow_matching-unknown_key-bad_key",
         ),
         pytest.param(
             "training/optimizer/adamw",
             ["invalid_field=0.1"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'invalid_field'."),
+            ),
             id="adamw-unknown_key-invalid_field",
         ),
         pytest.param(
             "training/optimizer/sgd",
             ["unknown=true"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'unknown'."),
+            ),
             id="sgd-unknown_key-unknown",
         ),
         pytest.param(
             "training/default",
             ["use_ema=not_a_bool"],
-            pytest.raises(ConfigCompositionException),
-            id="training-wrong_type-use_ema_not_bool",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'use_ema'."),
+            ),
+            id="training-plain_override-use_ema_not_bool",
         ),
         pytest.param(
             "training/default",
             ["num_epochs=not_an_int"],
-            pytest.raises(ConfigCompositionException),
-            id="training-wrong_type-num_epochs_not_int",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'num_epochs'."),
+            ),
+            id="training-plain_override-num_epochs_not_int",
         ),
         pytest.param(
             "training/default",
             ["clip_max_norm=not_a_float"],
-            pytest.raises(ConfigCompositionException),
-            id="training-wrong_type-clip_max_norm_not_float",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'clip_max_norm'."),
+            ),
+            id="training-plain_override-clip_max_norm_not_float",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["num_train_timesteps=abc"],
-            pytest.raises(ConfigCompositionException),
-            id="diffusion-wrong_type-num_train_timesteps_not_int",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'num_train_timesteps'."),
+            ),
+            id="diffusion-plain_override-num_train_timesteps_not_int",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["clip_sample=maybe"],
-            pytest.raises(ConfigCompositionException),
-            id="diffusion-wrong_type-clip_sample_not_bool",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'clip_sample'."),
+            ),
+            id="diffusion-plain_override-clip_sample_not_bool",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["scheduler_type=nonexistent_scheduler"],
-            pytest.raises(ConfigCompositionException),
-            id="diffusion-wrong_enum-scheduler_type",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'scheduler_type'."),
+            ),
+            id="diffusion-plain_override-scheduler_type",
         ),
         pytest.param(
             "policy/algorithm/flow_matching",
             ["ode_solver=invalid_solver"],
-            pytest.raises(ConfigCompositionException),
-            id="flow_matching-wrong_enum-ode_solver",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'ode_solver'."),
+            ),
+            id="flow_matching-plain_override-ode_solver",
         ),
     ],
 )

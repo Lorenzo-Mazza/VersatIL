@@ -8,6 +8,11 @@ from omegaconf import DictConfig
 
 from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.configs.data.tokenizer import TokenizationConfig
+from versatil.data.constants import (
+    ActionDiscretizerType,
+    BinningStrategy,
+    KinematicsNormalizationType,
+)
 from versatil.data.episodic_dataset import EpisodicDataset
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer
@@ -62,7 +67,8 @@ def get_dataloaders(
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
     _ensure_zarr_exists(
-        schema=schema, preload_in_memory=dataloader_config.preload_data_in_memory
+        schema=schema,
+        recreate_on_missing_keys=dataloader_config.recreate_zarr_on_missing_keys,
     )
     skip_validation = dataloader_config.val_ratio == 0
 
@@ -115,6 +121,12 @@ def get_dataloaders(
             seed=config.experiment.seed,
             action_space=action_space,
             observation_space=observation_space,
+            # Downsampling replaces the training buffer with a copy holding
+            # only train-selected episodes: sharing it would leak training
+            # episodes into the validation split.
+            replay_buffer=train_dataset.replay_buffer
+            if dataloader_config.downsample_factor <= 1
+            else None,
         )
         val_dataset.set_normalizer(normalizer)
         val_dataset.set_tokenizer(tokenizer)
@@ -178,10 +190,49 @@ def validate_dataloader_config(config: DataLoaderConfig) -> None:
         raise ValueError(
             f"downsample_factor must be >= 1, got {config.downsample_factor}"
         )
+    for name, quantiles in (
+        ("depth_winsorize_quantiles", config.depth_winsorize_quantiles),
+        ("kinematics_winsorize_quantiles", config.kinematics_winsorize_quantiles),
+    ):
+        if quantiles is None:
+            continue
+        lower, upper = quantiles
+        if not 0.0 <= lower <= upper <= 1.0:
+            raise ValueError(
+                f"{name} must satisfy 0 <= lower <= upper <= 1, got {quantiles}"
+            )
     if config.action_backward_shift < 0:
         raise ValueError(
             f"action_backward_shift cannot be negative, "
             f"got {config.action_backward_shift}"
+        )
+    _validate_uniform_binning_normalization(config=config)
+
+
+def _validate_uniform_binning_normalization(config: DataLoaderConfig) -> None:
+    """Reject uniform action binning without min-max kinematics normalization.
+
+    Uniform bins span a fixed [-1, 1] range, so action values outside it
+    (gaussian or demeaned normalization) would silently clip into the edge
+    bins and corrupt every tokenized action.
+    """
+    tokenization = config.tokenization
+    if not tokenization.tokenize_actions or tokenization.action_tokenizer is None:
+        return
+    action_discretizer = tokenization.action_tokenizer.action_discretizer
+    if action_discretizer.type != ActionDiscretizerType.BINNED.value:
+        return
+    if action_discretizer.binning_strategy != BinningStrategy.UNIFORM.value:
+        return
+    if config.kinematics_norm_type != KinematicsNormalizationType.MIN_MAX.value:
+        raise ValueError(
+            "Uniform action binning requires min-max kinematics normalization: "
+            "uniform bins cover the fixed [-1, 1] range and would clip "
+            f"'{config.kinematics_norm_type}'-normalized actions at the edge "
+            "bins. Set kinematics_norm_type to "
+            f"'{KinematicsNormalizationType.MIN_MAX.value}' or switch the "
+            f"action discretizer to binning_strategy="
+            f"'{BinningStrategy.QUANTILE.value}'."
         )
 
 
@@ -201,12 +252,22 @@ def _collect_dataset_paths(
     return datasets_paths
 
 
-def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) -> None:
-    """Create zarr if it doesn't exist or is invalid. Optionally, preload in memory.
+def _ensure_zarr_exists(
+    schema: DatasetSchema,
+    recreate_on_missing_keys: bool = False,
+) -> None:
+    """Create the zarr replay buffer if missing, recreating only corrupt stores.
 
+    Note:
+    Set ``recreate_on_missing_keys`` to rebuild key-mismatched stores from the raw
+    sources instead.
     Dispatches to the appropriate creation function based on schema type:
     - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
+
+    Raises:
+        ValueError: If the existing store lacks keys required by this task
+            and ``recreate_on_missing_keys`` is off.
     """
     zarr_path = schema.zarr_path
     need_create = True
@@ -214,19 +275,35 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
 
     if Path(zarr_path).exists():
         try:
-            if preload_in_memory:
-                logging.info(f"Preloading replay buffer into memory from {zarr_path}")
-                ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
-            else:
-                logging.info(f"Loading existing replay buffer from {zarr_path}")
-                buffer = ReplayBuffer.create_from_path(zarr_path)
-                missing_keys = set(required_keys) - set(buffer.keys())
-                if missing_keys:
-                    raise KeyError(f"Missing required keys: {missing_keys}")
-            need_create = False
-        except Exception as e:
-            logging.info(f"Error loading {zarr_path}: {e}. Recreating...")
+            logging.info(f"Loading existing replay buffer from {zarr_path}")
+            buffer = ReplayBuffer.create_from_path(zarr_path)
+            existing_keys = set(buffer.keys())
+        except Exception as error:
+            # Only a structurally unreadable store counts as corrupt.
+            logging.warning(
+                f"Replay buffer at {zarr_path} is corrupt ({error}); recreating."
+            )
             shutil.rmtree(zarr_path, ignore_errors=True)
+        else:
+            missing_keys = set(required_keys) - existing_keys
+            if missing_keys and recreate_on_missing_keys:
+                logging.warning(
+                    f"Replay buffer at {zarr_path} is missing keys "
+                    f"{sorted(missing_keys)}; recreating from raw sources "
+                    "(recreate_zarr_on_missing_keys is enabled)."
+                )
+                shutil.rmtree(zarr_path, ignore_errors=True)
+            elif missing_keys:
+                raise ValueError(
+                    f"Replay buffer at {zarr_path} is missing keys "
+                    f"{sorted(missing_keys)} required by this task; it was "
+                    "likely built for a different task or schema. Delete the "
+                    "store manually, or set "
+                    "task.dataloader.recreate_zarr_on_missing_keys=true to "
+                    "rebuild it from the raw sources."
+                )
+            else:
+                need_create = False
 
     if need_create:
         logging.info(f"Creating zarr replay buffer at: {zarr_path}")
@@ -250,37 +327,3 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
             raise NotImplementedError(
                 f"Zarr creation not implemented for schema type: {type(schema)}"
             )
-
-
-def _log_phase_distributions(
-    train_dataset: EpisodicDataset, val_dataset: EpisodicDataset
-) -> None:
-    """Log phase label distributions for train and val."""
-    # TODO: Move to TSO Sensorium, this is a dataset specific, data analysis function!
-    logging.warning(
-        "Logging phase distributions is dataset-specific and should be moved to TSO Sensorium."
-    )
-    return
-
-    """selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
-    phase_labels = []
-    if len(selected_eps) > 0:
-        for i in selected_eps:
-            ep = train_dataset.replay_buffer.get_episode(i)
-            if PHASE_LABEL_KEY not in ep:
-                return
-            phase_labels.append(ep[PHASE_LABEL_KEY].flatten())
-        phase_labels = np.concatenate(phase_labels)
-        phase_counts = np.bincount(phase_labels, minlength=5)
-        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")
-
-    selected_eps_val = np.where(val_dataset.sampler.episode_mask)[0]
-    if len(selected_eps_val) > 0:
-        phase_labels_val = np.concatenate(
-            [
-                val_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten()
-                for i in selected_eps_val
-            ]
-        )
-        phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")"""

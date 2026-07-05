@@ -56,7 +56,9 @@ class TestUnstructuredPruner:
 
         assert pruner.amount == amount
         if layer_types is None:
-            assert pruner.layer_types is None
+            # None targets convolution and linear layers, never norm scales
+            # or embedding tables.
+            assert pruner.layer_types == (nn.Conv1d, nn.Conv2d, nn.Linear)
         else:
             expected_types = tuple(
                 PrunableLayerType(name).to_module_type() for name in layer_types
@@ -210,3 +212,18 @@ class TestUnstructuredPruner:
 
         assert zeroed > 0
         assert zeroed / total > 0.3
+
+    def test_prune_raises_when_no_layers_match(self):
+        pruner = UnstructuredPruner(
+            amount=0.5, layer_types=[PrunableLayerType.CONV2D.value]
+        )
+        module = nn.Sequential(nn.LayerNorm(4), nn.ReLU())
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Unstructured pruning selected no modules; the target module "
+                "contains no ['Conv2d'] layers."
+            ),
+        ):
+            pruner.prune(module=module)

@@ -18,6 +18,21 @@ from versatil.models.policy import Policy
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
+def _batch_size_of(batch: dict[str, dict[str, torch.Tensor]]) -> int:
+    """Return the sample count of a policy batch.
+
+    Args:
+        batch: Batch dictionary with observation and action sub-dicts.
+    """
+    for sub_dictionary in batch.values():
+        if not isinstance(sub_dictionary, dict):
+            continue
+        for value in sub_dictionary.values():
+            if isinstance(value, torch.Tensor):
+                return int(value.shape[0])
+    return 1
+
+
 class LightningPolicy(pl.LightningModule):
     """PyTorch Lightning wrapper around Policy.
 
@@ -41,7 +56,9 @@ class LightningPolicy(pl.LightningModule):
             policy: The policy to train
             training_config: Training configuration
             total_training_steps: Total number of training steps for LR scheduling.
-                Calculated as: (len(train_loader) * num_epochs) // gradient_accumulate_every
+                Calculated as ceil(len(train_loader) / gradient_accumulate_every)
+                * num_epochs, because Lightning flushes the final partial
+                accumulation window each epoch.
                 If None, will use trainer.estimated_stepping_batches as fallback.
         """
         super().__init__()
@@ -72,7 +89,8 @@ class LightningPolicy(pl.LightningModule):
             Total loss tensor
         """
         loss_output: LossOutput = self.policy.compute_loss(batch)
-        self.train_metrics.add_loss_output(loss_output)
+        batch_size = _batch_size_of(batch)
+        self.train_metrics.add_loss_output(loss_output, batch_size=batch_size)
         # Log only on epoch to avoid batch size dependency in plots
         self.log(
             "train_loss",
@@ -80,6 +98,7 @@ class LightningPolicy(pl.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
+            batch_size=batch_size,
         )
         return loss_output.total_loss
 
@@ -119,13 +138,15 @@ class LightningPolicy(pl.LightningModule):
             Total loss tensor
         """
         loss_output: LossOutput = self.policy.compute_loss(batch)
-        self.val_metrics.add_loss_output(loss_output)
+        batch_size = _batch_size_of(batch)
+        self.val_metrics.add_loss_output(loss_output, batch_size=batch_size)
         self.log(
             "val_loss",
             loss_output.total_loss,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
+            batch_size=batch_size,
         )
         return loss_output.total_loss
 
@@ -322,6 +343,20 @@ class LightningPolicy(pl.LightningModule):
             Predicted actions
         """
         return self.policy.predict_action(obs_dict)
+
+    def set_dataloaders(
+        self,
+        train_loader: torch.utils.data.DataLoader,
+        val_loader: torch.utils.data.DataLoader | None,
+    ) -> None:
+        """Attach the dataloaders returned by the Lightning dataloader hooks.
+
+        Args:
+            train_loader: Training dataloader.
+            val_loader: Optional validation dataloader.
+        """
+        self._train_dataloader = train_loader
+        self._val_dataloader = val_loader
 
     def train_dataloader(self) -> torch.utils.data.DataLoader:
         """Return training dataloader for Lightning."""

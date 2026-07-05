@@ -3,36 +3,31 @@
 import logging
 import os
 import warnings
-from pathlib import Path
 
 from dotenv import load_dotenv
 
+from versatil.common.set_cache_dir import (
+    resolve_cache_directory,
+    setup_cache_directories,
+)
+
 load_dotenv()
 
-# Set cache dirs before importing transformers/timm — they read
-CACHE_DIR = Path(os.environ["VERSATIL_CACHE_DIR"])
+# Albumentations checks PyPI for updates at import time; keep imports
+# offline-safe and free of network warnings.
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
 
+CACHE_DIR = resolve_cache_directory()
 
-def setup_cache_directories():
-    """Configure cache directories for model downloads."""
-    os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
-    os.environ["HF_HUB_CACHE"] = str(CACHE_DIR / "huggingface" / "hub")
-    os.environ["TORCH_HOME"] = str(CACHE_DIR / "torch")
-    for cache_path in [
-        CACHE_DIR / "huggingface" / "transformers",
-        CACHE_DIR / "huggingface" / "hub",
-        CACHE_DIR / "torch" / "hub",
-    ]:
-        cache_path.mkdir(parents=True, exist_ok=True)
+setup_cache_directories(cache_dir=CACHE_DIR)
 
-
-setup_cache_directories()
+logging.getLogger("torch.utils._pytree").setLevel(logging.ERROR)
 
 import transformers
 
-from versatil.quantization.torch_patches import patch_pt2e_python314
+from versatil.quantization.torch_patches import register_torchao_patches
 
-patch_pt2e_python314()
+register_torchao_patches()
 
 logging.getLogger("timm").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
@@ -77,9 +72,4 @@ warnings.filterwarnings(
     "ignore",
     message="Checkpoint directory.*exists and is not empty",
     module="pytorch_lightning",
-)
-warnings.filterwarnings(
-    "ignore",
-    message="crc32c usage is deprecated",
-    module="numcodecs.*",
 )

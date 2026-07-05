@@ -1,0 +1,8 @@
+defaults:
+  - lerobot
+  - zarr_meta/libero_lerobot@metadata
+
+_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
+dataset_type: ${dataset_type:LIBERO}
+dataset_path: ${dataset_dir:VERSATIL_LIBERO_LEROBOT_DIR}
+zarr_path: ${zarr_dir:libero_lerobot.zarr}

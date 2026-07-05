@@ -1,0 +1,29 @@
+defaults:
+  - base
+
+num_epochs: 2000
+gradient_accumulate_every: 1
+
+optimizer:
+  target_class : "torch.optim.AdamW"
+  lr: 1.0e-4
+  weight_decay: 5.0e-2
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  param_groups:
+    - name: vision_encoders
+      lr: 5.0e-6
+      weight_decay: 1.0e-5
+      params_pattern: "encoding_pipeline\\.encoders\\.(left|right)\\."
+
+clip_gradient_norm: true
+clip_max_norm: 10.0
+
+lr_schedule: cosine
+lr_warmup_steps: 20000
+
+use_ema: true
+ema_power: 0.999
+
+tune_lr: false
+early_stopping_patience: 1000

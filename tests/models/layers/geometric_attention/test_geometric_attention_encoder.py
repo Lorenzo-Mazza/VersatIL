@@ -63,7 +63,7 @@ class TestEncoderBlockConfiguration:
 
 class TestEncoderBlockForward:
     @pytest.mark.parametrize(
-        "batch_size, height, width, embedding_dimension, num_heads",
+        "batch_size, height, width, embedding_dimension, number_of_heads",
         [(2, 4, 6, 32, 4), (1, 8, 8, 64, 8)],
     )
     def test_output_shape_matches_input(
@@ -75,11 +75,11 @@ class TestEncoderBlockForward:
         height,
         width,
         embedding_dimension,
-        num_heads,
+        number_of_heads,
     ):
         block = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
         )
         rgb_tensor = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -106,7 +106,7 @@ class TestEncoderBlockForward:
         block = encoder_block_factory(
             decomposition_mode=decomposition_mode,
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
         )
         rgb_tensor = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -149,7 +149,7 @@ class TestEncoderBlockResidualConnection:
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         block = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             use_layer_scale=True,
             layer_scale_init_value=1e-10,
             drop_path_rate=0.0,
@@ -182,13 +182,13 @@ class TestEncoderBlockLayerScale:
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         block_with_scale = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             use_layer_scale=True,
             layer_scale_init_value=1e-5,
         )
         block_without_scale = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             use_layer_scale=False,
         )
 
@@ -227,13 +227,13 @@ class TestEncoderBlockLayerScale:
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         block_with_ones_scale = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             use_layer_scale=True,
             layer_scale_init_value=1.0,
         )
         block_without_scale = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             use_layer_scale=False,
         )
 
@@ -275,7 +275,7 @@ class TestEncoderBlockDropPath:
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         block = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             drop_path_rate=0.5,
         )
         block.eval()
@@ -299,7 +299,7 @@ class TestEncoderBlockDropPath:
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         block = encoder_block_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=4,
+            number_of_heads=4,
             drop_path_rate=0.0,
         )
         block.train()
@@ -324,7 +324,7 @@ class TestEncoderBlockDepthConditioning:
     ):
         batch_size, height, width, embedding_dimension = 1, 4, 4, 32
         block = encoder_block_factory(
-            embedding_dimension=embedding_dimension, num_heads=4
+            embedding_dimension=embedding_dimension, number_of_heads=4
         )
         block.eval()
 

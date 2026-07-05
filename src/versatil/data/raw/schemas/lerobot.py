@@ -2,7 +2,7 @@
 
 LeRobot is a HuggingFace robotics dataset format using:
 - Parquet files for tabular data (observation.state, action, timestamps)
-- MP4 videos OR embedded PNG bytes for camera observations
+- MP4 videos or embedded PNG bytes for camera observations
 - JSON metadata files (info.json, stats.json, tasks.jsonl/tasks.parquet)
 
 Reference: https://github.com/huggingface/lerobot
@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import albumentations as A
 import av
 import cv2
 import numpy as np
@@ -21,6 +20,7 @@ import pyarrow.parquet as pq
 
 from versatil.data.constants import LeRobotPathsV30, ObsKey
 from versatil.data.metadata import CameraMetadata
+from versatil.data.preprocessing.resizers import build_camera_resizer
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
@@ -140,6 +140,7 @@ class LeRobotDatasetMetadataV30:
         return table
 
     def get_version(self) -> str:
+        """Return the LeRobot codebase version recorded in the dataset info."""
         return self.info["codebase_version"]
 
     def get_data_file_path(self, episode_index: int) -> Path:
@@ -248,6 +249,7 @@ class LeRobotDatasetMetadataV30:
         ]
 
     def get_total_episodes(self) -> int:
+        """Return the number of episodes recorded in the dataset info."""
         return self.info["total_episodes"]
 
 
@@ -270,7 +272,8 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     Attributes:
         dataset_path: Root path to the LeRobot dataset directory.
-        lerobot_metadata: Metadata handler for accessing dataset structure.
+        lerobot_metadata: Metadata handler for accessing dataset structure,
+            loaded lazily on first conversion-time access.
         dataset_type: String with the dataset type used by the schema (e.g. libero, metaworld, etc.)
     """
 
@@ -285,8 +288,25 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         super().__init__(
             zarr_path=zarr_path, metadata=metadata, dataset_type=dataset_type
         )
+        self._lerobot_metadata: LeRobotDatasetMetadataV30 | None = None
 
-        self.lerobot_metadata = LeRobotDatasetMetadataV30(dataset_path=dataset_path)
+    @property
+    def lerobot_metadata(self) -> LeRobotDatasetMetadataV30:
+        """Raw LeRobot metadata, loaded on first access.
+
+        Lazy loading keeps zarr-only workflows independent of the raw dataset
+        directory: when the zarr store already exists, conversion never runs
+        and the raw data does not need to be present.
+        """
+        if self._lerobot_metadata is None:
+            self._lerobot_metadata = LeRobotDatasetMetadataV30(
+                dataset_path=self.dataset_path
+            )
+        return self._lerobot_metadata
+
+    @lerobot_metadata.setter
+    def lerobot_metadata(self, lerobot_metadata: LeRobotDatasetMetadataV30) -> None:
+        self._lerobot_metadata = lerobot_metadata
 
     def _get_frames_from_videos(
         self, query_timestamps: dict[str, list[float]], episode_index: int
@@ -350,6 +370,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         return frames
 
     def get_episode_parquet(self, episode_id: int) -> pa.Table:
+        """Load and filter the parquet table rows belonging to one episode."""
         table = pq.read_table(self.lerobot_metadata.get_data_file_path(episode_id))
         mask = pa.compute.equal(table["episode_index"], episode_id)
         return table.filter(mask)
@@ -450,6 +471,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
     def get_episode_language_instructions(
         self, episode_id: int, preloaded_episode_table: pa.Table = None
     ) -> list[list[str]]:
+        """Return per-frame language instructions for one episode."""
         episode_table = (
             preloaded_episode_table
             if preloaded_episode_table is not None
@@ -467,16 +489,11 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
     def extract_episode(
         self,
         episode_id: int,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract and convert a complete episode to zarr format.
 
         Args:
-            episode_id: Index of the episode to extract.
-            resizer: Albumentations transform for resizing RGB images.
-            depth_resizer: Albumentations transform for resizing depth images
-                (currently unused but kept for API consistency with base class).
+            episode_id: Index of the episode to extract.                (currently unused but kept for API consistency with base class).
 
         Returns:
             Dictionary mapping Zarr keys to numpy arrays ready for storage.
@@ -510,8 +527,10 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                         f"The camera key: {camera_key} does not exist in the dataset."
                     )
 
+                camera_resizer = build_camera_resizer(camera_metadata=obs)
                 resized_frames = [
-                    resizer(image=np.array(f))["image"] for f in frames[camera_key]
+                    camera_resizer(image=np.array(f))["image"]
+                    for f in frames[camera_key]
                 ]
                 data[zarr_key] = np.stack(resized_frames).astype(obs.dtype)
 

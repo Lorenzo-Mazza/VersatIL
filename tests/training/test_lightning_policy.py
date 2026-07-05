@@ -13,6 +13,7 @@ from versatil.configs.training import (
     ParameterGroupConfig,
 )
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
+from versatil.training.lightning_policy import _batch_size_of
 
 
 @pytest.mark.unit
@@ -149,6 +150,7 @@ class TestTrainingStep:
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
+                batch_size=1,
             )
 
 
@@ -232,6 +234,7 @@ class TestValidationStep:
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
+                batch_size=1,
             )
 
 
@@ -930,3 +933,13 @@ class TestDataloaderAccessors:
         lightning_policy = lightning_policy_factory()
 
         assert lightning_policy.val_dataloader() is None
+
+
+class TestBatchSizeOf:
+    def test_returns_one_for_batch_without_tensors(self):
+        assert _batch_size_of({"observation": {"language": ["a"]}}) == 1
+        assert _batch_size_of({"scalar": 3}) == 1
+
+    def test_reads_first_tensor_batch_dimension(self):
+        batch = {"observation": {"proprio": torch.zeros(5, 2, 3)}}
+        assert _batch_size_of(batch) == 5

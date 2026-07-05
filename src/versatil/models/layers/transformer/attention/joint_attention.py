@@ -150,21 +150,8 @@ class JointAttention(JointAttentionBase):
             self.value_projection_secondary(hidden_states_secondary)
         )  # (B, KV_H, T, D_head)
 
-        if positional_encoding_primary is not None:
-            query_primary, key_primary = apply_rope_positional_encoding(
-                queries=query_primary,
-                keys=key_primary,
-                positional_encoding=positional_encoding_primary,
-                cache_position=0,
-            )
-        if positional_encoding_secondary is not None:
-            query_secondary, key_secondary = apply_rope_positional_encoding(
-                queries=query_secondary,
-                keys=key_secondary,
-                positional_encoding=positional_encoding_secondary,
-                cache_position=0,
-            )
-
+        sequence_length_primary = hidden_states_primary.shape[1]
+        sequence_length_secondary = hidden_states_secondary.shape[1]
         if self.use_query_key_norm:
             query_primary, key_primary = self.query_key_norm_primary(
                 query_primary, key_primary
@@ -173,8 +160,25 @@ class JointAttention(JointAttentionBase):
                 query_secondary, key_secondary
             )
 
-        sequence_length_primary = hidden_states_primary.shape[1]
-        sequence_length_secondary = hidden_states_secondary.shape[1]
+        if positional_encoding_primary is not None:
+            query_primary, key_primary = apply_rope_positional_encoding(
+                queries=query_primary,
+                keys=key_primary,
+                positional_encoding=positional_encoding_primary,
+                cache_position=0,
+            )
+        if positional_encoding_secondary is not None:
+            # Both streams share one joint softmax, so they must live in one
+            # position space: secondary tokens continue after the primary
+            # sequence. Restarting at 0 would give cross-stream logits
+            # fictional relative distances (primary token i and secondary
+            # token i would collide at the same position).
+            query_secondary, key_secondary = apply_rope_positional_encoding(
+                queries=query_secondary,
+                keys=key_secondary,
+                positional_encoding=positional_encoding_secondary,
+                cache_position=sequence_length_primary,
+            )
         attention_output_primary, attention_output_secondary = self._joint_sdpa(
             query_primary=query_primary,
             key_primary=key_primary,

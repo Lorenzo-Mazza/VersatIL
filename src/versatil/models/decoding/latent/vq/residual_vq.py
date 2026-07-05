@@ -19,7 +19,7 @@ class ResidualVQ(nn.Module):
     all layers' contributions.
 
     Args:
-        input_dim: Dimension of the input vectors.
+        input_dimension: Dimension of the input vectors.
         code_dim: Dimension of each codebook vector per layer.
         num_codes: Number of codebook entries per layer (K).
         num_layers: Number of residual VQ layers.
@@ -30,7 +30,7 @@ class ResidualVQ(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
+        input_dimension: int,
         code_dim: int,
         num_codes: int,
         num_layers: int = 1,
@@ -39,15 +39,17 @@ class ResidualVQ(nn.Module):
         kmeans_init: bool = True,
     ):
         super().__init__()
-        if input_dim <= 0:
-            raise ValueError(f"input_dim must be positive, got {input_dim}.")
+        if input_dimension <= 0:
+            raise ValueError(
+                f"input_dimension must be positive, got {input_dimension}."
+            )
         if code_dim <= 0:
             raise ValueError(f"code_dim must be positive, got {code_dim}.")
         if num_codes <= 0:
             raise ValueError(f"num_codes must be positive, got {num_codes}.")
         if num_layers <= 0:
             raise ValueError(f"num_layers must be positive, got {num_layers}.")
-        self.input_dim = input_dim
+        self.input_dimension = input_dimension
         self.code_dim = code_dim
         self.num_codes = num_codes
         self.num_layers = num_layers
@@ -55,7 +57,7 @@ class ResidualVQ(nn.Module):
         self.layers = nn.ModuleList(
             [
                 VectorQuantize(
-                    input_dim=input_dim,
+                    input_dimension=input_dimension,
                     code_dim=code_dim,
                     num_codes=num_codes,
                     ema_decay=ema_decay,
@@ -72,11 +74,11 @@ class ResidualVQ(nn.Module):
         """Quantize input through cascading residual layers.
 
         Args:
-            z_e: Encoder output, shape (B, input_dim).
+            z_e: Encoder output, shape (B, input_dimension).
 
         Returns:
             Tuple of:
-                z_q: Sum of all layers' quantized outputs, shape (B, input_dim).
+                z_q: Sum of all layers' quantized outputs, shape (B, input_dimension).
                 all_indices: List of per-layer codebook indices, each shape (B,).
                 z_e_per_layer: Per-layer pre-quantization encoder outputs in
                     code space, stacked along dim 0, shape (L, B, code_dim).
@@ -86,9 +88,9 @@ class ResidualVQ(nn.Module):
                     Detached; paired with z_e_per_layer for per-layer
                     commitment loss.
         """
-        residual = z_e  # (B, input_dim)
-        z_q_hard_total = torch.zeros_like(z_e)  # (B, input_dim)
-        z_q_straight_through_total = torch.zeros_like(z_e)  # (B, input_dim)
+        residual = z_e  # (B, input_dimension)
+        z_q_hard_total = torch.zeros_like(z_e)  # (B, input_dimension)
+        z_q_straight_through_total = torch.zeros_like(z_e)  # (B, input_dimension)
         all_indices = []
         all_z_e_projected = []
         all_z_q_code = []
@@ -96,14 +98,14 @@ class ResidualVQ(nn.Module):
         for layer in self.layers:
             z_q_layer, indices, z_e_projected, z_q_code = layer(
                 residual
-            )  # (B, input_dim), (B,), (B, code_dim), (B, code_dim)
+            )  # (B, input_dimension), (B,), (B, code_dim), (B, code_dim)
             residual = (
                 residual - z_q_layer.detach()
-            )  # (B, input_dim) — detach to stop gradient across layers
-            z_q_hard_total = z_q_hard_total + z_q_layer.detach()  # (B, input_dim)
+            )  # (B, input_dimension) — detach to stop gradient across layers
+            z_q_hard_total = z_q_hard_total + z_q_layer.detach()  # (B, input_dimension)
             z_q_straight_through_total = (
                 z_q_straight_through_total + z_q_layer
-            )  # (B, input_dim)
+            )  # (B, input_dimension)
             all_indices.append(indices)
             all_z_e_projected.append(z_e_projected)
             all_z_q_code.append(z_q_code)
@@ -131,18 +133,18 @@ class ResidualVQ(nn.Module):
             all_indices: List of per-layer codebook indices, each shape (B,).
 
         Returns:
-            Reconstructed quantized output, shape (B, input_dim).
+            Reconstructed quantized output, shape (B, input_dimension).
         """
         z_q_total = torch.zeros(
             all_indices[0].shape[0],
-            self.input_dim,
+            self.input_dimension,
             device=all_indices[0].device,
-        )  # (B, input_dim)
+        )  # (B, input_dimension)
 
         for layer, indices in zip(self.layers, all_indices, strict=True):
             codebook_vectors = layer.codebook.embed[indices]  # (B, code_dim)
             z_q_total = z_q_total + layer.project_out(
                 codebook_vectors
-            )  # (B, input_dim)
+            )  # (B, input_dimension)
 
         return z_q_total

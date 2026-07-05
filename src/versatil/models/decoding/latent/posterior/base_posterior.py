@@ -3,12 +3,12 @@
 import abc
 
 import torch
-import torch.nn as nn
 
+from versatil.common.module_attr_mixin import ModuleAttrMixin
 from versatil.models.decoding.constants import LatentKey
 
 
-class PosteriorLatentEncoder(nn.Module, abc.ABC):
+class PosteriorLatentEncoder(ModuleAttrMixin, abc.ABC):
     r"""Abstract base class for posterior encoders, used for modeling the conditional posterior `q_\phi(z|a,s)`.
 
     Posterior encoders learn lower-dimensional latent embeddings conditioned on privileged
@@ -20,11 +20,10 @@ class PosteriorLatentEncoder(nn.Module, abc.ABC):
     Design:
         - Supports both action-only and action+observation conditioning
         - Returns dictionary with LatentKey.POSTERIOR_LATENT + algorithm-specific auxiliary outputs
-        - Provides sample_prior() for inference (when actions unavailable)
 
     """
 
-    def __init__(self, latent_dimension: int, device: str):
+    def __init__(self, latent_dimension: int, device: str) -> None:
         """Initialize posterior encoder."""
         super().__init__()
         self.latent_dimension = latent_dimension

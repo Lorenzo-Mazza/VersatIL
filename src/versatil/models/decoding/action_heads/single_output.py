@@ -8,7 +8,7 @@ from versatil.models.decoding.action_heads.base import BaseActionHead
 class ActionHead(BaseActionHead):
     """Single-output action head returning one tensor.
 
-    Converts decoder embeddings (B, horizon, embedding_dim) to action predictions
+    Converts decoder embeddings (B, horizon, embedding_dimension) to action predictions
     (B, horizon, action_dim) via blocks and a final linear projection.
     """
 
@@ -16,7 +16,7 @@ class ActionHead(BaseActionHead):
         """Convert embeddings to actions.
 
         Args:
-            action_embedding: (B, prediction_horizon, embedding_dim) or (B, embedding_dim)
+            action_embedding: (B, prediction_horizon, embedding_dimension) or (B, embedding_dimension)
 
         Returns:
             Action predictions with same batch/horizon dims, last dim is action_dim.

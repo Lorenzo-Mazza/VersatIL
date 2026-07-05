@@ -1,5 +1,6 @@
 """Tests for versatil.data.tokenization.tokenizer."""
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from versatil.configs.data.tokenizer import (
     ActionTokenizationConfig,
     TokenizationConfig,
 )
-from versatil.data.constants import TokenizerType
+from versatil.data.constants import ActionDiscretizerType, ActionTokenIdMappingType
 from versatil.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
 
 
@@ -210,7 +211,8 @@ class TestTokenizerSavePretrained:
 class TestTokenizerFromPretrained:
     def test_raises_file_not_found_for_nonexistent_path(self, tmp_path):
         missing = tmp_path / "missing"
-        with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
+        expected_message = f"Tokenizer path not found: {missing}"
+        with pytest.raises(FileNotFoundError, match=re.escape(expected_message)):
             Tokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.tokenizer.ActionTokenizer")
@@ -289,7 +291,10 @@ class TestValidateTokenizerConfig:
             tokenize_observations=True,
             observation_tokenizer=None,
         )
-        with pytest.raises(ValueError, match="observation_tokenizer must be provided"):
+        expected_message = (
+            "observation_tokenizer must be provided when tokenize_observations=True"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
             validate_tokenizer_config(config=config)
 
     def test_tokenize_actions_without_config_raises(self):
@@ -297,55 +302,80 @@ class TestValidateTokenizerConfig:
             tokenize_actions=True,
             action_tokenizer=None,
         )
-        with pytest.raises(ValueError, match="action_tokenizer must be provided"):
-            validate_tokenizer_config(config=config)
-
-    def test_invalid_tokenizer_in_chain_raises(self):
-        config = TokenizationConfig(
-            tokenize_actions=True,
-            action_tokenizer=ActionTokenizationConfig(
-                tokenizer_chain=["invalid_tokenizer"],
-            ),
+        expected_message = (
+            "action_tokenizer must be provided when tokenize_actions=True"
         )
-        with pytest.raises(ValueError, match="Invalid tokenizer 'invalid_tokenizer'"):
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
             validate_tokenizer_config(config=config)
 
-    def test_language_in_chain_without_model_raises(self):
+    def test_invalid_action_discretizer_raises(self):
         config = TokenizationConfig(
             tokenize_actions=True,
-            action_tokenizer=ActionTokenizationConfig(
-                tokenizer_chain=[
-                    TokenizerType.FAST.value,
-                    TokenizerType.LANGUAGE.value,
-                ],
-                language_tokenizer_model=None,
-            ),
+            action_tokenizer=ActionTokenizationConfig(),
+        )
+        config.action_tokenizer.action_discretizer.type = "invalid_discretizer"
+        valid_discretizers = [t.value for t in ActionDiscretizerType]
+        expected_message = (
+            "Invalid action discretizer 'invalid_discretizer'. "
+            f"Must be one of {valid_discretizers}"
         )
         with pytest.raises(
-            ValueError, match="language_tokenizer_model must be provided"
+            ValueError,
+            match=re.escape(expected_message),
         ):
             validate_tokenizer_config(config=config)
 
-    def test_valid_fast_only_chain_passes(self):
+    def test_invalid_action_token_id_mapping_raises(self):
         config = TokenizationConfig(
             tokenize_actions=True,
-            action_tokenizer=ActionTokenizationConfig(
-                tokenizer_chain=[TokenizerType.FAST.value],
-            ),
+            action_tokenizer=ActionTokenizationConfig(),
+        )
+        config.action_tokenizer.token_id_mapping.type = "invalid_mapping"
+        valid_mappings = [t.value for t in ActionTokenIdMappingType]
+        expected_message = (
+            "Invalid action token-id mapping 'invalid_mapping'. "
+            f"Must be one of {valid_mappings}"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            validate_tokenizer_config(config=config)
+
+    def test_language_token_id_mapping_without_model_raises(self):
+        config = TokenizationConfig(
+            tokenize_actions=True,
+            action_tokenizer=ActionTokenizationConfig(),
+        )
+        config.action_tokenizer.token_id_mapping.type = (
+            ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+        )
+        expected_message = (
+            "language_tokenizer_model must be provided for language-vocabulary "
+            "action token-id mapping"
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(expected_message),
+        ):
+            validate_tokenizer_config(config=config)
+
+    def test_valid_fast_identity_mapping_passes(self):
+        config = TokenizationConfig(
+            tokenize_actions=True,
+            action_tokenizer=ActionTokenizationConfig(),
         )
         validate_tokenizer_config(config=config)
 
-    def test_valid_fast_and_language_chain_passes(self):
+    def test_valid_fast_and_language_mapping_passes(self):
         config = TokenizationConfig(
             tokenize_actions=True,
-            action_tokenizer=ActionTokenizationConfig(
-                tokenizer_chain=[
-                    TokenizerType.FAST.value,
-                    TokenizerType.LANGUAGE.value,
-                ],
-                language_tokenizer_model="some-model",
-            ),
+            action_tokenizer=ActionTokenizationConfig(),
         )
+        config.action_tokenizer.action_discretizer.type = (
+            ActionDiscretizerType.FAST.value
+        )
+        config.action_tokenizer.token_id_mapping.type = (
+            ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value
+        )
+        config.action_tokenizer.token_id_mapping.language_tokenizer_model = "some-model"
         validate_tokenizer_config(config=config)
 
     def test_disabled_tokenization_skips_validation(self):

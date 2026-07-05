@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - /post_training_compression
+  - _self_
+
+checkpoint_path: ???
+checkpoint_name: last.ckpt
+output_directory: null
+calibration_steps: 8
+preparation:
+  replace_frozen_batchnorm: true
+  fuse_conv_batchnorm: true
+pruning: null
+quantization:
+  _target_: versatil.quantization.workflows.pt2e.PT2EQuantizationWorkflow
+  targets:
+    - _target_: versatil.quantization.module_target.PT2EQuantizationModuleTarget
+      module_path: ""
+      pt2e_backend:
+        _target_: versatil.quantization.pt2e.backends.xnnpack.XNNPACKPT2EBackend
+        is_dynamic: false
+        is_qat: false
+        is_per_channel: true
+deployment_backend:
+  _target_: versatil.post_training_compression.deployment_backends.executorch_xnnpack.ExecutorchXNNPACKBackend
+  max_batch_size: 32

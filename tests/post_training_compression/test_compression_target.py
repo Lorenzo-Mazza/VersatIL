@@ -1,7 +1,5 @@
 """Tests for versatil.post_training_compression.compression_target module."""
 
-import re
-from contextlib import nullcontext as does_not_raise
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,18 +7,12 @@ import pytest
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.pruning.base import BasePruner
-from versatil.quantization.backends.x86_inductor import X86InductorBackend
-from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
 
 
 @pytest.mark.unit
 class TestCompressionTargetStorage:
     @pytest.mark.parametrize("module_path", ["", "encoder.backbone"])
-    @pytest.mark.parametrize(
-        "quantization",
-        [None, PT2EStrategy(pt2e_backend=X86InductorBackend())],
-    )
-    def test_stores_configuration(self, module_path, quantization):
+    def test_stores_configuration(self, module_path):
         preparation = PreparationConfig()
         pruner_a = MagicMock(spec=BasePruner)
         pruner_b = MagicMock(spec=BasePruner)
@@ -30,13 +22,11 @@ class TestCompressionTargetStorage:
             module_path=module_path,
             preparation=preparation,
             pruning=pruning,
-            quantization=quantization,
         )
 
         assert target.module_path == module_path
         assert target.preparation is preparation
         assert target.pruning is pruning
-        assert target.quantization is quantization
 
     def test_none_pruning_normalizes_to_empty_list(self):
         target = CompressionTarget(module_path="", pruning=None)
@@ -50,56 +40,32 @@ class TestCompressionTargetStorage:
 
 
 @pytest.mark.unit
-class TestCompressionTargetValidation:
+class TestCompressionTargetOverlaps:
     @pytest.mark.parametrize(
-        "quantization, module_path, expectation",
+        "first_path, second_path, expected",
         [
-            (None, "encoder", does_not_raise()),
-            (MagicMock(), "encoder", does_not_raise()),
-            (
-                QuantizeApiStrategy(quantize_config=MagicMock(spec=[])),
-                "encoder",
-                does_not_raise(),
-            ),
-            (
-                QuantizeApiStrategy(
-                    quantize_config=MagicMock(act_quant_scale=None),
-                ),
-                "backbone",
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        "Module 'backbone' uses a static activation "
-                        "quantize_() config. Static quantization is only "
-                        "supported via PT2E. Use PT2EStrategy or a "
-                        "dynamic/weight-only config."
-                    ),
-                ),
-            ),
-            (
-                QuantizeApiStrategy(
-                    quantize_config=MagicMock(act_quant_scale=None),
-                ),
-                "",
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        "Module '(root)' uses a static activation quantize_() config."
-                    ),
-                ),
-            ),
+            ("", "decoder", True),
+            ("decoder", "", True),
+            ("decoder", "decoder", True),
+            ("decoder", "decoder.0", True),
+            ("decoder.0", "decoder", True),
+            ("encoder", "decoder", False),
+            ("decoder.0", "decoder.1", False),
+            ("decoder", "decoder_head", False),
         ],
         ids=[
-            "none",
-            "non_quantize_api",
-            "dynamic_quantize_api",
-            "static_quantize_api",
-            "static_quantize_api_root",
+            "root_first",
+            "root_second",
+            "same_path",
+            "nested_child",
+            "nested_parent",
+            "disjoint",
+            "disjoint_siblings",
+            "shared_prefix_not_nested",
         ],
     )
-    def test_quantization_validation(self, quantization, module_path, expectation):
-        with expectation:
-            CompressionTarget(
-                module_path=module_path,
-                quantization=quantization,
-            )
+    def test_overlap_detection(self, first_path, second_path, expected):
+        first = CompressionTarget(module_path=first_path)
+        second = CompressionTarget(module_path=second_path)
+
+        assert first.overlaps(other=second) is expected

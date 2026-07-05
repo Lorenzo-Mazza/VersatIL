@@ -13,20 +13,20 @@ class GaussianHead(BaseActionHead):
 
     def __init__(
         self,
-        input_dim: int,
+        input_dimension: int,
         blocks: list[ActionHeadBlock] | None = None,
         min_logvar: float = -10.0,
         max_logvar: float = 4.0,
-    ):
+    ) -> None:
         """Initialize Gaussian head.
 
         Args:
-            input_dim: Input embedding dimension from decoder.
+            input_dimension: Input embedding dimension from decoder.
             blocks: Blocks to apply before output projection.
             min_logvar: Minimum value for logvar clamping.
             max_logvar: Maximum value for logvar clamping.
         """
-        super().__init__(input_dim=input_dim, blocks=blocks)
+        super().__init__(input_dimension=input_dimension, blocks=blocks)
         self.min_logvar = min_logvar
         self.max_logvar = max_logvar
         self._logvar_proj: nn.Linear | None = None
@@ -38,14 +38,14 @@ class GaussianHead(BaseActionHead):
             dim: Output action dimension.
         """
         super().set_output_dim(dim)
-        hidden_dim = self._get_hidden_dim()
-        self._logvar_proj = nn.Linear(hidden_dim, dim)
+        hidden_dimension = self._get_hidden_dim()
+        self._logvar_proj = nn.Linear(hidden_dimension, dim)
 
     def forward(self, action_embedding: torch.Tensor) -> dict[str, torch.Tensor]:
         """Forward pass returning mean and clamped logvar.
 
         Args:
-            action_embedding: (B, T, embedding_dim)
+            action_embedding: (B, T, embedding_dimension)
 
         Returns:
             Dict with "mean" and "logvar" keys.

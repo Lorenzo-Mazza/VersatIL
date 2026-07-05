@@ -1,0 +1,7 @@
+defaults:
+  - /policy/decoder/action_head@joint_action: base
+  - _self_
+
+joint_action:
+  input_dimension: ${int_mul:${policy.decoder.expert_width_multiplier},960}
+  blocks: null

@@ -8,10 +8,14 @@ import enum
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from huggingface_hub import hf_hub_download
 
-from versatil.data.constants import RGB_CAMERAS, Cameras
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality
+from versatil.models.adaptation.lora import (
+    LoRAAdaptation,
+    apply_lora_config,
+    is_lora_enabled,
+)
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -19,6 +23,11 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.image_mixin import RGBDEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import FrozenBatchNorm2d, PatchEmbedding, PatchMerging
 from versatil.models.layers.constants import AttentionDecompositionMode
@@ -40,13 +49,54 @@ class DFormerVariant(enum.StrEnum):
     LARGE = "L"
 
 
+class DFormerPretrainedWeights(enum.StrEnum):
+    """Pretrained checkpoint families on the HuggingFace mirror."""
+
+    IMAGENET = "imagenet"
+    NYU = "nyu"
+    SUNRGBD = "sunrgbd"
+
+
+DFORMER_HUGGINGFACE_REPO = "bbynku/DFormerv2"
+
+DFORMER_PRETRAINED_FILENAMES = {
+    (DFormerVariant.SMALL.value, DFormerPretrainedWeights.IMAGENET.value): (
+        "DFormerv2/pretrained/DFormerv2_Small_pretrained.pth"
+    ),
+    (DFormerVariant.BASE.value, DFormerPretrainedWeights.IMAGENET.value): (
+        "DFormerv2/pretrained/DFormerv2_Base_pretrained.pth"
+    ),
+    (DFormerVariant.LARGE.value, DFormerPretrainedWeights.IMAGENET.value): (
+        "DFormerv2/pretrained/DFormerv2_Large_pretrained.pth"
+    ),
+    (DFormerVariant.SMALL.value, DFormerPretrainedWeights.NYU.value): (
+        "DFormerv2/NYU/DFormerv2_Small_NYU.pth"
+    ),
+    (DFormerVariant.BASE.value, DFormerPretrainedWeights.NYU.value): (
+        "DFormerv2/NYU/DFormerv2_Base_NYU.pth"
+    ),
+    (DFormerVariant.LARGE.value, DFormerPretrainedWeights.NYU.value): (
+        "DFormerv2/NYU/DFormerv2_Large_NYU.pth"
+    ),
+    (DFormerVariant.SMALL.value, DFormerPretrainedWeights.SUNRGBD.value): (
+        "DFormerv2/SUNRGBD/DFormerv2_Small_SUNRGBD.pth"
+    ),
+    (DFormerVariant.BASE.value, DFormerPretrainedWeights.SUNRGBD.value): (
+        "DFormerv2/SUNRGBD/DFormerv2_Base_SUNRGBD.pth"
+    ),
+    (DFormerVariant.LARGE.value, DFormerPretrainedWeights.SUNRGBD.value): (
+        "DFormerv2/SUNRGBD/DFormerv2_Large_SUNRGBD.pth"
+    ),
+}
+
+
 class DFormerStage(nn.Module):
     """Single DFormer stage with multiple geometric attention blocks and optional downsampling."""
 
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         num_blocks: int,
         decomposition_mode: AttentionDecompositionMode,
         drop_path_rate: float = 0.0,
@@ -56,12 +106,14 @@ class DFormerStage(nn.Module):
         decay_range: float = 4.0,
         ffn_expansion_factor: int = 4,
         downsample: nn.Module | None = None,
+        use_raster_positions: bool = False,
+        use_feedforward_convolution: bool = False,
     ):
         """Initialize DFormer stage.
 
         Args:
             embedding_dimension: Feature dimension for this stage
-            num_heads: Number of attention heads
+            number_of_heads: Number of attention heads
             num_blocks: Number of geometric attention blocks in this stage
             decomposition_mode: Attention computation strategy (full or separable)
             drop_path_rate: Stochastic depth rate
@@ -71,6 +123,10 @@ class DFormerStage(nn.Module):
             decay_range: Range of decay rates across heads
             ffn_expansion_factor: Expansion factor for FFN hidden dimension
             downsample: Optional downsampling module for next stage
+            use_raster_positions: Whether rotary encoding uses flattened raster
+                grid positions (the DFormerv2 reference convention).
+            use_feedforward_convolution: Whether blocks use the DFormerv2 FFN
+                with an inner depthwise convolution instead of a plain MLP.
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
@@ -80,13 +136,15 @@ class DFormerStage(nn.Module):
                 GeometricAttentionEncoderBlock(
                     decomposition_mode=decomposition_mode,
                     embedding_dimension=embedding_dimension,
-                    num_heads=num_heads,
+                    number_of_heads=number_of_heads,
                     ffn_dimension=embedding_dimension * ffn_expansion_factor,
                     drop_path_rate=drop_path_rate,
                     use_layer_scale=use_layer_scale,
                     layer_scale_init_value=layer_scale_init_value,
                     initial_decay=initial_decay,
                     decay_range=decay_range,
+                    use_raster_positions=use_raster_positions,
+                    use_feedforward_convolution=use_feedforward_convolution,
                 )
                 for _ in range(num_blocks)
             ]
@@ -115,10 +173,6 @@ class DFormerStage(nn.Module):
         output_features = self.norm(features)
         if self.downsample is not None:
             next_features = self.downsample(features)
-            B, H_new, W_new, C_new = next_features.shape
-            depth_map = F.interpolate(
-                depth_map, size=(H_new, W_new), mode="bilinear", align_corners=False
-            )
         else:
             next_features = output_features
         return output_features, next_features, depth_map
@@ -134,22 +188,25 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         DFormerVariant.SMALL.value: {
             "embed_dims": [64, 128, 256, 512],
             "depths": [3, 4, 18, 4],
-            "num_heads": [4, 4, 8, 16],
+            "number_of_heads": [4, 4, 8, 16],
             "decay_ranges": [4, 4, 6, 6],
+            "ffn_ratios": [4, 4, 3, 3],
             "use_layer_scales": [False, False, False, False],
         },
         DFormerVariant.BASE.value: {
             "embed_dims": [80, 160, 320, 512],
             "depths": [4, 8, 25, 8],
-            "num_heads": [5, 5, 10, 16],
+            "number_of_heads": [5, 5, 10, 16],
             "decay_ranges": [5, 5, 6, 6],
+            "ffn_ratios": [4, 4, 3, 3],
             "use_layer_scales": [False, False, True, True],
         },
         DFormerVariant.LARGE.value: {
             "embed_dims": [112, 224, 448, 640],
             "depths": [4, 8, 25, 8],
-            "num_heads": [7, 7, 14, 20],
+            "number_of_heads": [7, 7, 14, 20],
             "decay_ranges": [6, 6, 6, 6],
+            "ffn_ratios": [4, 4, 3, 3],
             "use_layer_scales": [False, False, True, True],
         },
     }
@@ -164,9 +221,10 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str | None = None,
+        pretrained_weights: str = DFormerPretrainedWeights.IMAGENET.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         model_dtype: str | None = None,
+        lora_config: LoRAAdaptation | None = None,
     ):
         """Initialize DFormer encoder.
 
@@ -180,11 +238,18 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             initial_decay: Initial decay rate for spatial biases
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
-            checkpoint_path: Path to checkpoint for loading weights
+            pretrained_weights: Which checkpoint family to download from
+                https://huggingface.co/bbynku/DFormerv2 when ``pretrained``
+                is set: the ImageNet backbone or the NYU/SUNRGBD finetuned
+                models.
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional LoRA adapter configuration applied to the
+                stage linears.
         """
         specification = EncoderInput(
-            keys=input_keys, required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS]
+            keys=input_keys,
+            exactly_one_camera_modality=[CameraModality.RGB, CameraModality.DEPTH],
+            required_camera_modalities=[CameraModality.RGB, CameraModality.DEPTH],
         )
         super().__init__(
             input_specification=specification,
@@ -197,18 +262,17 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
                 f"Variant '{variant}' not supported. "
                 f"Choose from: {list(self.VARIANT_CONFIGS.keys())}"
             )
-        if pretrained and checkpoint_path is None:
-            raise ValueError(
-                "Pretrained=True requires a valid checkpoint_path for DFormerEncoder."
-            )
+        weights_key = (variant, DFormerPretrainedWeights(pretrained_weights).value)
+        self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.variant = variant
         self.pooling_method = pooling_method
         self.decomposition_mode = AttentionDecompositionMode(decomposition_mode)
         config = self.VARIANT_CONFIGS[variant]
         self.embed_dims: list[int] = config["embed_dims"]
         self.depths: list[int] = config["depths"]
-        self.num_heads: list[int] = config["num_heads"]
+        self.number_of_heads: list[int] = config["number_of_heads"]
         self.decay_ranges: list[int] = config["decay_ranges"]
+        self.ffn_ratios: list[int] = config["ffn_ratios"]
         self.use_layer_scales: list[bool] = config["use_layer_scales"]
         self.num_stages = len(self.embed_dims)
         # Patch size is fixed at 4 to match original DFormerv2 architecture (2 stride-2 convs = 4x downsample)
@@ -229,7 +293,23 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         self.pooling_head: PoolingHead | None = None
         self.output_dim: int | tuple[int, ...] = self.feature_dim
         if pretrained:
+            checkpoint_path = hf_hub_download(
+                repo_id=DFORMER_HUGGINGFACE_REPO,
+                filename=DFORMER_PRETRAINED_FILENAMES[weights_key],
+            )
             self._load_checkpoint(checkpoint_path)
+        self.lora_config = lora_config
+        self.stages = nn.ModuleList(
+            [
+                apply_lora_config(model=stage, lora_config=lora_config, frozen=frozen)
+                for stage in self.stages
+            ]
+        )
+        if is_lora_enabled(lora_config=lora_config):
+            # PEFT freezes the wrapped stages; the patch embedding sits outside
+            # them and must freeze too so only adapters train.
+            for parameter in self.patch_embed.parameters():
+                parameter.requires_grad = False
         if frozen:
             super()._freeze_weights()
         self._apply_model_dtype()
@@ -257,24 +337,37 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
                 depth_idx : depth_idx + self.depths[stage_idx]
             ]
             if stage_idx < self.num_stages - 1:
+                # The reference merges with a biased conv followed by
+                # BatchNorm; LayerNorm here would reject pretrained weights.
                 downsample = PatchMerging(
                     dim=self.embed_dims[stage_idx],
                     out_dim=self.embed_dims[stage_idx + 1],
-                    norm_layer=nn.LayerNorm,
+                    norm_layer=FrozenBatchNorm2d,
+                    bias=True,
                 )
             else:
                 downsample = None
+            # The reference runs decomposed attention on all stages except
+            # the last, which always uses full attention.
+            stage_decomposition_mode = (
+                self.decomposition_mode
+                if stage_idx < self.num_stages - 1
+                else AttentionDecompositionMode.FULL
+            )
             stage = DFormerStage(
                 embedding_dimension=self.embed_dims[stage_idx],
-                num_heads=self.num_heads[stage_idx],
+                number_of_heads=self.number_of_heads[stage_idx],
                 num_blocks=self.depths[stage_idx],
-                decomposition_mode=self.decomposition_mode,
+                decomposition_mode=stage_decomposition_mode,
                 drop_path_rate=sum(stage_drop_paths) / len(stage_drop_paths),
                 use_layer_scale=self.use_layer_scales[stage_idx],
                 layer_scale_init_value=layer_scale_init_value,
                 initial_decay=initial_decay,
                 decay_range=self.decay_ranges[stage_idx],
+                ffn_expansion_factor=self.ffn_ratios[stage_idx],
                 downsample=downsample,
+                use_raster_positions=True,
+                use_feedforward_convolution=True,
             )
             self.stages.append(stage)
             depth_idx += self.depths[stage_idx]
@@ -294,8 +387,66 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         )
         self.output_dim = self.pooling_head.output_dim
 
+    REFERENCE_KEY_REPLACEMENTS = (
+        ("patch_embed.proj.", "patch_embed.projection."),
+        ("layers.", "stages."),
+        (".Attention.q_proj.", ".attention.query_projection."),
+        (".Attention.k_proj.", ".attention.key_projection."),
+        (".Attention.v_proj.", ".attention.value_projection."),
+        (
+            ".Attention.lepe.dwconv.",
+            ".attention.learned_positional_encodings.convolution.",
+        ),
+        (".Attention.out_proj.", ".attention.output_projection."),
+        (".cnn_pos_encode.dwconv.", ".input_positional_encoding.convolution."),
+        (".layer_norm1.", ".norm1."),
+        (".layer_norm2.", ".norm2."),
+        (".ffn.fc1.", ".mlp.fc1."),
+        (".ffn.fc2.", ".mlp.fc2."),
+        (".ffn.dwconv.dwconv.", ".mlp.dwconv.convolution."),
+        (".gamma_1", ".gamma1"),
+        (".gamma_2", ".gamma2"),
+        (".Geo.angle", ".attention.geometric_bias.rotary_encoding.frequencies"),
+        (".Geo.decay", ".attention.geometric_bias.spatial_decay.decay_rates"),
+        (".Geo.weight", ".attention.geometric_bias.bias_weights"),
+    )
+
+    @classmethod
+    def _remap_reference_keys(
+        cls, state_dict: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
+        """Translate reference DFormerv2 checkpoint keys to this module tree.
+
+        Args:
+            state_dict: Checkpoint state dict in the official DFormerv2 naming.
+
+        Returns:
+            State dict with keys renamed to match ``DFormerEncoder``.
+        """
+        remapped = {}
+        for key, value in state_dict.items():
+            if key.startswith("extra_norms."):
+                # The reference norms the outputs of stages 1..3 only; our
+                # per-stage norms hold those weights one index later.
+                stage_index = int(key.split(".")[1]) + 1
+                remapped[f"stages.{stage_index}.norm.{key.split('.', 2)[2]}"] = value
+                continue
+            for reference_name, our_name in cls.REFERENCE_KEY_REPLACEMENTS:
+                key = key.replace(reference_name, our_name)
+            remapped[key] = value
+        return remapped
+
     def _load_checkpoint(self, checkpoint_path: str):
-        """Load pretrained weights from checkpoint."""
+        """Load pretrained weights from an official DFormerv2 checkpoint.
+
+        Pretrained backbones for all variants are mirrored at
+        https://huggingface.co/bbynku/DFormerv2.
+
+        Raises:
+            ValueError: If checkpoint tensors are left over or module weights
+                stay uninitialized beyond the documented exceptions, which
+                would silently train from partial weights.
+        """
         state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
         if "model" in state_dict:
@@ -309,8 +460,36 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
                 cleaned_state_dict[key[9:]] = value
             else:
                 cleaned_state_dict[key] = value
+        remapped_state_dict = self._remap_reference_keys(cleaned_state_dict)
 
-        self.load_state_dict(cleaned_state_dict, strict=False)
+        incompatible = self.load_state_dict(remapped_state_dict, strict=False)
+        # BatchNorm batch counters have no FrozenBatchNorm2d counterpart,
+        # ImageNet-pretrained checkpoints carry classification heads and a
+        # final norm this encoder does not use, and the NYU/SUNRGBD
+        # checkpoints carry segmentation decode heads.
+        unexpected = [
+            key
+            for key in incompatible.unexpected_keys
+            if not key.endswith("num_batches_tracked")
+            and not key.startswith(
+                ("head.", "aux_head.", "norm.", "proj.", "decode_head.")
+            )
+        ]
+        # Stage output norms exist only in segmentation checkpoints
+        # (extra_norms); ImageNet backbones leave them at identity. The
+        # trailing LayerNorm of PatchEmbedding is unused on the progressive
+        # path.
+        missing = [
+            key
+            for key in incompatible.missing_keys
+            if ".norm." not in key and not key.startswith("patch_embed.norm.")
+        ]
+        if unexpected or missing:
+            raise ValueError(
+                "Pretrained DFormerv2 checkpoint did not load cleanly. "
+                f"Unmatched checkpoint tensors: {sorted(unexpected)[:8]}; "
+                f"uninitialized module weights: {sorted(missing)[:8]}."
+            )
 
     def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(
@@ -326,24 +505,12 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         Returns:
             Dict with RGBD features.
         """
-        rgb_key = [
-            k
-            for k in self.input_specification.keys
-            if k in self.input_specification.one_of_groups[0]
-        ][0]
-        depth_key = self.input_specification.required[0]
+        rgb_key = self._camera_key_for_modality(modality=CameraModality.RGB)
+        depth_key = self._camera_key_for_modality(modality=CameraModality.DEPTH)
 
         rgb = inputs[rgb_key]
-        depth = inputs[depth_key]
-        rgb_features, patch_height, patch_width = self.patch_embed(
-            rgb, return_patch_size=True
-        )  # (B, H_patches, W_patches, C)
-        depth_map = F.interpolate(
-            depth,
-            size=(patch_height, patch_width),
-            mode="bilinear",
-            align_corners=False,
-        )
+        depth_map = inputs[depth_key]
+        rgb_features = self.patch_embed(rgb)  # (B, H_patches, W_patches, C)
         features = rgb_features
         for stage in self.stages:
             output_features, next_features, depth_map = stage(features, depth_map)
@@ -370,41 +537,31 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
         with torch.no_grad():
             mock_rgb = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
             features = self.patch_embed(mock_rgb)
-            depth_mock = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
-            depth_map = F.interpolate(
-                depth_mock, size=features.shape[1:3], mode="bilinear"
-            )
+            depth_map = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
             for stage in self.stages:
                 _, features, depth_map = stage(features, depth_map)
             _, spatial_height, spatial_width, _ = features.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         self._apply_model_dtype()
 
-    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
-        """Validate that RGB keys have 3-channel metadata and depth key is single-channel.
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the final DFormer stage for spatial attribution maps.
 
-        Args:
-            key: Observation key being validated.
-            metadata: Metadata from the observation space for this key.
+        DFormer stages return a tuple; ``output_index=0`` selects the stage
+        output before downsampling. The output is NHWC and is converted by the
+        explainability package before feature-grid map computation.
 
         Returns:
-            Error message if incompatible, None if valid.
+            One NHWC spatial feature-map target for the final DFormer stage.
         """
-        if not isinstance(metadata, CameraMetadata):
-            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
-        if key == Cameras.DEPTH.value:
-            if not metadata.is_single_channel:
-                return (
-                    f"Expected single-channel depth for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        else:
-            if not metadata.is_rgb:
-                return (
-                    f"Expected 3-channel RGB for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        return None
+        return [
+            VisionExplanationTarget(
+                layer=self.stages[-1],
+                target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+                activation_layout=ActivationLayout.NHWC.value,
+                output_index=0,
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Return the output feature names and dimensions for this encoder.

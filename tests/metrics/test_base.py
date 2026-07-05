@@ -1,5 +1,7 @@
 """Tests for versatil.metrics.base module."""
 
+import re
+
 import numpy as np
 import pytest
 import torch
@@ -54,72 +56,6 @@ class TestLossOutputToDict:
 
 
 @pytest.mark.unit
-class TestLossOutputAdd:
-    def test_sums_total_losses(self, loss_output_factory):
-        output_a = loss_output_factory(total_loss_value=1.0)
-        output_b = loss_output_factory(total_loss_value=2.0)
-        combined = output_a + output_b
-        assert combined.total_loss.item() == pytest.approx(3.0)
-
-    def test_sums_shared_component_losses(self, loss_output_factory):
-        output_a = loss_output_factory(
-            total_loss_value=1.0,
-            component_losses={"mse": 0.5},
-        )
-        output_b = loss_output_factory(
-            total_loss_value=1.0,
-            component_losses={"mse": 0.3},
-        )
-        combined = output_a + output_b
-        assert combined.component_losses["mse"].item() == pytest.approx(0.8)
-
-    def test_handles_disjoint_component_keys(self, loss_output_factory):
-        output_a = loss_output_factory(
-            total_loss_value=1.0,
-            component_losses={"mse": 0.5},
-        )
-        output_b = loss_output_factory(
-            total_loss_value=1.0,
-            component_losses={"l1": 0.3},
-        )
-        combined = output_a + output_b
-        assert combined.component_losses["mse"].item() == pytest.approx(0.5)
-        assert combined.component_losses["l1"].item() == pytest.approx(0.3)
-
-    def test_merges_metadata_with_later_overriding(self, loss_output_factory):
-        output_a = loss_output_factory(
-            total_loss_value=1.0,
-            metadata={"key_a": "value_a", "shared": "from_a"},
-        )
-        output_b = loss_output_factory(
-            total_loss_value=1.0,
-            metadata={"key_b": "value_b", "shared": "from_b"},
-        )
-        combined = output_a + output_b
-        assert combined.metadata["key_a"] == "value_a"
-        assert combined.metadata["key_b"] == "value_b"
-        assert combined.metadata["shared"] == "from_b"
-
-    def test_raises_type_error_for_non_loss_output(self, loss_output_factory):
-        output = loss_output_factory(total_loss_value=1.0)
-        with pytest.raises(
-            TypeError,
-            match=f"Cannot add LossOutput with {int}",
-        ):
-            output + 42
-
-    def test_result_supports_gradient_flow(self, loss_output_factory):
-        tensor_a = torch.tensor(1.0, requires_grad=True)
-        tensor_b = torch.tensor(2.0, requires_grad=True)
-        output_a = LossOutput(total_loss=tensor_a)
-        output_b = LossOutput(total_loss=tensor_b)
-        combined = output_a + output_b
-        combined.total_loss.backward()
-        assert tensor_a.grad is not None
-        assert tensor_b.grad is not None
-
-
-@pytest.mark.unit
 class TestReduceLossWithPaddingNoMask:
     def test_mean_reduction_without_mask(self, loss_tensor_factory):
         loss = loss_tensor_factory(batch_size=2, horizon=4, extra_dims=(3,))
@@ -145,23 +81,37 @@ class TestReduceLossWithPaddingNoMask:
 
 @pytest.mark.unit
 class TestReduceLossWithPaddingMasked:
-    def test_mean_reduction_excludes_padded_positions(self, padding_mask_factory):
+    def test_mean_reduction_excludes_padded_positions(
+        self, loss_tensor_factory, padding_mask_factory
+    ):
         batch_size, horizon, dim = 2, 4, 3
         padded_from = 2
-        loss = torch.ones(batch_size, horizon, dim)
+        loss = loss_tensor_factory(
+            batch_size=batch_size, horizon=horizon, extra_dims=(dim,)
+        )
         is_pad = padding_mask_factory(
             batch_size=batch_size, sequence_length=horizon, padded_from=padded_from
         )
         result = reduce_loss_with_padding(
             loss_tensor=loss, is_pad=is_pad, reduction="mean"
         )
-        # masked_loss.sum() = batch_size * padded_from * dim = 2*2*3 = 12
-        # pad_mask after unsqueeze is (B, horizon, 1), so pad_mask.sum() = batch_size * padded_from = 4
-        # result = 12 / 4 = 3.0 (averages over valid positions, not elements)
-        valid_positions = batch_size * padded_from
-        valid_elements = valid_positions * dim
-        expected = valid_elements / valid_positions
-        assert result.item() == pytest.approx(expected, abs=1e-6)
+        expected = loss[:, :padded_from].mean()
+        assert result.item() == pytest.approx(expected.item(), abs=1e-6)
+
+    def test_mean_reduction_matches_unmasked_scale(
+        self, loss_tensor_factory, padding_mask_factory
+    ):
+        batch_size, horizon, dim = 2, 4, 3
+        loss = loss_tensor_factory(
+            batch_size=batch_size, horizon=horizon, extra_dims=(dim,)
+        )
+        all_valid = padding_mask_factory(
+            batch_size=batch_size, sequence_length=horizon, padded_from=horizon
+        )
+        result = reduce_loss_with_padding(
+            loss_tensor=loss, is_pad=all_valid, reduction="mean"
+        )
+        assert result.item() == pytest.approx(loss.mean().item(), abs=1e-6)
 
     def test_mean_reduction_with_scalar_loss_per_position(self, padding_mask_factory):
         batch_size, horizon = 2, 4
@@ -250,14 +200,28 @@ class TestReduceLossWithPaddingMasked:
 @pytest.mark.unit
 class TestBaseLossIsAbstract:
     def test_cannot_instantiate_directly(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "Can't instantiate abstract class BaseLoss without an "
+                "implementation for abstract methods 'forward', "
+                "'get_required_keys'"
+            ),
+        ):
             BaseLoss()
 
     def test_subclass_must_implement_forward_and_get_required_keys(self):
         class IncompleteLoss(BaseLoss):
             pass
 
-        with pytest.raises(TypeError):
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "Can't instantiate abstract class IncompleteLoss without an "
+                "implementation for abstract methods 'forward', "
+                "'get_required_keys'"
+            ),
+        ):
             IncompleteLoss()
 
 
@@ -381,7 +345,10 @@ class TestScalarWeightedLoss:
 
     def test_set_weights_missing_required_key_raises(self):
         loss = self._ScalarLeaf(weight=0.5)
-        with pytest.raises(KeyError):
+        with pytest.raises(
+            KeyError,
+            match=re.escape("_ScalarLeaf.set_weights: missing=['weight'], extra=[]."),
+        ):
             loss.set_weights({})
 
     def test_update_weights_rejects_unknown_key(self):

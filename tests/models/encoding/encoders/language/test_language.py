@@ -11,6 +11,8 @@ import torch
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
@@ -55,12 +57,21 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
         max_token_len: int = MAX_TOKEN_LEN,
         use_embeddings_only: bool = False,
         model_dtype: torch.dtype | None = None,
+        lora_config: LoRAAdaptation | None = None,
         real_build: bool = False,
         config_attrs: dict | None = None,
         mock_model: MagicMock | None = None,
     ) -> LanguageEncoder:
         if not real_build:
-            with patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder):
+            mock_tokenizer = MagicMock()
+            mock_tokenizer.cls_token_id = 101
+            with (
+                patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder),
+                patch(
+                    "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
+                    return_value=mock_tokenizer,
+                ),
+            ):
                 return LanguageEncoder(
                     pretrained=pretrained,
                     frozen=frozen,
@@ -69,6 +80,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
                     max_token_len=max_token_len,
                     use_embeddings_only=use_embeddings_only,
                     model_dtype=model_dtype,
+                    lora_config=lora_config,
                 )
         if config_attrs is None:
             config_attrs = {"hidden_size": HIDDEN_SIZE, "vocab_size": VOCAB_SIZE}
@@ -85,7 +97,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
                 return_value=mock_config,
             ),
             patch(
-                "versatil.models.encoding.encoders.language.language.AutoTokenizer.from_pretrained",
+                "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
                 return_value=mock_tokenizer,
             ),
             patch(
@@ -105,6 +117,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
                 max_token_len=max_token_len,
                 use_embeddings_only=use_embeddings_only,
                 model_dtype=model_dtype,
+                lora_config=lora_config,
             )
 
     return factory
@@ -225,6 +238,26 @@ class TestLanguageEncoderInitialization:
                 frozen=False,
                 pooling_method=pooling_method,
                 use_embeddings_only=use_embeddings_only,
+            )
+
+    def test_embeddings_only_rejects_lora(
+        self,
+    ) -> None:
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape("LoRA is not supported when use_embeddings_only=True."),
+        ):
+            LanguageEncoder(
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.NONE.value,
+                use_embeddings_only=True,
+                lora_config=lora_config,
             )
 
     def test_requires_tokenized_specification(
@@ -675,6 +708,126 @@ class TestLanguageEncoderBuildEncoder:
         # full-model path assigns the patched HF model instance
         assert encoder.encoder is not None
 
+    def test_full_model_applies_lora(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ) -> None:
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        mock_model = MagicMock()
+
+        with patch(
+            "versatil.models.encoding.encoders.language.language.apply_lora_config",
+            return_value=mock_model,
+        ) as mock_apply_lora:
+            encoder = language_encoder_factory(
+                real_build=True,
+                mock_model=mock_model,
+                lora_config=lora_config,
+            )
+
+        mock_apply_lora.assert_called_once_with(
+            model=mock_model,
+            lora_config=lora_config,
+            frozen=False,
+        )
+        assert encoder.encoder is mock_model
+
+    def test_default_pooling_without_cls_token_raises(self):
+        model_name = "bert-base-uncased"
+        mock_config = MagicMock(spec=["hidden_size", "vocab_size"])
+        mock_config.hidden_size = HIDDEN_SIZE
+        mock_config.vocab_size = VOCAB_SIZE
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.cls_token_id = None
+        with (
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_config",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
+                return_value=mock_tokenizer,
+            ),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Tokenizer for '{model_name}' has no CLS token, so DEFAULT "
+                    "pooling would silently return the first prompt token. Use "
+                    "AVERAGE or NONE pooling instead."
+                ),
+            ),
+        ):
+            LanguageEncoder(
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                model_name=model_name,
+            )
+
+    @pytest.mark.parametrize("trust_remote_code", [True, False])
+    @pytest.mark.parametrize("pretrained", [True, False])
+    def test_trust_remote_code_forwarded_to_huggingface_loaders(
+        self,
+        trust_remote_code: bool,
+        pretrained: bool,
+    ):
+        mock_config = MagicMock(spec=["hidden_size", "vocab_size"])
+        mock_config.hidden_size = HIDDEN_SIZE
+        mock_config.vocab_size = VOCAB_SIZE
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.cls_token_id = 101
+        with (
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ) as mock_from_pretrained_config,
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_pretrained",
+                return_value=MagicMock(),
+            ) as mock_from_pretrained_model,
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_config",
+                return_value=MagicMock(),
+            ) as mock_from_config_model,
+            patch(
+                "versatil.models.encoding.encoders.language.language.load_huggingface_tokenizer",
+                return_value=mock_tokenizer,
+            ) as mock_load_tokenizer,
+        ):
+            LanguageEncoder(
+                pretrained=pretrained,
+                frozen=False,
+                pooling_method=PoolingMethod.NONE.value,
+                model_name="bert-base-uncased",
+                trust_remote_code=trust_remote_code,
+            )
+        mock_from_pretrained_config.assert_called_once_with(
+            "bert-base-uncased", trust_remote_code=trust_remote_code
+        )
+        if pretrained:
+            mock_from_pretrained_model.assert_called_once_with(
+                "bert-base-uncased",
+                attn_implementation=AttentionImplementation.SDPA.value,
+                trust_remote_code=trust_remote_code,
+            )
+        else:
+            mock_from_config_model.assert_called_once_with(
+                mock_config,
+                attn_implementation=AttentionImplementation.SDPA.value,
+                trust_remote_code=trust_remote_code,
+            )
+        mock_load_tokenizer.assert_called_once_with(
+            tokenizer_model="bert-base-uncased",
+            trust_remote_code=trust_remote_code,
+        )
+
     def test_apply_model_dtype_called_when_model_dtype_set(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
@@ -716,9 +869,6 @@ class TestLanguageEncoderEncodeEdgeCases:
 
 
 GATED_LANGUAGE_MODELS = {
-    LanguageEncoderType.GEMMA_2B,
-    LanguageEncoderType.QWEN_2_1_5B,
-    LanguageEncoderType.LLAMA_3_2_1B,
     LanguageEncoderType.EMBEDDINGGEMMA_300M,
 }
 
@@ -730,6 +880,12 @@ TRUST_REMOTE_CODE_LANGUAGE_MODELS = {
 
 NO_SDPA_LANGUAGE_MODELS = {
     LanguageEncoderType.DEBERTA_V3_BASE,
+}
+
+NO_CLS_TOKEN_LANGUAGE_MODELS = {
+    LanguageEncoderType.EMBEDDINGGEMMA_300M,
+    LanguageEncoderType.QWEN_3_EMBEDDING_0_6B,
+    LanguageEncoderType.LLAMA_NEMOTRON_EMBED_1B_V2,
 }
 
 TIKTOKEN_LANGUAGE_MODELS = {
@@ -744,13 +900,6 @@ def _integration_marks(encoder_type: LanguageEncoderType) -> list:
             pytest.mark.skipif(
                 True,
                 reason=f"{encoder_type.value} is a gated model requiring authentication",
-            )
-        )
-    if encoder_type in TRUST_REMOTE_CODE_LANGUAGE_MODELS:
-        marks.append(
-            pytest.mark.skipif(
-                True,
-                reason=f"{encoder_type.value} requires trust_remote_code=True",
             )
         )
     if encoder_type in TIKTOKEN_LANGUAGE_MODELS:
@@ -779,11 +928,13 @@ ENCODER_ONLY_MODELS = [
     LanguageEncoderType.E5_BASE,
     LanguageEncoderType.EMBEDDINGGEMMA_300M,
     LanguageEncoderType.QWEN_3_EMBEDDING_0_6B,
+    LanguageEncoderType.LLAMA_NEMOTRON_EMBED_1B_V2,
 ]
 
 
 class TestLanguageEncoderIntegration:
     @pytest.mark.integration
+    @pytest.mark.parametrize("lora_enabled", [False, True])
     @pytest.mark.parametrize(
         "model_name",
         [
@@ -798,6 +949,9 @@ class TestLanguageEncoderIntegration:
         self,
         token_input_factory: Callable[..., dict[str, torch.Tensor]],
         model_name: str,
+        lora_enabled: bool,
+        parameter_count: Callable[[torch.nn.Module], int],
+        trainable_parameter_count: Callable[[torch.nn.Module], int],
     ):
         batch_size = 2
         no_sdpa_values = {m.value for m in NO_SDPA_LANGUAGE_MODELS}
@@ -806,12 +960,32 @@ class TestLanguageEncoderIntegration:
             if model_name in no_sdpa_values
             else AttentionImplementation.SDPA.value
         )
+        trust_remote_code_values = {m.value for m in TRUST_REMOTE_CODE_LANGUAGE_MODELS}
+        # DEFAULT (CLS) pooling is rejected for tokenizers without a CLS token.
+        no_cls_values = {m.value for m in NO_CLS_TOKEN_LANGUAGE_MODELS}
+        pooling_method = (
+            PoolingMethod.AVERAGE.value
+            if model_name in no_cls_values
+            else PoolingMethod.DEFAULT.value
+        )
+        lora_config = (
+            LoRAAdaptation(
+                enabled=True,
+                rank=2,
+                alpha=4,
+                target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            )
+            if lora_enabled
+            else None
+        )
         encoder = LanguageEncoder(
             pretrained=False,
             frozen=False,
-            pooling_method=PoolingMethod.DEFAULT.value,
+            pooling_method=pooling_method,
             model_name=model_name,
             attention_type=attention_type,
+            lora_config=lora_config,
+            trust_remote_code=model_name in trust_remote_code_values,
         )
         inputs = token_input_factory(
             batch_size=batch_size,
@@ -820,6 +994,17 @@ class TestLanguageEncoderIntegration:
         output = encoder(inputs=inputs)
         features = output[EncoderOutputKeys.LANGUAGE.value]
         assert features.shape == (batch_size, 1, encoder.output_dim)
+        if lora_enabled:
+            trainable_parameter_names = [
+                name
+                for name, parameter in encoder.encoder.named_parameters()
+                if parameter.requires_grad
+            ]
+            trainable_parameters = trainable_parameter_count(encoder.encoder)
+            total_parameters = parameter_count(encoder.encoder)
+            assert trainable_parameter_names
+            assert all("lora_" in name for name in trainable_parameter_names)
+            assert 0 < trainable_parameters < total_parameters
 
     @pytest.mark.integration
     def test_pretrained_weights_differ_from_random_init(

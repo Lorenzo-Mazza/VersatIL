@@ -1,8 +1,0 @@
-defaults:
-  - lerobot
-  - zarr_meta/ant@metadata
-
-_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
-dataset_type: ${dataset_type:ANT}
-dataset_path: ${ant_lerobot_dir:}
-zarr_path: ${zarr_dir:ant.zarr}

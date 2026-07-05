@@ -1,5 +1,9 @@
 """Tests for versatil.configs.training module."""
 
+import re
+from contextlib import AbstractContextManager
+from contextlib import nullcontext as does_not_raise
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
@@ -349,7 +353,7 @@ class TestTrainingConfig:
         assert config.use_ema is True
         assert config.ema_power == 0.75
         assert config.swa_lrs is None
-        assert config.swa_epoch_start == 0.5
+        assert config.swa_epoch_start == 0.8
         assert config.swa_annealing_epochs == 10
         assert config.compile is False
         assert config.tune_lr is False
@@ -366,3 +370,34 @@ class TestTrainingConfig:
             match="training.stages does not support reduce_lr_on_plateau.",
         ):
             TrainingConfig(stages=stages, reduce_lr_on_plateau=True)
+
+    @pytest.mark.parametrize(
+        "lr_schedule, reduce_lr_on_plateau, expectation",
+        [
+            (None, True, does_not_raise()),
+            ("cosine", False, does_not_raise()),
+            (
+                "cosine",
+                True,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "reduce_lr_on_plateau cannot be combined with lr_schedule: "
+                        "the per-step LR scheduler recomputes group learning rates "
+                        "every step, silently undoing plateau reductions."
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_lr_schedule_and_reduce_lr_on_plateau_are_mutually_exclusive(
+        self,
+        lr_schedule: str | None,
+        reduce_lr_on_plateau: bool,
+        expectation: AbstractContextManager,
+    ) -> None:
+        with expectation:
+            TrainingConfig(
+                lr_schedule=lr_schedule,
+                reduce_lr_on_plateau=reduce_lr_on_plateau,
+            )

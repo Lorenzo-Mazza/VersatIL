@@ -1,6 +1,7 @@
 """Tests for versatil.configs resolver registration."""
 
 import os
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +11,8 @@ from omegaconf.errors import InterpolationResolutionError
 
 from versatil.configs import register_resolvers
 from versatil.data.constants import (
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
@@ -25,17 +28,26 @@ from versatil.data.constants import (
 )
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
+from versatil.models.adaptation.constants import LoRATargetModulePreset
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     DiTType,
     LatentKey,
     MoERoutingType,
 )
+from versatil.models.decoding.generative_language_models.constants import (
+    PRISMATIC_LLM_BACKBONES,
+    PrismaticLLMBackboneType,
+    PrismaticModelType,
+)
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     LanguageEncoderType,
     PoolingMethod,
     RGBBackboneType,
+)
+from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
+    DFormerPretrainedWeights,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
@@ -67,6 +79,21 @@ ENUM_RESOLVER_CASES = [
     ("batch_norm_handling", "FROZEN", BatchNormHandling.FROZEN.value),
     ("pooling_method", "SPATIAL_SOFTMAX", PoolingMethod.SPATIAL_SOFTMAX.value),
     ("language_model", "BERT_BASE", LanguageEncoderType.BERT_BASE.value),
+    (
+        "lora_target_modules",
+        "ALL_LINEAR",
+        LoRATargetModulePreset.ALL_LINEAR.value,
+    ),
+    (
+        "prismatic_model",
+        "PRISM_DINOSIGLIP_224PX_7B",
+        PrismaticModelType.PRISM_DINOSIGLIP_224PX_7B.value,
+    ),
+    (
+        "prismatic_llm_model",
+        "LLAMA2_7B_PURE",
+        PRISMATIC_LLM_BACKBONES[PrismaticLLMBackboneType.LLAMA2_7B_PURE],
+    ),
     ("activation_function", "RELU", ActivationFunction.RELU.value),
     ("activation_function", "GELU", ActivationFunction.GELU.value),
     ("normalization", "LAYER_NORM", NormalizationType.LAYER_NORM.value),
@@ -74,6 +101,12 @@ ENUM_RESOLVER_CASES = [
     ("pos_encoding", "SINUSOIDAL", PositionalEncodingType.SINUSOIDAL.value),
     ("pos_encoding", "LEARNED", PositionalEncodingType.LEARNED.value),
     ("tokenizer_type", "FAST", TokenizerType.FAST.value),
+    ("action_discretizer", "FAST", ActionDiscretizerType.FAST.value),
+    (
+        "action_token_id_mapping",
+        "IDENTITY",
+        ActionTokenIdMappingType.IDENTITY.value,
+    ),
     ("kinematics_norm_type", "MIN_MAX", KinematicsNormalizationType.MIN_MAX.value),
     ("image_norm_type", "ZERO_TO_ONE", ImageNormalizationType.ZERO_TO_ONE.value),
     ("image_norm_type", "CLIP", ImageNormalizationType.CLIP.value),
@@ -109,7 +142,12 @@ class TestEnumResolvers:
 
     def test_invalid_enum_name_raises_interpolation_error(self):
         cfg = OmegaConf.create({"invalid": "${cameras:NONEXISTENT}"})
-        with pytest.raises(InterpolationResolutionError):
+        with pytest.raises(
+            InterpolationResolutionError,
+            match=re.escape(
+                "KeyError raised while resolving interpolation: 'NONEXISTENT'"
+            ),
+        ):
             _ = cfg.invalid
 
     def test_resolver_works_inside_list(self):
@@ -149,6 +187,71 @@ class TestEnumResolvers:
         )
         assert cfg.default_camera == Cameras.LEFT.value
         assert cfg.selected_camera == Cameras.LEFT.value
+
+
+@pytest.mark.unit
+class TestMultiplicationResolver:
+    @pytest.mark.parametrize(
+        "left, right, expected_value",
+        [
+            (768, 7, 5376),
+            ("24", "3", 72),
+            (0.5, 1024, 512.0),
+        ],
+    )
+    def test_mul_resolver_returns_numeric_product(
+        self,
+        left: int | float | str,
+        right: int | float | str,
+        expected_value: int | float,
+    ) -> None:
+        cfg = OmegaConf.create({"result": f"${{mul:{left},{right}}}"})
+        expected_type = int if isinstance(expected_value, int) else float
+        assert cfg.result == expected_value
+        assert isinstance(cfg.result, expected_type)
+
+
+@pytest.mark.unit
+class TestIntegerMultiplicationResolver:
+    @pytest.mark.parametrize(
+        "left, right, expected_value",
+        [
+            (0.5, 960, 480),
+            ("0.75", "640", 480),
+        ],
+    )
+    def test_int_mul_resolver_returns_integer_product(
+        self,
+        left: int | float | str,
+        right: int | float | str,
+        expected_value: int,
+    ) -> None:
+        cfg = OmegaConf.create({"result": f"${{int_mul:{left},{right}}}"})
+        assert cfg.result == expected_value
+        assert isinstance(cfg.result, int)
+
+
+@pytest.mark.unit
+class TestActionSpacePredictionDimensionResolver:
+    def test_returns_total_dimension_for_predicted_actions(self) -> None:
+        cfg = OmegaConf.create(
+            {
+                "action_space": {
+                    "actions_metadata": {
+                        "position": {"prediction_dimension": 3},
+                        "orientation": {"prediction_dimension": 3},
+                        "gripper": {"prediction_dimension": 1},
+                        "phase": {
+                            "prediction_dimension": 4,
+                            "requires_prediction_head": False,
+                        },
+                    }
+                },
+                "result": "${action_space_prediction_dimension:${action_space}}",
+            }
+        )
+
+        assert cfg.result == 7
 
 
 @pytest.mark.unit
@@ -198,47 +301,29 @@ class TestPathResolvers:
             cfg = OmegaConf.create({"dir": "${cache_dir:}"})
             assert cfg.dir == str(Path.home() / ".cache" / "versatil")
 
-    def test_pretrained_dir_resolver_uses_env_variable(self):
-        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
-            cfg = OmegaConf.create({"dir": "${pretrained_dir:}"})
-            assert cfg.dir == "/models/pretrained"
+    def test_dformer_weights_resolver_maps_enum_names(self):
+        cfg = OmegaConf.create({"weights": "${dformer_weights:NYU}"})
+        assert cfg.weights == DFormerPretrainedWeights.NYU.value
 
-    def test_pretrained_dir_resolver_appends_subpath(self):
-        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
-            cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
-            assert cfg.dir == str(Path("/models/pretrained") / "resnet")
-
-    def test_bowel_retraction_dir_resolver_uses_env_variable(self):
+    def test_dataset_dir_resolver_uses_named_env_variable(self):
         with patch.dict(
             os.environ,
             {"VERSATIL_BOWEL_RETRACTION_DIR": "/data/bowel_retraction"},
         ):
-            cfg = OmegaConf.create({"dir": "${bowel_retraction_dir:}"})
+            cfg = OmegaConf.create(
+                {"dir": "${dataset_dir:VERSATIL_BOWEL_RETRACTION_DIR}"}
+            )
             assert cfg.dir == "/data/bowel_retraction"
 
-    def test_bowel_retraction_dir_resolver_appends_subpath(self):
+    def test_dataset_dir_resolver_appends_subpath(self):
         with patch.dict(
             os.environ,
-            {"VERSATIL_BOWEL_RETRACTION_DIR": "/data/bowel_retraction"},
+            {"VERSATIL_LIBERO_HDF5_DIR": "/data/libero"},
         ):
-            cfg = OmegaConf.create({"dir": "${bowel_retraction_dir:v1}"})
-            assert cfg.dir == str(Path("/data/bowel_retraction") / "v1")
-
-    def test_multimodal_peg_transfer_dir_resolver_uses_env_variable(self):
-        with patch.dict(
-            os.environ,
-            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
-        ):
-            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:}"})
-            assert cfg.dir == "/data/multimodal_peg_transfer"
-
-    def test_multimodal_peg_transfer_dir_resolver_appends_subpath(self):
-        with patch.dict(
-            os.environ,
-            {"VERSATIL_MULTIMODAL_PEG_TRANSFER_DIR": "/data/multimodal_peg_transfer"},
-        ):
-            cfg = OmegaConf.create({"dir": "${multimodal_peg_transfer_dir:session_1}"})
-            assert cfg.dir == str(Path("/data/multimodal_peg_transfer") / "session_1")
+            cfg = OmegaConf.create(
+                {"dir": "${dataset_dir:VERSATIL_LIBERO_HDF5_DIR,libero_10}"}
+            )
+            assert cfg.dir == str(Path("/data/libero") / "libero_10")
 
 
 @pytest.mark.unit
@@ -264,21 +349,33 @@ class TestNumericResolvers:
         assert cfg.split == expected_epoch
 
     @pytest.mark.parametrize(
-        "num_epochs, fraction",
+        "num_epochs, fraction, error_message",
         [
-            pytest.param(0, 0.2, id="non-positive-epochs"),
-            pytest.param(10, 0.0, id="zero-fraction"),
-            pytest.param(10, 1.0, id="one-fraction"),
+            pytest.param(
+                0, 0.2, "num_epochs must be positive, got 0.", id="non-positive-epochs"
+            ),
+            pytest.param(
+                10, 0.0, "fraction must be in (0, 1), got 0.0.", id="zero-fraction"
+            ),
+            pytest.param(
+                10, 1.0, "fraction must be in (0, 1), got 1.0.", id="one-fraction"
+            ),
         ],
     )
     def test_stage_split_epoch_rejects_invalid_inputs(
         self,
         num_epochs: int,
         fraction: float,
+        error_message: str,
     ):
         cfg = OmegaConf.create(
             {"split": f"${{stage_split_epoch:{num_epochs},{fraction}}}"}
         )
 
-        with pytest.raises(InterpolationResolutionError):
+        with pytest.raises(
+            InterpolationResolutionError,
+            match=re.escape(
+                f"ValueError raised while resolving interpolation: {error_message}"
+            ),
+        ):
             _ = cfg.split

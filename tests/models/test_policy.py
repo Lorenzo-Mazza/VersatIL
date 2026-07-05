@@ -20,11 +20,12 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
-from versatil.metrics.components import GripperLoss
 from versatil.metrics.constants import MetadataKey
+from versatil.metrics.losses.gripper import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.policy import Policy
 
 register_resolvers()
@@ -44,7 +45,7 @@ class TestPolicyInitialization:
         algorithm = MagicMock(spec=DecodingAlgorithm)
         decoder = MagicMock(
             spec=ActionDecoder,
-            decoder_input=MagicMock(requires_vlm_backbone=False),
+            decoder_input=DecoderInput(keys=[]),
         )
         observation_space = MagicMock(spec=ObservationSpace)
         action_space = MagicMock(spec=ActionSpace)
@@ -182,21 +183,53 @@ class TestInputOutputKeys:
         assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result
         assert SampleKey.IS_PAD_OBSERVATION.value not in result
 
-    def test_output_keys_returns_sorted_action_head_keys(
+    def test_input_keys_includes_decoder_owned_vlm_observation_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+    ):
+        observation_space = MagicMock(
+            spec=ObservationSpace,
+            observations_metadata={Cameras.LEFT.value: MagicMock()},
+        )
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                    SampleKey.IS_PAD_OBSERVATION.value,
+                ],
+                needs_raw_observations=True,
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(decoder=decoder, observation_space=observation_space)
+        assert policy.input_keys == [
+            SampleKey.IS_PAD_OBSERVATION.value,
+            Cameras.LEFT.value,
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+        ]
+
+    def test_output_keys_returns_sorted_decoder_prediction_keys(
         self,
         policy_factory: Callable[..., Policy],
     ):
         decoder = MagicMock(
             spec=ActionDecoder,
-            decoder_input=MagicMock(requires_vlm_backbone=False),
+            decoder_input=DecoderInput(keys=[]),
         )
         decoder.action_heads = {
             "position": MagicMock(),
             "gripper": MagicMock(),
             "orientation": MagicMock(),
         }
+        decoder.get_prediction_output_keys.return_value = [
+            "position",
+            "gripper",
+            "orientation",
+        ]
         policy = policy_factory(decoder=decoder)
-        assert policy.output_keys == ["gripper", "orientation", "position"]
+        assert policy.output_keys == ["position", "gripper", "orientation"]
 
 
 class TestSetNormalizer:
@@ -224,7 +257,7 @@ class TestSetNormalizer:
     ):
         decoder = MagicMock(
             spec=ActionDecoder,
-            decoder_input=MagicMock(requires_vlm_backbone=False),
+            decoder_input=DecoderInput(keys=[]),
         )
         policy = policy_factory(decoder=decoder)
         normalizer = MagicMock(spec=LinearNormalizer)
@@ -420,11 +453,151 @@ class TestForward:
         pipeline.return_value = features
         policy = policy_factory(encoding_pipeline=pipeline)
         batch = batch_dictionary_factory()
+        batch_actions = batch[SampleKey.ACTION.value]
+        predicted_keys = [
+            key for key in batch_actions if key != SampleKey.IS_PAD_ACTION.value
+        ]
+        policy.action_space.predicted_action_keys = predicted_keys
+        batch_actions["metadata_only_label"] = torch.zeros(2, 4)
+
         policy.forward(batch=batch)
+
+        expected_actions = {
+            key: value
+            for key, value in batch_actions.items()
+            if key != "metadata_only_label"
+        }
         policy.algorithm.forward.assert_called_once_with(
             features=features,
-            actions=batch[SampleKey.ACTION.value],
+            actions=expected_actions,
             network=policy.decoder,
+        )
+
+    def test_filters_algorithm_features_to_decoder_input_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        kept_feature = torch.ones(2, 4)
+        dropped_feature = torch.zeros(2, 4)
+        kept_mask = torch.zeros(2, 4, dtype=torch.bool)
+        raw_camera = torch.ones(2, 3, 8, 8)
+        dropped_raw_camera = torch.zeros(2, 3, 8, 8)
+        feature_key = "rgb_features"
+        mask_key = f"{feature_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = {
+            feature_key: kept_feature,
+            "unused_features": dropped_feature,
+            mask_key: kept_mask,
+        }
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[feature_key, Cameras.LEFT.value],
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        batch = batch_dictionary_factory()
+        batch[SampleKey.OBSERVATION.value][Cameras.LEFT.value] = raw_camera
+        batch[SampleKey.OBSERVATION.value][Cameras.RIGHT.value] = dropped_raw_camera
+
+        policy.forward(batch=batch)
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert set(actual_features) == {feature_key, mask_key, Cameras.LEFT.value}
+        assert torch.equal(actual_features[feature_key], kept_feature)
+        assert torch.equal(actual_features[mask_key], kept_mask)
+        assert torch.equal(actual_features[Cameras.LEFT.value], raw_camera)
+
+    def test_algorithm_injected_keys_are_not_required_from_pipeline(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        feature_key = "rgb_features"
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = {feature_key: torch.ones(2, 4)}
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(keys=[feature_key, "latent"]),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        policy.algorithm.injected_feature_keys.return_value = {"latent"}
+        batch = batch_dictionary_factory()
+
+        policy.forward(batch=batch)
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert set(actual_features) == {feature_key}
+
+    def test_tokenized_actions_survive_action_filtering(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = feature_dictionary_factory()
+        policy = policy_factory(encoding_pipeline=pipeline)
+        batch = batch_dictionary_factory()
+        batch_actions = batch[SampleKey.ACTION.value]
+        policy.action_space.predicted_action_keys = list(batch_actions)
+        tokens = torch.zeros(2, 4, dtype=torch.long)
+        batch_actions[SampleKey.TOKENIZED_ACTIONS.value] = tokens
+
+        policy.forward(batch=batch)
+
+        actual_actions = policy.algorithm.forward.call_args.kwargs["actions"]
+        assert torch.equal(actual_actions[SampleKey.TOKENIZED_ACTIONS.value], tokens)
+
+    def test_passes_raw_observations_to_algorithm_for_decoder_owned_vlm(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        features = feature_dictionary_factory(feature_keys=["robot_state_proprio"])
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = features
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[
+                    "robot_state_proprio",
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                ],
+                needs_raw_observations=True,
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        batch = batch_dictionary_factory()
+        batch[SampleKey.OBSERVATION.value][Cameras.LEFT.value] = torch.ones(2, 3, 8, 8)
+        batch[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value] = (
+            torch.ones(2, 4, dtype=torch.long)
+        )
+
+        policy.forward(batch=batch)
+
+        actual_features = policy.algorithm.forward.call_args.kwargs["features"]
+        assert torch.equal(
+            actual_features["robot_state_proprio"], features["robot_state_proprio"]
+        )
+        assert torch.equal(
+            actual_features[Cameras.LEFT.value],
+            batch[SampleKey.OBSERVATION.value][Cameras.LEFT.value],
+        )
+        assert torch.equal(
+            actual_features[SampleKey.TOKENIZED_OBSERVATIONS.value],
+            batch[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value],
         )
 
     def test_returns_algorithm_output(
@@ -652,6 +825,61 @@ class TestPredictAction:
     @patch("versatil.models.policy.unnormalize_actions")
     @patch("versatil.models.policy.normalize_observation")
     @patch("versatil.models.policy.to_device")
+    def test_passes_raw_observations_to_predict_for_decoder_owned_vlm(
+        self,
+        mock_to_device: MagicMock,
+        mock_normalize: MagicMock,
+        mock_unnormalize: MagicMock,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ) -> None:
+        observation = observation_dictionary_factory()
+        normalized_observation = observation_dictionary_factory()
+        normalized_observation[Cameras.LEFT.value] = torch.ones(2, 3, 8, 8)
+        normalized_observation[SampleKey.TOKENIZED_OBSERVATIONS.value] = torch.ones(
+            2, 4, dtype=torch.long
+        )
+        features = feature_dictionary_factory(feature_keys=["robot_state_proprio"])
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = features
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = normalized_observation
+        mock_unnormalize.return_value = {}
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=DecoderInput(
+                keys=[
+                    "robot_state_proprio",
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                ],
+                needs_raw_observations=True,
+            ),
+        )
+        decoder.action_heads = {}
+        policy = policy_factory(encoding_pipeline=pipeline, decoder=decoder)
+        policy.algorithm.predict.return_value = {}
+
+        policy.predict_action(obs_dict=observation)
+
+        actual_features = policy.algorithm.predict.call_args.kwargs["features"]
+        assert torch.equal(
+            actual_features["robot_state_proprio"], features["robot_state_proprio"]
+        )
+        assert torch.equal(
+            actual_features[Cameras.LEFT.value],
+            normalized_observation[Cameras.LEFT.value],
+        )
+        assert torch.equal(
+            actual_features[SampleKey.TOKENIZED_OBSERVATIONS.value],
+            normalized_observation[SampleKey.TOKENIZED_OBSERVATIONS.value],
+        )
+
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
     def test_strips_metadata_passthrough_observations_before_predict_pipeline(
         self,
         mock_to_device: MagicMock,
@@ -715,6 +943,7 @@ class TestPredictAction:
         mock_tokenize.assert_called_once_with(
             observation=normalized_observation,
             obs_tokenizer=tokenizer.observation_tokenizer,
+            batched=True,
         )
 
     @patch("versatil.models.policy.unnormalize_actions")
@@ -827,265 +1056,3 @@ class TestPredictAction:
             match=re.escape("Action tokenizer not set. Cannot detokenize actions."),
         ):
             policy.predict_action(obs_dict=observation)
-
-
-class TestGetVisionEncoderModules:
-    def test_finds_encoder_with_backbone(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_backbone=True)
-        pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_vision_encoder_modules()
-        assert "rgb_encoder" in result
-        assert result["rgb_encoder"] is encoder
-
-    def test_finds_encoder_with_stages(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_stages=True)
-        encoder.stages = [MagicMock()]
-        pipeline = encoding_pipeline_factory(encoders={"dformer_encoder": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_vision_encoder_modules()
-        assert "dformer_encoder" in result
-
-    def test_finds_encoder_with_layer4(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_layer4=True)
-        pipeline = encoding_pipeline_factory(
-            conditional_encoders={"film_encoder": encoder}
-        )
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_vision_encoder_modules()
-        assert "film_encoder" in result
-
-    def test_finds_encoder_with_attention_block(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_attention_block=True)
-        pipeline = encoding_pipeline_factory(encoders={"light_geo": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_vision_encoder_modules()
-        assert "light_geo" in result
-
-    def test_raises_when_no_vision_encoders(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory()
-        pipeline = encoding_pipeline_factory(encoders={"proprio_encoder": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape(
-                "No compatible vision encoders found in the encoding pipeline. "
-                "Explainer requires encoders that produce spatial feature maps "
-                "(SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
-                "Available encoders: ['proprio_encoder']"
-            ),
-        ):
-            policy.get_vision_encoder_modules()
-
-
-class TestGetGradcamTargetLayers:
-    def test_returns_layer4_for_resnet_backbone(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        backbone = MagicMock()
-        backbone.layer4 = MagicMock()
-        encoder = vision_encoder_factory(has_backbone=True)
-        encoder.backbone = backbone
-        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_gradcam_target_layers(encoder_name="rgb")
-        assert result == [backbone.layer4]
-
-    def test_returns_last_stage_for_stages_backbone(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        backbone = MagicMock()
-        del backbone.layer4
-        backbone.stages = [MagicMock(), MagicMock()]
-        encoder = vision_encoder_factory(has_backbone=True)
-        encoder.backbone = backbone
-        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_gradcam_target_layers(encoder_name="rgb")
-        assert result == [backbone.stages[-1]]
-
-    def test_returns_last_stage_for_dformer_encoder(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_stages=True)
-        encoder.stages = [MagicMock(), MagicMock(), MagicMock()]
-        pipeline = encoding_pipeline_factory(encoders={"dformer": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_gradcam_target_layers(encoder_name="dformer")
-        assert result == [encoder.stages[-1]]
-
-    def test_returns_last_block_for_film_encoder(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_layer4=True)
-        encoder.layer4 = [MagicMock(), MagicMock()]
-        pipeline = encoding_pipeline_factory(conditional_encoders={"film": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_gradcam_target_layers(encoder_name="film")
-        assert result == [encoder.layer4[-1]]
-
-    def test_returns_attention_block_for_light_geometric(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_attention_block=True)
-        pipeline = encoding_pipeline_factory(encoders={"light_geo": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_gradcam_target_layers(encoder_name="light_geo")
-        assert result == [encoder.attention_block]
-
-    def test_raises_for_unrecognized_backbone_structure(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        backbone = MagicMock()
-        del backbone.layer4
-        del backbone.stages
-        encoder = vision_encoder_factory(has_backbone=True)
-        encoder.backbone = backbone
-        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape(
-                f"Encoder 'rgb' has backbone but structure not recognized. "
-                f"Backbone type: {type(backbone).__name__}"
-            ),
-        ):
-            policy.get_gradcam_target_layers(encoder_name="rgb")
-
-    def test_raises_for_unknown_encoder_name(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(has_backbone=True)
-        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        vision_encoder_keys = list(policy.get_vision_encoder_modules().keys())
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                f"Encoder 'nonexistent' not found or not a vision encoder. "
-                f"Available vision encoders: {vision_encoder_keys}"
-            ),
-        ):
-            policy.get_gradcam_target_layers(encoder_name="nonexistent")
-
-
-class TestGetCameraToEncoderMapping:
-    def test_maps_camera_keys_to_encoder_names(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(
-            has_backbone=True,
-            input_keys=[Cameras.LEFT.value],
-        )
-        pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_camera_to_encoder_mapping()
-        assert result == {Cameras.LEFT.value: "rgb_encoder"}
-
-    def test_excludes_non_camera_keys(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(
-            has_backbone=True,
-            input_keys=[Cameras.LEFT.value, "proprio_robot_frame"],
-        )
-        pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_camera_to_encoder_mapping()
-        assert "proprio_robot_frame" not in result
-        assert Cameras.LEFT.value in result
-
-    def test_skips_encoders_without_input_specification(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder_with_spec = vision_encoder_factory(
-            has_backbone=True,
-            input_keys=[Cameras.RIGHT.value],
-        )
-        encoder_without_spec = vision_encoder_factory(has_backbone=True)
-        del encoder_without_spec.input_specification
-        pipeline = encoding_pipeline_factory(
-            encoders={"with_spec": encoder_with_spec, "no_spec": encoder_without_spec},
-        )
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_camera_to_encoder_mapping()
-        assert result == {Cameras.RIGHT.value: "with_spec"}
-        assert "no_spec" not in result.values()
-
-    def test_raises_when_no_camera_mappings(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        encoder = vision_encoder_factory(
-            has_backbone=True,
-            input_keys=["proprio_robot_frame"],
-        )
-        pipeline = encoding_pipeline_factory(encoders={"proprio_encoder": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        valid_camera_keys = {cam.value for cam in Cameras}
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape(
-                f"No camera-to-encoder mappings found. "
-                f"Valid camera keys: {valid_camera_keys}. "
-                f"Vision encoders: ['proprio_encoder']"
-            ),
-        ):
-            policy.get_camera_to_encoder_mapping()

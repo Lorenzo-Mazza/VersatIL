@@ -16,25 +16,27 @@ class RMSNorm(nn.Module):
 
     Args:
         normalized_shape: Input shape from an expected input of size [*, normalized_shape]
-        eps: A value added to the denominator for numerical stability
+        epsilon: A value added to the denominator for numerical stability
         elementwise_affine: If True, learns affine scaling parameters
     """
 
     def __init__(
         self,
         normalized_shape: int,
-        eps: float = 1e-6,
+        epsilon: float = 1e-6,
         elementwise_affine: bool = True,
     ):
         """Initialize RMSNorm.
 
         Args:
             normalized_shape: Feature dimension to normalize
-            eps: Small constant for numerical stability
+            epsilon: Small constant for numerical stability
             elementwise_affine: Whether to learn scaling parameters
         """
         super().__init__()
-        self.eps = eps
+        if epsilon <= 0.0:
+            raise ValueError(f"epsilon must be positive, got {epsilon}.")
+        self.epsilon = epsilon
         self.elementwise_affine = elementwise_affine
 
         if self.elementwise_affine:
@@ -52,7 +54,7 @@ class RMSNorm(nn.Module):
             Normalized tensor of same shape
         """
         # Compute RMS: sqrt(mean(x^2))
-        rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
+        rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.epsilon)
         x_normed = x / rms
 
         if self.elementwise_affine:

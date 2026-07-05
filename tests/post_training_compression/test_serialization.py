@@ -1,6 +1,7 @@
 """Tests for versatil.post_training_compression.serialization module."""
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,8 +16,11 @@ from omegaconf import OmegaConf
 from tests.post_training_compression.conftest import verify_reload_fidelity
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.post_training_compression.constants import (
+    ArtifactFormat,
+    CompressionFilename,
     CompressionMetadataKey,
-    QuantizationStrategy,
+    DeploymentBackendName,
+    QuantizationWorkflow,
 )
 from versatil.post_training_compression.serialization import (
     load_compression_metadata,
@@ -31,8 +35,8 @@ TORCHAO_VERSION_PATCH = patch(
 
 @dataclass
 class MockQuantizationConfig:
-    backend: str = "x86_inductor"
-    strategy: str = "static_ptq"
+    deployment_backend: str = "torch_inductor"
+    workflow: str = QuantizationWorkflow.PT2E.value
     compile_backend: str = "inductor"
 
 
@@ -109,7 +113,10 @@ def saved_compressed_dir(
         input_keys: list[str] | None = None,
         output_keys: list[str] | None = None,
         has_tokenizer: bool = False,
-        quantization_strategy: str = QuantizationStrategy.PT2E.value,
+        quantization_workflow: str = QuantizationWorkflow.PT2E.value,
+        model_filename: str = CompressionFilename.COMPRESSED_MODEL.value,
+        artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
+        backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
     ) -> tuple[Path, nn.Module]:
         if input_keys is None:
             input_keys = ["left"]
@@ -131,7 +138,10 @@ def saved_compressed_dir(
                 normalizer=normalizer,
                 training_checkpoint_path=str(train_dir),
                 quantization_config=MockQuantizationConfig(),
-                quantization_strategy=quantization_strategy,
+                quantization_workflow=quantization_workflow,
+                model_filename=model_filename,
+                artifact_format=artifact_format,
+                backend_name=backend_name,
             )
         return output_dir, model
 
@@ -159,9 +169,21 @@ class TestSaveCompressedModel:
             metadata = json.load(file)
 
         assert (
-            metadata[CompressionMetadataKey.MODEL_FILE.value] == "compressed_policy.pt2"
+            metadata[CompressionMetadataKey.MODEL_FILE.value]
+            == CompressionFilename.COMPRESSED_MODEL.value
         )
-        assert metadata[CompressionMetadataKey.NORMALIZER_FILE.value] == "normalizer.pt"
+        assert (
+            metadata[CompressionMetadataKey.NORMALIZER_FILE.value]
+            == CompressionFilename.NORMALIZER.value
+        )
+        assert (
+            metadata[CompressionMetadataKey.ARTIFACT_FORMAT.value]
+            == ArtifactFormat.TORCH_EXPORT_PT2.value
+        )
+        assert (
+            metadata[CompressionMetadataKey.DEPLOYMENT_BACKEND.value]
+            == DeploymentBackendName.TORCH_INDUCTOR.value
+        )
         assert metadata[CompressionMetadataKey.INPUT_KEYS.value] == ["depth", "left"]
         assert metadata[CompressionMetadataKey.OUTPUT_KEYS.value] == [
             "orientation",
@@ -170,8 +192,8 @@ class TestSaveCompressedModel:
         assert CompressionMetadataKey.TORCHAO_VERSION.value in metadata
         assert CompressionMetadataKey.TORCH_VERSION.value in metadata
         assert (
-            metadata[CompressionMetadataKey.QUANTIZATION_STRATEGY.value]
-            == QuantizationStrategy.PT2E.value
+            metadata[CompressionMetadataKey.QUANTIZATION_WORKFLOW.value]
+            == QuantizationWorkflow.PT2E.value
         )
 
     def test_normalizer_roundtrip(self, saved_compressed_dir):
@@ -215,10 +237,93 @@ class TestSaveCompressedModel:
                 normalizer=normalizer_factory(),
                 training_checkpoint_path=str(train_dir),
                 quantization_config=MockQuantizationConfig(),
-                quantization_strategy=QuantizationStrategy.PT2E.value,
+                quantization_workflow=QuantizationWorkflow.PT2E.value,
             )
 
         assert result == tmp_path / "output"
+
+    def test_requires_model_when_raw_bytes_absent(
+        self,
+        tmp_path,
+        normalizer_factory,
+        training_dir_factory,
+    ):
+        train_dir = training_dir_factory()
+
+        with (
+            TORCHAO_VERSION_PATCH,
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "converted_model is required when model_bytes is not provided."
+                ),
+            ),
+        ):
+            save_compressed_model(
+                converted_model=None,
+                example_inputs=(torch.zeros(2, 4),),
+                save_directory=str(tmp_path / "output"),
+                input_keys=["left"],
+                output_keys=["position"],
+                normalizer=normalizer_factory(),
+                training_checkpoint_path=str(train_dir),
+                quantization_config=MockQuantizationConfig(),
+                quantization_workflow=QuantizationWorkflow.EAGER.value,
+            )
+
+    def test_writes_raw_model_bytes_without_torch_export(
+        self,
+        tmp_path,
+        normalizer_factory,
+        training_dir_factory,
+    ):
+        train_dir = training_dir_factory()
+        output_dir = tmp_path / "output"
+
+        with (
+            TORCHAO_VERSION_PATCH,
+            patch(
+                "versatil.post_training_compression.serialization.torch.export.save"
+            ) as mock_export_save,
+        ):
+            save_compressed_model(
+                converted_model=None,
+                example_inputs=(torch.zeros(2, 4),),
+                save_directory=str(output_dir),
+                input_keys=["left"],
+                output_keys=["position"],
+                normalizer=normalizer_factory(),
+                training_checkpoint_path=str(train_dir),
+                quantization_config=MockQuantizationConfig(),
+                quantization_workflow=QuantizationWorkflow.EAGER.value,
+                model_filename=CompressionFilename.EXECUTORCH_MODEL.value,
+                artifact_format=ArtifactFormat.EXECUTORCH_PTE.value,
+                backend_name=DeploymentBackendName.EXECUTORCH_XNNPACK.value,
+                model_bytes=b"pte-bytes",
+            )
+
+        assert (
+            output_dir / CompressionFilename.EXECUTORCH_MODEL.value
+        ).read_bytes() == b"pte-bytes"
+        with open(output_dir / CompressionFilename.COMPRESSION_METADATA.value) as file:
+            metadata = json.load(file)
+        assert (
+            metadata[CompressionMetadataKey.MODEL_FILE.value]
+            == CompressionFilename.EXECUTORCH_MODEL.value
+        )
+        assert (
+            metadata[CompressionMetadataKey.ARTIFACT_FORMAT.value]
+            == ArtifactFormat.EXECUTORCH_PTE.value
+        )
+        assert (
+            metadata[CompressionMetadataKey.DEPLOYMENT_BACKEND.value]
+            == DeploymentBackendName.EXECUTORCH_XNNPACK.value
+        )
+        assert (
+            metadata[CompressionMetadataKey.QUANTIZATION_WORKFLOW.value]
+            == QuantizationWorkflow.EAGER.value
+        )
+        mock_export_save.assert_not_called()
 
 
 @pytest.mark.unit
@@ -241,18 +346,19 @@ class TestLoadCompressionMetadata:
         )
         assert result[CompressionMetadataKey.INPUT_KEYS.value] == ["left"]
 
-    def test_uses_defaults_when_config_empty(self, tmp_path: Path):
+    def test_ignores_quantization_config_file(self, tmp_path: Path):
         with open(tmp_path / "compression_metadata.json", "w") as file:
             json.dump({CompressionMetadataKey.MODEL_FILE.value: "test.pt2"}, file)
         OmegaConf.save(
-            config=OmegaConf.create({}), f=tmp_path / "quantization_config.yaml"
+            config=OmegaConf.create({"quantization": {"is_qat": True}}),
+            f=tmp_path / "quantization_config.yaml",
         )
 
         result = load_compression_metadata(
             metadata_path=str(tmp_path / "compression_metadata.json"),
         )
 
-        assert result.get(CompressionMetadataKey.IS_DYNAMIC.value) is False
+        assert set(result) == {CompressionMetadataKey.MODEL_FILE.value}
 
 
 @pytest.mark.unit

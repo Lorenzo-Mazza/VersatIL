@@ -172,66 +172,6 @@ class TestCalibrationDataProviderIteration:
 
 
 @pytest.mark.unit
-class TestCalibrationDataProviderSingleBatch:
-    def test_get_single_batch_returns_first_batch(
-        self,
-        rng: np.random.Generator,
-    ):
-        keys = ["left", "right"]
-        batch_size = 2
-        feature_dimension = 4
-
-        left_data = rng.standard_normal((batch_size, feature_dimension)).astype(
-            np.float32
-        )
-        right_data = rng.standard_normal((batch_size, feature_dimension)).astype(
-            np.float32
-        )
-        first_observation = {
-            "left": torch.from_numpy(left_data),
-            "right": torch.from_numpy(right_data),
-        }
-        first_batch = {SampleKey.OBSERVATION.value: first_observation}
-
-        second_observation = {
-            "left": torch.zeros(batch_size, feature_dimension),
-            "right": torch.zeros(batch_size, feature_dimension),
-        }
-        second_batch = {SampleKey.OBSERVATION.value: second_observation}
-
-        dataloader = MagicMock(spec=torch.utils.data.DataLoader)
-        dataloader.__iter__ = MagicMock(return_value=iter([first_batch, second_batch]))
-
-        provider = CalibrationDataProvider(
-            dataloader=dataloader,
-            observation_keys=keys,
-            num_calibration_steps=2,
-            device=torch.device("cpu"),
-        )
-
-        single = provider.get_single_batch()
-
-        assert len(single) == 2
-        # Verify values match the first batch, not the second
-        assert torch.equal(single[0], first_observation["left"])
-        assert torch.equal(single[1], first_observation["right"])
-
-    def test_get_single_batch_raises_on_empty_dataloader(self):
-        dataloader = MagicMock(spec=torch.utils.data.DataLoader)
-        dataloader.__iter__ = MagicMock(return_value=iter([]))
-
-        provider = CalibrationDataProvider(
-            dataloader=dataloader,
-            observation_keys=["left"],
-            num_calibration_steps=0,
-            device=torch.device("cpu"),
-        )
-
-        with pytest.raises(StopIteration):
-            provider.get_single_batch()
-
-
-@pytest.mark.unit
 class TestCalibrationDataProviderDevice:
     def test_defaults_to_cpu(self):
         dataloader = MagicMock(spec=torch.utils.data.DataLoader)

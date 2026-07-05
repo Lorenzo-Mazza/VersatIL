@@ -243,3 +243,18 @@ class TestStructuredPruner:
     def test_amount_validation(self, amount: float, expectation):
         with expectation:
             StructuredPruner(amount=amount)
+
+    def test_prune_raises_when_no_layers_match(self):
+        pruner = StructuredPruner(
+            amount=0.5, layer_types=[PrunableLayerType.CONV2D.value]
+        )
+        module = nn.Sequential(nn.LayerNorm(4), nn.ReLU())
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Structured pruning selected no modules; the target module "
+                "contains no ['Conv2d'] layers."
+            ),
+        ):
+            pruner.prune(module=module)

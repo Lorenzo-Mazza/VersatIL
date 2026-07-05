@@ -5,13 +5,35 @@ from unittest.mock import patch
 
 import pytest
 
-from versatil.common.set_cache_dir import setup_cache_directories
+from versatil.common.set_cache_dir import (
+    DEFAULT_CACHE_DIR,
+    resolve_cache_directory,
+    setup_cache_directories,
+)
 
 
 @pytest.fixture
 def cache_directory(tmp_path):
     """Temporary cache directory for testing."""
     return tmp_path / "test_cache"
+
+
+@pytest.mark.unit
+class TestResolveCacheDirectory:
+    def test_prefers_environment_variable(self, cache_directory):
+        with patch.dict(
+            os.environ, {"VERSATIL_CACHE_DIR": str(cache_directory)}, clear=False
+        ):
+            assert resolve_cache_directory() == cache_directory
+
+    def test_falls_back_to_default_when_environment_variable_is_unset(self):
+        environment_without_override = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "VERSATIL_CACHE_DIR"
+        }
+        with patch.dict(os.environ, environment_without_override, clear=True):
+            assert resolve_cache_directory() == DEFAULT_CACHE_DIR
 
 
 @pytest.mark.unit

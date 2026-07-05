@@ -18,9 +18,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
-    FinalPredictionLayer,
-)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.base import (
     DenominatorMode,
@@ -55,7 +52,6 @@ class DiTBlock(nn.Module):
         number_of_decoder_layers: int,
         embedding_dimension: int,
         number_of_heads: int,
-        output_dimension: int | None = None,
         number_of_key_value_heads: int | None = None,
         feedforward_dimension: int | None = None,
         dropout: float = 0.1,
@@ -150,10 +146,6 @@ class DiTBlock(nn.Module):
             use_gating=use_gating,
             initializer_range=initializer_range,
         )
-        self.output_dimension = output_dimension or embedding_dimension
-        self.epsilon_network = FinalPredictionLayer(
-            self.embedding_dimension, self.output_dimension
-        )
 
     def forward(
         self,
@@ -163,7 +155,7 @@ class DiTBlock(nn.Module):
         encoder_padding_mask: torch.Tensor | None = None,
         decoder_padding_mask: torch.Tensor | None = None,
         encoder_cache: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass through the transformer.
 
         Args:
@@ -175,24 +167,57 @@ class DiTBlock(nn.Module):
             encoder_cache: Precomputed encoder output mean (B, D) for inference.
 
         Returns:
-            Tuple of (encoder_output_mean, decoder_output):
+            Tuple of (encoder_output_mean, decoder_output, conditioning):
                 - encoder_output_mean: Mean of encoder outputs (B, D) for caching.
-                - decoder_output: Decoder output tokens (B, T, self.output_dimension).
+                - decoder_output: Decoder output tokens (B, T, D).
+                - conditioning: Timestep plus encoder conditioning (B, D).
+        """
+        return self.forward_features(
+            decoder_hidden_states=decoder_hidden_states,
+            timesteps=timesteps,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_padding_mask=encoder_padding_mask,
+            decoder_padding_mask=decoder_padding_mask,
+            encoder_cache=encoder_cache,
+        )
+
+    def forward_features(
+        self,
+        decoder_hidden_states: torch.Tensor,
+        timesteps: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        encoder_padding_mask: torch.Tensor | None = None,
+        decoder_padding_mask: torch.Tensor | None = None,
+        encoder_cache: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return encoder cache, decoder hidden states, and conditioning.
+
+        Args:
+            decoder_hidden_states: Decoder input tokens (B, T, D).
+            timesteps: Timesteps (B,).
+            encoder_hidden_states: Encoder input tokens (B, S, D).
+            encoder_padding_mask: Padding mask (B, S).
+            decoder_padding_mask: Padding mask (B, T).
+            encoder_cache: Precomputed encoder output mean (B, D).
+
+        Returns:
+            Tuple of encoder output mean, decoder hidden states, and
+            conditioning with shapes ``(B, D)``, ``(B, T, D)``, and ``(B, D)``.
         """
         if encoder_cache is None:
             encoder_output_mean = self.forward_encoder(
-                encoder_hidden_states, encoder_padding_mask
+                encoder_hidden_states,
+                encoder_padding_mask,
             )
         else:
             encoder_output_mean = encoder_cache
-
-        decoder_output = self.forward_decoder(
-            decoder_hidden_states,
-            timesteps,
-            encoder_output_mean,
-            decoder_padding_mask,
+        decoder_output, combined_conditioning = self.forward_decoder_features(
+            hidden_states=decoder_hidden_states,
+            timesteps=timesteps,
+            encoder_output_mean=encoder_output_mean,
+            padding_mask=decoder_padding_mask,
         )
-        return encoder_output_mean, decoder_output
+        return encoder_output_mean, decoder_output, combined_conditioning
 
     def forward_encoder(
         self,
@@ -231,7 +256,7 @@ class DiTBlock(nn.Module):
         timesteps: torch.Tensor,
         encoder_output_mean: torch.Tensor,
         padding_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Decode with timestep conditioning.
 
         Args:
@@ -241,7 +266,34 @@ class DiTBlock(nn.Module):
             padding_mask: Padding mask (B, T).
 
         Returns:
-            Decoder output tokens (B, T, self.output_dimension).
+            Decoder output tokens and conditioning with shapes ``(B, T, D)``
+            and ``(B, D)``.
+        """
+        return self.forward_decoder_features(
+            hidden_states=hidden_states,
+            timesteps=timesteps,
+            encoder_output_mean=encoder_output_mean,
+            padding_mask=padding_mask,
+        )
+
+    def forward_decoder_features(
+        self,
+        hidden_states: torch.Tensor,
+        timesteps: torch.Tensor,
+        encoder_output_mean: torch.Tensor,
+        padding_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return decoder hidden states and combined conditioning.
+
+        Args:
+            hidden_states: Decoder input tokens (B, T, D).
+            timesteps: Timesteps (B,).
+            encoder_output_mean: Mean encoder output (B, D).
+            padding_mask: Padding mask (B, T).
+
+        Returns:
+            Decoder hidden states and conditioning, with shapes ``(B, T, D)``
+            and ``(B, D)``.
         """
         timestep_embedding = self.timestep_embedding_network(timesteps)  # (B, D)
         combined_conditioning = timestep_embedding + encoder_output_mean
@@ -250,4 +302,4 @@ class DiTBlock(nn.Module):
             condition=combined_conditioning,
             query_padding_mask=padding_mask,
         )
-        return self.epsilon_network(decoder_output, combined_conditioning)
+        return decoder_output, combined_conditioning

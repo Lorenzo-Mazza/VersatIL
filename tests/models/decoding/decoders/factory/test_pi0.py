@@ -7,27 +7,28 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-import torch.nn as nn
 from transformers import (
     Gemma2Config,
     PaliGemmaConfig,
-    PretrainedConfig,
     SiglipVisionConfig,
 )
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    TimeConditioning,
+)
+from versatil.models.decoding.decoders import interleaved_vlm as interleaved_vlm_module
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory import pi0 as pi0_module
 from versatil.models.decoding.decoders.factory.pi0 import Pi0Decoder
-from versatil.models.encoding.encoders.constants import (
-    EncoderOutputKeys,
+from versatil.models.decoding.generative_language_models.constants import (
     PaliGemmaModelType,
 )
-from versatil.models.encoding.encoders.cross_modal.vision_language.paligemma import (
-    PaliGemmaEncoder,
+from versatil.models.decoding.generative_language_models.vision_language.paligemma import (
+    PaliGemmaVLM,
 )
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.normalization.constants import NormalizationType
 
 VLM_HIDDEN_DIMENSION = 32
@@ -78,14 +79,14 @@ def _make_tiny_paligemma_config() -> PaliGemmaConfig:
 
 
 @pytest.fixture(scope="session")
-def real_paligemma_encoder() -> PaliGemmaEncoder:
+def real_paligemma_backbone() -> PaliGemmaVLM:
     tiny_config = _make_tiny_paligemma_config()
     with patch(
-        "versatil.models.encoding.encoders.cross_modal.vision_language"
-        ".generative_vlm.AutoConfig.from_pretrained",
+        "versatil.models.decoding.generative_language_models.vision_language"
+        ".huggingface.AutoConfig.from_pretrained",
         return_value=tiny_config,
     ):
-        encoder = PaliGemmaEncoder(
+        backbone = PaliGemmaVLM(
             input_keys=[
                 Cameras.LEFT.value,
                 SampleKey.TOKENIZED_OBSERVATIONS.value,
@@ -93,10 +94,9 @@ def real_paligemma_encoder() -> PaliGemmaEncoder:
             pretrained=False,
             frozen=False,
             model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
-            use_embeddings_only=True,
         )
-    encoder.vlm = encoder.vlm.float()
-    return encoder
+    backbone.vlm = backbone.vlm.float()
+    return backbone
 
 
 @pytest.fixture
@@ -104,6 +104,7 @@ def pi0_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
     action_head_factory: Callable[..., ActionHead],
+    real_paligemma_backbone: PaliGemmaVLM,
 ) -> Callable[..., Pi0Decoder]:
     def factory(
         expert_hidden_size: int = EXPERT_HIDDEN_SIZE,
@@ -120,13 +121,17 @@ def pi0_decoder_factory(
         normalization_type: str = NormalizationType.RMS_NORM.value,
         dropout: float = 0.0,
         input_keys: list[str] | None = None,
+        vlm_backbone: PaliGemmaVLM | None = None,
+        use_default_vlm_backbone: bool = True,
     ) -> Pi0Decoder:
         if input_keys is None:
             input_keys = [FEATURE_KEY]
+        if vlm_backbone is None and use_default_vlm_backbone:
+            vlm_backbone = real_paligemma_backbone
         action_space = mock_action_space_factory(position_dim=position_dim)
         observation_space = mock_observation_space_factory()
         action_heads = {
-            key: action_head_factory(input_dim=expert_hidden_size)
+            key: action_head_factory(input_dimension=expert_hidden_size)
             for key in action_space.actions_metadata
         }
         return Pi0Decoder(
@@ -147,6 +152,7 @@ def pi0_decoder_factory(
             proprioceptive_feature_key=proprioceptive_feature_key,
             normalization_type=normalization_type,
             dropout=dropout,
+            vlm_backbone=vlm_backbone,
         )
 
     return factory
@@ -155,7 +161,6 @@ def pi0_decoder_factory(
 @pytest.fixture
 def initialized_decoder_factory(
     pi0_decoder_factory: Callable[..., Pi0Decoder],
-    real_paligemma_encoder: PaliGemmaEncoder,
 ) -> Callable[..., Pi0Decoder]:
     def factory(
         expert_hidden_size: int = EXPERT_HIDDEN_SIZE,
@@ -179,11 +184,15 @@ def initialized_decoder_factory(
             normalization_type=normalization_type,
             dropout=dropout,
         )
-        decoder.set_backbone(
-            vlm_layers=real_paligemma_encoder.get_backbone_layers(),
-            rotary_emb=real_paligemma_encoder.get_rotary_embedding(),
-            vlm_hidden_dimension=real_paligemma_encoder.get_backbone_hidden_dim(),
-            vlm_text_config=real_paligemma_encoder.get_text_config(),
+
+        def build_prefix(
+            features: dict[str, torch.Tensor],
+        ) -> tuple[torch.Tensor, torch.Tensor | None]:
+            return features[FEATURE_KEY], features.get(PADDING_MASK_KEY)
+
+        decoder._build_prefix = MagicMock(
+            spec=decoder._build_prefix,
+            side_effect=build_prefix,
         )
         return decoder
 
@@ -211,7 +220,7 @@ def prefix_features_factory(
             ),
         }
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
             )
         if include_proprioceptive:
@@ -229,6 +238,40 @@ def prefix_features_factory(
     return factory
 
 
+@pytest.fixture
+def raw_vlm_features_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    def factory(
+        batch_size: int = BATCH_SIZE,
+        image_size: int = 56,
+        token_length: int = 4,
+        include_timestep: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        features = {
+            Cameras.LEFT.value: torch.from_numpy(
+                rng.standard_normal((batch_size, 3, image_size, image_size)).astype(
+                    np.float32
+                )
+            ),
+            SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
+                rng.integers(low=0, high=100, size=(batch_size, token_length)).astype(
+                    np.int64
+                )
+            ),
+            SampleKey.IS_PAD_OBSERVATION.value: torch.zeros(
+                batch_size, token_length, dtype=torch.bool
+            ),
+        }
+        if include_timestep:
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
+                rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
+            )
+        return features
+
+    return factory
+
+
 class TestPi0DecoderInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -238,7 +281,7 @@ class TestPi0DecoderInitialization:
         assert isinstance(decoder, ActionDecoder)
 
     @pytest.mark.parametrize("expert_hidden_size", [16, 32])
-    @pytest.mark.parametrize("expert_number_of_layers", [2, 4])
+    @pytest.mark.parametrize("expert_number_of_layers", [NUM_EXPERT_LAYERS])
     @pytest.mark.parametrize(
         "time_conditioning",
         [TimeConditioning.CONCAT_MLP.value, TimeConditioning.ADANORM.value],
@@ -266,27 +309,27 @@ class TestPi0DecoderInitialization:
         decoder = pi0_decoder_factory()
         assert decoder.decoder_input.requires_actions is True
 
-    def test_decoder_input_requires_vlm_backbone(
+    def test_requires_vlm_backbone(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
     ):
-        decoder = pi0_decoder_factory()
-        assert decoder.decoder_input.requires_vlm_backbone is True
-
-    def test_forward_raises_before_set_backbone(
-        self,
-        pi0_decoder_factory: Callable[..., Pi0Decoder],
-        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
-        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        decoder = pi0_decoder_factory()
-        features = prefix_features_factory()
-        actions = noisy_actions_factory()
         with pytest.raises(
-            RuntimeError,
-            match=re.escape("set_backbone() must be called before forward()."),
+            ValueError,
+            match=re.escape("Pi0Decoder requires a vlm_backbone."),
         ):
-            decoder(features=features, actions=actions)
+            pi0_decoder_factory(use_default_vlm_backbone=False)
+
+    def test_vlm_backbone_needs_raw_observations(
+        self,
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+        real_paligemma_backbone: PaliGemmaVLM,
+    ):
+        decoder = pi0_decoder_factory(
+            input_keys=[],
+            vlm_backbone=real_paligemma_backbone,
+        )
+        assert decoder.decoder_input.needs_raw_observations is True
+        assert decoder.vlm_backbone is real_paligemma_backbone
 
     @pytest.mark.parametrize(
         "time_conditioning, proprioceptive_feature_key",
@@ -294,32 +337,37 @@ class TestPi0DecoderInitialization:
             (TimeConditioning.CONCAT_MLP.value, PROPRIO_KEY),
             (TimeConditioning.CONCAT_MLP.value, None),
             (TimeConditioning.ADANORM.value, PROPRIO_KEY),
+            (TimeConditioning.ADANORM.value, None),
         ],
     )
-    def test_proprioceptive_projection_deferred_until_set_backbone(
+    def test_proprioceptive_projection_created_from_owned_backbone(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
         time_conditioning: str,
         proprioceptive_feature_key: str | None,
     ):
-        # Before set_backbone, projection is always None regardless of config
         decoder = pi0_decoder_factory(
             time_conditioning=time_conditioning,
             proprioceptive_feature_key=proprioceptive_feature_key,
         )
-        assert decoder.proprioceptive_projection is None
+        # Proprio tokens are appended to the VLM prefix, independent of how
+        # the timestep is fused into the expert, so the projection must exist
+        # for every time_conditioning mode when the key is configured.
+        expected_projection = proprioceptive_feature_key is not None
+        assert (decoder.proprioceptive_projection is not None) == expected_projection
 
-    def test_fill_prefix_cache_raises_before_set_backbone(
+    def test_fill_prefix_cache_raises_when_rotary_embedding_missing(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
     ):
         decoder = pi0_decoder_factory()
+        decoder.vlm_rotary_embedding = None
         prefix = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, EXPERT_HIDDEN_SIZE)
         position_ids = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, dtype=torch.long)
         with pytest.raises(
             RuntimeError,
             match=re.escape(
-                "VLM rotary embedding not set. set_backbone() must be called."
+                "VLM rotary embedding not set. build_action_expert() must be called."
             ),
         ):
             decoder._fill_prefix_cache(
@@ -339,24 +387,13 @@ class TestPi0DecoderInitialization:
         ):
             pi0_decoder_factory(time_conditioning="invalid_mode")
 
-    def test_set_backbone_accepts_adanorm_with_plain_norm(
+    def test_adanorm_initializes_expert_layers(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
     ):
         decoder = pi0_decoder_factory(
             time_conditioning=TimeConditioning.ADANORM.value,
             normalization_type=NormalizationType.RMS_NORM.value,
-        )
-        mock_vlm_layers = nn.ModuleList(
-            [MagicMock(spec=nn.Module) for _ in range(NUM_EXPERT_LAYERS)]
-        )
-        mock_rotary_emb = MagicMock(spec=nn.Module)
-        mock_text_config = MagicMock(spec=PretrainedConfig)
-        decoder.set_backbone(
-            vlm_layers=mock_vlm_layers,
-            rotary_emb=mock_rotary_emb,
-            vlm_hidden_dimension=VLM_HIDDEN_DIMENSION,
-            vlm_text_config=mock_text_config,
         )
         assert decoder.expert_layers is not None
 
@@ -389,11 +426,17 @@ class TestPi0DecoderSetBackbone:
                 TimeConditioning.ADANORM.value,
                 NormalizationType.RMS_NORM.value,
                 PROPRIO_KEY,
+                True,
+            ),
+            (
+                TimeConditioning.ADANORM.value,
+                NormalizationType.RMS_NORM.value,
+                None,
                 False,
             ),
         ],
     )
-    def test_proprioceptive_projection_created_only_for_concat_mlp_with_key(
+    def test_proprioceptive_projection_created_whenever_key_is_set(
         self,
         initialized_decoder_factory: Callable[..., Pi0Decoder],
         time_conditioning: str,
@@ -412,10 +455,9 @@ class TestPi0DecoderSetBackbone:
     def test_raises_when_vlm_layer_count_mismatches_expert_count(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
-        real_paligemma_encoder: PaliGemmaEncoder,
+        real_paligemma_backbone: PaliGemmaVLM,
     ):
-        decoder = pi0_decoder_factory(expert_number_of_layers=99)
-        vlm_layer_count = len(real_paligemma_encoder.get_backbone_layers())
+        vlm_layer_count = len(real_paligemma_backbone.get_backbone_layers())
         with pytest.raises(
             ValueError,
             match=re.escape(
@@ -423,11 +465,9 @@ class TestPi0DecoderSetBackbone:
                 f"(99) layer counts."
             ),
         ):
-            decoder.set_backbone(
-                vlm_layers=real_paligemma_encoder.get_backbone_layers(),
-                rotary_emb=real_paligemma_encoder.get_rotary_embedding(),
-                vlm_hidden_dimension=real_paligemma_encoder.get_backbone_hidden_dim(),
-                vlm_text_config=real_paligemma_encoder.get_text_config(),
+            pi0_decoder_factory(
+                expert_number_of_layers=99,
+                vlm_backbone=real_paligemma_backbone,
             )
 
 
@@ -461,7 +501,7 @@ class TestPi0DecoderForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features "
                 "dict. The algorithm should inject timesteps into features."
             ),
         ):
@@ -484,6 +524,32 @@ class TestPi0DecoderForward:
                 PREDICTION_HORIZON,
                 decoder.action_heads[action_key].output_dim,
             )
+
+    def test_vlm_backbone_builds_prefix_from_observations(
+        self,
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+        real_paligemma_backbone: PaliGemmaVLM,
+        raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = pi0_decoder_factory(
+            input_keys=[],
+            vlm_backbone=real_paligemma_backbone,
+        )
+        features = raw_vlm_features_factory()
+        actions = noisy_actions_factory()
+        with patch.object(
+            real_paligemma_backbone,
+            "build_prefix",
+            wraps=real_paligemma_backbone.build_prefix,
+        ) as build_prefix_spy:
+            outputs = decoder(features=features, actions=actions)
+        build_prefix_spy.assert_called_once_with(inputs=features)
+        assert outputs["position_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            POSITION_DIM,
+        )
 
     def test_output_cast_to_float32(
         self,
@@ -510,6 +576,11 @@ class TestPi0DecoderForward:
         )
         decoder.eval()
         features_without = prefix_features_factory()
+        features_without[PROPRIO_KEY] = torch.zeros(
+            BATCH_SIZE,
+            PROPRIO_DIM,
+            dtype=torch.float32,
+        )
         features_with = {
             key: tensor.clone() for key, tensor in features_without.items()
         }
@@ -525,6 +596,33 @@ class TestPi0DecoderForward:
                 output_without[action_key], output_with[action_key]
             )
 
+    def test_adanorm_with_proprioceptive_key_appends_proprio_tokens(
+        self,
+        initialized_decoder_factory: Callable[..., Pi0Decoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # Proprio tokens go into the VLM prefix regardless of how the timestep
+        # is fused, so ADANORM must not silently drop a configured key.
+        decoder = initialized_decoder_factory(
+            time_conditioning=TimeConditioning.ADANORM.value,
+            proprioceptive_feature_key=PROPRIO_KEY,
+        )
+        features = prefix_features_factory(include_proprioceptive=True)
+        actions = noisy_actions_factory()
+
+        with patch.object(
+            decoder,
+            "_build_interleaved_attention_state",
+            wraps=decoder._build_interleaved_attention_state,
+        ) as attention_state_spy:
+            decoder(features=features, actions=actions)
+
+        attention_state_call = attention_state_spy.call_args
+        prefix_embeddings = attention_state_call.kwargs["prefix_embeddings"]
+        assert prefix_embeddings.shape[1] == PREFIX_SEQUENCE_LENGTH + 1
+        assert attention_state_call.kwargs["causal_prefix_suffix_length"] == 1
+
 
 @pytest.mark.integration
 class TestPi0DecoderBehavior:
@@ -535,7 +633,7 @@ class TestPi0DecoderBehavior:
         noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         decoder = initialized_decoder_factory()
-        # Freeze VLM, then restore after test to avoid polluting session-scoped encoder
+        # Freeze VLM, then restore after test to avoid polluting session-scoped backbone
         original_requires_grad = {
             parameter: parameter.requires_grad
             for parameter in decoder.vlm_layers.parameters()
@@ -571,9 +669,13 @@ class TestPi0DecoderBehavior:
         )
         decoder.eval()
         features_low = prefix_features_factory()
-        features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
+        features_low[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.01
+        )
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
+        features_high[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.99
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -595,9 +697,13 @@ class TestPi0DecoderBehavior:
         )
         decoder.eval()
         features_low = prefix_features_factory()
-        features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
+        features_low[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.01
+        )
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
+        features_high[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.99
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -615,8 +721,8 @@ class TestPi0DecoderBehavior:
         decoder.eval()
         features_a = prefix_features_factory()
         features_b = prefix_features_factory()
-        features_b[DecoderOutputKey.TIMESTEP.value] = features_a[
-            DecoderOutputKey.TIMESTEP.value
+        features_b[AlgorithmContextKey.TIMESTEP.value] = features_a[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         actions = noisy_actions_factory()
         with torch.no_grad():
@@ -682,9 +788,9 @@ class TestPi0DecoderBehavior:
         features = prefix_features_factory(include_padding_mask=True)
         actions = noisy_actions_factory()
         with patch.object(
-            pi0_module,
+            interleaved_vlm_module,
             "make_attention_mask",
-            wraps=pi0_module.make_attention_mask,
+            wraps=interleaved_vlm_module.make_attention_mask,
         ) as spy:
             decoder(features=features, actions=actions)
         received_mask = spy.call_args.kwargs["feature_token_mask"]
@@ -754,8 +860,8 @@ class TestPi0DecoderCaching:
             output_a = decoder(features=features_a, actions=actions)
         # With cache, different prefix is ignored
         features_b = prefix_features_factory()
-        features_b[DecoderOutputKey.TIMESTEP.value] = features_a[
-            DecoderOutputKey.TIMESTEP.value
+        features_b[AlgorithmContextKey.TIMESTEP.value] = features_a[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         with torch.no_grad():
             output_stale = decoder(features=features_b, actions=actions)
@@ -768,6 +874,30 @@ class TestPi0DecoderCaching:
             output_fresh = decoder(features=features_b, actions=actions)
         for action_key in actions:
             assert not torch.allclose(output_a[action_key], output_fresh[action_key])
+
+    def test_encoder_cache_skips_prefix_rebuild(
+        self,
+        initialized_decoder_factory: Callable[..., Pi0Decoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # The prefix depends only on the observation; with the cache hot the
+        # vision tower must not run again on every denoising step.
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        actions = noisy_actions_factory()
+        features = prefix_features_factory()
+
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)
+        assert decoder._build_prefix.call_count == 1
+
+        decoder.enable_encoder_cache()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        assert decoder._build_prefix.call_count == 2
 
     def test_cached_forwards_are_self_consistent(
         self,

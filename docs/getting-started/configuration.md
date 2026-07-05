@@ -4,10 +4,10 @@ VersatIL uses [Hydra](https://hydra.cc/) and [OmegaConf](https://omegaconf.readt
 
 ## Hydra Composition Pattern
 
-Instead of monolithic config files, VersatIL composes small, reusable config blocks stored in `hydra_configs/`. An end-to-end training config declares which blocks to combine via `defaults:`:
+Instead of monolithic config files, VersatIL composes small, reusable config blocks stored in `src/versatil/hydra_configs/`. An end-to-end training config declares which blocks to combine via `defaults:`:
 
 ```yaml
-# hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
+# src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
 
 # Required in all end-to-end configs: declares the package scope and the target dataclass.
 # @package _global_
@@ -25,19 +25,18 @@ defaults:
   - /policy/encoding_pipeline: stereo_rgb
   - /policy/decoder: act_default
   - /policy/algorithm: bc_with_vae_gaussian
-  - /policy/loss: regression_gripper_KL
-  - /inference: default
+  - /policy/loss: regression_gripper_kl
   - _self_
 ```
 
-Each line references a YAML file under `hydra_configs/`. For example, `/policy/algorithm: bc_with_vae_gaussian` loads `hydra_configs/policy/algorithm/bc_with_vae_gaussian.yaml`.
+Each line references a YAML file under `src/versatil/hydra_configs/`. For example, `/policy/algorithm: bc_with_vae_gaussian` loads `src/versatil/hydra_configs/policy/algorithm/bc_with_vae_gaussian.yaml`.
 
 The `_self_` entry at the end means that any values defined directly in this file override values from the defaults.
 
 ### Config Group Hierarchy
 
 ```
-hydra_configs/
+src/versatil/hydra_configs/
 ├── end_to_end_training_runs/    # Complete training configs
 │   ├── bowel_retraction/
 │   ├── libero_hdf5/
@@ -54,7 +53,7 @@ hydra_configs/
 │   ├── decoder/                 # Architecture configs
 │   ├── algorithm/               # Algorithm configs
 │   └── loss/                    # Loss configs
-└── inference/                   # Inference settings
+└── end_to_end_deploy/           # Deployment endpoint configs
 ```
 
 ### Creating a New Experiment
@@ -62,7 +61,7 @@ hydra_configs/
 To create a new experiment, write a YAML file that references existing config blocks and overrides only the parameters that differ:
 
 ```yaml
-# hydra_configs/end_to_end_training_runs/my_dataset/diffusion.yaml
+# src/versatil/hydra_configs/end_to_end_training_runs/my_dataset/diffusion.yaml
 defaults:
   - /task: base
   - /policy: base
@@ -76,7 +75,6 @@ defaults:
   - /policy/decoder: dit_block_transformer
   - /policy/algorithm: diffusion
   - /policy/loss: regression_gripper
-  - /inference: default
   - _self_
 
 experiment:
@@ -104,7 +102,6 @@ class MainConfig:
     task: TaskSpaceConfig
     training: TrainingConfig
     policy: PolicyConfig
-    inference: InferenceConfig
     quantization: Any = None
 ```
 
@@ -123,7 +120,6 @@ class PolicyConfig:
     observation_horizon: int = "${task.observation_horizon}"
     device: str = "${experiment.device}"
     loss: CompositeLossConfig = MISSING
-    validate_loss_keys: bool = True
 ```
 
 - Fields set to `MISSING` are required and must be provided by a config file or CLI override.
@@ -144,16 +140,16 @@ When adding a new component:
         dropout: float = 0.1
     ```
 
-2. Register it in the ConfigStore (`src/versatil/configs/__init__.py`):
+2. Register it in the ConfigStore (in the matching domain module under `src/versatil/configs/store/`, e.g. `policy.py`):
 
     ```python
     cs.store(group="policy/decoder", name="my_component", node=MyComponentConfig)
     ```
 
-3. Create the YAML file in `hydra_configs/`:
+3. Create the YAML file in `src/versatil/hydra_configs/`:
 
     ```yaml
-    # hydra_configs/policy/decoder/my_component.yaml
+    # src/versatil/hydra_configs/policy/decoder/my_component.yaml
     _target_: versatil.models.my_module.MyComponent
     feature_dim: 256
     dropout: 0.1
@@ -191,6 +187,10 @@ checkpoint_folder: ${checkpoint_dir:bowel_retraction}  # VERSATIL_CHECKPOINT_DIR
 zarr_path: ${zarr_dir:my_dataset}                      # VERSATIL_ZARR_DIR/my_dataset
 cache: ${cache_dir:}                                    # VERSATIL_CACHE_DIR
 
+# Dataset directory resolver: takes the environment variable to read as its
+# first argument and an optional subpath as the second
+dataset_folders: ${dataset_dir:VERSATIL_LIBERO_HDF5_DIR,libero_10}  # $VERSATIL_LIBERO_HDF5_DIR/libero_10
+
 # Environment variable resolver
 api_key: ${env:WANDB_API_KEY}            # Direct env var access
 ```
@@ -218,9 +218,9 @@ The [`ExperimentValidator`][versatil.validation.ExperimentValidator] in `src/ver
 ```python
 # src/versatil/validation.py
 def validate_decoder_encoder_compatibility(self):
-    available_features_to_dims = self.encoding_pipeline.get_final_features_to_dimensions()
+    available_features = self.encoding_pipeline.get_features()
     self.decoder.decoder_input.validate_feature_types(
-        available_features_to_dims=available_features_to_dims
+        available_features=available_features
     )
 ```
 
@@ -249,7 +249,7 @@ Replace an entire config group from the command line:
 ```bash
 python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
-    policy/loss=regression_gripper_MMD \
+    policy/loss=regression_gripper_mmd \
     policy/algorithm=diffusion
 ```
 

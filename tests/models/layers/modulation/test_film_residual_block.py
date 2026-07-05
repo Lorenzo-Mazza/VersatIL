@@ -16,14 +16,14 @@ def filmed_resblock_factory() -> Callable[..., FiLMedResBlock]:
     def factory(
         in_channels: int = 16,
         out_channels: int = 16,
-        condition_dim: int = 32,
+        conditioning_dimension: int = 32,
         stride: int = 1,
         downsample: nn.Module | None = None,
     ) -> FiLMedResBlock:
         return FiLMedResBlock(
             in_channels=in_channels,
             out_channels=out_channels,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             stride=stride,
             downsample=downsample,
         )
@@ -34,18 +34,18 @@ def filmed_resblock_factory() -> Callable[..., FiLMedResBlock]:
 class TestFiLMedResBlockInitialization:
     @pytest.mark.parametrize("in_channels", [16, 32])
     @pytest.mark.parametrize("out_channels", [16, 64])
-    @pytest.mark.parametrize("condition_dim", [32, 64])
+    @pytest.mark.parametrize("conditioning_dimension", [32, 64])
     def test_stores_configuration(
         self,
         filmed_resblock_factory: Callable[..., FiLMedResBlock],
         in_channels: int,
         out_channels: int,
-        condition_dim: int,
+        conditioning_dimension: int,
     ):
         module = filmed_resblock_factory(
             in_channels=in_channels,
             out_channels=out_channels,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         assert module.conv1.in_channels == in_channels
         assert module.conv1.out_channels == out_channels
@@ -66,11 +66,11 @@ class TestFiLMedResBlockInitialization:
         module = filmed_resblock_factory(
             in_channels=feature_dim,
             out_channels=feature_dim,
-            condition_dim=32,
+            conditioning_dimension=32,
         )
         module.eval()
         tensor = nchw_tensor_factory(batch_size=2, channels=feature_dim)
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         # Identity init: gamma=0, beta=0 → film(x, cond) = x * (1+0) + 0 = x
         with torch.no_grad():
             bn_output = module.bn1(module.conv1(tensor))
@@ -89,11 +89,11 @@ class TestFiLMedResBlockForward:
         module = filmed_resblock_factory(
             in_channels=channels,
             out_channels=channels,
-            condition_dim=32,
+            conditioning_dimension=32,
         )
         module.eval()
         tensor = nchw_tensor_factory(batch_size=2, channels=channels, height=8, width=8)
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
         assert output.shape == (2, channels, 8, 8)
@@ -113,14 +113,14 @@ class TestFiLMedResBlockForward:
         module = filmed_resblock_factory(
             in_channels=in_channels,
             out_channels=out_channels,
-            condition_dim=32,
+            conditioning_dimension=32,
             downsample=downsample,
         )
         module.eval()
         tensor = nchw_tensor_factory(
             batch_size=2, channels=in_channels, height=8, width=8
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
         assert output.shape == (2, out_channels, 8, 8)
@@ -143,7 +143,7 @@ class TestFiLMedResBlockForward:
         module = filmed_resblock_factory(
             in_channels=in_channels,
             out_channels=out_channels,
-            condition_dim=32,
+            conditioning_dimension=32,
             stride=stride,
             downsample=downsample,
         )
@@ -151,7 +151,7 @@ class TestFiLMedResBlockForward:
         tensor = nchw_tensor_factory(
             batch_size=2, channels=in_channels, height=8, width=8
         )
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
         assert output.shape == (2, out_channels, 4, 4)
@@ -166,7 +166,7 @@ class TestFiLMedResBlockForward:
         module = filmed_resblock_factory(
             in_channels=channels,
             out_channels=channels,
-            condition_dim=32,
+            conditioning_dimension=32,
         )
         module.eval()
         # Set FiLM projection weights to nonzero so conditioning has an effect
@@ -174,8 +174,8 @@ class TestFiLMedResBlockForward:
             if hasattr(layer, "weight"):
                 nn.init.xavier_uniform_(layer.weight)
         tensor = nchw_tensor_factory(batch_size=2, channels=channels, height=8, width=8)
-        condition_a = condition_factory(batch_size=2, condition_dim=32)
-        condition_b = condition_factory(batch_size=2, condition_dim=32)
+        condition_a = condition_factory(batch_size=2, conditioning_dimension=32)
+        condition_b = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output_a = module(x=tensor, condition=condition_a)
             output_b = module(x=tensor, condition=condition_b)
@@ -191,14 +191,14 @@ class TestFiLMedResBlockForward:
         module = filmed_resblock_factory(
             in_channels=channels,
             out_channels=channels,
-            condition_dim=32,
+            conditioning_dimension=32,
         )
         module.eval()
         # Zero conv weights so main branch produces ~zero output
         nn.init.zeros_(module.conv1.weight)
         nn.init.zeros_(module.conv2.weight)
         tensor = nchw_tensor_factory(batch_size=2, channels=channels, height=8, width=8)
-        condition = condition_factory(batch_size=2, condition_dim=32)
+        condition = condition_factory(batch_size=2, conditioning_dimension=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
         # With conv weights zeroed, main branch ≈ 0, so output ≈ relu(0 + x) = relu(x)

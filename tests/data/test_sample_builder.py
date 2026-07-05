@@ -441,6 +441,8 @@ class TestComputeActionPaddingMask:
             ("precomputed", [True, False, False, False]),
             ("on_the_fly_delta", [True, False, False, True]),
             ("on_the_fly_absolute", [False, False, False, True]),
+            ("mixed_precomputed_absolute", [True, False, False, True]),
+            ("mixed_precomputed_delta", [True, False, False, True]),
         ],
     )
     def test_padding_mask_respects_action_type_data_dependency(
@@ -465,11 +467,27 @@ class TestComputeActionPaddingMask:
                     computation_method=ActionComputationMethod.DELTA.value,
                 ),
             }
-        else:
+        elif action_type == "on_the_fly_absolute":
             actions_metadata = {
                 "position": on_the_fly_action_metadata_factory(
                     source_metadata=position_observation_metadata_factory(),
                     computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+                ),
+            }
+        elif action_type == "mixed_precomputed_absolute":
+            actions_metadata = {
+                "phase": position_action_metadata_factory(prediction_dimension=1),
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(),
+                    computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+                ),
+            }
+        else:
+            actions_metadata = {
+                "phase": position_action_metadata_factory(prediction_dimension=1),
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(),
+                    computation_method=ActionComputationMethod.DELTA.value,
                 ),
             }
         builder = sample_builder_factory(

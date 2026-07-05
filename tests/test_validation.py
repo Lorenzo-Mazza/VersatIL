@@ -12,17 +12,27 @@ from versatil.configs.training import (
     ParameterGroupConfig,
     TrainingConfig,
 )
-from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
-from versatil.data.metadata import CameraMetadata
+from versatil.data.constants import (
+    CameraModality,
+    ImageNormalizationType,
+    ObsKey,
+    RawCameraKey,
+    SampleKey,
+)
+from versatil.data.metadata import DepthCameraMetadata, RGBCameraMetadata
 from versatil.metrics.base import BaseLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.interleaved_vlm import (
+    BaseInterleavedVLMDecoder,
+)
 from versatil.models.encoding.encoders.base import EncoderInput, EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.training.stage import TrainingStage
 from versatil.validation import (
     ExperimentValidationError,
@@ -43,6 +53,24 @@ def _flat_features(dims: dict[str, int]) -> dict[str, FeatureMetadata]:
     }
 
 
+def _camera_metadata(camera_key: str = RawCameraKey.LEFT.value) -> RGBCameraMetadata:
+    return RGBCameraMetadata(
+        camera_key=camera_key,
+        dtype="uint8",
+        image_width=224,
+        image_height=224,
+    )
+
+
+def _depth_camera_metadata() -> DepthCameraMetadata:
+    return DepthCameraMetadata(
+        camera_key=RawCameraKey.DEPTH.value,
+        dtype="float32",
+        image_width=224,
+        image_height=224,
+    )
+
+
 @pytest.fixture
 def mock_encoder_factory() -> Callable[..., MagicMock]:
     """Factory for mock EncodingMixin instances with configurable input keys."""
@@ -51,11 +79,21 @@ def mock_encoder_factory() -> Callable[..., MagicMock]:
         input_keys: str | list[str] = "left",
         backbone_name: str | None = None,
         model_name: str | None = None,
+        exactly_one_camera_modality: list[CameraModality] | None = None,
+        required_camera_modalities: list[CameraModality] | None = None,
     ) -> MagicMock:
         encoder = MagicMock(spec=EncodingMixin)
         if isinstance(input_keys, str):
             input_keys = [input_keys]
-        encoder.input_specification = EncoderInput(keys=input_keys)
+        encoder.input_specification = EncoderInput(
+            keys=input_keys,
+            exactly_one_camera_modality=exactly_one_camera_modality
+            if exactly_one_camera_modality is not None
+            else [],
+            required_camera_modalities=required_camera_modalities
+            if required_camera_modalities is not None
+            else [],
+        )
         encoder.validate_input_metadata.return_value = None
         if backbone_name is not None:
             encoder.backbone_name = backbone_name
@@ -105,21 +143,29 @@ def mock_decoder_factory() -> Callable[..., MagicMock]:
     def factory(
         input_keys: list[str] | None = None,
         action_head_keys: list[str] | None = None,
-        supports_tokenized_actions: bool = False,
+        requires_tokenized_actions: bool = False,
         auxiliary_output_keys: set[str] | None = None,
         decoder_class: type = ActionDecoder,
+        needs_raw_observations: bool = False,
+        vlm_backbone: MagicMock | None = None,
     ) -> MagicMock:
         decoder = MagicMock(spec=decoder_class)
         if input_keys is None:
             input_keys = ["visual_features"]
-        decoder.decoder_input = DecoderInput(keys=input_keys)
+        decoder.decoder_input = DecoderInput(
+            keys=input_keys,
+            needs_raw_observations=needs_raw_observations,
+        )
         if action_head_keys is None:
             action_head_keys = ["position"]
         head_dict = {}
         for key in action_head_keys:
             head_dict[key] = MagicMock()
         decoder.action_heads = head_dict
-        decoder.supports_tokenized_actions = supports_tokenized_actions
+        decoder.get_loss_output_keys.return_value = set(action_head_keys)
+        decoder.get_prediction_output_keys.return_value = set(action_head_keys)
+        decoder.vlm_backbone = vlm_backbone
+        decoder.requires_tokenized_actions = requires_tokenized_actions
         if auxiliary_output_keys is None:
             auxiliary_output_keys = set()
         decoder.get_auxiliary_output_keys.return_value = auxiliary_output_keys
@@ -137,8 +183,7 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
     ) -> MagicMock:
         observation_space = MagicMock()
         if observation_keys is None:
-            camera_meta = MagicMock(spec=CameraMetadata)
-            observation_keys = {"left": camera_meta}
+            observation_keys = {"left": _camera_metadata()}
         observation_space.observations_metadata = observation_keys
         return observation_space
 
@@ -213,6 +258,11 @@ def mock_algorithm_factory() -> Callable[..., MagicMock]:
             if auxiliary_output_keys is None:
                 auxiliary_output_keys = set()
         algorithm.get_auxiliary_output_keys.return_value = auxiliary_output_keys
+        algorithm.injected_feature_keys.return_value = (
+            {LatentKey.POSTERIOR_LATENT.value, LatentKey.PRIOR_LATENT.value}
+            if is_variational
+            else set()
+        )
         algorithm.predicts_in_action_space = predicts_in_action_space
         return algorithm
 
@@ -240,6 +290,7 @@ def validator_factory(
         is_tokenized: bool = False,
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
+        quantization_config: BaseQuantizationWorkflow | str | None = None,
         training_config: TrainingConfig | None = None,
     ) -> ExperimentValidator:
         return ExperimentValidator(
@@ -252,6 +303,7 @@ def validator_factory(
             is_tokenized=is_tokenized,
             tokenized_obs_keys=tokenized_obs_keys,
             image_norm_type=image_norm_type,
+            quantization_config=quantization_config,
             training_config=training_config,
         )
 
@@ -387,8 +439,8 @@ class TestValidateAll:
         # Encoder processes "left" but observation space also has "right" uncovered
         encoder = mock_encoder_factory(input_keys="left")
         pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
-        camera_left = MagicMock(spec=CameraMetadata)
-        camera_right = MagicMock(spec=CameraMetadata)
+        camera_left = _camera_metadata()
+        camera_right = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_left, "right": camera_right}
         )
@@ -418,7 +470,7 @@ class TestValidateAll:
         # Error 1: encoder requires key not in observation space
         encoder = mock_encoder_factory(input_keys="nonexistent_camera")
         pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -437,6 +489,29 @@ class TestValidateAll:
             match=re.escape("Policy validation failed with 2 error(s):"),
         ):
             validator.validate_all()
+
+
+@pytest.mark.unit
+class TestValidateQuantization:
+    def test_none_quantization_config_is_accepted(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+    ):
+        validator = validator_factory(quantization_config=None)
+        validator.validate_quantization()
+        assert validator.errors == []
+
+    def test_invalid_quantization_config_adds_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+    ):
+        validator = validator_factory(quantization_config="not_a_workflow")
+        validator.validate_quantization()
+        assert validator.errors == [
+            "Quantization config is type str, expected a quantization workflow "
+            "with quantization_mode. This may indicate incorrect Hydra "
+            "instantiation."
+        ]
 
 
 @pytest.mark.unit
@@ -496,7 +571,7 @@ class TestValidateEncoderObservationConsistency:
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         # Camera observations should remain in available_keys even with tokenization
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         encoder = mock_encoder_factory(input_keys="left")
         pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         observation_space = mock_observation_space_factory(
@@ -571,7 +646,7 @@ class TestValidateEncoderObservationConsistency:
         mock_encoder_factory: Callable[..., MagicMock],
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         proprio_meta = MagicMock()
         encoder = mock_encoder_factory(input_keys=["left", "gripper_state_obs"])
         pipeline = mock_encoding_pipeline_factory(encoders={"encoder": encoder})
@@ -598,7 +673,7 @@ class TestValidateEncoderObservationConsistency:
     ):
         encoder = mock_encoder_factory(input_keys="depth")
         pipeline = mock_encoding_pipeline_factory(encoders={"depth_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -616,6 +691,127 @@ class TestValidateEncoderObservationConsistency:
         )
         assert validator.errors[0] == expected_error
 
+    def test_encoder_required_camera_modalities_passes_when_metadata_matches(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            required_camera_modalities=[CameraModality.RGB],
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": _camera_metadata()}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        assert validator.errors == []
+
+    def test_encoder_required_camera_modalities_errors_when_metadata_missing(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            required_camera_modalities=[CameraModality.DEPTH],
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"depth_encoder": encoder})
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": _camera_metadata()}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        assert validator.errors == [
+            "Encoder 'depth_encoder' accepts only camera modalities ['depth'], "
+            "but input key(s) ['left'] have rgb camera metadata.",
+            "Encoder 'depth_encoder' requires a depth camera input, "
+            "got none from input keys ['left'].",
+        ]
+
+    def test_encoder_exactly_one_camera_modality_errors_for_multiple_matches(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys=["left", "right"],
+            exactly_one_camera_modality=[CameraModality.RGB],
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"rgbd_encoder": encoder})
+        observation_space = mock_observation_space_factory(
+            observation_keys={
+                "left": _camera_metadata(camera_key=RawCameraKey.LEFT.value),
+                "right": _camera_metadata(camera_key=RawCameraKey.RIGHT.value),
+            }
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        assert validator.errors == [
+            "Encoder 'rgbd_encoder' requires exactly one rgb camera input, "
+            "got ['left', 'right'] from input keys ['left', 'right']."
+        ]
+
+    def test_decoder_vlm_camera_modality_constraints_are_validated(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_decoder_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+    ):
+        vlm_backbone = mock_encoder_factory(
+            input_keys="left",
+            required_camera_modalities=[CameraModality.DEPTH],
+        )
+        decoder = mock_decoder_factory(
+            input_keys=["robot_state_proprio"],
+            decoder_class=BaseInterleavedVLMDecoder,
+            needs_raw_observations=True,
+            vlm_backbone=vlm_backbone,
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={})
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": _camera_metadata()}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            decoder=decoder,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        assert validator.errors == [
+            f"Decoder '{type(decoder).__name__}' VLM backbone accepts only "
+            "camera modalities ['depth'], but input key(s) ['left'] have rgb "
+            "camera metadata.",
+            f"Decoder '{type(decoder).__name__}' VLM backbone requires a depth "
+            "camera input, got none from input keys ['left'].",
+        ]
+
     def test_dinov3_backbone_with_wrong_normalization_produces_error(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -628,7 +824,7 @@ class TestValidateEncoderObservationConsistency:
             backbone_name="DINOv3_ViT_Small",
         )
         pipeline = mock_encoding_pipeline_factory(encoders={"vit_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -658,7 +854,7 @@ class TestValidateEncoderObservationConsistency:
             backbone_name="DINOv3_ViT_Small",
         )
         pipeline = mock_encoding_pipeline_factory(encoders={"vit_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -669,6 +865,101 @@ class TestValidateEncoderObservationConsistency:
         )
         validator.validate_encoder_observation_consistency()
         assert len(validator.errors) == 0
+
+    @pytest.mark.parametrize(
+        "image_norm_type",
+        [
+            ImageNormalizationType.IMAGENET.value,
+            ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        ],
+    )
+    def test_prismatic_backbone_without_zero_to_one_input_produces_error(
+        self,
+        image_norm_type: str,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            model_name="prism-dinosiglip-224px+7b",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"prismatic": encoder})
+        camera_meta = _camera_metadata()
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=image_norm_type,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 1
+        expected_error = (
+            "Encoder 'prismatic' uses DINOv2+SigLIP vision backbone "
+            "which requires zero-to-one camera tensors before its internal "
+            "DINOv2/SigLIP standardization, but image_norm_type is set to "
+            f"'{image_norm_type}'. Set it to 'zero_to_one'."
+        )
+        assert validator.errors[0] == expected_error
+
+    def test_prismatic_backbone_with_zero_to_one_input_passes(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            model_name="prism-dinosiglip-224px+7b",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"prismatic": encoder})
+        camera_meta = _camera_metadata()
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.ZERO_TO_ONE.value,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 0
+
+    def test_dinov2_siglip_encoder_without_zero_to_one_input_produces_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        encoder = mock_encoder_factory(
+            input_keys="left",
+            backbone_name="dinov2_siglip-vit-so-224px",
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"dinov2_siglip": encoder})
+        camera_meta = _camera_metadata()
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        )
+        validator.validate_encoder_observation_consistency()
+        assert len(validator.errors) == 1
+        expected_error = (
+            "Encoder 'dinov2_siglip' uses DINOv2+SigLIP vision backbone "
+            "which requires zero-to-one camera tensors before its internal "
+            "DINOv2/SigLIP standardization, but image_norm_type is set to "
+            f"'{ImageNormalizationType.MINUS_ONE_TO_ONE.value}'. Set it to "
+            "'zero_to_one'."
+        )
+        assert validator.errors[0] == expected_error
 
     def test_clip_backbone_with_wrong_normalization_produces_error(
         self,
@@ -682,7 +973,7 @@ class TestValidateEncoderObservationConsistency:
             model_name="openai/clip-vit-base-patch32",
         )
         pipeline = mock_encoding_pipeline_factory(encoders={"clip_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -712,7 +1003,7 @@ class TestValidateEncoderObservationConsistency:
             backbone_name="vit_base_patch16_clip_224.laion2b_ft_in12k_in1k",
         )
         pipeline = mock_encoding_pipeline_factory(encoders={"clip_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -736,7 +1027,7 @@ class TestValidateEncoderObservationConsistency:
             model_name="google/siglip2-base-patch16-naflex",
         )
         pipeline = mock_encoding_pipeline_factory(encoders={"siglip_encoder": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -767,7 +1058,7 @@ class TestValidateEncoderObservationConsistency:
             model_name="HuggingFaceTB/SmolVLM-256M-Instruct",
         )
         pipeline = mock_encoding_pipeline_factory(encoders={"smolvlm": encoder})
-        camera_meta = MagicMock(spec=CameraMetadata)
+        camera_meta = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -779,6 +1070,148 @@ class TestValidateEncoderObservationConsistency:
         validator.validate_encoder_observation_consistency()
         assert len(validator.errors) == 0
 
+    def test_decoder_owned_prismatic_vlm_with_wrong_normalization_produces_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_decoder_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+    ):
+        vlm_backbone = mock_encoder_factory(
+            input_keys="left",
+            model_name="prism-dinosiglip-224px+7b",
+        )
+        decoder = mock_decoder_factory(
+            input_keys=[],
+            decoder_class=BaseInterleavedVLMDecoder,
+            needs_raw_observations=True,
+            vlm_backbone=vlm_backbone,
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={})
+        camera_meta = _camera_metadata()
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            decoder=decoder,
+            observation_space=observation_space,
+            image_norm_type=ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        assert validator.errors == [
+            f"Encoder '{type(decoder).__name__}.vlm_backbone' uses "
+            "DINOv2+SigLIP vision backbone which requires zero-to-one camera "
+            "tensors before its internal DINOv2/SigLIP standardization, but "
+            "image_norm_type is set to "
+            f"'{ImageNormalizationType.MINUS_ONE_TO_ONE.value}'. Set it to "
+            "'zero_to_one'."
+        ]
+
+    def test_decoder_owned_vlm_inputs_count_as_configured_observations(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_decoder_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+    ):
+        vlm_backbone = mock_encoder_factory(input_keys="left")
+        decoder = mock_decoder_factory(
+            input_keys=["robot_state_proprio"],
+            decoder_class=BaseInterleavedVLMDecoder,
+            needs_raw_observations=True,
+            vlm_backbone=vlm_backbone,
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={})
+        camera_meta = _camera_metadata()
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            decoder=decoder,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        assert validator.errors == []
+        assert validator.warnings == []
+
+    def test_decoder_owned_vlm_missing_observation_key_produces_error(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_decoder_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+    ):
+        vlm_backbone = mock_encoder_factory(input_keys="right")
+        decoder = mock_decoder_factory(
+            input_keys=["robot_state_proprio"],
+            decoder_class=BaseInterleavedVLMDecoder,
+            needs_raw_observations=True,
+            vlm_backbone=vlm_backbone,
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={})
+        camera_meta = _camera_metadata()
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": camera_meta}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            decoder=decoder,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        expected_prefix = (
+            f"Decoder '{type(decoder).__name__}' requires observation keys "
+            "{'right'} which are not in observation space."
+        )
+        assert any(error.startswith(expected_prefix) for error in validator.errors)
+
+    def test_decoder_owned_vlm_validates_input_metadata(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_observation_space_factory: Callable[..., MagicMock],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_decoder_factory: Callable[..., MagicMock],
+        mock_encoder_factory: Callable[..., MagicMock],
+    ):
+        vlm_backbone = mock_encoder_factory(input_keys="left")
+        vlm_backbone.validate_input_metadata.return_value = (
+            "Expected CameraMetadata for 'left', got MagicMock"
+        )
+        decoder = mock_decoder_factory(
+            input_keys=["robot_state_proprio"],
+            decoder_class=BaseInterleavedVLMDecoder,
+            needs_raw_observations=True,
+            vlm_backbone=vlm_backbone,
+        )
+        pipeline = mock_encoding_pipeline_factory(encoders={})
+        observation_space = mock_observation_space_factory(
+            observation_keys={"left": MagicMock()}
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            decoder=decoder,
+            observation_space=observation_space,
+        )
+
+        validator.validate_encoder_observation_consistency()
+
+        expected_error = (
+            f"Decoder '{type(decoder).__name__}' VLM backbone: "
+            "Expected CameraMetadata for 'left', got MagicMock"
+        )
+        assert expected_error in validator.errors
+
     def test_uncovered_observation_keys_produce_warning(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -788,8 +1221,8 @@ class TestValidateEncoderObservationConsistency:
     ):
         encoder = mock_encoder_factory(input_keys="left")
         pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
-        camera_left = MagicMock(spec=CameraMetadata)
-        camera_right = MagicMock(spec=CameraMetadata)
+        camera_left = _camera_metadata()
+        camera_right = _camera_metadata()
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_left, "right": camera_right}
         )
@@ -934,11 +1367,49 @@ class TestValidateDecoderEncoderCompatibility:
         validator.validate_decoder_encoder_compatibility()
         assert len(validator.errors) == 1
         expected_error = (
-            "Action decoding network expects input feature 'language_features' "
-            "but it's not produced by any encoder or fusion layer. "
-            "Available features: ['visual_features']"
+            "Action decoder expects input key 'language_features' but it is "
+            "neither a raw observation nor produced by any encoder or fusion "
+            "layer. Available raw observations: ['left']. Available encoded "
+            "features: ['visual_features']"
         )
         assert validator.errors[0] == expected_error
+
+    def test_raw_observation_decoder_key_passes_when_declared(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_encoding_pipeline_factory: Callable[..., MagicMock],
+        mock_decoder_factory: Callable[..., MagicMock],
+        mock_observation_space_factory: Callable[..., MagicMock],
+    ):
+        pipeline = mock_encoding_pipeline_factory(
+            features={
+                "robot_state_proprio": FeatureMetadata(
+                    key="robot_state_proprio",
+                    feature_type=FeatureType.FLAT.value,
+                    dimension=(64,),
+                ),
+            }
+        )
+        decoder = mock_decoder_factory(input_keys=["robot_state_proprio", "left"])
+        observation_space = mock_observation_space_factory(
+            observation_keys={
+                "left": RGBCameraMetadata(
+                    camera_key=RawCameraKey.IMAGE.value,
+                    dtype="uint8",
+                    image_width=224,
+                    image_height=224,
+                )
+            }
+        )
+        validator = validator_factory(
+            encoding_pipeline=pipeline,
+            decoder=decoder,
+            observation_space=observation_space,
+        )
+
+        validator.validate_decoder_encoder_compatibility()
+
+        assert validator.errors == []
 
     def test_calls_validate_feature_types_on_decoder_input(
         self,
@@ -964,8 +1435,16 @@ class TestValidateDecoderEncoderCompatibility:
             decoder=decoder,
         )
         validator.validate_decoder_encoder_compatibility()
+        expected_features = {
+            **features,
+            "left": FeatureMetadata(
+                key="left",
+                feature_type=FeatureType.SPATIAL.value,
+                dimension=(3, 224, 224),
+            ),
+        }
         mock_decoder_input.validate_feature_types.assert_called_once_with(
-            available_features=features
+            available_features=expected_features
         )
 
 
@@ -983,7 +1462,7 @@ class TestValidateMoEGatingFeature:
         decoder.action_heads = {"position": MagicMock()}
         decoder.has_gating_network = True
         decoder.gating_feature_key = "visual_features"
-        decoder.supports_tokenized_actions = False
+        decoder.requires_tokenized_actions = False
         decoder.__class__ = MoEDecoder
 
         validator = validator_factory(
@@ -1005,7 +1484,7 @@ class TestValidateMoEGatingFeature:
         decoder.action_heads = {"position": MagicMock()}
         decoder.has_gating_network = True
         decoder.gating_feature_key = "nonexistent_feature"
-        decoder.supports_tokenized_actions = False
+        decoder.requires_tokenized_actions = False
         decoder.__class__ = MoEDecoder
 
         validator = validator_factory(
@@ -1032,7 +1511,7 @@ class TestValidateMoEGatingFeature:
         decoder.decoder_input = DecoderInput(keys=["visual_features"])
         decoder.action_heads = {"position": MagicMock()}
         decoder.has_gating_network = False
-        decoder.supports_tokenized_actions = False
+        decoder.requires_tokenized_actions = False
         decoder.__class__ = MoEDecoder
 
         validator = validator_factory(
@@ -1055,7 +1534,7 @@ class TestValidateMoEGatingFeature:
         decoder.action_heads = {"position": MagicMock()}
         decoder.has_gating_network = True
         decoder.gating_feature_key = LatentKey.POSTERIOR_LATENT.value
-        decoder.supports_tokenized_actions = False
+        decoder.requires_tokenized_actions = False
         decoder.__class__ = MoEDecoder
 
         algorithm = mock_algorithm_factory(is_variational=True)
@@ -1081,7 +1560,7 @@ class TestValidateMoEGatingFeature:
         decoder.action_heads = {"position": MagicMock()}
         decoder.has_gating_network = True
         decoder.gating_feature_key = LatentKey.POSTERIOR_LATENT.value
-        decoder.supports_tokenized_actions = False
+        decoder.requires_tokenized_actions = False
         decoder.__class__ = MoEDecoder
 
         algorithm = mock_algorithm_factory(is_variational=False)
@@ -1240,7 +1719,7 @@ class TestValidateLossKeys:
         validator.validate_loss_keys()
         assert len(validator.errors) == 0
 
-    def test_free_action_transformer_adds_binary_logits_key(
+    def test_auxiliary_output_keys_satisfy_loss_requirements(
         self,
         validator_factory: Callable[..., ExperimentValidator],
         mock_decoder_factory: Callable[..., MagicMock],
@@ -1365,7 +1844,7 @@ class TestValidateExperiment:
         mock_config.policy.decoder = MagicMock(spec=ActionDecoder)
         mock_config.policy.decoder.decoder_input = DecoderInput(keys=[])
         mock_config.policy.decoder.action_heads = {}
-        mock_config.policy.decoder.supports_tokenized_actions = False
+        mock_config.policy.decoder.requires_tokenized_actions = False
         mock_config.policy.decoder.__class__ = ActionDecoder
         mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
         mock_config.policy.loss_module.get_required_keys.return_value = set()
@@ -1394,7 +1873,7 @@ class TestValidateExperiment:
         mock_config.policy.decoder = MagicMock(spec=ActionDecoder)
         mock_config.policy.decoder.decoder_input = DecoderInput(keys=[])
         mock_config.policy.decoder.action_heads = {}
-        mock_config.policy.decoder.supports_tokenized_actions = False
+        mock_config.policy.decoder.requires_tokenized_actions = False
         mock_config.policy.decoder.__class__ = ActionDecoder
         mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
         mock_config.policy.loss_module.get_required_keys.return_value = set()
@@ -1427,7 +1906,7 @@ class TestValidateExperiment:
         mock_config.policy.decoder = MagicMock(spec=ActionDecoder)
         mock_config.policy.decoder.decoder_input = DecoderInput(keys=[])
         mock_config.policy.decoder.action_heads = {}
-        mock_config.policy.decoder.supports_tokenized_actions = False
+        mock_config.policy.decoder.requires_tokenized_actions = False
         mock_config.policy.decoder.__class__ = ActionDecoder
         mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
         mock_config.policy.loss_module.get_required_keys.return_value = set()
@@ -1456,7 +1935,7 @@ class TestValidateExperiment:
         mock_config.policy.decoder = MagicMock(spec=ActionDecoder)
         mock_config.policy.decoder.decoder_input = DecoderInput(keys=[])
         mock_config.policy.decoder.action_heads = {}
-        mock_config.policy.decoder.supports_tokenized_actions = False
+        mock_config.policy.decoder.requires_tokenized_actions = False
         mock_config.policy.decoder.__class__ = ActionDecoder
         mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
         mock_config.policy.loss_module.get_required_keys.return_value = set()
@@ -1486,7 +1965,7 @@ class TestValidateExperiment:
         mock_config.policy.decoder = MagicMock(spec=ActionDecoder)
         mock_config.policy.decoder.decoder_input = DecoderInput(keys=[])
         mock_config.policy.decoder.action_heads = {}
-        mock_config.policy.decoder.supports_tokenized_actions = False
+        mock_config.policy.decoder.requires_tokenized_actions = False
         mock_config.policy.decoder.__class__ = ActionDecoder
         mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
         mock_config.policy.loss_module.get_required_keys.return_value = set()

@@ -9,9 +9,6 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
-    FinalPredictionLayer,
-)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.base import (
     DenominatorMode,
@@ -47,7 +44,6 @@ class MMDiTTransformer(nn.Module):
         number_of_layers: int,
         embedding_dimension: int,
         number_of_heads: int,
-        output_dimension: int | None = None,
         feedforward_dimension: int | None = None,
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
@@ -69,7 +65,6 @@ class MMDiTTransformer(nn.Module):
             number_of_layers: Number of MMDiT layers.
             embedding_dimension: Hidden dimension of the transformer.
             number_of_heads: Number of attention heads.
-            output_dimension: Output dimension for action predictions.
             feedforward_dimension: FFN hidden dimension.
             dropout: Dropout rate.
             attention_dropout: Dropout rate for attention.
@@ -120,10 +115,6 @@ class MMDiTTransformer(nn.Module):
             bias=bias,
             initializer_range=initializer_range,
         )
-        self.output_dimension = output_dimension or embedding_dimension
-        self.prediction_layer = FinalPredictionLayer(
-            embedding_dimension, self.output_dimension
-        )
 
     def forward(
         self,
@@ -132,7 +123,7 @@ class MMDiTTransformer(nn.Module):
         encoder_hidden_states: torch.Tensor,
         encoder_padding_mask: torch.Tensor | None = None,
         decoder_padding_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through the MMDiT transformer.
 
         Args:
@@ -143,7 +134,8 @@ class MMDiTTransformer(nn.Module):
             decoder_padding_mask: Padding mask for actions (B, T).
 
         Returns:
-            Predicted actions of shape (B, T, output_dimension).
+            Action hidden states and conditioning, with shapes ``(B, T, D)``
+            and ``(B, D)``.
         """
         timestep_embedding = self.timestep_embedding_network(timesteps)
         observation_output, action_output = self.decoder(
@@ -153,4 +145,22 @@ class MMDiTTransformer(nn.Module):
             attention_mask_observation=encoder_padding_mask,
             attention_mask_action=decoder_padding_mask,
         )
-        return self.prediction_layer(action_output, timestep_embedding)
+        del observation_output
+        return action_output, timestep_embedding
+
+    def forward_features(
+        self,
+        decoder_hidden_states: torch.Tensor,
+        timesteps: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        encoder_padding_mask: torch.Tensor | None = None,
+        decoder_padding_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Alias for ``forward`` kept for decoder readability."""
+        return self(
+            decoder_hidden_states=decoder_hidden_states,
+            timesteps=timesteps,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_padding_mask=encoder_padding_mask,
+            decoder_padding_mask=decoder_padding_mask,
+        )

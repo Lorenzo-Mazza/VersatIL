@@ -103,7 +103,6 @@ class BidirectionalDecoder(TransformerMixin, nn.Module):
                     use_cross_attention=use_cross_attention,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
-                    autoregressive=False,
                 )
                 for _ in range(number_of_layers)
             ]

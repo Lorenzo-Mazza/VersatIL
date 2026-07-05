@@ -1,0 +1,15 @@
+_target_: albumentations.Compose
+transforms:
+  - _target_: albumentations.GaussianBlur
+    blur_limit: [3, 7]
+    p: 0.5
+  - _target_: albumentations.CoarseDropout
+    num_holes_range: [8, 8]
+    hole_height_range: [8, 8]
+    hole_width_range: [8, 8]
+    p: 0.3
+  - _target_: albumentations.ShiftScaleRotate
+    rotate_limit: [0, 0]
+    scale_limit: [-0.5, 0.6]
+    shift_limit: [-0.0625, 0.0625]
+    p: 0.5

@@ -3,7 +3,10 @@
 import torch
 from torch import nn
 
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    LatentKey,
+)
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.state_condition_pool import (
     StateConditionPool,
@@ -45,7 +48,6 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
-        use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         learn_variance: bool = True,
         min_logvar: float | None = None,
@@ -70,7 +72,6 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.max_logvar = max_logvar
         self.deterministic = deterministic
         self.embedding_dimension = embedding_dimension
-        self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
         self.number_of_heads = number_of_heads
@@ -108,13 +109,12 @@ class PriorTransformerEncoder(PriorLatentEncoder):
                 embedding_dimension=self.embedding_dimension
             )
         self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
+            embedding_dimension=self.embedding_dimension,
             spatial_positional_encoding_layer=image_positional_encoding,
             temporal_positional_encoding_layer=temporal_positional_encoding,
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension,
-                maximum_length=1000,
+                maximum_sequence_length=1000,
             ),
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
@@ -163,7 +163,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
+        input_observations[AlgorithmContextKey.CLASS_TOKEN.value] = cls_embedding
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension)
@@ -182,7 +182,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         encoder_output = self.encoder(
             hidden_states=hidden_states,
             padding_mask=padding_mask,
-        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dimension)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = latent_stats  # (B, latent_dim)

@@ -1,0 +1,8 @@
+defaults:
+  - lerobot
+  - zarr_meta/block_pushing_abs@metadata
+
+_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
+dataset_type: ${dataset_type:BLOCK_PUSHING}
+dataset_path: ${dataset_dir:VERSATIL_BLOCK_PUSHING_LEROBOT_ABS_DIR}
+zarr_path: ${zarr_dir:block_pushing_abs.zarr}

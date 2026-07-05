@@ -1,0 +1,17 @@
+defaults:
+  - base
+
+tokenize_observations: true
+tokenize_actions: true
+observation_tokenizer:
+  tokenizer_model: ${language_model:BERT_BASE}
+  observation_keys:
+    - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+  max_token_len: 32
+action_tokenizer:
+  action_discretizer:
+    type: ${action_discretizer:FAST}
+    use_pretrained: false
+  token_id_mapping:
+    type: ${action_token_id_mapping:IDENTITY}
+  max_token_len: 128

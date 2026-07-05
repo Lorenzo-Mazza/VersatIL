@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.constants import RGB_CAMERAS
-from versatil.data.metadata import CameraMetadata
+from versatil.data.metadata import RGBCameraMetadata
 from versatil.data.task import ObservationSpace
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import (
     EncoderInput,
     EncodingMixin,
@@ -23,6 +23,23 @@ from versatil.models.feature_meta import (
     FeatureType,
     infer_feature_type,
 )
+
+
+@pytest.fixture
+def lora_passthrough() -> Callable[
+    [torch.nn.Module, LoRAAdaptation | None, bool], torch.nn.Module
+]:
+    """Shared LoRA side effect that returns the unmodified module."""
+
+    def passthrough(
+        model: torch.nn.Module,
+        lora_config: LoRAAdaptation | None,
+        frozen: bool,
+    ) -> torch.nn.Module:
+        _ = lora_config, frozen
+        return model
+
+    return passthrough
 
 
 @pytest.fixture
@@ -63,7 +80,8 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
         )
         encoder.get_vocab_size = MagicMock(return_value=vocab_size)
         if is_image_encoder:
-            encoder._camera_group = RGB_CAMERAS
+            encoder.camera_keys = input_keys
+            encoder.set_camera_metadata = MagicMock()
             encoder.set_image_size = MagicMock(
                 side_effect=lambda image_height, image_width: None
             )
@@ -121,7 +139,8 @@ def conditional_encoder_mock_factory(
         encoder.condition_key = condition_key
         encoder.get_vocab_size = MagicMock(return_value=None)
         if is_image_encoder:
-            encoder._camera_group = RGB_CAMERAS
+            encoder.camera_keys = input_keys
+            encoder.set_camera_metadata = MagicMock()
             encoder.set_image_size = MagicMock(
                 side_effect=lambda image_height, image_width: None
             )
@@ -178,17 +197,15 @@ def default_observation_space(
     """Default ObservationSpace with left/right cameras for pipeline tests."""
     return observation_space_factory(
         observations_metadata={
-            "left": CameraMetadata(
+            "left": RGBCameraMetadata(
                 camera_key="left",
                 dtype="uint8",
-                channels=3,
                 image_height=224,
                 image_width=224,
             ),
-            "right": CameraMetadata(
+            "right": RGBCameraMetadata(
                 camera_key="right",
                 dtype="uint8",
-                channels=3,
                 image_height=224,
                 image_width=224,
             ),

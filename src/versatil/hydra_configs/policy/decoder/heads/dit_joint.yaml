@@ -1,0 +1,12 @@
+defaults:
+  - /policy/decoder/action_head@joint_action: conditional
+  - _self_
+
+joint_action:
+  input_dimension: ${policy.decoder.embedding_dimension}
+  conditioning_dimension: ${policy.decoder.embedding_dimension}
+  blocks:
+    - _target_: versatil.models.decoding.action_heads.blocks.AdaNormBlock
+      input_dimension: ${...input_dimension}
+      conditioning_dimension: ${...conditioning_dimension}
+      activation: ${activation_function:SILU}

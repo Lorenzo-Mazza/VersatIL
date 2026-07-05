@@ -40,12 +40,12 @@ def spatial_decay_factory() -> Callable[..., SpatialDecayMask]:
     """Factory for SpatialDecayMask instances."""
 
     def factory(
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         initial_decay: float = 5.0,
         decay_range: float = 3.0,
     ) -> SpatialDecayMask:
         return SpatialDecayMask(
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             initial_decay=initial_decay,
             decay_range=decay_range,
         )
@@ -58,9 +58,9 @@ def depth_decay_factory() -> Callable[..., DepthAwareDecayMask]:
     """Factory for DepthAwareDecayMask instances."""
 
     def factory(
-        num_heads: int = 4,
+        number_of_heads: int = 4,
     ) -> DepthAwareDecayMask:
-        return DepthAwareDecayMask(num_heads=num_heads)
+        return DepthAwareDecayMask(number_of_heads=number_of_heads)
 
     return factory
 
@@ -71,14 +71,14 @@ def geometric_bias_factory() -> Callable[..., GeometricAttentionBias]:
 
     def factory(
         embedding_dimension: int = 32,
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         initial_decay: float = 5.0,
         decay_range: float = 3.0,
         base_frequency: float = 10000.0,
     ) -> GeometricAttentionBias:
         return GeometricAttentionBias(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             initial_decay=initial_decay,
             decay_range=decay_range,
             base_frequency=base_frequency,
@@ -93,7 +93,7 @@ def geometric_attention_factory() -> Callable[..., GeometricSelfAttention]:
 
     def factory(
         embedding_dimension: int = 32,
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         value_dimension_factor: int = 1,
         decomposition_mode: str = AttentionDecompositionMode.FULL.value,
         initial_decay: float = 5.0,
@@ -103,7 +103,7 @@ def geometric_attention_factory() -> Callable[..., GeometricSelfAttention]:
     ) -> GeometricSelfAttention:
         return GeometricSelfAttention(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             value_dimension_factor=value_dimension_factor,
             decomposition_mode=decomposition_mode,
             initial_decay=initial_decay,
@@ -122,7 +122,7 @@ def encoder_block_factory() -> Callable[..., GeometricAttentionEncoderBlock]:
     def factory(
         decomposition_mode: AttentionDecompositionMode = AttentionDecompositionMode.FULL,
         embedding_dimension: int = 32,
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         ffn_dimension: int = 64,
         drop_path_rate: float = 0.0,
         use_layer_scale: bool = False,
@@ -134,7 +134,7 @@ def encoder_block_factory() -> Callable[..., GeometricAttentionEncoderBlock]:
         return GeometricAttentionEncoderBlock(
             decomposition_mode=decomposition_mode,
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             ffn_dimension=ffn_dimension,
             drop_path_rate=drop_path_rate,
             use_layer_scale=use_layer_scale,

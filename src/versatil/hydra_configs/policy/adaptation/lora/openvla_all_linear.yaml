@@ -1,0 +1,9 @@
+_target_: versatil.models.adaptation.lora.LoRAAdaptation
+
+enabled: true
+rank: 32
+alpha: 16
+dropout: 0.0
+target_modules: ${lora_target_modules:ALL_LINEAR}
+exclude_modules: null
+bias: none

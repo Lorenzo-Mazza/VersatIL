@@ -1,24 +1,24 @@
 """Tests for versatil.configs.post_training_compression module."""
 
-from pathlib import Path
-
 import hydra
 import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
 import versatil.configs  # noqa: F401
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.configs.post_training_compression import (
     CompressionTargetConfig,
+    ExecutorchXNNPACKBackendConfig,
     PostTrainingCompressorConfig,
     PreparationConfig,
 )
 from versatil.post_training_compression.compressor import (
     PostTrainingCompressor,
 )
-from versatil.quantization.strategies import PT2EStrategy
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
-HYDRA_CONFIG_DIR = str(Path(__file__).parents[2] / "hydra_configs")
+HYDRA_CONFIG_DIR = str(get_hydra_configs_dir())
 
 
 @pytest.mark.unit
@@ -48,31 +48,42 @@ class TestCompressionTargetConfig:
         config = CompressionTargetConfig(
             module_path="decoder",
         )
+        omega = OmegaConf.structured(config)
 
         assert config.preparation == "${preparation}"
         assert config.pruning == "${pruning}"
-        assert config.quantization == "${quantization}"
+        assert "quantization" not in omega
+
+
+@pytest.mark.unit
+class TestExecutorchXNNPACKBackendConfig:
+    def test_default_max_batch_size(self) -> None:
+        config = ExecutorchXNNPACKBackendConfig()
+
+        assert config.max_batch_size == 32
+
+    @pytest.mark.parametrize("max_batch_size", [1, 8, 16])
+    def test_stores_configuration(self, max_batch_size: int) -> None:
+        config = ExecutorchXNNPACKBackendConfig(max_batch_size=max_batch_size)
+
+        assert config.max_batch_size == max_batch_size
 
 
 @pytest.mark.unit
 class TestPostTrainingCompressorConfig:
-    @pytest.mark.parametrize("device", ["cpu", "cuda"])
     @pytest.mark.parametrize("calibration_steps", [64, 256])
-    def test_stores_configuration(self, device, calibration_steps):
+    def test_stores_configuration(self, calibration_steps):
         config = PostTrainingCompressorConfig(
             checkpoint_path="/tmp/ckpt",
-            device=device,
             calibration_steps=calibration_steps,
         )
 
         assert config.checkpoint_path == "/tmp/ckpt"
-        assert config.device == device
         assert config.calibration_steps == calibration_steps
 
     def test_omegaconf_roundtrip(self):
         config = PostTrainingCompressorConfig(
             checkpoint_path="/tmp/ckpt",
-            device="cpu",
             calibration_steps=64,
         )
 
@@ -83,8 +94,8 @@ class TestPostTrainingCompressorConfig:
 
 
 @pytest.mark.unit
-class TestPerModuleYamlInheritance:
-    def test_modules_inherit_global_quantization(self):
+class TestPerModuleYamlQuantizationTarget:
+    def test_top_level_workflow_owns_quantization_targets(self):
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             yaml_config = compose(
                 config_name="end_to_end_ptq/unstructured_prune_x86_decoder_only",
@@ -94,6 +105,8 @@ class TestPerModuleYamlInheritance:
         compressor = hydra.utils.instantiate(yaml_config)
 
         assert isinstance(compressor, PostTrainingCompressor)
-        for module in compressor.modules:
-            if module.quantization is not None:
-                assert isinstance(module.quantization, PT2EStrategy)
+        assert [module.module_path for module in compressor.modules] == ["decoder"]
+        assert isinstance(compressor.quantization, PT2EQuantizationWorkflow)
+        assert [target.module_path for target in compressor.quantization.targets] == [
+            "decoder"
+        ]

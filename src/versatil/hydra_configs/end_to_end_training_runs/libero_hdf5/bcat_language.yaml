@@ -1,0 +1,62 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: libero_10
+  - /task/dataloader: libero
+  - /task/action_space: libero_precomputed
+  - /task/observation_space: libero_rgb
+  - /training: latent
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder
+  - /policy/decoder: action_transformer_language
+  - /policy/algorithm: bc_with_learned_prior
+  - /policy/loss: regression_gripper_mmd
+  - override /policy/decoder/heads@policy.decoder.action_heads: libero
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+
+experiment:
+  precision: ${precision:FP32}
+  checkpoint_folder: ${checkpoint_dir:libero}
+
+training:
+  num_epochs: 200
+  early_stopping_patience: 100
+  lr_schedule: null
+  lr_warmup_steps: 20000
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+
+
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:EE_ORI_ACTION}
+      gripper_loss:
+        key: ${proprio_key:GRIPPER_STATE_ACTION}
+      trajectory_length:
+        action_key: ${proprio_key:EE_POS_ACTION}
+  encoding_pipeline:
+    encoders:
+        left:
+            input_keys:
+              - ${cameras:AGENTVIEW}
+        right:
+            input_keys:
+              - ${cameras:EYE_IN_HAND}

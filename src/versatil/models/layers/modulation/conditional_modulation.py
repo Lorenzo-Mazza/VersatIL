@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.gated_linear_unit import GatedLinearUnit
 
 
 class ConditionalModulation(nn.Module):
@@ -24,7 +25,7 @@ class ConditionalModulation(nn.Module):
 
     def __init__(
         self,
-        condition_dim: int,
+        conditioning_dimension: int,
         feature_dim: int,
         use_shift: bool = True,
         use_gate: bool = False,
@@ -35,7 +36,7 @@ class ConditionalModulation(nn.Module):
         """Initialize conditional modulation.
 
         Args:
-            condition_dim: Dimension of conditioning vector.
+            conditioning_dimension: Dimension of conditioning vector.
             feature_dim: Dimension of features to modulate.
             use_shift: Whether to include shift (beta) or just scale (gamma).
             use_gate: Whether to include gate output.
@@ -66,12 +67,12 @@ class ConditionalModulation(nn.Module):
         activation_enum = ActivationFunction(activation)
         if activation_enum.is_gated:
             self.projection = activation_enum.to_torch_activation()(
-                input_dim=condition_dim, hidden_dim=self.output_dim
+                input_dimension=conditioning_dimension, hidden_dimension=self.output_dim
             )
         else:
             self.projection = nn.Sequential(
                 activation_enum.to_torch_activation()(),
-                nn.Linear(condition_dim, self.output_dim),
+                nn.Linear(conditioning_dimension, self.output_dim),
             )
         self.init_parameters()
 
@@ -84,15 +85,23 @@ class ConditionalModulation(nn.Module):
         linear_layers = [
             m for m in self.projection.modules() if isinstance(m, nn.Linear)
         ]
+        for layer in linear_layers:
+            layer._is_modulation_layer = True
         if self.init_strategy == "zero":
-            for layer in linear_layers:
-                layer._is_modulation_layer = True
+            if isinstance(self.projection, GatedLinearUnit):
+                # Zeroing both GLU branches makes the product's gradient
+                # identically zero, freezing the modulation forever. Zeroing
+                # only the value branch keeps the initial output at zero while
+                # gradients still flow through the gate.
+                zero_layers = [self.projection.value_proj]
+            else:
+                zero_layers = linear_layers
+            for layer in zero_layers:
                 nn.init.constant_(layer.weight, 0)
                 if layer.bias is not None:
                     nn.init.constant_(layer.bias, 0)
         elif self.init_strategy == "xavier":
             for layer in linear_layers:
-                layer._is_modulation_layer = True
                 nn.init.xavier_uniform_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
@@ -109,7 +118,7 @@ class ConditionalModulation(nn.Module):
                 - CNN: (B, C, H, W)
                 - Transformer: (B, S, D)
                 - Conv1D: (B, C, T) when ``feature_axis=1``
-            condition: Conditioning vector (B, condition_dim).
+            condition: Conditioning vector (B, conditioning_dimension).
 
         Returns:
             Tuple of (modulated features, gate). Gate is a learned tensor

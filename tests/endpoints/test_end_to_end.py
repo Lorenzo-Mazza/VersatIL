@@ -28,7 +28,7 @@ from tests.endpoints.conftest import (
     start_mock_observation_server,
 )
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
@@ -117,7 +117,7 @@ def _create_synthetic_zarr(
     E2E_CONFIGS,
     ids=[c.split("/")[-1] for c in E2E_CONFIGS],
 )
-def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
+def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path, rng):
     try:
         if "flow_unet" in config_name and "libero_hdf5" in config_name:
             pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
@@ -125,7 +125,6 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
             pytest.skip("pi0 requires HF_TOKEN for gated PaliGemma model")
 
         dataset_type = resolve_dataset_type(config_name)
-        rng = np.random.default_rng(42)
         zarr_path = str(tmp_path / "data.zarr")
         checkpoint_dir = str(tmp_path / "checkpoints")
 
@@ -176,7 +175,7 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
             "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
             lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
         ):
-            policy_loader = PolicyLoader(
+            policy_loader = FloatPolicyRuntime(
                 device=E2E_DEVICE,
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
@@ -197,7 +196,7 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
                 server_port=port,
             )
             client = InferenceClient(
-                policy_loader=policy_loader,
+                policy_runtime=policy_loader,
                 observation_transport=observation_transport,
                 action_transport=action_transport,
                 compression_type=CompressionType.RAW.value,

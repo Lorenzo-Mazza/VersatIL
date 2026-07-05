@@ -1,8 +1,0 @@
-defaults:
-  - lerobot
-  - zarr_meta/ur3@metadata
-
-_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
-dataset_type: ${dataset_type:UR3}
-dataset_path: ${ur3_lerobot_dir:}
-zarr_path: ${zarr_dir:ur3.zarr}

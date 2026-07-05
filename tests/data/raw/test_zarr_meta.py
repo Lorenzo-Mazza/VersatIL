@@ -214,6 +214,50 @@ class TestDatasetMetadataObservationProperties:
         assert expected_key in result
         assert isinstance(result[expected_key], expected_type)
 
+    def test_depth_cameras_returns_only_depth_metadata(
+        self,
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        metadata = dataset_metadata_factory(
+            observations={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            }
+        )
+
+        assert set(metadata.depth_cameras) == {Cameras.DEPTH.value}
+
+    def test_rgb_cameras_excludes_depth_metadata(
+        self,
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        metadata = dataset_metadata_factory(
+            observations={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                Cameras.RIGHT.value: camera_metadata_factory(
+                    camera_key=Cameras.RIGHT.value
+                ),
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            }
+        )
+
+        assert set(metadata.rgb_cameras) == {
+            Cameras.LEFT.value,
+            Cameras.RIGHT.value,
+        }
+
     @pytest.mark.parametrize(
         "property_name",
         [

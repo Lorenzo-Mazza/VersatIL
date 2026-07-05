@@ -120,8 +120,8 @@ class PatchEmbedding(nn.Module):
             return_patch_size: If True, also return the effective patch size after embedding.
 
         Returns:
-            For PROGRESSIVE: Tensor of shape (batch size, H', W', embedding_dim)
-            For STANDARD/OVERLAPPING: Tensor of shape (batch size, N, embedding_dim) where N = num_patches
+            For PROGRESSIVE: Tensor of shape (batch size, H', W', embedding_dimension)
+            For STANDARD/OVERLAPPING: Tensor of shape (batch size, N, embedding_dimension) where N = num_patches
         """
         x = self.projection(x)  # (B, embedding_dimension, H', W')
         _, _, H, W = x.shape
@@ -146,12 +146,14 @@ class PatchMerging(nn.Module):
     Output: [B, H//2, W//2, out_dim].
     """
 
-    def __init__(self, dim: int, out_dim: int, norm_layer=nn.LayerNorm):
+    def __init__(
+        self, dim: int, out_dim: int, norm_layer=nn.LayerNorm, bias: bool = False
+    ):
         super().__init__()
         self.dim = dim
         self.out_dim = out_dim
         self.reduction = nn.Conv2d(
-            dim, out_dim, kernel_size=3, stride=2, padding=1, bias=False
+            dim, out_dim, kernel_size=3, stride=2, padding=1, bias=bias
         )
         self.norm_layer = norm_layer
         # Instantiate norm based on type

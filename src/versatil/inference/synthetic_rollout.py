@@ -90,7 +90,8 @@ def run_rollouts(
     At each step, the policy predicts a full action trajectory. With
     temporal aggregation enabled, overlapping predictions for the current
     timestep are averaged with exponential weights favoring more recent
-    queries. Without it, only the first predicted action is used.
+    queries. Without it, the policy executes the full predicted chunk
+    before replanning.
 
     Policy-input frames intentionally render without any goal marker.
     Per-mode expert goals are still drawn in the user-facing rollout
@@ -404,6 +405,7 @@ def _prepare_observation(
     Renders one frame per history timestep with progressive trails, and
     stacks all modalities along the temporal dimension to match the
     (B, T, ...) convention used during training.
+
     Args:
         position_history: Last obs_horizon Cartesian positions (x, y)
             in [0, 1]. Shape (obs_horizon, 2).
@@ -413,6 +415,8 @@ def _prepare_observation(
         trail: Full trail up to current step for rendering. Shape (N, 2)
             or None. Each history frame renders the trail up to its timestep.
         context_vector: One-hot context for conditional tasks, or None.
+        context_color: RGB color of the rendered context indicator for
+            conditional tasks, or None to render no indicator.
 
     Returns:
         Dict mapping observation keys to batched torch tensors

@@ -12,14 +12,14 @@ class DepthAwareDecayMask(nn.Module):
     depth differences between positions.
     """
 
-    def __init__(self, num_heads: int):
+    def __init__(self, number_of_heads: int):
         """Initializes depth-aware decay mask.
 
         Args:
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
         """
         super().__init__()
-        self.num_heads = num_heads
+        self.number_of_heads = number_of_heads
 
     @staticmethod
     def compute_depth_difference_matrix(
@@ -47,17 +47,22 @@ class DepthAwareDecayMask(nn.Module):
 
     @staticmethod
     def compute_1d_depth_difference_matrix(
-        depth_map: torch.Tensor, axis: str
+        depth_map: torch.Tensor, axis: str, height: int, width: int
     ) -> torch.Tensor:
         """Computes depth differences along one axis.
 
         Args:
             depth_map: Depth values of shape (B, 1, H, W).
             axis: Either 'height' or 'width'.
+            height: Target height.
+            width: Target width.
 
         Returns:
             Depth differences of shape (B, secondary_length, primary_length, primary_length).
         """
+        depth_map = F.interpolate(
+            depth_map, size=(height, width), mode="bilinear", align_corners=False
+        )
         if axis == Axis.HEIGHT.value:
             depth_map = depth_map.transpose(-2, -1)
         depth_differences = depth_map[:, :, :, :, None] - depth_map[:, :, :, None, :]
@@ -78,19 +83,25 @@ class DepthAwareDecayMask(nn.Module):
             depth_map: Depth map of shape (B, 1, H, W).
             height: Target height.
             width: Target width.
-            decay_rates: Per-head decay rates of shape (num_heads,).
+            decay_rates: Per-head decay rates of shape (number_of_heads,).
             decomposition_mode: Whether to generate full or separable masks.
 
         Returns:
-            If FULL: Single mask of shape (B, num_heads, H*W, H*W).
+            If FULL: Single mask of shape (B, number_of_heads, H*W, H*W).
             If SEPARABLE: Tuple of (height_mask, width_mask).
         """
+        valid_modes = [mode.value for mode in AttentionDecompositionMode]
+        if decomposition_mode not in valid_modes:
+            raise ValueError(
+                f"Unknown decomposition_mode '{decomposition_mode}'; "
+                f"expected one of {valid_modes}."
+            )
         if decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:
             height_depth_diffs = self.compute_1d_depth_difference_matrix(
-                depth_map, axis=Axis.HEIGHT.value
+                depth_map, axis=Axis.HEIGHT.value, height=height, width=width
             )
             width_depth_diffs = self.compute_1d_depth_difference_matrix(
-                depth_map, axis=Axis.WIDTH.value
+                depth_map, axis=Axis.WIDTH.value, height=height, width=width
             )
 
             height_mask = (

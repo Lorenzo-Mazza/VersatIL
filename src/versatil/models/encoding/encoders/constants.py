@@ -42,15 +42,31 @@ class FlatBackboneType(enum.StrEnum):
     """Backbones producing (B, S, D) token sequences via timm forward_features."""
 
     VIT_BASE = "vit_base_patch16_clip_224.laion2b_ft_in12k_in1k"  # https://huggingface.co/timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k
+    CLIP_VITL14_224_OPENAI = "vit_large_patch14_clip_224.openai"  # https://huggingface.co/timm/vit_large_patch14_clip_224.openai
+    CLIP_VITL14_336_OPENAI = "vit_large_patch14_clip_336.openai"  # https://huggingface.co/timm/vit_large_patch14_clip_336.openai
     DINOV2_VITS14 = "vit_small_patch14_dinov2.lvd142m"  # https://huggingface.co/timm/vit_small_patch14_dinov2.lvd142m
     DINOV2_VITB14 = "vit_base_patch14_dinov2.lvd142m"  # https://huggingface.co/timm/vit_base_patch14_dinov2.lvd142m
     DINOV2_VITL14 = "vit_large_patch14_dinov2.lvd142m"  # https://huggingface.co/timm/vit_large_patch14_dinov2.lvd142m
+    DINOV2_VITL14_REG4 = "vit_large_patch14_reg4_dinov2.lvd142m"  # https://huggingface.co/timm/vit_large_patch14_reg4_dinov2.lvd142m
+    IN1K_VITL16_224 = "vit_large_patch16_224.augreg_in21k_ft_in1k"  # https://huggingface.co/timm/vit_large_patch16_224.augreg_in21k_ft_in1k
     DINOV3_VITS16 = "vit_small_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_small_patch16_dinov3.lvd1689m
     DINOV3_VITS16PLUS = "vit_small_plus_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_small_plus_patch16_dinov3.lvd1689m
     DINOV3_VITB16 = "vit_base_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_base_patch16_dinov3.lvd1689m
     DEIT_TINY = "deit_tiny_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_tiny_patch16_224.fb_in1k
     DEIT_SMALL = "deit_small_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_small_patch16_224.fb_in1k
     DEIT_BASE = "deit_base_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_base_patch16_224.fb_in1k
+    SIGLIP_BASE_B16_224 = "vit_base_patch16_siglip_224"  # https://huggingface.co/timm/vit_base_patch16_siglip_224
+    SIGLIP_BASE_B16_256 = "vit_base_patch16_siglip_256"  # https://huggingface.co/timm/vit_base_patch16_siglip_256
+    SIGLIP_BASE_B16_384 = "vit_base_patch16_siglip_384"  # https://huggingface.co/timm/vit_base_patch16_siglip_384
+    SIGLIP_SO400M_224 = "vit_so400m_patch14_siglip_224"  # https://huggingface.co/timm/vit_so400m_patch14_siglip_224
+    SIGLIP_SO400M_384 = "vit_so400m_patch14_siglip_384"  # https://huggingface.co/timm/vit_so400m_patch14_siglip_384
+
+
+class DinoV2SigLIPBackboneType(enum.StrEnum):
+    """DINOv2+SigLIP paired RGB vision backbone identifiers."""
+
+    DINOV2_SIGLIP_VIT_SO_224PX = "dinosiglip-vit-so-224px"
+    DINOV2_SIGLIP_VIT_SO_384PX = "dinosiglip-vit-so-384px"
 
 
 # Union type for all RGB backbones (Spatial + Flat)
@@ -68,22 +84,6 @@ class ImageTextModelType(enum.StrEnum):
     SIGLIP_BASE_PATCH16 = "google/siglip2-base-patch16-naflex"
     CLIP_VITL14 = "openai/clip-vit-large-patch14"
     SIGLIP_SO400M = "google/siglip-so400m-patch14-384"
-
-
-class PaliGemmaModelType(enum.StrEnum):
-    """Available PaliGemma model names."""
-
-    PALIGEMMA2_3B_224 = "google/paligemma2-3b-pt-224"
-    PALIGEMMA2_3B_448 = "google/paligemma2-3b-pt-448"
-    PALIGEMMA2_3B_896 = "google/paligemma2-3b-pt-896"
-
-
-class SmolVLMModelType(enum.StrEnum):
-    """Available SmolVLM/Idefics3 model names."""
-
-    SMOLVLM_256M = "HuggingFaceTB/SmolVLM-256M-Instruct"
-    SMOLVLM_500M = "HuggingFaceTB/SmolVLM-500M-Instruct"
-    SMOLVLM_2_2B = "HuggingFaceTB/SmolVLM-2.2B-Instruct"
 
 
 class AttentionImplementation(enum.StrEnum):
@@ -136,12 +136,6 @@ class LanguageEncoderType(enum.StrEnum):
     DISTILBERT_BASE = "distilbert-base-uncased"
     MINI_LM_L6 = "sentence-transformers/all-MiniLM-L6-v2"
     MINI_LM_L12 = "sentence-transformers/all-MiniLM-L12-v2"
-    GEMMA_2B = "google/gemma-2b"
-    QWEN_2_0_5B = "Qwen/Qwen2-0.5B"
-    QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
-    QWEN_2_5_0_5B = "Qwen/Qwen2.5-0.5B"
-    QWEN_3_0_6B = "Qwen/Qwen3-0.6B"
-    QWEN_3_5_0_8B = "Qwen/Qwen3.5-0.8B"
     EMBEDDINGGEMMA_300M = "google/embeddinggemma-300m"
     QWEN_3_EMBEDDING_0_6B = "Qwen/Qwen3-Embedding-0.6B"
     BGE_BASE_EN_V1_5 = "BAAI/bge-base-en-v1.5"
@@ -152,11 +146,8 @@ class LanguageEncoderType(enum.StrEnum):
     E5_BASE = "intfloat/e5-base"
     ALBERT_BASE = "albert-base-v2"
     ROBERTA_BASE = "roberta-base"
-    GPT2 = "gpt2"
     DEBERTA_V3_BASE = "microsoft/deberta-v3-base"
     DISTIL_ROBERTA_BASE = "distilbert/distilroberta-base"
-    PHI_2 = "microsoft/phi-2"
-    LLAMA_3_2_1B = "meta-llama/Llama-3.2-1B"
 
 
 class EncoderOutputKeys(enum.StrEnum):

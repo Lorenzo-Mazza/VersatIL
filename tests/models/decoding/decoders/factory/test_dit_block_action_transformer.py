@@ -7,8 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
+from versatil.models.decoding.action_heads.conditional import ConditionalActionHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
     DiTBlockActionTransformer,
@@ -36,7 +37,7 @@ POSITION_DIM = 3
 def dit_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
-    action_head_factory: Callable[..., ActionHead],
+    conditional_action_head_factory: Callable[..., ConditionalActionHead],
 ) -> Callable[..., DiTBlockActionTransformer]:
     """Factory for DiTBlockActionTransformer with small dimensions."""
 
@@ -65,8 +66,10 @@ def dit_decoder_factory(
         action_space = mock_action_space_factory(position_dim=position_dim)
         observation_space = mock_observation_space_factory()
         action_heads = {
-            key: action_head_factory(input_dim=embedding_dimension)
-            for key in action_space.actions_metadata
+            "joint_action": conditional_action_head_factory(
+                input_dimension=embedding_dimension,
+                conditioning_dimension=embedding_dimension,
+            )
         }
         return DiTBlockActionTransformer(
             input_keys=input_keys,
@@ -95,6 +98,7 @@ def dit_decoder_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestDiTBlockActionTransformerInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -156,39 +160,43 @@ class TestDiTBlockActionTransformerInitialization:
         decoder = dit_decoder_factory()
         assert decoder.decoder_input.requires_actions is True
 
-    def test_action_heads_blocks_cleared(
+    def test_raises_for_non_conditional_action_head(
         self,
         mock_action_space_factory: Callable[..., MagicMock],
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
-        head = ActionHead(input_dim=EMBEDDING_DIMENSION)
-        dummy_block = torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)
-        dummy_block.output_dim = EMBEDDING_DIMENSION
-        head.blocks = torch.nn.ModuleList([dummy_block])
-        action_heads = {"position_action": head}
-        decoder = DiTBlockActionTransformer(
-            input_keys=["rgb_features"],
-            action_space=action_space,
-            action_heads=action_heads,
-            observation_space=mock_observation_space_factory(),
-            observation_horizon=OBSERVATION_HORIZON,
-            prediction_horizon=PREDICTION_HORIZON,
-            device="cpu",
-            max_sequence_length=MAX_SEQUENCE_LENGTH,
-            embedding_dimension=EMBEDDING_DIMENSION,
-            timestep_embedding_dimension=TIMESTEP_EMBEDDING_DIMENSION,
-            number_of_heads=NUMBER_OF_HEADS,
-            number_of_encoder_layers=NUMBER_OF_ENCODER_LAYERS,
-            number_of_decoder_layers=NUMBER_OF_DECODER_LAYERS,
-            feedforward_dimension=FEEDFORWARD_DIMENSION,
-            activation=ActivationFunction.GELU.value,
-            normalization_type=NormalizationType.RMS_NORM.value,
-        )
-        for action_key in decoder.action_heads:
-            assert len(decoder.action_heads[action_key].blocks) == 0
+        head = ActionHead(input_dimension=EMBEDDING_DIMENSION)
+        action_heads = {"joint_action": head}
+        with pytest.raises(
+            ValueError,
+            match=(
+                "DiTBlockActionTransformer requires a ConditionalActionHead "
+                "because DiT decoder hidden states are projected with timestep "
+                "conditioning."
+            ),
+        ):
+            DiTBlockActionTransformer(
+                input_keys=["rgb_features"],
+                action_space=action_space,
+                action_heads=action_heads,
+                observation_space=mock_observation_space_factory(),
+                observation_horizon=OBSERVATION_HORIZON,
+                prediction_horizon=PREDICTION_HORIZON,
+                device="cpu",
+                max_sequence_length=MAX_SEQUENCE_LENGTH,
+                embedding_dimension=EMBEDDING_DIMENSION,
+                timestep_embedding_dimension=TIMESTEP_EMBEDDING_DIMENSION,
+                number_of_heads=NUMBER_OF_HEADS,
+                number_of_encoder_layers=NUMBER_OF_ENCODER_LAYERS,
+                number_of_decoder_layers=NUMBER_OF_DECODER_LAYERS,
+                feedforward_dimension=FEEDFORWARD_DIMENSION,
+                activation=ActivationFunction.GELU.value,
+                normalization_type=NormalizationType.RMS_NORM.value,
+            )
 
 
+@pytest.mark.integration
 class TestDiTBlockActionTransformerForward:
     def test_raises_without_actions(
         self,
@@ -220,7 +228,7 @@ class TestDiTBlockActionTransformerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             ),
         ):
@@ -252,7 +260,7 @@ class TestDiTBlockActionTransformerForward:
             assert output_tensor.shape == (
                 BATCH_SIZE,
                 PREDICTION_HORIZON,
-                decoder.action_heads[action_key].output_dim,
+                actions[action_key].shape[-1],
             )
 
     def test_timestep_squeeze_from_two_dimensions(
@@ -263,8 +271,8 @@ class TestDiTBlockActionTransformerForward:
     ):
         decoder = dit_decoder_factory()
         features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        features[DecoderOutputKey.TIMESTEP.value] = features[
-            DecoderOutputKey.TIMESTEP.value
+        features[AlgorithmContextKey.TIMESTEP.value] = features[
+            AlgorithmContextKey.TIMESTEP.value
         ].unsqueeze(-1)
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
@@ -279,12 +287,12 @@ class TestDiTBlockActionTransformerForward:
         decoder = dit_decoder_factory()
         decoder.eval()
         features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        timestep = features[AlgorithmContextKey.TIMESTEP.value]
         actions = noisy_actions_factory()
         with torch.no_grad():
             decoder(features=features, actions=actions)
             decoder(features=features, actions=actions)
-        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
+        assert features[AlgorithmContextKey.TIMESTEP.value] is timestep
 
     def test_adaln_zero_init_makes_output_timestep_independent(
         self,
@@ -298,11 +306,11 @@ class TestDiTBlockActionTransformerForward:
         decoder = dit_decoder_factory()
         decoder.eval()
         features_t0 = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(
+        features_t0[AlgorithmContextKey.TIMESTEP.value] = torch.zeros(
             BATCH_SIZE, dtype=torch.long
         )
         features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
-        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full(
+        features_t99[AlgorithmContextKey.TIMESTEP.value] = torch.full(
             (BATCH_SIZE,), 99, dtype=torch.long
         )
         actions = noisy_actions_factory()
@@ -313,6 +321,7 @@ class TestDiTBlockActionTransformerForward:
             torch.testing.assert_close(output_t0[action_key], output_t99[action_key])
 
 
+@pytest.mark.integration
 class TestDiTBlockActionTransformerCaching:
     def test_enable_cache(
         self,

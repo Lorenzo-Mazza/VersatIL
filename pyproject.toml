@@ -4,60 +4,110 @@ build-backend = "hatchling.build"
 
 [project]
 name = "VersatIL"
-version = "0.3.0"
-description = "A python library for training any robot policy through Imitation Learning, with dependencies handled by uv"
+version = "0.4.0"
+description = "Modular imitation learning framework for training, compressing, and deploying robot manipulation policies"
+readme = "README.md"
 authors = [
+    { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" }
+]
+maintainers = [
     { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" },
     { name = "Ariel Rodriguez", email = "ariel.rodriguezjimenez@nct-dresden.de" }
 ]
-license = {text = "MIT"}
-requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+  "imitation-learning",
+  "robotics",
+  "robot-learning",
+  "behavioral-cloning",
+  "diffusion-policy",
+  "vision-language-action",
+  "quantization",
+  "pytorch",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.13,<3.15"
 dependencies = [
-  "accelerate==1.11.0",
-  "albumentations==2.0.8",
-  "av==16.1.0",
-  "diffusers==0.36.0",
-  "geomloss==0.2.6",
-  "h5py==3.15.1",
-  "huggingface_hub==1.4.1",
-  "hydra-core==1.3.2",
-  "joblib==1.5.0",
-  "matplotlib==3.10.7",
-  "numba==0.64.0",
-  "numpy==2.3.5",
-  "omegaconf==2.3.0",
-  "opencv-python-headless==4.13.0.92",
-  "pandas==2.3.3",
-  "psutil==7.1.3",
-  "pyarrow==23.0.0",
-  "pykeops==2.3",
-  "pytest==8.4.2",
-  "python-dotenv==1.2.1",
-  "lightning==2.6.1",
-  "pytorch-lightning==2.6.1",
-  "pyyaml==6.0.3",
-  "ruff==0.15.6",
-  "safetensors==0.6.2",
-  "scikit-learn==1.7.2",
-  "scipy==1.16.3",
-  "seaborn==0.13.2",
-  "termcolor==3.2.0",
-  "threadpoolctl==3.6.0",
-  "timm==1.0.21",
-  "torch==2.10.0",
-  "torchaudio==2.10.0",
-  "torchao==0.16.0",
-  "torchvision==0.25.0",
-  "tqdm==4.67.1",
-  "transformers==5.2.0",
-  "tso-robotics-sockets",
-  "versatil-constants>=0.2.0",
+  "accelerate>=1.11",
+  "albumentations>=2.0.8",
+  "av>=16.1",
+  "diffusers>=0.36",
+  "geomloss>=0.2.6",
+  "google-crc32c>=1.7",
+  "h5py>=3.15",
+  "huggingface-hub>=1.5",
+  "hydra-core>=1.4.0.dev5,<1.5",
+  "joblib>=1.5",
+  "matplotlib>=3.10",
+  "numba>=0.64",
+  "numpy>=2.3",
+  "omegaconf>=2.4.0.dev12,<2.5",
+  "opencv-python-headless>=4.13",
+  "pandas>=2.3",
+  "psutil>=7.1",
+  "pyarrow>=23",
+  "pykeops>=2.3",
+  "python-dotenv>=1.2",
+  "lightning>=2.6",
+  "pytorch-lightning>=2.6",
+  "pyyaml>=6.0",
+  "safetensors>=0.6",
+  "scikit-learn>=1.7.1",
+  "scipy>=1.16",
+  "seaborn>=0.13",
+  "termcolor>=3.2",
+  "threadpoolctl>=3.6",
+  "timm>=1.0.27",
+  "torch>=2.12,<2.13",
+  "torchao>=0.17,<0.18",
+  "torchvision>=0.27,<0.28",
+  "tqdm>=4.67",
+  "transformers>=5.9",
+  "tso-robotics-sockets>=0.2",
+  "versatil-constants>=0.2.1",
+  "wandb>=0.22",
+  "zarr>=3.1.3",
+  "peft>=0.19.1",
+]
+
+[project.urls]
+Homepage = "https://lorenzo-mazza.github.io/VersatIL"
+Documentation = "https://lorenzo-mazza.github.io/VersatIL"
+Repository = "https://github.com/Lorenzo-Mazza/VersatIL"
+Changelog = "https://github.com/Lorenzo-Mazza/VersatIL/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Lorenzo-Mazza/VersatIL/issues"
+
+[dependency-groups]
+dev = [
   "pre-commit",
-  "wandb==0.22.3",
-  "zarr==3.1.3",
+  "pytest==8.4.2",
+  "pytest-cov==7.1.0",
+  "ruff==0.15.6",
 ]
 
 [project.optional-dependencies]
+cpu = [
+  "torch>=2.12,<2.13",
+  "torchao>=0.17,<0.18",
+  "torchvision>=0.27,<0.28",
+]
+gpu = [
+  "torch>=2.12,<2.13",
+  "torchao>=0.17,<0.18",
+  "torchvision>=0.27,<0.28",
+]
+executorch = [
+  "executorch>=1.3.1,<1.4; python_version < '3.14'",
+]
 docs = [
   "mkdocs-material",
   "mkdocstrings[python]",
@@ -66,15 +116,45 @@ docs = [
 ]
 
 [[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "gpu" },
+  ],
+]
+required-environments = [
+  "python_version == '3.13' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "python_version == '3.14' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "python_version == '3.13' and sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "python_version == '3.14' and sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
 [tool.uv.sources]
-torch = { index = "pytorch" }
-torchaudio = { index = "pytorch" }
-torchao = { index = "pytorch" }
-torchvision = { index = "pytorch" }
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+  { index = "pytorch-cu130", extra = "gpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+torchao = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+  { index = "pytorch-cu130", extra = "gpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+  { index = "pytorch-cu130", extra = "gpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
 
 
 [tool.pytest.ini_options]
@@ -83,12 +163,13 @@ markers = [
     "integration: Slower tests with real component, endpoint, or compression workflows (deselect with '-m \"not integration\"')",
     "slow: Very slow tests (deselect with '-m \"not slow\"')",
     "requires_gpu: Tests that require GPU (deselect with '-m \"not requires_gpu\"')",
+    "requires_executorch: Tests that require a real ExecuTorch installation (deselect with '-m \"not requires_executorch\"')",
 ]
 addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
-    "-m", "not slow and not integration and not requires_gpu",
+    "-m", "not slow and not integration and not requires_gpu and not requires_executorch",
 ]
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
@@ -98,7 +179,6 @@ filterwarnings = [
     "ignore:.*self.log.*:UserWarning",
     "ignore::DeprecationWarning:geomloss",
     "ignore::SyntaxWarning:geomloss",
-    "ignore:.*are not valid for transform.*:UserWarning",
     "ignore:ShiftScaleRotate is a special case.*:UserWarning",
     "ignore:Initializing zero-element tensors.*:UserWarning",
     "ignore:.*weights_only=False.*:FutureWarning",
@@ -112,7 +192,6 @@ filterwarnings = [
     "ignore:.*isinstance.*LeafSpec.*:FutureWarning",
     "ignore:.*Importing from torchao.dtypes.*:DeprecationWarning",
     "ignore:.*Importing BlockSparseLayout.*:DeprecationWarning",
-    "ignore:.*crc32c usage is deprecated.*:DeprecationWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"
@@ -122,6 +201,9 @@ python_functions = "test_*"
 [tool.ruff]
 # Same as Black
 line-length = 88
+# Keep the lint target at the oldest supported interpreter. Raising it enables
+# TC003 fixes that move imports into TYPE_CHECKING blocks, breaking OmegaConf
+# runtime type resolution.
 target-version = "py313"
 
 # Exclude directories
@@ -161,7 +243,6 @@ select = [
 ignore = [
     "E501",   # Line too long (let formatter handle this)
     "B008",   # Do not perform function calls in argument defaults (needed for FastAPI/Hydra)
-    "B905",   # zip without explicit strict parameter
     "N806",   # Variable in function should be lowercase (allow uppercase for tensor dimensions like B, T, C, H, W)
     "N812",   # Lowercase imported as non-lowercase (for backwards compatibility)
     "N999",   # Invalid module name (some legacy modules)
@@ -183,10 +264,8 @@ unfixable = []
 ]
 # Ignore imports in __init__.py files
 "__init__.py" = ["F401", "F403", "E402"]
-# Allow uppercase R for rotation matrices
-"src/data/action_processor.py" = ["N803"]
 # Ignore loop variable binding in closures for hooks (intentional behavior)
-"src/versatil/explain/**/*.py" = ["B023"]
+"src/versatil/explainability/**/*.py" = ["B023"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["versatil"]
@@ -208,6 +287,11 @@ packages = ["src/versatil"]
 
 [tool.coverage.run]
 omit = [
-    "src/versatil/explain/*",
-    "src/versatil/endpoints/explain.py",
+
+]
+
+[tool.coverage.report]
+exclude_also = [
+  # numba-compiled functions execute as machine code; coverage cannot trace them
+  "@numba.jit",
 ]

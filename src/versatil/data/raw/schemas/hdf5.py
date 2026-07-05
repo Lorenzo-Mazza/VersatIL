@@ -2,7 +2,6 @@
 
 import abc
 
-import albumentations as A
 import h5py
 import numpy as np
 
@@ -55,8 +54,6 @@ class Hdf5DatasetSchema(DatasetSchema):
     def extract_episode(
         self,
         demo_group: h5py.Group,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract episodic data from a single HDF5 group."""
         raise NotImplementedError("Subclasses must implement extract_episode")

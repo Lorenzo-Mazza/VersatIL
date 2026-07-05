@@ -7,6 +7,7 @@ from versatil.models.layers.geometric_attention.depth_decay import (
 )
 from versatil.models.layers.geometric_attention.spatial_decay import SpatialDecayMask
 from versatil.models.layers.positional_encoding.rotary import (
+    RasterRotaryPositionalEncoding2D,
     RotaryPositionalEncoding2D,
 )
 
@@ -23,35 +24,47 @@ class GeometricAttentionBias(nn.Module):
     def __init__(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         initial_decay: float = 5.0,
         decay_range: float = 3.0,
         base_frequency: float = 10000.0,
+        use_raster_positions: bool = False,
     ):
         """Initializes geometric attention bias generator.
 
         Args:
             embedding_dimension: Embedding dimension.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             initial_decay: Initial decay rate for spatial distance.
             decay_range: Range of decay rates across heads.
             base_frequency: Base frequency for rotary encoding.
+            use_raster_positions: Whether to rotate by flattened raster grid
+                positions (the DFormerv2 reference convention) instead of
+                axis-split 2D positions. Required for pretrained DFormerv2
+                checkpoints.
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
-        self.num_heads = num_heads
-        self.rotary_encoding = RotaryPositionalEncoding2D(
+        self.number_of_heads = number_of_heads
+        rotary_class = (
+            RasterRotaryPositionalEncoding2D
+            if use_raster_positions
+            else RotaryPositionalEncoding2D
+        )
+        self.rotary_encoding = rotary_class(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             base_frequency=base_frequency,
             learnable_frequencies=False,
         )
 
         self.spatial_decay = SpatialDecayMask(
-            num_heads=num_heads, initial_decay=initial_decay, decay_range=decay_range
+            number_of_heads=number_of_heads,
+            initial_decay=initial_decay,
+            decay_range=decay_range,
         )
 
-        self.depth_decay = DepthAwareDecayMask(num_heads=num_heads)
+        self.depth_decay = DepthAwareDecayMask(number_of_heads=number_of_heads)
 
         self.bias_weights = nn.Parameter(torch.ones(2, 1, 1, 1), requires_grad=True)
 

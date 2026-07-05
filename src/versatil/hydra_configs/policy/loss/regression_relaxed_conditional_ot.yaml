@@ -1,0 +1,30 @@
+defaults:
+  - regression@loss_modules.regression_loss
+  - relaxed_conditional_latent_ot@loss_modules.latent_ot
+  - traj_len@loss_modules.trajectory_length
+  - _self_
+
+_target_: versatil.metrics.losses.composite.CompositeLoss
+loss_modules:
+    regression_loss:
+      _target_: versatil.metrics.losses.regression.RegressionLoss
+      action_keys:
+        - ${proprio_key:SYNTHETIC_POSITION_ACTION}
+      mse_weight: 0.0
+      l1_weight: 1.0
+      huber_weight: 0.0
+
+    latent_ot:
+        weight: 0.01
+        p: 2
+        blur_fraction: 0.1
+        reach_multiplier: null
+        prior_target_key: ${latent_key:POSTERIOR_MU}
+        condition_key: ${latent_key:PRIOR_CONDITION}
+        state_weight: 16.0
+        normalize_condition: true
+
+    trajectory_length:
+        _target_: versatil.metrics.losses.trajectory.TrajectoryLengthLoss
+        weight: 0.0
+        action_key: ${proprio_key:SYNTHETIC_POSITION_ACTION}

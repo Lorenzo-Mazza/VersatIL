@@ -50,7 +50,6 @@ class TransformerDecoderLayer(nn.Module):
         use_cross_attention: bool = True,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        autoregressive: bool = True,
         conditioning_dimension: int | None = None,
         use_gating: bool = False,
         cross_attention_normalization_type: str | None = None,
@@ -71,7 +70,6 @@ class TransformerDecoderLayer(nn.Module):
             use_cross_attention: Whether to include cross-attention block.
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
-            autoregressive: Whether the model is autoregressive (affects caching).
             conditioning_dimension: Conditioning dimension for adaptive normalization.
                 When set, wraps normalization in AdaNorm.
             use_gating: Whether to use gating in adaptive normalization (AdaLN-Zero).
@@ -84,7 +82,6 @@ class TransformerDecoderLayer(nn.Module):
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.use_cross_attention = use_cross_attention
-        self.autoregressive = autoregressive
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
         self.self_attention_block = SelfAttentionBlock(
@@ -100,7 +97,7 @@ class TransformerDecoderLayer(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
@@ -120,7 +117,7 @@ class TransformerDecoderLayer(nn.Module):
                     or normalization_type,
                     dimension=embedding_dimension,
                     epsilon=normalization_epsilon,
-                    condition_dim=cross_attention_conditioning_dimension,
+                    conditioning_dimension=cross_attention_conditioning_dimension,
                     use_gating=use_gating
                     if cross_attention_conditioning_dimension is not None
                     else False,
@@ -141,7 +138,7 @@ class TransformerDecoderLayer(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
@@ -183,7 +180,7 @@ class TransformerDecoderLayer(nn.Module):
             self_attention_mask: Causal mask (B, 1, T, T), True = masked.
             cross_attention_mask: Cross-attention mask (B, 1, T, S), True = masked.
             generation_cache: Cached K/V from the main sequence. When provided,
-                an updated cache is returned. Only valid if autoregressive=True.
+                an updated cache is returned.
             conditioning_cache: Precomputed K/V for static conditioning.
             positional_encoding: Optional rotary positional encoding module.
             conditioning: Conditioning vector for adaptive normalization (B, C).

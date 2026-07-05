@@ -3,8 +3,6 @@
 import logging
 from collections.abc import Generator
 
-import albumentations as A
-import cv2
 import h5py
 import numpy as np
 
@@ -14,8 +12,6 @@ from versatil.data.raw.schemas import Hdf5DatasetSchema
 
 def _iter_hdf5_episodes(
     schema: Hdf5DatasetSchema,
-    resizer: A.Resize | A.NoOp,
-    depth_resizer: A.Resize | A.NoOp,
 ) -> Generator[dict[str, np.ndarray]]:
     """Yield episode data dicts from HDF5 files."""
     for hdf5_path in schema.hdf5_paths:
@@ -27,8 +23,6 @@ def _iter_hdf5_episodes(
                 demo_group = f[f"data/{demo_name}"]
                 yield schema.extract_episode(
                     demo_group=demo_group,
-                    resizer=resizer,
-                    depth_resizer=depth_resizer,
                 )
 
 
@@ -46,23 +40,8 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
     Args:
         schema: Hdf5DatasetSchema instance with HDF5 paths and zarr path configured
     """
-    cameras = schema.metadata.cameras
-    if cameras:
-        first_cam = next(iter(cameras.values()))
-        resizer = A.Resize(height=first_cam.image_height, width=first_cam.image_width)
-        depth_resizer = A.Resize(
-            height=first_cam.image_height,
-            width=first_cam.image_width,
-            interpolation=cv2.INTER_NEAREST,
-        )
-    else:
-        resizer = A.NoOp()
-        depth_resizer = A.NoOp()
-
     total_episodes = _count_hdf5_episodes(schema=schema)
-    episodes = _iter_hdf5_episodes(
-        schema=schema, resizer=resizer, depth_resizer=depth_resizer
-    )
+    episodes = _iter_hdf5_episodes(schema=schema)
 
     create_zarr_replay_buffer(
         schema=schema,

@@ -1,0 +1,3 @@
+action_logits:
+  _target_: versatil.models.decoding.action_heads.ActionHead
+  input_dimension: ${policy.decoder.embedding_dimension}

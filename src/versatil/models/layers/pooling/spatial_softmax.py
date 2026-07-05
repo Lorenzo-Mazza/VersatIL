@@ -22,6 +22,8 @@ class SpatialSoftmax(nn.Module):
             temperature: Temperature parameter for softmax
             learnable_temperature: If True, temperature is a learnable parameter
         """
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be positive, got {temperature}.")
         super().__init__()
         self.height = height
         self.width = width

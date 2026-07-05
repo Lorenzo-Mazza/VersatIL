@@ -10,7 +10,8 @@ class Encoder(EncodingMixin):
 
     Subclasses implement `encode()`. The base class
     `forward()` handles temporal flatten/unflatten — `encode()` receives
-    tensors without a time dimension (images as (B, C, H, W), not (B, T, C, H, W)).
+    tensors with the temporal axis flattened into the batch (images as
+    (B*T, C, H, W), not (B, T, C, H, W)).
     """
 
     def __init__(
@@ -71,11 +72,18 @@ class Encoder(EncodingMixin):
         Returns:
             Flattened dict (B*T, ...), batch_size, temporal_length.
         """
-        first_tensor = next(iter(inputs.values()))
-        batch_size = first_tensor.shape[0]
-        temporal_length = first_tensor.shape[1]
+        first_key = next(iter(inputs))
+        batch_size = inputs[first_key].shape[0]
+        temporal_length = inputs[first_key].shape[1]
         flattened = {}
         for key, tensor in inputs.items():
+            if tensor.shape[:2] != (batch_size, temporal_length):
+                raise ValueError(
+                    f"Encoder input '{key}' has leading dimensions "
+                    f"{tuple(tensor.shape[:2])} but '{first_key}' has "
+                    f"({batch_size}, {temporal_length}); all inputs must share "
+                    "one (batch, time) layout."
+                )
             flattened[key] = tensor.reshape(
                 batch_size * temporal_length, *tensor.shape[2:]
             )
@@ -124,13 +132,15 @@ class Encoder(EncodingMixin):
 
     @abstractmethod
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Encode inputs without temporal dimension.
+        """Encode temporally flattened inputs.
 
-        Subclasses implement this. Images are (B, C, H, W),
-        tokenized text is (B, S), proprioceptive state is (B, D).
+        Subclasses implement this. Images are (B*T, C, H, W),
+        tokenized text is (B*T, S), proprioceptive state is (B*T, D);
+        ``forward()`` flattens the temporal axis into the batch before
+        dispatching here.
 
         Args:
-            inputs: Dict mapping input_keys to tensors without temporal dimension.
+            inputs: Dict mapping input_keys to temporally flattened tensors.
 
         Returns:
             Dict mapping feature names to feature tensors.

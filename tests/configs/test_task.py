@@ -6,7 +6,7 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
 
-from versatil.configs.data.metadata import CameraMetadataConfig
+from versatil.configs.data.metadata import RGBCameraMetadataConfig
 from versatil.configs.data.task import (
     ActionSpaceConfig,
     ObservationSpaceConfig,
@@ -125,10 +125,9 @@ class TestTaskConfigInstantiation:
     def test_observation_space_instantiates_with_camera(self):
         config = ObservationSpaceConfig(
             observations_metadata={
-                "left": CameraMetadataConfig(
+                "left": RGBCameraMetadataConfig(
                     camera_key="left",
                     dtype="float32",
-                    channels=3,
                 ),
             },
         )
@@ -139,15 +138,13 @@ class TestTaskConfigInstantiation:
     def test_observation_space_instantiates_with_multiple_cameras(self):
         config = ObservationSpaceConfig(
             observations_metadata={
-                "left": CameraMetadataConfig(
+                "left": RGBCameraMetadataConfig(
                     camera_key="left",
                     dtype="float32",
-                    channels=3,
                 ),
-                "right": CameraMetadataConfig(
+                "right": RGBCameraMetadataConfig(
                     camera_key="right",
                     dtype="float32",
-                    channels=3,
                 ),
             },
         )

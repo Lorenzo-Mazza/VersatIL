@@ -38,7 +38,7 @@ class CachedAttention(nn.Module):
             number_of_heads: Number of query heads
             number_of_key_value_heads: Number of key/value heads (for GQA)
             head_dimension: Per-head dimension. Defaults to embedding_dimension // number_of_heads.
-                Override for architectures where hidden_size != num_heads * head_dim (e.g. Gemma2).
+                Override for architectures where hidden_size != number_of_heads * head_dim (e.g. Gemma2).
             dropout: Dropout probability for attention weights
             bias: Whether to include bias in projections
             attention_type: Type of attention (use AttentionType enum values)
@@ -130,11 +130,11 @@ class CachedAttention(nn.Module):
             query_input: (B, query_len, D)
 
         Returns:
-            Projected queries (B, num_heads, query_len, head_dim).
+            Projected queries (B, number_of_heads, query_len, head_dim).
         """
         batch_size, query_length, _ = query_input.shape
         projected = self.query_projection(query_input)
-        # (B, L, num_heads * head_dim) -> (B, num_heads, L, head_dim)
+        # (B, L, number_of_heads * head_dim) -> (B, number_of_heads, L, head_dim)
         return projected.view(
             batch_size, query_length, self.number_of_heads, self.head_dimension
         ).transpose(1, 2)
@@ -188,7 +188,7 @@ class CachedAttention(nn.Module):
             value_input: Value input (B, value_len, D)
 
         Returns:
-            Tuple of (queries, keys, values). Queries: (B, num_heads, query_len, head_dim).
+            Tuple of (queries, keys, values). Queries: (B, number_of_heads, query_len, head_dim).
             Keys/values: (B, kv_heads, key_len, head_dim).
         """
         return (
@@ -207,23 +207,23 @@ class CachedAttention(nn.Module):
         """Compute scaled dot-product attention.
 
         Args:
-            queries: Query tensor (B, num_heads, query_len, head_dim)
+            queries: Query tensor (B, number_of_heads, query_len, head_dim)
             keys: Key tensor (B, kv_heads, key_len, head_dim) - compact for GQA
             values: Value tensor (B, kv_heads, value_len, head_dim) - compact for GQA
             attention_mask: Optional bool mask (B, 1, query_len, key_len) where True means masked.
 
         Returns:
-            Attention output (B, query_len, embedding_dim)
+            Attention output (B, query_len, embedding_dimension)
         """
         batch_size = queries.shape[0]
         query_length = queries.shape[2]
         if self.group_size > 1:  # For GQ attention
             keys = torch.repeat_interleave(
                 keys, self.group_size, dim=1
-            )  # (B, num_heads, kv_length, head_dim)
+            )  # (B, number_of_heads, kv_length, head_dim)
             values = torch.repeat_interleave(
                 values, self.group_size, dim=1
-            )  # (B, num_heads, kv_length, head_dim)
+            )  # (B, number_of_heads, kv_length, head_dim)
 
         sdpa_mask = None
         if attention_mask is not None:
@@ -242,11 +242,12 @@ class CachedAttention(nn.Module):
         )
         attended_values = attended_values.transpose(
             1, 2
-        ).contiguous()  # (B, query_len, num_heads, head_dim)
+        ).contiguous()  # (B, query_len, number_of_heads, head_dim)
         attended_values = attended_values.view(
             batch_size,
             query_length,
-            self.number_of_heads * self.head_dimension,  # (B, query_len, embedding_dim)
+            self.number_of_heads
+            * self.head_dimension,  # (B, query_len, embedding_dimension)
         )
         output = self.output_projection(attended_values)
         return output

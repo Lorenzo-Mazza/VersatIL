@@ -1,0 +1,29 @@
+defaults:
+  - base
+  - image_augmentations@color_augmentation: color
+  - image_augmentations@spatial_augmentation: spatial
+  - tokenization@tokenization: obs_language
+
+batch_size: 64
+num_workers: 16
+shuffle: true
+
+# LIBERO images are 128x128
+
+image_norm_type:  ${image_norm_type:MINUS_ONE_TO_ONE}
+depth_norm_type:  ${image_norm_type:MINUS_ONE_TO_ONE}
+kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
+winsorize_depth: true
+depth_winsorize_quantiles: [0.01, 0.99]
+winsorize_kinematics: true
+kinematics_winsorize_quantiles: [0.01, 0.99]
+
+
+skip_initial_episode_steps: 0
+downsample_factor: 1
+
+
+action_backward_shift: 0
+
+val_ratio: 0.1
+total_ratio: 1.0

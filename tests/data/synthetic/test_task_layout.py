@@ -171,9 +171,13 @@ def test_radial_layout_obstacle_size_shrinks_with_higher_noise():
         high_noise_heights = [
             y_max - y_min for _, y_min, _, y_max in high_noise_layout.obstacles
         ]
-        for low_width, high_width in zip(low_noise_widths, high_noise_widths):
+        for low_width, high_width in zip(
+            low_noise_widths, high_noise_widths, strict=True
+        ):
             assert high_width < low_width
-        for low_height, high_height in zip(low_noise_heights, high_noise_heights):
+        for low_height, high_height in zip(
+            low_noise_heights, high_noise_heights, strict=True
+        ):
             assert high_height < low_height
 
 

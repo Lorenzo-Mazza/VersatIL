@@ -1,5 +1,6 @@
 """Tests for versatil.inference.inference_client module."""
 
+import logging
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 from tso_robotics_sockets import (
     CompressionType,
     InferenceResponseKey,
@@ -15,14 +17,20 @@ from tso_robotics_sockets import (
 )
 from versatil_constants.shared import ObsKey
 
-from versatil.data.metadata import ObservationMetadata
+from versatil.data.constants import Cameras
+from versatil.data.metadata import (
+    DepthCameraMetadata,
+    ObservationMetadata,
+    RGBCameraMetadata,
+)
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.inference_client import (
     EpisodeStatus,
     InferenceClient,
+    infer_rotate_images,
 )
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.protocol import ActionTransport, ObservationTransport
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
@@ -39,10 +47,34 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
         if state_keys is None:
             state_keys = ["proprio_robot_frame"]
 
-        cameras = {key: MagicMock() for key in camera_keys}
-        state_metadata = {key: MagicMock() for key in state_keys}
+        cameras: dict[str, MagicMock] = {}
+        for key in camera_keys:
+            if key == Cameras.DEPTH.value:
+                metadata = MagicMock(spec=DepthCameraMetadata)
+                metadata.dtype = "float32"
+                metadata.channels = 1
+                metadata.image_height = 64
+                metadata.image_width = 64
+                metadata.max_pixel_value = None
+                metadata.is_rgb = False
+                metadata.is_depth = True
+                metadata.is_single_channel = True
+            else:
+                metadata = MagicMock(spec=RGBCameraMetadata)
+                metadata.dtype = "uint8"
+                metadata.channels = 3
+                metadata.image_height = 64
+                metadata.image_width = 64
+                metadata.max_pixel_value = 255.0
+                metadata.is_rgb = True
+                metadata.is_depth = False
+                metadata.is_single_channel = False
+            cameras[key] = metadata
+        state_metadata = {
+            key: MagicMock(dtype="float32", is_numerical=True) for key in state_keys
+        }
 
-        observations_metadata: dict = {}
+        observations_metadata: dict[str, MagicMock] = {}
         observations_metadata.update(cameras)
         observations_metadata.update(state_metadata)
         if has_language:
@@ -96,7 +128,7 @@ def mock_policy_loader_factory(
         rotate_images: bool = False,
         depth_clamp_range: tuple[float, float] | None = None,
     ) -> MagicMock:
-        mock = MagicMock(spec=PolicyLoader)
+        mock = MagicMock(spec=FloatPolicyRuntime)
         mock.observation_space = mock_observation_space_factory(
             camera_keys=camera_keys,
             state_keys=state_keys,
@@ -109,10 +141,29 @@ def mock_policy_loader_factory(
         mock.observation_horizon = observation_horizon
         mock.device = torch.device("cpu")
         mock.checkpoint_path = "/mock/checkpoint"
-        mock.config.task.dataloader.image_height = image_height
-        mock.config.task.dataloader.image_width = image_width
-        mock.config.inference.rotate_images = rotate_images
-        mock.depth_clamp_range = depth_clamp_range
+        mock.client_identifier = "/mock/checkpoint/latest-99"
+        dataset_schema = (
+            {
+                "_target_": "versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30",
+                "dataset_type": "libero",
+            }
+            if rotate_images
+            else {
+                "_target_": "versatil.data.raw.schemas.hdf5.Hdf5DatasetSchema",
+            }
+        )
+        mock.config = OmegaConf.create(
+            {
+                "task": {
+                    "dataloader": {
+                        "image_height": image_height,
+                        "image_width": image_width,
+                    },
+                    "dataset_schema": dataset_schema,
+                }
+            }
+        )
+        mock.depth_clamp_ranges = depth_clamp_range
         mock.denoising_thresholds = {}
         return mock
 
@@ -159,7 +210,7 @@ def inference_client_factory(
             observation_horizon=observation_horizon,
         )
         return InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=temporal_aggregation,
@@ -439,6 +490,47 @@ class TestCheckStatus:
         result = InferenceClient._check_status(response=response)
 
         assert result == EpisodeStatus.CONTINUE.value
+
+
+@pytest.mark.unit
+class TestInferRotateImages:
+    @pytest.mark.parametrize(
+        "dataset_schema, expected",
+        [
+            (
+                {
+                    "_target_": (
+                        "versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30"
+                    ),
+                    "dataset_type": "libero",
+                },
+                True,
+            ),
+            (
+                {
+                    "_target_": (
+                        "versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30"
+                    ),
+                    "dataset_type": "metaworld",
+                },
+                False,
+            ),
+            (
+                {"_target_": "versatil.data.raw.schemas.hdf5.Hdf5DatasetSchema"},
+                False,
+            ),
+        ],
+        ids=["libero_lerobot", "metaworld_lerobot", "libero_hdf5"],
+    )
+    def test_rotation_derived_from_dataset_schema(
+        self, dataset_schema: dict, expected: bool
+    ):
+        config = OmegaConf.create({"task": {"dataset_schema": dataset_schema}})
+        assert infer_rotate_images(config=config) is expected
+
+    def test_missing_schema_disables_rotation(self):
+        config = OmegaConf.create({"task": {}})
+        assert infer_rotate_images(config=config) is False
 
 
 @pytest.mark.unit
@@ -813,7 +905,7 @@ class TestGetActionsForReadyEnvironments:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -831,6 +923,56 @@ class TestGetActionsForReadyEnvironments:
 
         policy_loader.run_inference.assert_called_once()
         assert 0 in result
+
+    def test_sends_ready_batch_to_online_explanation_source(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=[Cameras.AGENTVIEW.value],
+            state_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        policy_loader.run_inference.return_value = {
+            "position": torch.from_numpy(
+                rng.standard_normal((1, 4, 3)).astype(np.float32)
+            ),
+        }
+        online_explanation_source = MagicMock()
+        client = InferenceClient(
+            policy_runtime=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+            online_explanation_source=online_explanation_source,
+        )
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                Cameras.AGENTVIEW.value: rng.integers(0, 255, (64, 64, 3)).astype(
+                    np.uint8
+                ),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        )
+        client.environment_states[7] = state
+
+        client._get_actions_for_ready_environments()
+
+        online_explanation_source.explain_observation_batch.assert_called_once()
+        call_kwargs = (
+            online_explanation_source.explain_observation_batch.call_args.kwargs
+        )
+        policy_loader.run_inference.assert_called_once_with(
+            obs_dict=call_kwargs["observation"]
+        )
+        assert call_kwargs["environment_indices"] == [7]
+        assert call_kwargs["timestep"] == 0
+        assert Cameras.AGENTVIEW.value in call_kwargs["display_observation"]
 
     def test_passes_language_batch_to_inference_when_language_enabled(
         self,
@@ -855,7 +997,7 @@ class TestGetActionsForReadyEnvironments:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -903,7 +1045,7 @@ class TestGetActionsForReadyEnvironments:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -1309,7 +1451,7 @@ class TestStepOrchestration:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -1358,6 +1500,106 @@ class TestStepOrchestration:
             )
             assert 0 in sent_actions
 
+    def _make_history_client(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+        observation_horizon: int,
+    ) -> InferenceClient:
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            state_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=3,
+            observation_horizon=observation_horizon,
+        )
+        policy_loader.run_inference.return_value = {
+            "position": torch.from_numpy(
+                rng.standard_normal((1, 3, 3)).astype(np.float32)
+            ),
+        }
+        client = InferenceClient(
+            policy_runtime=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": torch.from_numpy(
+                rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+            ),
+        }
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.1, 0.2, 0.3],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {
+            "position": {"dimension": 3},
+        }
+        return client
+
+    def test_warns_on_history_gap_with_chunked_execution(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            state_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=3,
+            observation_horizon=2,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            InferenceClient(
+                policy_runtime=policy_loader,
+                observation_transport=mock_observation_transport,
+                action_transport=mock_action_transport,
+                action_execution_horizon=3,
+            )
+
+        assert any(
+            "training windows are contiguous" in record.message
+            for record in caplog.records
+        )
+
+    def test_chunk_execution_reads_one_observation_per_prediction(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        client = self._make_history_client(
+            mock_policy_loader_factory,
+            mock_observation_transport,
+            mock_action_transport,
+            rng,
+            observation_horizon=1,
+        )
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        client.step()
+
+        assert mock_action_transport.send.call_count == 3
+        assert mock_observation_transport.receive.call_count == 1
+
     def test_step_calls_pipeline_in_correct_order(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],
@@ -1380,7 +1622,7 @@ class TestStepOrchestration:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
         )
@@ -1439,7 +1681,7 @@ class TestStepOrchestration:
         )
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=True,
@@ -1519,7 +1761,7 @@ class TestStepOrchestration:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=False,
@@ -1572,7 +1814,7 @@ class TestStepOrchestration:
 
 @pytest.mark.unit
 class TestRunEpisode:
-    def test_registers_with_checkpoint_path(
+    def test_registers_with_client_identifier(
         self,
         inference_client_factory: Callable[..., InferenceClient],
         mock_observation_transport: MagicMock,
@@ -1585,7 +1827,7 @@ class TestRunEpisode:
         client.run_episode(max_steps=10)
 
         mock_observation_transport.register.assert_called_once_with(
-            client_name=client.policy_loader.checkpoint_path,
+            client_name=client.policy_runtime.client_identifier,
         )
 
     def test_stops_on_finished_status(
@@ -1649,7 +1891,7 @@ class TestShutdown:
         policy_loader = mock_policy_loader_factory()
         action_transport = MagicMock(spec=[])
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=action_transport,
         )
@@ -1683,7 +1925,7 @@ class TestStepTimingLog:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             timing_log=True,
@@ -1747,16 +1989,16 @@ class TestStepTimingLog:
             client.step()
 
             mock_log_info.assert_called_once()
-            call_args = mock_log_info.call_args[0]
-            format_string = call_args[0]
-            assert "[TIMING]" in format_string
+            logged_message = mock_log_info.call_args[0][0]
             # preprocess=0.1, inference=0.1, postprocess=0.1, total=0.7, fps=1/0.7
-            assert call_args[1] == 0  # timestep
-            assert call_args[2] == pytest.approx(0.1)  # preprocess duration
-            assert call_args[3] == pytest.approx(0.1)  # inference duration
-            assert call_args[4] == pytest.approx(0.1)  # postprocess duration
-            assert call_args[5] == pytest.approx(0.7)  # total duration
-            assert call_args[6] == pytest.approx(1.0 / 0.7)  # fps
+            assert logged_message == (
+                "[TIMING] Step 0: "
+                "preprocess=0.1000s "
+                "inference=0.1000s "
+                "postprocess=0.1000s "
+                "total=0.7000s "
+                f"fps={1.0 / 0.7:.1f}"
+            )
 
     def test_no_timing_log_when_disabled(
         self,
@@ -1815,7 +2057,7 @@ class TestStepUpdateRateHz:
         }
 
         client = InferenceClient(
-            policy_loader=policy_loader,
+            policy_runtime=policy_loader,
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             update_rate_hz=10.0,

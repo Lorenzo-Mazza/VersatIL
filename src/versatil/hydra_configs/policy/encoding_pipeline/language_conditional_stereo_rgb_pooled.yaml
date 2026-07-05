@@ -1,0 +1,35 @@
+defaults:
+  - encoder/language@encoders.instruction
+  - encoder/image/conditional_cnn@encoders.left
+  - encoder/image/conditional_cnn@encoders.right
+  - _self_
+encoders:
+  instruction:
+    model_name: ${language_model:BERT_BASE}
+    pretrained: true
+    frozen: true
+    max_token_len: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
+    pooling_method: ${pooling_method:LEARNED_AGGREGATION}
+    use_embeddings_only: false
+
+  left:
+    input_keys:
+    - ${cameras:LEFT}
+    condition_key: "instruction_language"
+    conditioning_dimension: 768
+    backbone: ${rgb_backbone:RESNET18}
+    pretrained: true
+    frozen: false
+    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
+    batch_norm_handling: ${batch_norm_handling:FROZEN}
+
+  right:
+    input_keys:
+    - ${cameras:RIGHT}
+    condition_key: "instruction_language"
+    conditioning_dimension: 768
+    backbone: ${rgb_backbone:RESNET18}
+    pretrained: true
+    frozen: false
+    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
+    batch_norm_handling: ${batch_norm_handling:FROZEN}

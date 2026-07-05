@@ -6,7 +6,7 @@ import torch.nn as nn
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
-from versatil.models.policy import Policy
+from versatil.models.policy import Policy, build_algorithm_features
 
 
 class ExportablePolicy(nn.Module):
@@ -32,7 +32,7 @@ class ExportablePolicy(nn.Module):
             algorithm: The policy's decoding algorithm.
             decoder: The policy's action decoder.
             observation_keys: Sorted list of observation dict keys.
-            action_keys: Sorted list of action output keys.
+            action_keys: Action output keys in action-space metadata order.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline
@@ -66,8 +66,15 @@ class ExportablePolicy(nn.Module):
                 f"matching keys {self._observation_keys}, "
                 f"got {len(observation_tensors)}"
             )
-        observation_dict = dict(zip(self._observation_keys, observation_tensors))
-        features = self.encoding_pipeline(observation_dict)
+        observation_dict = dict(
+            zip(self._observation_keys, observation_tensors, strict=True)
+        )
+        features = build_algorithm_features(
+            observation=observation_dict,
+            encoding_pipeline=self.encoding_pipeline,
+            decoder=self.decoder,
+            algorithm_injected_keys=self.algorithm.injected_feature_keys(),
+        )
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         return tuple(predictions[key] for key in self._action_keys)
 
@@ -83,7 +90,18 @@ class ExportablePolicy(nn.Module):
 
         Returns:
             ExportablePolicy wrapping the policy's components.
+
+        Raises:
+            ValueError: If the policy predicts action tokens; exported
+                forward passes return raw tensors and never detokenize, so
+                the exported outputs would not match the action space.
         """
+        if policy.decoder.requires_tokenized_actions:
+            raise ValueError(
+                "Policies with tokenized-action decoders cannot be exported: "
+                "the exported forward returns raw action tokens without "
+                "detokenization."
+            )
         return cls(
             encoding_pipeline=policy.encoding_pipeline,
             algorithm=policy.algorithm,

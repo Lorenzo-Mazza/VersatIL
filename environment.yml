@@ -2,7 +2,7 @@ name: versatil
 channels:
   - conda-forge
 dependencies:
-  - python=3.14
+  - python>=3.13,<3.15
   - pip
   - pip:
       - uv

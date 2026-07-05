@@ -1,0 +1,115 @@
+# @package _global_
+# Block Pushing state-only LACT VAE-KL with a learned Gaussian prior mean and variance.
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: block_pushing
+  - /task/dataloader: block_pushing_state
+  - /task/action_space: block_pushing_precomputed
+  - /task/observation_space: block_pushing_state
+  - /training: default
+  - /policy/encoding_pipeline: block_pushing_state
+  - /policy/decoder: lact
+  - /policy/algorithm: bc_with_learned_prior
+  - /policy/loss: regression_kl
+  - override /policy/decoder/heads@policy.decoder.action_heads: block_pushing_2d
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+  dataloader:
+    val_ratio: 0.0
+    preload_data_in_memory: true
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:block_pushing}
+  checkpoint_every: 100
+  save_checkpoints: true
+  use_wandb: true
+
+training:
+  num_epochs: 1200
+  early_stopping_patience: null
+  clip_gradient_norm: false
+  lr_schedule: null
+  use_ema: true
+  optimizer:
+    lr: 5.0e-4
+    param_groups: []
+  stages: []
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+        mse_weight: 0.0
+        l1_weight: 1.0
+        huber_weight: 0.0
+      kl_divergence:
+        weight: 0.01
+        prior_regularization_weight: 0.0
+      trajectory_length:
+        weight: 0.0
+        action_key: ${proprio_key:EE_POS_ACTION}
+      posterior_geometry:
+        _target_: versatil.metrics.losses.latent_geometry.PosteriorGeometryLoss
+        key: ${latent_key:POSTERIOR_MU}
+        mean_weight: 0.01
+        std_weight: 0.05
+        target_std: 1.0
+        max_std_weight: 0.1
+        max_std: 2.0
+        covariance_weight: 0.01
+
+  decoder:
+    input_keys:
+      - robot_state_proprio
+    latent_dimension: ${policy.algorithm.posterior_encoder.latent_dimension}
+    embedding_dimension: 256
+    number_of_heads: 8
+    feedforward_dimension: 1024
+    number_of_layers: 4
+    dropout_rate: 0.1
+    attention_dropout: 0.01
+
+  algorithm:
+    sampling_from_prior_probability: 0.0
+    posterior_decoder_noise_std: 0.0
+    posterior_encoder:
+      latent_dimension: 16
+      embedding_dimension: 256
+      number_of_heads: 8
+      feedforward_dimension: 1024
+      number_of_encoder_layers: 4
+      dropout_rate: 0.1
+      attention_dropout: 0.01
+      min_logvar: -6.0
+      max_logvar: 2.0
+      deterministic: false
+      mu_tanh_bound: null
+      device: ${policy.device}
+    prior:
+      latent_dimension: 16
+      embedding_dimension: 256
+      number_of_heads: 8
+      feedforward_dimension: 1024
+      number_of_encoder_layers: 4
+      dropout_rate: 0.1
+      attention_dropout: 0.01
+      learn_variance: true
+      min_logvar: -6.0
+      max_logvar: 2.0
+      device: ${policy.device}

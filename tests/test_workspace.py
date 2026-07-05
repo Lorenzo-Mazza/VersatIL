@@ -1,6 +1,7 @@
 """Tests for versatil.workspace module."""
 
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -14,13 +15,19 @@ from pytorch_lightning.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
     StochasticWeightAveraging,
+    TQDMProgressBar,
 )
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
+from torchao.quantization import Int4WeightOnlyConfig
 
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.quantization.module_target import EagerQuantizationModuleTarget
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
+from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
+from versatil.quantization.workflows.none import NoQuantizationWorkflow
 from versatil.training.callbacks.confusion_matrix import ConfusionMatrixCallback
 from versatil.training.callbacks.early_stopping import ResumableEarlyStopping
 from versatil.training.callbacks.ema import EMACallback
@@ -53,7 +60,6 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         checkpoint_every: int = 10,
         save_checkpoints: bool = True,
         val_every: int = 1,
-        plot_every: int = 200,
         validate_loss_keys: bool = True,
     ) -> MagicMock:
         config = MagicMock(spec=ExperimentConfig)
@@ -71,7 +77,6 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         config.checkpoint_every = checkpoint_every
         config.save_checkpoints = save_checkpoints
         config.val_every = val_every
-        config.plot_every = plot_every
         config.validate_loss_keys = validate_loss_keys
         return config
 
@@ -179,6 +184,7 @@ def main_config_factory(
         experiment_kwargs: dict | None = None,
         training_kwargs: dict | None = None,
         policy: MagicMock | None = None,
+        quantization: BaseQuantizationWorkflow | MagicMock | None = None,
     ) -> MagicMock:
         experiment_kwargs = experiment_kwargs or {}
         training_kwargs = training_kwargs or {}
@@ -187,6 +193,7 @@ def main_config_factory(
         config.experiment = experiment_config_factory(**experiment_kwargs)
         config.training = mock_training_config_factory(**training_kwargs)
         config.policy = policy or MagicMock()
+        config.quantization = quantization
         return config
 
     return factory
@@ -220,6 +227,8 @@ def workspace_factory(
         experiment_kwargs: dict | None = None,
         training_kwargs: dict | None = None,
         policy: MagicMock | None = None,
+        quantization: BaseQuantizationWorkflow | MagicMock | None = None,
+        original_yaml_config: OmegaConf | None = None,
         config_name: str = "test_config",
     ) -> Workspace:
         experiment_kwargs = experiment_kwargs or {}
@@ -229,8 +238,9 @@ def workspace_factory(
             experiment_kwargs=experiment_kwargs,
             training_kwargs=training_kwargs,
             policy=policy,
+            quantization=quantization,
         )
-        yaml_config = original_yaml_config_factory(
+        yaml_config = original_yaml_config or original_yaml_config_factory(
             name=experiment_kwargs.get("name", "test_experiment"),
         )
 
@@ -295,6 +305,24 @@ class TestWorkspaceInitialization:
         assert workspace.output_dir == expected_dir
         assert expected_dir.exists()
 
+    def test_output_directory_uses_config_basename_only(
+        self, workspace_factory, tmp_path
+    ):
+        workspace = workspace_factory(
+            experiment_kwargs={"name": "output_test"},
+            config_name="end_to_end_training_runs/libero_lerobot/openvla",
+        )
+
+        # checkpoint_folder already carries the dataset; the Hydra config
+        # path must not re-nest checkpoints under the runs/dataset dirs.
+        expected_dir = tmp_path / "openvla" / "output_test"
+        assert workspace.output_dir == expected_dir
+        assert expected_dir.exists()
+        assert (
+            workspace.exp_name
+            == "end_to_end_training_runs/libero_lerobot/openvla/output_test"
+        )
+
     def test_initial_state_is_none(self, workspace_factory):
         workspace = workspace_factory()
 
@@ -307,6 +335,13 @@ class TestWorkspaceInitialization:
         assert workspace.tokenizer is None
         assert workspace.logger is None
         assert workspace.gripper_class_weights is None
+
+    def test_missing_quantization_uses_no_quantization_workflow(
+        self, workspace_factory
+    ):
+        workspace = workspace_factory()
+
+        assert isinstance(workspace.config.quantization, NoQuantizationWorkflow)
 
     def test_seed_is_set_during_init(self, workspace_factory):
         seed = 123
@@ -352,6 +387,33 @@ def test_save_config_writes_resolved_yaml_to_output_directory(
 
     loaded = OmegaConf.load(config_path)
     assert "experiment" in loaded
+
+
+@pytest.mark.unit
+def test_save_config_serializes_resolved_torch_dtype(workspace_factory) -> None:
+    yaml_config = OmegaConf.create(
+        {
+            "experiment": {"name": "save_dtype"},
+            "training": {"optimizer": {"lr": 1e-4}},
+            "quantization": {
+                "targets": [
+                    {
+                        "quantize_config": {
+                            "weight_dtype": "${torch_dtype:int4}",
+                        },
+                    }
+                ],
+            },
+        }
+    )
+    workspace = workspace_factory(
+        experiment_kwargs={"name": "save_dtype"},
+        original_yaml_config=yaml_config,
+        config_name="base",
+    )
+
+    loaded = OmegaConf.load(workspace.output_dir / "config.yaml")
+    assert loaded.quantization.targets[0].quantize_config.weight_dtype is torch.int4
 
 
 @pytest.mark.unit
@@ -537,6 +599,23 @@ class TestCreateCallbacks:
         assert ModelCheckpoint in callback_types
         assert GradientNormCallback in callback_types
         assert LearningRateMonitor in callback_types
+        assert TQDMProgressBar in callback_types
+
+    def test_tqdm_progress_bar_refreshes_every_batch(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        progress_callbacks = [
+            callback for callback in callbacks if isinstance(callback, TQDMProgressBar)
+        ]
+        assert len(progress_callbacks) == 1
+        assert progress_callbacks[0].refresh_rate == 1
 
     def test_no_checkpoint_callbacks_when_save_checkpoints_disabled(
         self, workspace_factory, mock_workspace_policy_factory
@@ -675,7 +754,9 @@ class TestCreateCallbacks:
             if isinstance(cb, ModelCheckpoint) and "best" in (cb.filename or "")
         ]
         assert len(best_checkpoint) == 1
-        assert best_checkpoint[0].monitor == "train_loss_epoch"
+        # "train_loss" is the actual logged key: on_step=False means
+        # Lightning never forks a "train_loss_epoch" variant.
+        assert best_checkpoint[0].monitor == "train_loss"
 
     def test_swa_callback_added_when_swa_lrs_set(
         self, workspace_factory, mock_workspace_policy_factory
@@ -734,7 +815,9 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch("versatil.workspace.StochasticWeightAveraging") as mock_swa_cls:
+        with patch(
+            "versatil.training.callback_factory.StochasticWeightAveraging"
+        ) as mock_swa_cls:
             mock_swa_cls.return_value = MagicMock(spec=StochasticWeightAveraging)
             workspace._create_callbacks()
 
@@ -949,7 +1032,9 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = MagicMock()
 
-        with patch("versatil.workspace.ReduceLROnPlateauCallback") as mock_reduce_cls:
+        with patch(
+            "versatil.training.callback_factory.ReduceLROnPlateauCallback"
+        ) as mock_reduce_cls:
             mock_reduce_cls.return_value = MagicMock(spec=ReduceLROnPlateauCallback)
             workspace._create_callbacks()
 
@@ -974,7 +1059,9 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch("versatil.workspace.ReduceLROnPlateauCallback") as mock_reduce_cls:
+        with patch(
+            "versatil.training.callback_factory.ReduceLROnPlateauCallback"
+        ) as mock_reduce_cls:
             mock_reduce_cls.return_value = MagicMock(spec=ReduceLROnPlateauCallback)
             workspace._create_callbacks()
 
@@ -1052,9 +1139,12 @@ class TestCreateCallbacks:
         assert len(latest_checkpoints) == 1
         assert latest_checkpoints[0]._save_on_train_epoch_end is True
 
-    def test_latest_checkpoint_does_not_save_on_train_epoch_end_with_validation(
+    def test_latest_checkpoint_saves_on_train_epoch_end_with_validation(
         self, workspace_factory, mock_workspace_policy_factory
     ):
+        # The latest callback monitors the epoch counter, not a validation
+        # metric; tying it to validation would silently skip epochs whenever
+        # checkpoint_every and val_every do not align.
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
@@ -1068,7 +1158,7 @@ class TestCreateCallbacks:
             if isinstance(cb, ModelCheckpoint) and "latest" in (cb.filename or "")
         ]
         assert len(latest_checkpoints) == 1
-        assert latest_checkpoints[0]._save_on_train_epoch_end is False
+        assert latest_checkpoints[0]._save_on_train_epoch_end is True
 
 
 @pytest.mark.unit
@@ -1389,14 +1479,30 @@ class TestSetupPolicy:
             expected_dtype
         )
 
+    @pytest.mark.parametrize(
+        "train_loader_length, gradient_accumulate_every, num_epochs, expected_total",
+        [
+            (100, 2, 10, 500),
+            # Lightning flushes the final partial accumulation window each
+            # epoch, so 101 batches with accumulation 2 yield 51 steps.
+            (101, 2, 10, 510),
+            (7, 3, 4, 12),
+        ],
+    )
     def test_computes_total_training_steps_correctly(
-        self, workspace_factory, mock_workspace_policy_factory
+        self,
+        workspace_factory,
+        mock_workspace_policy_factory,
+        train_loader_length: int,
+        gradient_accumulate_every: int,
+        num_epochs: int,
+        expected_total: int,
     ):
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(
             training_kwargs={
-                "num_epochs": 10,
-                "gradient_accumulate_every": 2,
+                "num_epochs": num_epochs,
+                "gradient_accumulate_every": gradient_accumulate_every,
             },
             policy=policy,
         )
@@ -1408,7 +1514,7 @@ class TestSetupPolicy:
         workspace.gripper_class_weights = None
 
         mock_train_loader = MagicMock()
-        mock_train_loader.__len__ = MagicMock(return_value=100)
+        mock_train_loader.__len__ = MagicMock(return_value=train_loader_length)
         workspace.train_loader = mock_train_loader
 
         workspace.config.policy = policy
@@ -1420,13 +1526,76 @@ class TestSetupPolicy:
             mock_lightning_cls.return_value = MagicMock(spec=LightningPolicy)
             workspace._setup_policy()
 
-            # steps_per_epoch = 100 // 2 = 50
-            # total = 50 * 10 = 500
             mock_lightning_cls.assert_called_once_with(
                 policy=policy,
                 training_config=workspace.config.training,
-                total_training_steps=500,
+                total_training_steps=expected_total,
             )
+
+    def test_prepares_qat_after_lazy_initialization(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        quantization = EagerQuantizationWorkflow(
+            targets=[
+                EagerQuantizationModuleTarget(
+                    module_path="",
+                    quantize_config=Int4WeightOnlyConfig(group_size=32),
+                )
+            ],
+            is_qat=True,
+        )
+        workspace = workspace_factory(policy=policy, quantization=quantization)
+        workspace.policy = None
+        workspace.normalizer = MagicMock(spec=LinearNormalizer)
+        workspace.tokenizer = None
+        workspace.denoising_thresholds = {}
+        workspace.gripper_class_weights = None
+        mock_train_loader = MagicMock()
+        mock_train_loader.__len__ = MagicMock(return_value=10)
+        workspace.train_loader = mock_train_loader
+        workspace.config.policy = policy
+
+        with (
+            patch.object(workspace, "_initialize_lazy_modules") as initialize_mock,
+            patch.object(quantization, "prepare_model") as prepare_mock,
+        ):
+            workspace._setup_policy()
+
+        initialize_mock.assert_called_once_with()
+        prepare_mock.assert_called_once_with(model=policy)
+
+    def test_prepare_qat_skips_non_qat_workflow(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        quantization.is_qat = False
+        workspace = workspace_factory(policy=policy, quantization=quantization)
+        workspace.policy = policy
+
+        workspace._prepare_qat()
+
+        quantization.prepare_model.assert_not_called()
+
+    def test_prepare_qat_propagates_workflow_prepare_error(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        quantization.is_qat = True
+        error_message = "PT2EQuantizationWorkflow does not support QAT preparation."
+        quantization.prepare_model.side_effect = NotImplementedError(error_message)
+        workspace = workspace_factory(policy=policy, quantization=quantization)
+        workspace.policy = policy
+
+        with pytest.raises(
+            NotImplementedError,
+            match=re.escape(error_message),
+        ):
+            workspace._prepare_qat()
+
+        quantization.prepare_model.assert_called_once_with(model=policy)
 
 
 @pytest.mark.unit
@@ -1473,231 +1642,6 @@ class TestInitializeLazyModules:
         mock_lightning_policy.training_step.assert_called_once_with(mock_batch, 0)
         mock_lightning_policy.train.assert_called_once()
         mock_lightning_policy.train_metrics.reset.assert_called_once()
-
-
-@pytest.mark.unit
-class TestLoadCheckpoint:
-    def test_raises_runtime_error_when_policy_is_none(self, workspace_factory):
-        workspace = workspace_factory()
-        workspace.policy = None
-        workspace.lightning_policy = MagicMock()
-
-        with (
-            patch("versatil.workspace.torch.load", return_value={"state_dict": {}}),
-            pytest.raises(
-                RuntimeError,
-                match="Policy must be initialized before loading checkpoint",
-            ),
-        ):
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-    def test_raises_runtime_error_when_lightning_policy_is_none(
-        self, workspace_factory
-    ):
-        workspace = workspace_factory()
-        workspace.policy = MagicMock()
-        workspace.lightning_policy = None
-
-        with (
-            patch("versatil.workspace.torch.load", return_value={"state_dict": {}}),
-            pytest.raises(
-                RuntimeError,
-                match="LightningPolicy must be initialized before loading checkpoint",
-            ),
-        ):
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-    def test_raises_value_error_for_unrecognized_checkpoint_format(
-        self, workspace_factory
-    ):
-        workspace = workspace_factory()
-        workspace.policy = MagicMock()
-        workspace.lightning_policy = MagicMock()
-
-        with (
-            patch("versatil.workspace.torch.load", return_value={"weights": {}}),
-            pytest.raises(
-                ValueError,
-                match="Checkpoint format not recognized",
-            ),
-        ):
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-    def test_loads_state_dict_into_lightning_policy(self, workspace_factory):
-        workspace = workspace_factory()
-        workspace.policy = MagicMock()
-        workspace.lightning_policy = MagicMock()
-
-        mock_state_dict = {"layer.weight": torch.zeros(3, 3)}
-
-        with patch(
-            "versatil.workspace.torch.load",
-            return_value={"state_dict": mock_state_dict},
-        ):
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-        workspace.lightning_policy.load_state_dict.assert_called_once_with(
-            mock_state_dict
-        )
-
-    def test_loads_tokenizer_from_pretrained_when_path_exists(
-        self, workspace_factory, tmp_path
-    ):
-        workspace = workspace_factory()
-        workspace.policy = MagicMock()
-        workspace.lightning_policy = MagicMock()
-
-        tokenizer_dir = workspace.output_dir / "tokenizer"
-        tokenizer_dir.mkdir(parents=True, exist_ok=True)
-
-        mock_tokenizer = MagicMock()
-        with (
-            patch(
-                "versatil.workspace.torch.load",
-                return_value={"state_dict": {}},
-            ),
-            patch(
-                "versatil.workspace.Tokenizer.from_pretrained",
-                return_value=mock_tokenizer,
-            ) as mock_from_pretrained,
-        ):
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-        mock_from_pretrained.assert_called_once()
-        workspace.policy.set_tokenizer.assert_called_once_with(mock_tokenizer)
-        assert workspace.tokenizer == mock_tokenizer
-
-    def test_sets_tokenizer_to_none_when_path_does_not_exist(self, workspace_factory):
-        workspace = workspace_factory()
-        workspace.policy = MagicMock()
-        workspace.lightning_policy = MagicMock()
-
-        with patch(
-            "versatil.workspace.torch.load",
-            return_value={"state_dict": {}},
-        ):
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-        assert workspace.tokenizer is None
-
-    def test_loads_checkpoint_with_correct_map_location(self, workspace_factory):
-        workspace = workspace_factory(experiment_kwargs={"device": "cpu"})
-        workspace.policy = MagicMock()
-        workspace.lightning_policy = MagicMock()
-
-        with patch(
-            "versatil.workspace.torch.load",
-            return_value={"state_dict": {}},
-        ) as mock_load:
-            workspace.load_checkpoint("/fake/path.ckpt")
-
-            mock_load.assert_called_once_with(
-                "/fake/path.ckpt",
-                map_location="cpu",
-                weights_only=False,
-            )
-
-
-@pytest.mark.unit
-class TestPredict:
-    def test_raises_runtime_error_when_lightning_policy_is_none(
-        self, workspace_factory
-    ):
-        workspace = workspace_factory()
-        workspace.lightning_policy = None
-
-        with pytest.raises(
-            RuntimeError,
-            match="Policy not initialized. Call run\\(\\) first.",
-        ):
-            workspace.predict({"obs": torch.zeros(2, 3)})
-
-    def test_uses_ema_model_when_ema_enabled_and_callback_available(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory()
-        workspace = workspace_factory(
-            training_kwargs={"use_ema": True},
-            policy=policy,
-        )
-        workspace.policy = policy
-        workspace.lightning_policy = MagicMock(spec=LightningPolicy)
-
-        mock_ema_model = MagicMock()
-        mock_ema_model.predict_action = MagicMock(
-            return_value={"action": torch.ones(2, 7)}
-        )
-
-        ema_callback = MagicMock(spec=EMACallback)
-        ema_callback.ema_model = mock_ema_model
-
-        workspace.trainer = MagicMock()
-        workspace.trainer.callbacks = [ema_callback]
-
-        obs_dict = {"obs": torch.zeros(2, 3)}
-        workspace.predict(obs_dict)
-
-        mock_ema_model.eval.assert_called_once()
-        mock_ema_model.predict_action.assert_called_once_with(obs_dict)
-
-    def test_uses_original_policy_when_ema_disabled(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory()
-        workspace = workspace_factory(
-            training_kwargs={"use_ema": False},
-            policy=policy,
-        )
-        workspace.policy = policy
-        workspace.lightning_policy = MagicMock(spec=LightningPolicy)
-        workspace.trainer = None
-
-        obs_dict = {"obs": torch.zeros(2, 3)}
-        workspace.predict(obs_dict)
-
-        policy.eval.assert_called_once()
-        policy.predict_action.assert_called_once_with(obs_dict)
-
-    def test_uses_original_policy_when_ema_model_is_none(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory()
-        workspace = workspace_factory(
-            training_kwargs={"use_ema": True},
-            policy=policy,
-        )
-        workspace.policy = policy
-        workspace.lightning_policy = MagicMock(spec=LightningPolicy)
-
-        ema_callback = MagicMock(spec=EMACallback)
-        ema_callback.ema_model = None
-
-        workspace.trainer = MagicMock()
-        workspace.trainer.callbacks = [ema_callback]
-
-        obs_dict = {"obs": torch.zeros(2, 3)}
-        workspace.predict(obs_dict)
-
-        policy.eval.assert_called_once()
-        policy.predict_action.assert_called_once_with(obs_dict)
-
-    def test_runs_in_no_grad_context(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory()
-        workspace = workspace_factory(policy=policy)
-        workspace.policy = policy
-        workspace.lightning_policy = MagicMock(spec=LightningPolicy)
-        workspace.trainer = None
-
-        obs_dict = {"obs": torch.zeros(2, 3)}
-
-        with patch("versatil.workspace.torch.no_grad") as mock_no_grad:
-            mock_context = MagicMock()
-            mock_no_grad.return_value = mock_context
-            workspace.predict(obs_dict)
-
-            mock_no_grad.assert_called_once()
 
 
 @pytest.mark.unit
@@ -1826,8 +1770,9 @@ class TestRun:
 
             workspace.run()
 
-            assert mock_lightning._train_dataloader == mock_train_loader
-            assert mock_lightning._val_dataloader == mock_val_loader
+            mock_lightning.set_dataloaders.assert_called_once_with(
+                train_loader=mock_train_loader, val_loader=mock_val_loader
+            )
 
 
 @pytest.mark.unit
@@ -2084,18 +2029,6 @@ class TestWorkspaceStateGuards:
                 match="Trainer should be initialized before training",
             ):
                 workspace.run()
-
-    def test_predict_raises_when_policy_is_none(self, workspace_factory):
-        workspace = workspace_factory()
-        workspace.lightning_policy = MagicMock()
-        workspace.policy = None
-        workspace.trainer = None
-
-        with pytest.raises(
-            RuntimeError,
-            match="Policy must be initialized",
-        ):
-            workspace.predict({"obs": torch.zeros(2, 3)})
 
     def test_tune_hyperparameters_raises_when_trainer_is_none(self, workspace_factory):
         workspace = workspace_factory(training_kwargs={"tune_lr": True})

@@ -5,13 +5,13 @@ normalized data into discrete tokens, enabling vocabulary-based action predictio
 """
 
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
-from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
+from versatil.data.tokenization.binned_value_discretizer import BinnedValueDiscretizer
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 from versatil.data.tokenization.tokenizer import Tokenizer
 
 __all__ = [
     "Tokenizer",
     "ActionTokenizer",
-    "BinningTokenizer",
+    "BinnedValueDiscretizer",
     "ObservationTokenizer",
 ]

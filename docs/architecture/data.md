@@ -21,7 +21,7 @@ class DatasetSchema(abc.ABC):
     def __init__(self, zarr_path: str, metadata: DatasetMetadata, dataset_type: str): ...
 
     @abc.abstractmethod
-    def extract_episode(self, episode_source, resizer, depth_resizer) -> dict[str, np.ndarray]: ...
+    def extract_episode(self, episode_source) -> dict[str, np.ndarray]: ...
 
     def get_required_zarr_keys(self) -> list[str]: ...
 ```
@@ -39,7 +39,7 @@ New formats are supported by subclassing [`DatasetSchema`][versatil.data.raw.sch
 
 ### Available Datasets
 
-Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_runs/`:
+Ready-to-use end-to-end configs exist under `src/versatil/hydra_configs/end_to_end_training_runs/`:
 
 | Dataset                                                                  | Config Path | Data Link | Notes                                                            |
 |--------------------------------------------------------------------------|---|---|------------------------------------------------------------------|
@@ -53,7 +53,6 @@ Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_r
 | Kitchen                                                                  | `kitchen/` | Local/LeRobot-compatible data | Q-FAT relay kitchen configs.                                     |
 | Multimodal Ant                                                           | `ant/` | Local/LeRobot-compatible data | State-only multimodal ant benchmark configs.                     |
 | UR3 Block Push                                                           | `ur3/` | Local/LeRobot-compatible data | State-only UR3 block-push benchmark configs.                     |
-| Multimodal Peg Transfer                                                  | `multimodal_peg_transfer/` | Local data | Peg-transfer task configs.                                       |
 | Synthetic                                                                | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs.              |
 
 ### Zarr Store Creation
@@ -314,7 +313,10 @@ experiment validator checks these model-family requirements before training.
 ImageProcessor(
     color_augmentation=A.Compose(...) | None,
     spatial_augmentation=A.Compose(...) | None,
-    camera_metadata={"left": CameraMetadata(...), ...},
+    camera_metadata={
+        "left": RGBCameraMetadata(...),
+        "depth": DepthCameraMetadata(...),
+    },
     train=True,
 )
 ```
@@ -328,13 +330,13 @@ Two independent [Albumentations](https://albumentations.ai/) pipelines are suppo
 - **Color augmentation** -- Photometric transforms (brightness, contrast, hue, etc.)
 - **Spatial augmentation** -- Geometric transforms (rotation, flips, etc.)
 
-Image sizes come from per-camera [`CameraMetadata`][versatil.data.metadata.CameraMetadata] in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
+Image sizes come from per-camera [`RGBCameraMetadata`][versatil.data.metadata.RGBCameraMetadata] and [`DepthCameraMetadata`][versatil.data.metadata.DepthCameraMetadata] in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
 
 ## Tokenization
 
 The [`Tokenizer`][versatil.data.tokenization.tokenizer.Tokenizer] wraps two optional sub-tokenizers:
 
-- **[`ObservationTokenizer`][versatil.data.tokenization.observation_tokenizer.ObservationTokenizer]** -- Tokenizes language instructions and proprioceptive data
-- **[`ActionTokenizer`][versatil.data.tokenization.action_tokenizer.ActionTokenizer]** -- Tokenizes continuous actions into discrete tokens (FAST-style)
+- **[`ObservationTokenizer`][versatil.data.tokenization.observation_tokenizer.ObservationTokenizer]** -- Tokenizes language instructions and proprioceptive data. Continuous observation values use the shared [`BinnedValueDiscretizer`][versatil.data.tokenization.binned_value_discretizer.BinnedValueDiscretizer].
+- **[`ActionTokenizer`][versatil.data.tokenization.action_tokenizer.ActionTokenizer]** -- Tokenizes continuous actions by composing two stages: an [`ActionDiscretizer`][versatil.data.tokenization.action_discretizer.ActionDiscretizer] (`fast` for FAST/BPE codes, `binned` for per-dimension bins) followed by an [`ActionTokenIdMapping`][versatil.data.tokenization.action_token_id_mapping.ActionTokenIdMapping] (`identity` to keep action-local IDs, or `language_vocabulary` to place action tokens in the tail of a language model's vocabulary). This lets FAST tokens, binned tokens, identity IDs, and language-vocabulary IDs be mixed independently.
 
-Tokenization is applied after normalization in `SampleBuilder.normalize_and_tokenize_sample()`. The tokenizer is saved alongside the checkpoint and loaded during inference via [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader].
+Tokenization is applied after normalization in `SampleBuilder.normalize_and_tokenize_sample()`. The tokenizer is saved alongside the checkpoint and restored by the checkpoint loader used by the inference runtime.

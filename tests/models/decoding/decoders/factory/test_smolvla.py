@@ -11,23 +11,23 @@ from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
+from versatil.models.decoding.decoders import interleaved_vlm as interleaved_vlm_module
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory import smolvla as smolvla_module
 from versatil.models.decoding.decoders.factory.smolvla import (
     SmolVLADecoder,
-    SmolVLALayerType,
 )
-from versatil.models.encoding.encoders.constants import (
-    EncoderOutputKeys,
+from versatil.models.decoding.decoders.interleaved_vlm import InterleavedLayerType
+from versatil.models.decoding.generative_language_models.constants import (
     SmolVLMModelType,
 )
-from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
-    GenerativeVLMEncoder,
+from versatil.models.decoding.generative_language_models.vision_language.base import (
+    GenerativeVLM,
 )
-from versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm import (
-    SmolVLMEncoder,
+from versatil.models.decoding.generative_language_models.vision_language.smolvlm import (
+    SmolVLM,
 )
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.transformer.cache.conditioning import (
     ConditioningLayerCache,
@@ -82,15 +82,15 @@ def _make_tiny_smolvlm_config() -> Idefics3Config:
 
 
 @pytest.fixture(scope="session")
-def real_smolvlm_encoder() -> SmolVLMEncoder:
-    """Session-scoped real tiny SmolVLM encoder for integration tests."""
+def real_smolvlm_backbone() -> SmolVLM:
+    """Session-scoped real tiny SmolVLM backbone for integration tests."""
     tiny_config = _make_tiny_smolvlm_config()
     with patch(
-        "versatil.models.encoding.encoders.cross_modal.vision_language"
-        ".generative_vlm.AutoConfig.from_pretrained",
+        "versatil.models.decoding.generative_language_models.vision_language"
+        ".huggingface.AutoConfig.from_pretrained",
         return_value=tiny_config,
     ):
-        encoder = SmolVLMEncoder(
+        backbone = SmolVLM(
             input_keys=[
                 Cameras.LEFT.value,
                 SampleKey.TOKENIZED_OBSERVATIONS.value,
@@ -98,10 +98,9 @@ def real_smolvlm_encoder() -> SmolVLMEncoder:
             pretrained=False,
             frozen=False,
             model_name=SmolVLMModelType.SMOLVLM_256M.value,
-            use_embeddings_only=True,
         )
-    encoder.vlm = encoder.vlm.float()
-    return encoder
+    backbone.vlm = backbone.vlm.float()
+    return backbone
 
 
 @pytest.fixture
@@ -109,9 +108,8 @@ def smolvla_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
     action_head_factory: Callable[..., ActionHead],
+    real_smolvlm_backbone: SmolVLM,
 ) -> Callable[..., SmolVLADecoder]:
-    """Factory for SmolVLADecoder without backbone (unit tests)."""
-
     def factory(
         expert_width_multiplier: float = EXPERT_WIDTH_MULTIPLIER,
         num_expert_layers: int = -1,
@@ -125,14 +123,22 @@ def smolvla_decoder_factory(
         normalization_type: str = NormalizationType.RMS_NORM.value,
         dropout: float = 0.0,
         input_keys: list[str] | None = None,
+        vlm_backbone: SmolVLM | None = None,
+        use_default_vlm_backbone: bool = True,
     ) -> SmolVLADecoder:
         if input_keys is None:
             input_keys = [FEATURE_KEY]
+        if vlm_backbone is None and use_default_vlm_backbone:
+            vlm_backbone = real_smolvlm_backbone
         action_space = mock_action_space_factory(position_dim=position_dim)
         observation_space = mock_observation_space_factory()
+        action_head_input_dimension = int(
+            VLM_HIDDEN_DIMENSION * expert_width_multiplier
+        )
         action_heads = {
-            key: action_head_factory(input_dim=EXPERT_HIDDEN_SIZE)
-            for key in action_space.actions_metadata
+            "joint_action": action_head_factory(
+                input_dimension=action_head_input_dimension
+            )
         }
         return SmolVLADecoder(
             input_keys=input_keys,
@@ -150,6 +156,7 @@ def smolvla_decoder_factory(
             freeze_vlm=freeze_vlm,
             normalization_type=normalization_type,
             dropout=dropout,
+            vlm_backbone=vlm_backbone,
         )
 
     return factory
@@ -158,7 +165,6 @@ def smolvla_decoder_factory(
 @pytest.fixture
 def initialized_decoder_factory(
     smolvla_decoder_factory: Callable[..., SmolVLADecoder],
-    real_smolvlm_encoder: SmolVLMEncoder,
 ) -> Callable[..., SmolVLADecoder]:
     """Factory that returns a SmolVLADecoder with real VLM backbone wired."""
 
@@ -182,11 +188,15 @@ def initialized_decoder_factory(
             freeze_vlm=freeze_vlm,
             dropout=dropout,
         )
-        decoder.set_backbone(
-            vlm_layers=real_smolvlm_encoder.get_backbone_layers(),
-            rotary_emb=real_smolvlm_encoder.get_rotary_embedding(),
-            vlm_hidden_dimension=real_smolvlm_encoder.get_backbone_hidden_dim(),
-            vlm_text_config=real_smolvlm_encoder.get_text_config(),
+
+        def build_prefix(
+            features: dict[str, torch.Tensor],
+        ) -> tuple[torch.Tensor, torch.Tensor | None]:
+            return features[FEATURE_KEY], features.get(PADDING_MASK_KEY)
+
+        decoder._build_prefix = MagicMock(
+            spec=decoder._build_prefix,
+            side_effect=build_prefix,
         )
         return decoder
 
@@ -214,13 +224,47 @@ def prefix_features_factory(
             ),
         }
         if include_timestep:
-            features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
                 rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
             )
         if include_padding_mask:
             mask = torch.zeros(batch_size, sequence_length, dtype=torch.bool)
             mask[:, -2:] = True
             features[PADDING_MASK_KEY] = mask
+        return features
+
+    return factory
+
+
+@pytest.fixture
+def raw_vlm_features_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    def factory(
+        batch_size: int = BATCH_SIZE,
+        image_size: int = 56,
+        token_length: int = 4,
+        include_timestep: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        features = {
+            Cameras.LEFT.value: torch.from_numpy(
+                rng.standard_normal((batch_size, 3, image_size, image_size)).astype(
+                    np.float32
+                )
+            ),
+            SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
+                rng.integers(low=0, high=100, size=(batch_size, token_length)).astype(
+                    np.int64
+                )
+            ),
+            SampleKey.IS_PAD_OBSERVATION.value: torch.zeros(
+                batch_size, token_length, dtype=torch.bool
+            ),
+        }
+        if include_timestep:
+            features[AlgorithmContextKey.TIMESTEP.value] = torch.from_numpy(
+                rng.uniform(low=0.0, high=1.0, size=(batch_size,)).astype(np.float32)
+            )
         return features
 
     return factory
@@ -260,21 +304,27 @@ class TestSmolVLADecoderInitialization:
         decoder = smolvla_decoder_factory()
         assert decoder.decoder_input.requires_actions is True
 
-    def test_decoder_input_requires_vlm_backbone(
+    def test_requires_vlm_backbone(
         self,
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
     ):
-        decoder = smolvla_decoder_factory()
-        assert decoder.decoder_input.requires_vlm_backbone is True
+        with pytest.raises(
+            ValueError,
+            match=re.escape("SmolVLADecoder requires a vlm_backbone."),
+        ):
+            smolvla_decoder_factory(use_default_vlm_backbone=False)
 
-    def test_layers_none_before_set_backbone(
+    def test_vlm_backbone_needs_raw_observations(
         self,
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
+        real_smolvlm_backbone: SmolVLM,
     ):
-        decoder = smolvla_decoder_factory()
-        assert decoder.vlm_layers is None
-        assert decoder.expert_layers is None
-        assert decoder._layer_types is None
+        decoder = smolvla_decoder_factory(
+            input_keys=[],
+            vlm_backbone=real_smolvlm_backbone,
+        )
+        assert decoder.decoder_input.needs_raw_observations is True
+        assert decoder.vlm_backbone is real_smolvlm_backbone
 
     def test_caching_initially_disabled(
         self,
@@ -283,21 +333,6 @@ class TestSmolVLADecoderInitialization:
         decoder = smolvla_decoder_factory()
         assert decoder._encoder_cache_enabled is False
         assert decoder._prefix_cache is None
-
-    def test_raises_without_set_backbone(
-        self,
-        smolvla_decoder_factory: Callable[..., SmolVLADecoder],
-        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
-        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        decoder = smolvla_decoder_factory()
-        features = prefix_features_factory()
-        actions = noisy_actions_factory()
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape("set_backbone() must be called before forward()."),
-        ):
-            decoder(features=features, actions=actions)
 
 
 class TestGetIntermediateSize:
@@ -329,8 +364,9 @@ class TestSmolVLADecoderSetBackbone:
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
     ):
         decoder = initialized_decoder_factory()
-        assert decoder.action_output_projection.in_features == EXPERT_HIDDEN_SIZE
-        assert decoder.action_output_projection.out_features == POSITION_DIM
+        action_head = next(iter(decoder.action_heads.values()))
+        assert action_head.input_dimension == EXPERT_HIDDEN_SIZE
+        assert action_head.output_dim == POSITION_DIM
 
     @pytest.mark.parametrize(
         "self_attention_every_n_layers, expected_types",
@@ -338,19 +374,19 @@ class TestSmolVLADecoderSetBackbone:
             (
                 2,
                 [
-                    SmolVLALayerType.SELF_ATTENTION.value,
-                    SmolVLALayerType.CROSS_ATTENTION.value,
-                    SmolVLALayerType.SELF_ATTENTION.value,
-                    SmolVLALayerType.CROSS_ATTENTION.value,
+                    InterleavedLayerType.JOINT_SELF_ATTENTION.value,
+                    InterleavedLayerType.CROSS_ATTENTION.value,
+                    InterleavedLayerType.JOINT_SELF_ATTENTION.value,
+                    InterleavedLayerType.CROSS_ATTENTION.value,
                 ],
             ),
             (
                 0,
                 [
-                    SmolVLALayerType.CROSS_ATTENTION.value,
-                    SmolVLALayerType.CROSS_ATTENTION.value,
-                    SmolVLALayerType.CROSS_ATTENTION.value,
-                    SmolVLALayerType.CROSS_ATTENTION.value,
+                    InterleavedLayerType.CROSS_ATTENTION.value,
+                    InterleavedLayerType.CROSS_ATTENTION.value,
+                    InterleavedLayerType.CROSS_ATTENTION.value,
+                    InterleavedLayerType.CROSS_ATTENTION.value,
                 ],
             ),
         ],
@@ -378,14 +414,14 @@ class TestSmolVLADecoderSetBackbone:
         self,
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
     ):
-        # Use fresh VLM layers to avoid mutating the session-scoped encoder
+        # Use fresh VLM layers to avoid mutating the session-scoped backbone
         tiny_config = _make_tiny_smolvlm_config()
         with patch(
-            "versatil.models.encoding.encoders.cross_modal.vision_language"
-            ".generative_vlm.AutoConfig.from_pretrained",
+            "versatil.models.decoding.generative_language_models.vision_language"
+            ".huggingface.AutoConfig.from_pretrained",
             return_value=tiny_config,
         ):
-            fresh_encoder = SmolVLMEncoder(
+            fresh_encoder = SmolVLM(
                 input_keys=[
                     Cameras.LEFT.value,
                     SampleKey.TOKENIZED_OBSERVATIONS.value,
@@ -393,15 +429,11 @@ class TestSmolVLADecoderSetBackbone:
                 pretrained=False,
                 frozen=False,
                 model_name=SmolVLMModelType.SMOLVLM_256M.value,
-                use_embeddings_only=True,
             )
         fresh_encoder.vlm = fresh_encoder.vlm.float()
-        decoder = smolvla_decoder_factory(freeze_vlm=False)
-        decoder.set_backbone(
-            vlm_layers=fresh_encoder.get_backbone_layers(),
-            rotary_emb=fresh_encoder.get_rotary_embedding(),
-            vlm_hidden_dimension=fresh_encoder.get_backbone_hidden_dim(),
-            vlm_text_config=fresh_encoder.get_text_config(),
+        decoder = smolvla_decoder_factory(
+            freeze_vlm=False,
+            vlm_backbone=fresh_encoder,
         )
         for parameter in decoder.vlm_layers.parameters():
             assert parameter.requires_grad is True
@@ -461,13 +493,13 @@ class TestSmolVLADecoderForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features "
                 "dict. The algorithm should inject timesteps into features."
             ),
         ):
             decoder(features=features, actions=actions)
 
-    def test_output_keys_match_action_heads(
+    def test_output_keys_match_action_space(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
         prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
@@ -477,7 +509,7 @@ class TestSmolVLADecoderForward:
         features = prefix_features_factory()
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
-        assert set(outputs.keys()) == set(decoder.action_heads.keys())
+        assert set(outputs.keys()) == set(actions.keys())
 
     def test_output_shape(
         self,
@@ -490,11 +522,33 @@ class TestSmolVLADecoderForward:
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
         for action_key, output_tensor in outputs.items():
-            assert output_tensor.shape == (
-                BATCH_SIZE,
-                PREDICTION_HORIZON,
-                decoder.action_heads[action_key].output_dim,
-            )
+            assert output_tensor.shape == actions[action_key].shape
+
+    def test_vlm_backbone_builds_prefix_from_observations(
+        self,
+        smolvla_decoder_factory: Callable[..., SmolVLADecoder],
+        real_smolvlm_backbone: SmolVLM,
+        raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = smolvla_decoder_factory(
+            input_keys=[],
+            vlm_backbone=real_smolvlm_backbone,
+        )
+        features = raw_vlm_features_factory()
+        actions = noisy_actions_factory()
+        with patch.object(
+            real_smolvlm_backbone,
+            "build_prefix",
+            wraps=real_smolvlm_backbone.build_prefix,
+        ) as build_prefix_spy:
+            outputs = decoder(features=features, actions=actions)
+        build_prefix_spy.assert_called_once_with(inputs=features)
+        assert outputs["position_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            POSITION_DIM,
+        )
 
     def test_padding_mask_changes_output(
         self,
@@ -538,11 +592,7 @@ class TestSmolVLADecoderForward:
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
         for action_key, output_tensor in outputs.items():
-            assert output_tensor.shape == (
-                BATCH_SIZE,
-                PREDICTION_HORIZON,
-                decoder.action_heads[action_key].output_dim,
-            )
+            assert output_tensor.shape == actions[action_key].shape
 
 
 @pytest.mark.integration
@@ -579,9 +629,13 @@ class TestSmolVLADecoderBehavior:
         decoder = initialized_decoder_factory()
         decoder.eval()
         features_low = prefix_features_factory()
-        features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
+        features_low[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.01
+        )
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
+        features_high[AlgorithmContextKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 0.99
+        )
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -599,8 +653,8 @@ class TestSmolVLADecoderBehavior:
         decoder.eval()
         features_a = prefix_features_factory()
         features_b = prefix_features_factory()
-        features_b[DecoderOutputKey.TIMESTEP.value] = features_a[
-            DecoderOutputKey.TIMESTEP.value
+        features_b[AlgorithmContextKey.TIMESTEP.value] = features_a[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         actions = noisy_actions_factory()
         with torch.no_grad():
@@ -742,7 +796,7 @@ class TestSmolVLADecoderBehavior:
 
 @pytest.mark.integration
 class TestSmolVLADecoderRoPERouting:
-    def test_training_forward_receives_distinct_action_and_cross_attn_ropes(
+    def test_training_forward_receives_distinct_action_and_cross_attention_ropes(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
         prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
@@ -756,7 +810,7 @@ class TestSmolVLADecoderRoPERouting:
         ) as spy:
             decoder(features=features, actions=actions)
         action_cos, action_sin = spy.call_args.kwargs["expert_action_rope"]
-        cross_cos, cross_sin = spy.call_args.kwargs["expert_cross_attn_rope"]
+        cross_cos, cross_sin = spy.call_args.kwargs["expert_cross_attention_rope"]
         expected_shape = (BATCH_SIZE, 1, PREDICTION_HORIZON, HEAD_DIMENSION)
         assert action_cos.shape == expected_shape
         assert cross_cos.shape == expected_shape
@@ -785,7 +839,7 @@ class TestSmolVLADecoderRoPERouting:
             .unsqueeze(0)
             .expand(BATCH_SIZE, -1)
         )
-        expected_cos, expected_sin = GenerativeVLMEncoder.compute_rope(
+        expected_cos, expected_sin = GenerativeVLM.compute_rope(
             rotary_embedding=decoder.vlm_rotary_embedding,
             hidden_states=action_cos,
             position_ids=joint_positions,
@@ -793,7 +847,7 @@ class TestSmolVLADecoderRoPERouting:
         torch.testing.assert_close(action_cos, expected_cos)
         torch.testing.assert_close(action_sin, expected_sin)
 
-    def test_cross_attn_rope_uses_positions_shifted_to_start_from_zero(
+    def test_cross_attention_rope_uses_positions_shifted_to_start_from_zero(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
         prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
@@ -806,11 +860,11 @@ class TestSmolVLADecoderRoPERouting:
             decoder, "_run_training_forward", wraps=decoder._run_training_forward
         ) as spy:
             decoder(features=features, actions=actions)
-        cross_cos, cross_sin = spy.call_args.kwargs["expert_cross_attn_rope"]
+        cross_cos, cross_sin = spy.call_args.kwargs["expert_cross_attention_rope"]
         shifted_positions = (
             torch.arange(PREDICTION_HORIZON).unsqueeze(0).expand(BATCH_SIZE, -1)
         )
-        expected_cos, expected_sin = GenerativeVLMEncoder.compute_rope(
+        expected_cos, expected_sin = GenerativeVLM.compute_rope(
             rotary_embedding=decoder.vlm_rotary_embedding,
             hidden_states=cross_cos,
             position_ids=shifted_positions,
@@ -818,7 +872,7 @@ class TestSmolVLADecoderRoPERouting:
         torch.testing.assert_close(cross_cos, expected_cos)
         torch.testing.assert_close(cross_sin, expected_sin)
 
-    def test_cross_attn_layer_receives_cross_attn_rope_in_training(
+    def test_cross_attention_layer_receives_cross_attention_rope_in_training(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
         prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
@@ -827,7 +881,7 @@ class TestSmolVLADecoderRoPERouting:
         decoder = initialized_decoder_factory()
         features = prefix_features_factory()
         actions = noisy_actions_factory()
-        cross_attn_layer = next(
+        cross_attention_layer = next(
             layer
             for layer in decoder.expert_layers
             if isinstance(layer, PrecomputedKVCrossAttentionLayer)
@@ -837,12 +891,14 @@ class TestSmolVLADecoderRoPERouting:
                 decoder, "_run_training_forward", wraps=decoder._run_training_forward
             ) as outer_spy,
             patch.object(
-                cross_attn_layer, "forward", wraps=cross_attn_layer.forward
+                cross_attention_layer,
+                "forward",
+                wraps=cross_attention_layer.forward,
             ) as layer_spy,
         ):
             decoder(features=features, actions=actions)
         expected_cos, expected_sin = outer_spy.call_args.kwargs[
-            "expert_cross_attn_rope"
+            "expert_cross_attention_rope"
         ]
         received_cos, received_sin = layer_spy.call_args.kwargs["precomputed_rope"]
         torch.testing.assert_close(received_cos, expected_cos)
@@ -903,24 +959,24 @@ class TestSmolVLADecoderRoPERouting:
         ):
             decoder(features=features, actions=actions)
         action_cos, _ = spy.call_args.kwargs["expert_action_rope"]
-        cross_cos, _ = spy.call_args.kwargs["expert_cross_attn_rope"]
+        cross_cos, _ = spy.call_args.kwargs["expert_cross_attention_rope"]
         expected_shape = (BATCH_SIZE, 1, PREDICTION_HORIZON, HEAD_DIMENSION)
         assert action_cos.shape == expected_shape
         assert cross_cos.shape == expected_shape
         assert not torch.allclose(action_cos, cross_cos)
 
-    def test_cross_attn_layer_output_invariant_to_prefix_length(
+    def test_cross_attention_layer_output_invariant_to_prefix_length(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
         rng: np.random.Generator,
     ):
         decoder = initialized_decoder_factory()
-        cross_attn_layer = next(
+        cross_attention_layer = next(
             layer
             for layer in decoder.expert_layers
             if isinstance(layer, PrecomputedKVCrossAttentionLayer)
         )
-        cross_attn_layer.eval()
+        cross_attention_layer.eval()
         key_value_dim = NUM_KEY_VALUE_HEADS * HEAD_DIMENSION
         expert_hidden = torch.from_numpy(
             rng.standard_normal(
@@ -966,12 +1022,12 @@ class TestSmolVLADecoderRoPERouting:
             positions_long_unshifted
             - positions_long_unshifted.min(dim=1, keepdim=True).values
         )
-        rope_short = GenerativeVLMEncoder.compute_rope(
+        rope_short = GenerativeVLM.compute_rope(
             rotary_embedding=decoder.vlm_rotary_embedding,
             hidden_states=expert_hidden,
             position_ids=positions_short_shifted,
         )
-        rope_long = GenerativeVLMEncoder.compute_rope(
+        rope_long = GenerativeVLM.compute_rope(
             rotary_embedding=decoder.vlm_rotary_embedding,
             hidden_states=expert_hidden,
             position_ids=positions_long_shifted,
@@ -980,13 +1036,13 @@ class TestSmolVLADecoderRoPERouting:
         torch.testing.assert_close(rope_short[0], rope_long[0])
         torch.testing.assert_close(rope_short[1], rope_long[1])
         with torch.no_grad():
-            output_short = cross_attn_layer(
+            output_short = cross_attention_layer(
                 hidden_states=expert_hidden,
                 conditioning_cache=cache,
                 attention_mask=None,
                 precomputed_rope=rope_short,
             )
-            output_long = cross_attn_layer(
+            output_long = cross_attention_layer(
                 hidden_states=expert_hidden,
                 conditioning_cache=cache,
                 attention_mask=None,
@@ -994,24 +1050,24 @@ class TestSmolVLADecoderRoPERouting:
             )
         torch.testing.assert_close(output_short, output_long)
         # Confirm the bug case (unshifted positions) would have produced different output
-        rope_unshifted_short = GenerativeVLMEncoder.compute_rope(
+        rope_unshifted_short = GenerativeVLM.compute_rope(
             rotary_embedding=decoder.vlm_rotary_embedding,
             hidden_states=expert_hidden,
             position_ids=positions_short_unshifted,
         )
-        rope_unshifted_long = GenerativeVLMEncoder.compute_rope(
+        rope_unshifted_long = GenerativeVLM.compute_rope(
             rotary_embedding=decoder.vlm_rotary_embedding,
             hidden_states=expert_hidden,
             position_ids=positions_long_unshifted,
         )
         with torch.no_grad():
-            output_buggy_short = cross_attn_layer(
+            output_buggy_short = cross_attention_layer(
                 hidden_states=expert_hidden,
                 conditioning_cache=cache,
                 attention_mask=None,
                 precomputed_rope=rope_unshifted_short,
             )
-            output_buggy_long = cross_attn_layer(
+            output_buggy_long = cross_attention_layer(
                 hidden_states=expert_hidden,
                 conditioning_cache=cache,
                 attention_mask=None,
@@ -1019,7 +1075,7 @@ class TestSmolVLADecoderRoPERouting:
             )
         assert not torch.allclose(output_buggy_short, output_buggy_long)
 
-    def test_cross_attn_rope_invariant_to_prefix_length(
+    def test_cross_attention_rope_invariant_to_prefix_length(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
         prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
@@ -1031,22 +1087,24 @@ class TestSmolVLADecoderRoPERouting:
         features_long = prefix_features_factory(
             sequence_length=PREFIX_SEQUENCE_LENGTH * 2
         )
-        features_long[DecoderOutputKey.TIMESTEP.value] = features_short[
-            DecoderOutputKey.TIMESTEP.value
+        features_long[AlgorithmContextKey.TIMESTEP.value] = features_short[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         with patch.object(
             decoder, "_run_training_forward", wraps=decoder._run_training_forward
         ) as spy:
             decoder(features=features_short, actions=actions)
         cross_cos_short, cross_sin_short = spy.call_args.kwargs[
-            "expert_cross_attn_rope"
+            "expert_cross_attention_rope"
         ]
         action_cos_short, _ = spy.call_args.kwargs["expert_action_rope"]
         with patch.object(
             decoder, "_run_training_forward", wraps=decoder._run_training_forward
         ) as spy:
             decoder(features=features_long, actions=actions)
-        cross_cos_long, cross_sin_long = spy.call_args.kwargs["expert_cross_attn_rope"]
+        cross_cos_long, cross_sin_long = spy.call_args.kwargs[
+            "expert_cross_attention_rope"
+        ]
         action_cos_long, _ = spy.call_args.kwargs["expert_action_rope"]
         torch.testing.assert_close(cross_cos_short, cross_cos_long)
         torch.testing.assert_close(cross_sin_short, cross_sin_long)
@@ -1107,8 +1165,8 @@ class TestSmolVLADecoderCaching:
         with torch.no_grad():
             output_first = decoder(features=features_first, actions=actions)
         features_different_prefix = prefix_features_factory()
-        features_different_prefix[DecoderOutputKey.TIMESTEP.value] = features_first[
-            DecoderOutputKey.TIMESTEP.value
+        features_different_prefix[AlgorithmContextKey.TIMESTEP.value] = features_first[
+            AlgorithmContextKey.TIMESTEP.value
         ].clone()
         with torch.no_grad():
             output_with_stale_cache = decoder(
@@ -1134,11 +1192,7 @@ class TestSmolVLADecoderCaching:
         with torch.no_grad():
             output = decoder(features=features, actions=actions)
         for action_key, output_tensor in output.items():
-            assert output_tensor.shape == (
-                BATCH_SIZE,
-                PREDICTION_HORIZON,
-                decoder.action_heads[action_key].output_dim,
-            )
+            assert output_tensor.shape == actions[action_key].shape
 
     def test_cached_forward_passes_additive_prefix_attention_mask(
         self,
@@ -1171,6 +1225,30 @@ class TestSmolVLADecoderCaching:
         assert torch.all(prefix_attention_mask[:, :, :, -2:] == expected_masked_value)
         assert torch.all(prefix_attention_mask[:, :, :, :-2] == 0)
 
+    def test_encoder_cache_skips_prefix_rebuild(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # The prefix depends only on the observation; with the cache hot the
+        # vision tower must not run again on every denoising step.
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        actions = noisy_actions_factory()
+        features = prefix_features_factory()
+
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)
+        assert decoder._build_prefix.call_count == 1
+
+        decoder.enable_encoder_cache()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        assert decoder._build_prefix.call_count == 2
+
     def test_cached_forwards_are_self_consistent(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
@@ -1199,7 +1277,18 @@ class TestSmolVLADecoderCaching:
 
 
 @pytest.mark.integration
-class TestSmolVLALayerTypeDispatch:
+class TestInterleavedLayerTypeDispatch:
+    def test_more_expert_than_vlm_layers_raises(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+    ):
+        with pytest.raises(ValueError, match="cannot exceed the"):
+            initialized_decoder_factory(
+                num_vlm_layers=2,
+                num_expert_layers=4,
+                self_attention_every_n_layers=0,
+            )
+
     def test_vlm_only_layer_inserted_when_fewer_expert_than_vlm_layers(
         self,
         initialized_decoder_factory: Callable[..., SmolVLADecoder],
@@ -1210,10 +1299,10 @@ class TestSmolVLALayerTypeDispatch:
             num_expert_layers=2,
             self_attention_every_n_layers=0,
         )
-        assert decoder._layer_types.count(SmolVLALayerType.VLM_ONLY.value) == 2
+        assert decoder._layer_types.count(InterleavedLayerType.VLM_ONLY.value) == 2
         assert len(decoder.expert_layers) == 2
-        assert decoder._layer_types[1] == SmolVLALayerType.VLM_ONLY.value
-        assert decoder._layer_types[3] == SmolVLALayerType.VLM_ONLY.value
+        assert decoder._layer_types[1] == InterleavedLayerType.VLM_ONLY.value
+        assert decoder._layer_types[3] == InterleavedLayerType.VLM_ONLY.value
 
     def test_vlm_only_layers_run_every_vlm_layer_exactly_once(
         self,
@@ -1248,11 +1337,7 @@ class TestSmolVLALayerTypeDispatch:
         for spy in spies:
             assert spy.call_count == 1
         for action_key, output_tensor in outputs.items():
-            assert output_tensor.shape == (
-                BATCH_SIZE,
-                PREDICTION_HORIZON,
-                decoder.action_heads[action_key].output_dim,
-            )
+            assert output_tensor.shape == actions[action_key].shape
 
     def test_vlm_only_training_forward_is_deterministic(
         self,
@@ -1298,9 +1383,9 @@ class TestSmolVLADecoderProprioceptiveWithPadding:
         actions = noisy_actions_factory()
         with (
             patch.object(
-                smolvla_module,
+                interleaved_vlm_module,
                 "make_attention_mask",
-                wraps=smolvla_module.make_attention_mask,
+                wraps=interleaved_vlm_module.make_attention_mask,
             ) as spy,
             torch.no_grad(),
         ):
@@ -1313,8 +1398,4 @@ class TestSmolVLADecoderProprioceptiveWithPadding:
         # Originally-padded prefix entries stay masked
         assert received_mask[:, PREFIX_SEQUENCE_LENGTH - 1].all()
         for action_key, output_tensor in outputs.items():
-            assert output_tensor.shape == (
-                BATCH_SIZE,
-                PREDICTION_HORIZON,
-                decoder.action_heads[action_key].output_dim,
-            )
+            assert output_tensor.shape == actions[action_key].shape

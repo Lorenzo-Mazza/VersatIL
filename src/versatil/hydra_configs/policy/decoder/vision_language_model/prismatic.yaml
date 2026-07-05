@@ -1,0 +1,16 @@
+defaults:
+  - /policy/adaptation/lora@lora_config: all_linear
+  - _self_
+
+_target_: versatil.models.decoding.generative_language_models.vision_language.prismatic.PrismaticVLM
+
+input_keys:
+  - ${cameras:AGENTVIEW}
+  - ${cameras:EYE_IN_HAND}
+model_name: ${prismatic_model:PRISM_DINOSIGLIP_224PX_7B}
+repository_id: TRI-ML/prismatic-vlms
+pretrained: true
+frozen: false
+max_text_length: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
+model_dtype: ${experiment.precision}
+gradient_checkpointing: true

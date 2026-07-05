@@ -6,7 +6,7 @@ import torch.nn as nn
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.common.tensor_ops import to_device
-from versatil.data.constants import Cameras, MetadataPassthroughSource, SampleKey
+from versatil.data.constants import MetadataPassthroughSource, SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.processing.transform import (
     detokenize_actions,
@@ -17,16 +17,64 @@ from versatil.data.processing.transform import (
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
-from versatil.metrics.components import GripperLoss
+from versatil.metrics.losses.gripper import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.encoding.encoders.base import EncodingMixin
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.pipeline import EncodingPipeline
 
 
+def build_algorithm_features(
+    observation: dict[str, torch.Tensor],
+    encoding_pipeline: EncodingPipeline,
+    decoder: ActionDecoder,
+    algorithm_injected_keys: set[str] | None = None,
+) -> dict[str, torch.Tensor]:
+    """Encode observations and select the features the decoder declared.
+
+    Merges raw observations with encoding-pipeline outputs, then filters to
+    the decoder's ``decoder_input.keys`` allowlist plus their padding masks.
+    Both ``Policy`` and ``ExportablePolicy`` must build features through this
+    function so that exported models see exactly the training-time inputs.
+
+    Args:
+        observation: Raw observation dictionary.
+        encoding_pipeline: Pipeline producing encoded features.
+        decoder: Decoder whose input specification selects the features.
+        algorithm_injected_keys: Decoder-declared keys the algorithm adds
+            later (latents, timesteps); they are not required here.
+
+    Raises:
+        ValueError: If the decoder requests keys that are neither raw
+            observations, encoding-pipeline outputs, nor algorithm-injected.
+    """
+    injected_keys = algorithm_injected_keys or set()
+    encoded_features = encoding_pipeline(observation)
+    available_features = {**observation, **encoded_features}
+    selected_features: dict[str, torch.Tensor] = {}
+    missing_keys: list[str] = []
+    for key in decoder.decoder_input.keys:
+        if key not in available_features:
+            if key not in injected_keys:
+                missing_keys.append(key)
+            continue
+        selected_features[key] = available_features[key]
+        padding_key = f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        if padding_key in available_features:
+            selected_features[padding_key] = available_features[padding_key]
+
+    if missing_keys:
+        raise ValueError(
+            f"Decoder requested input keys {missing_keys}, but they were not "
+            f"available from raw observations or the encoding pipeline. "
+            f"Available keys: {sorted(available_features.keys())}."
+        )
+    return selected_features
+
+
 class Policy(nn.Module):
-    """General policy class that orchestrates encoding, decoding, and loss computation."""
+    """General policy class that orchestrates observation encoding, action decoding, and loss computation."""
 
     def __init__(
         self,
@@ -40,7 +88,6 @@ class Policy(nn.Module):
         loss: BaseLoss,
         device: str,
         metadata_passthrough: dict[str, dict[str, str]] | None = None,
-        validate_loss_keys: bool = True,
     ) -> None:
         """Initialize policy.
 
@@ -56,7 +103,6 @@ class Policy(nn.Module):
             device: Device to run on.
             metadata_passthrough: Mapping from source dictionaries to metadata
                 keys for logging/visualization.
-            validate_loss_keys: Deprecated, kept for backwards compatibility.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline
@@ -74,8 +120,6 @@ class Policy(nn.Module):
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
         self.denoising_thresholds = DictOfTensorMixin()
-        if self.decoder.decoder_input.requires_vlm_backbone:
-            self._wire_vlm_backbone()
 
     @property
     def input_keys(self) -> list[str]:
@@ -91,47 +135,19 @@ class Policy(nn.Module):
 
     @property
     def output_keys(self) -> list[str]:
-        """Sorted action keys the policy produces as output."""
-        return sorted(self.decoder.action_heads.keys())
+        """Action keys the policy produces, in action-space metadata order."""
+        return list(self.decoder.get_prediction_output_keys())
 
-    def _wire_vlm_backbone(self) -> None:
-        """Pass VLM backbone layers to the VLA decoders for interleaved processing.
-
-        Searches the encoding pipeline for a VLM encoder that exposes backbone
-        layers and injects them into the decoder via ``set_backbone()``.
-
-        Raises:
-            ValueError: If no VLM encoder with backbone access is found.
-        """
-        vlm_encoder = self._find_vlm_encoder()
-        self.decoder.set_backbone(
-            vlm_layers=vlm_encoder.get_backbone_layers(),
-            rotary_emb=vlm_encoder.get_rotary_embedding(),
-            vlm_hidden_dimension=vlm_encoder.get_backbone_hidden_dim(),
-            vlm_text_config=vlm_encoder.get_text_config(),
+    def _decoder_observation_keys(self) -> set[str]:
+        """Return raw observation keys directly consumed by the decoder."""
+        observation_keys = set(self.observation_space.observations_metadata.keys())
+        observation_keys.update(
+            {
+                SampleKey.TOKENIZED_OBSERVATIONS.value,
+                SampleKey.IS_PAD_OBSERVATION.value,
+            }
         )
-
-    def _find_vlm_encoder(self) -> EncodingMixin:
-        """Find the VLM encoder in the pipeline that exposes backbone layers.
-
-        Returns:
-            The VLM encoder instance.
-
-        Raises:
-            ValueError: If no encoder has ``get_backbone_layers``.
-        """
-        all_encoders = {
-            **self.encoding_pipeline.encoders,
-            **self.encoding_pipeline.conditional_encoders,
-        }
-        for encoder in all_encoders.values():
-            if hasattr(encoder, "get_backbone_layers"):
-                return encoder
-        raise ValueError(
-            "VLA decoders require a VLM encoder with get_backbone_layers(), "
-            "but none found in the encoding pipeline. "
-            "Use PaliGemmaEncoder or SmolVLMEncoder with use_embeddings_only=True."
-        )
+        return set(self.decoder.decoder_input.keys).intersection(observation_keys)
 
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer for observations and actions."""
@@ -161,6 +177,13 @@ class Policy(nn.Module):
                 torch.tensor(value), requires_grad=False
             )
 
+    def get_denoising_thresholds(self) -> dict[str, float]:
+        """Return the stored denoising thresholds as plain floats."""
+        return {
+            key: float(parameter.item())
+            for key, parameter in self.denoising_thresholds.params_dict.items()
+        }
+
     def set_gripper_class_weights(self, pos_weight: torch.Tensor | None) -> None:
         """Set positive class weight for GripperLoss components in the loss module.
 
@@ -185,11 +208,35 @@ class Policy(nn.Module):
         observation = self._strip_metadata_passthrough_observations(
             observation=batch[SampleKey.OBSERVATION.value]
         )
-        actions = batch.get(SampleKey.ACTION.value)
-        features = self.encoding_pipeline(observation)
+        actions = self._filter_predicted_actions(
+            actions=batch.get(SampleKey.ACTION.value)
+        )
+        features = self._build_algorithm_features(observation=observation)
         return self.algorithm.forward(
             features=features, actions=actions, network=self.decoder
         )
+
+    def _filter_predicted_actions(
+        self,
+        actions: dict[str, torch.Tensor] | None,
+    ) -> dict[str, torch.Tensor] | None:
+        """Keep only predicted action keys and the padding mask.
+
+        Metadata-only action keys are loss and logging inputs; letting them
+        reach the algorithm would condition variational posteriors on labels
+        inference cannot access.
+
+        Args:
+            actions: Action dictionary from the batch, if present.
+        """
+        if actions is None:
+            return None
+        allowed_keys = set(self.action_space.predicted_action_keys)
+        allowed_keys.add(SampleKey.IS_PAD_ACTION.value)
+        # Tokenized actions are the supervision targets of tokenized-action
+        # decoders, derived from the predicted keys themselves.
+        allowed_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
+        return {key: value for key, value in actions.items() if key in allowed_keys}
 
     def compute_loss(
         self,
@@ -297,7 +344,26 @@ class Policy(nn.Module):
             keys.update(encoder.input_specification.keys)
         for encoder in self.encoding_pipeline.conditional_encoders.values():
             keys.update(encoder.input_specification.keys)
+        keys.update(self._decoder_observation_keys())
         return keys
+
+    def _build_algorithm_features(
+        self,
+        observation: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Build the feature dictionary passed into the decoding algorithm.
+
+        The policy boundary is responsible only for collecting model inputs from
+        the encoding pipeline and explicitly requested raw observation tensors.
+        Algorithms add their own control tensors later, such as diffusion/flow
+        timesteps or variational latents.
+        """
+        return build_algorithm_features(
+            observation=observation,
+            encoding_pipeline=self.encoding_pipeline,
+            decoder=self.decoder,
+            algorithm_injected_keys=self.algorithm.injected_feature_keys(),
+        )
 
     def predict_action(
         self,
@@ -327,8 +393,9 @@ class Policy(nn.Module):
             normalized_observation = tokenize_observation(
                 observation=normalized_observation,
                 obs_tokenizer=self.tokenizer.observation_tokenizer,
+                batched=True,
             )
-        features = self.encoding_pipeline(normalized_observation)
+        features = self._build_algorithm_features(observation=normalized_observation)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         if DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions:
             action_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
@@ -350,158 +417,3 @@ class Policy(nn.Module):
             action_space=self.action_space,
         )
         return actions
-
-    def get_vision_encoder_modules(self) -> dict[str, nn.Module]:
-        """Get vision encoder modules that can produce spatial feature maps for explainability.
-
-        Supports the following encoder types:
-        - SpatialRGBEncoder (RGB): Has 'backbone' attribute
-        - SpatialDepthEncoder: Has 'backbone' attribute
-        - ConditionalCNNEncoder (FiLM): Has 'layer4' attribute
-        - DFormerEncoder: Has 'stages' attribute
-        - GeometricRGBDEncoder: Has 'attention_block' attribute
-
-        Returns:
-            Dictionary mapping encoder names to their encoder instances.
-            Only includes encoders that produce spatial feature maps.
-
-        Raises:
-            RuntimeError: If no compatible vision encoders are found
-        """
-        vision_encoders = {}
-
-        def is_vision_encoder(encoder: nn.Module) -> bool:
-            # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder)
-            if hasattr(encoder, "backbone"):
-                return True
-            # DFormer-based encoders
-            if hasattr(encoder, "stages"):
-                return True
-            # FiLM-conditioned ResNet (ConditionalCNNEncoder)
-            if hasattr(encoder, "layer4"):
-                return True
-            # LightGeometric encoder
-            return bool(hasattr(encoder, "attention_block"))
-
-        for encoder_name, encoder in self.encoding_pipeline.encoders.items():
-            if is_vision_encoder(encoder):
-                vision_encoders[encoder_name] = encoder
-
-        for (
-            encoder_name,
-            encoder,
-        ) in self.encoding_pipeline.conditional_encoders.items():
-            if is_vision_encoder(encoder):
-                vision_encoders[encoder_name] = encoder
-
-        if not vision_encoders:
-            raise RuntimeError(
-                "No compatible vision encoders found in the encoding pipeline. "
-                "Explainer requires encoders that produce spatial feature maps "
-                "(SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
-                "Available encoders: "
-                + str(
-                    list(self.encoding_pipeline.encoders.keys())
-                    + list(self.encoding_pipeline.conditional_encoders.keys())
-                )
-            )
-
-        return vision_encoders
-
-    def get_gradcam_target_layers(self, encoder_name: str) -> list[nn.Module]:
-        """Get target layers for GradCAM from a specific vision encoder.
-
-        Supports different encoder architectures:
-        - TIMM backbones (SpatialRGBEncoder, SpatialDepthEncoder): Returns last stage
-        - ConditionalCNNEncoder (FiLM): Returns last block of layer4
-        - DFormerEncoder: Returns last stage
-        - GeometricRGBDEncoder: Returns attention block
-
-        Args:
-            encoder_name: Name of the encoder in the encoding pipeline
-
-        Returns:
-            List of target layers suitable for GradCAM
-
-        Raises:
-            ValueError: If encoder doesn't exist or is not a vision encoder
-            RuntimeError: If encoder architecture is not supported
-        """
-        vision_encoders = self.get_vision_encoder_modules()
-        if encoder_name not in vision_encoders:
-            raise ValueError(
-                f"Encoder '{encoder_name}' not found or not a vision encoder. "
-                f"Available vision encoders: {list(vision_encoders.keys())}"
-            )
-
-        encoder = vision_encoders[encoder_name]
-
-        # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder, FlatRGBEncoder)
-        if hasattr(encoder, "backbone"):
-            backbone = encoder.backbone
-            if hasattr(backbone, "layer4"):
-                return [backbone.layer4]
-            elif hasattr(backbone, "stages") and len(backbone.stages) > 0:
-                return [backbone.stages[-1]]
-            else:
-                raise RuntimeError(
-                    f"Encoder '{encoder_name}' has backbone but structure not recognized. "
-                    f"Backbone type: {type(backbone).__name__}"
-                )
-
-        # DFormer-based encoders
-        if hasattr(encoder, "stages") and len(encoder.stages) > 0:
-            return [encoder.stages[-1]]
-
-        # FiLM-conditioned ResNet (ConditionalCNNEncoder)
-        if hasattr(encoder, "layer4") and len(encoder.layer4) > 0:
-            return [encoder.layer4[-1]]
-
-        # LightGeometric encoder
-        if hasattr(encoder, "attention_block"):
-            return [encoder.attention_block]
-
-        raise RuntimeError(
-            f"Encoder '{encoder_name}' architecture not supported for GradCAM. "
-            f"Encoder type: {type(encoder).__name__}. "
-            f"Supported types: SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, "
-            f"DFormerEncoder, GeometricRGBDEncoder."
-        )
-
-    def get_camera_to_encoder_mapping(self) -> dict[str, str]:
-        """Get mapping from camera keys to their corresponding vision encoder names.
-
-        This method only returns mappings for valid camera keys (as defined by the Cameras enum)
-        that are processed by vision encoders capable of producing spatial feature maps.
-        Non-camera observations like proprioceptive state or language are excluded.
-
-        Returns:
-            Dictionary mapping camera keys to vision encoder names
-
-        Raises:
-            RuntimeError: If no camera-to-encoder mappings are found
-        """
-        valid_camera_keys = {cam.value for cam in Cameras}
-        vision_encoders = self.get_vision_encoder_modules()
-
-        mapping = {}
-        for encoder_name, encoder in vision_encoders.items():
-            if not hasattr(encoder, "input_specification"):
-                continue
-
-            input_keys = encoder.input_specification.keys
-            for key in input_keys:
-                # Only include valid camera keys, not proprioceptive/language keys
-                if key in valid_camera_keys:
-                    mapping[key] = encoder_name
-        # TODO: Here we ignore the case of multiple encoders with the same camera key.
-        #  Although unlikely, we should safeguard against it in the future.
-
-        if not mapping:
-            raise RuntimeError(
-                f"No camera-to-encoder mappings found. "
-                f"Valid camera keys: {valid_camera_keys}. "
-                f"Vision encoders: {list(vision_encoders.keys())}"
-            )
-
-        return mapping

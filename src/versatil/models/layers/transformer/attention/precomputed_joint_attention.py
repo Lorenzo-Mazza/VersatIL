@@ -139,6 +139,15 @@ class PrecomputedPrimaryJointAttention(JointAttentionBase):
         query_secondary = conditioning_cache.queries
         key_secondary = conditioning_cache.keys
         value_secondary = conditioning_cache.values
+        sequence_length_primary = hidden_states_primary.shape[1]
+        sequence_length_secondary = query_secondary.shape[2]
+
+        # Norm before rotation. The secondary
+        # stream arrives from the cache already normalized and rotated.
+        if self.use_query_key_norm:
+            query_primary, key_primary = self.query_key_norm_primary(
+                query_primary, key_primary
+            )
         if precomputed_primary_rope is not None:
             cos_primary, sin_primary = precomputed_primary_rope
             query_primary = RotaryPositionalEncoding.apply_rotation_half(
@@ -148,19 +157,16 @@ class PrecomputedPrimaryJointAttention(JointAttentionBase):
                 tensor=key_primary, sine=sin_primary, cosine=cos_primary
             )
         elif positional_encoding_primary is not None:
+            # Both streams share one joint softmax, so the live primary tokens
+            # must continue the position space of the precomputed secondary
+            # prefix
             query_primary, key_primary = apply_rope_positional_encoding(
                 queries=query_primary,
                 keys=key_primary,
                 positional_encoding=positional_encoding_primary,
-                cache_position=0,
+                cache_position=sequence_length_secondary,
             )
 
-        if self.use_query_key_norm:
-            query_primary, key_primary = self.query_key_norm_primary(
-                query_primary, key_primary
-            )
-        sequence_length_primary = hidden_states_primary.shape[1]
-        sequence_length_secondary = query_secondary.shape[2]
         attention_output_primary, attention_output_secondary = self._joint_sdpa(
             query_primary=query_primary,
             key_primary=key_primary,

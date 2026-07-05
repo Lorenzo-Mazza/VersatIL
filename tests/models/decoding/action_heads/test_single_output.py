@@ -10,6 +10,7 @@ from versatil.models.decoding.action_heads.blocks import MLPBlock
 from versatil.models.decoding.action_heads.single_output import ActionHead
 
 
+@pytest.mark.unit
 class TestActionHeadForward:
     def test_raises_if_output_dim_not_set(
         self,
@@ -31,7 +32,7 @@ class TestActionHeadForward:
         embedding_tensor_factory: Callable[..., torch.Tensor],
         output_dim: int,
     ):
-        head = action_head_factory(input_dim=64)
+        head = action_head_factory(input_dimension=64)
         head.set_output_dim(output_dim)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
@@ -41,8 +42,8 @@ class TestActionHeadForward:
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
-        blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
-        head = ActionHead(input_dim=64, blocks=blocks)
+        blocks = [MLPBlock(input_dimension=64, hidden_dimensions=[32])]
+        head = ActionHead(input_dimension=64, blocks=blocks)
         head.set_output_dim(3)
         embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)

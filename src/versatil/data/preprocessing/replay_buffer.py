@@ -332,37 +332,35 @@ class ReplayBuffer:
         return cls(root=root)
 
     @classmethod
-    def create_from_group(cls, group: zarr.Group, **kwargs: Any) -> "ReplayBuffer":
+    def create_from_group(cls, group: zarr.Group) -> "ReplayBuffer":
         """Creates ReplayBuffer from an existing Zarr group.
 
         If 'data' missing, creates empty; else loads existing.
 
         Args:
             group: Zarr group.
-            **kwargs: Passed to create_empty_zarr if needed.
 
         Returns:
             ReplayBuffer instance.
         """
         if "data" not in group:
-            buffer = cls.create_empty_zarr(root=group, **kwargs)
+            buffer = cls.create_empty_zarr(root=group)
         else:
-            buffer = cls(root=group, **kwargs)
+            buffer = cls(root=group)
         return buffer
 
     @classmethod
-    def create_from_path(cls, zarr_path: str, **kwargs: Any) -> "ReplayBuffer":
+    def create_from_path(cls, zarr_path: str) -> "ReplayBuffer":
         """Loads ReplayBuffer from a Zarr file path in read mode.
 
         Args:
             zarr_path: Path to Zarr directory.
-            **kwargs: Passed to constructor.
 
         Returns:
             ReplayBuffer instance.
         """
         group = zarr.open_group(store=os.path.expanduser(zarr_path), mode="r")
-        return cls.create_from_group(group, **kwargs)
+        return cls.create_from_group(group)
 
     @classmethod
     def copy_from_store(
@@ -500,6 +498,7 @@ class ReplayBuffer:
         if_exists: str = "replace",
         **kwargs,
     ) -> LocalStore | MemoryStore:
+        """Write the replay buffer into a Zarr store with optional chunking and codecs."""
         if chunks is None:
             chunks = {}
         if compressors is None:
@@ -997,8 +996,8 @@ class ReplayBuffer:
         Returns:
             Dict of key to sliced array.
         """
-        start = int(start) if hasattr(start, "item") else start
-        stop = int(stop) if hasattr(stop, "item") else stop
+        start = int(start) if isinstance(start, np.integer) else start
+        stop = int(stop) if isinstance(stop, np.integer) else stop
         _slice = slice(start, stop, step)
         result = {}
         for key in self.data:

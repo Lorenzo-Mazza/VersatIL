@@ -51,9 +51,9 @@ VersatIL decouples the learning paradigm from the neural network structure. The 
 
 **[`ActionDecoder`][versatil.models.decoding.decoders.base.ActionDecoder]** defines *what* neural network processes features:
 
-- Transformer-based (ACT, DiT, GPT, DETR, Free Transformer, etc.)
+- Transformer-based (ACT, DiT, GPT, DETR, etc.)
 - UNet-based (Conditional Action UNet for Diffusion Policy)
-- VLA interleaved decoders (Pi0, SmolVLA) that borrow layers from a pretrained VLM
+- VLA decoders that run generative VLM backbones
 - MoE wrappers (applicable on top of any decoder)
 
 ```python
@@ -62,8 +62,8 @@ Policy(encoding_pipeline=..., algorithm=BehavioralCloning(), decoder=ACT(...), l
 Policy(encoding_pipeline=..., algorithm=Diffusion(...),       decoder=ACT(...), loss=...)
 
 # Same algorithm, different decoder architectures
-Policy(encoding_pipeline=..., algorithm=FlowMatching(...), decoder=DiTBlockDecoder(...), loss=...)
-Policy(encoding_pipeline=..., algorithm=FlowMatching(...), decoder=GPTActionDecoder(...), loss=...)
+Policy(encoding_pipeline=..., algorithm=FlowMatching(...), decoder=DiTBlockActionTransformer(...), loss=...)
+Policy(encoding_pipeline=..., algorithm=BehavioralCloning(...), decoder=GPTActionTransformer(...), loss=...)
 ```
 
 The [`DecodingAlgorithm`][versatil.models.decoding.algorithm.base.DecodingAlgorithm] base class defines two abstract methods:
@@ -75,31 +75,23 @@ The algorithm receives the decoder as a `network` parameter and orchestrates its
 
 ## VLM Backbone Wiring
 
-For VLA decoders (Pi0, SmolVLA), the [`Policy`][versatil.models.policy.Policy] automatically wires the VLM encoder's pretrained layers to the decoder at initialization:
-
-```python
-def _wire_vlm_backbone(self):
-    vlm_encoder = self._find_vlm_encoder()
-    self.decoder.set_backbone(
-        vlm_layers=vlm_encoder.get_backbone_layers(),
-        rotary_emb=vlm_encoder.get_rotary_embedding(),
-        vlm_hidden_dimension=vlm_encoder.get_backbone_hidden_dim(),
-        vlm_text_config=vlm_encoder.get_text_config(),
-    )
-```
-
-This is triggered when the decoder's [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] has `requires_vlm_backbone=True`. The VLM encoder uses `use_embeddings_only=True` so its LM layers are available for the decoder to borrow, rather than being used during encoding.
+Pi0/SmolVLA-style decoders configure a `vlm_backbone` and run it directly on
+normalized/tokenized image-text observations during decoder forward. Those
+decoders declare `needs_raw_observations=True`, so [`Policy`][versatil.models.policy.Policy]
+passes the normalized/tokenized observation tensors through the feature
+dictionary. OpenVLA/OpenVLA-OFT-style decoders follow the same raw-observation
+path and use their configured VLM backbone to build the language/image prefix.
 
 ## Composable Loss
 
-The loss module is decoupled from the decoder architecture. Some loss terms are naturally tied to specific algorithms (e.g., probability measures like KL divergence and MMD to variational inference). Loss components are combined via weighted sums in `ComposableLoss`:
+The loss module is decoupled from the decoder architecture. Some loss terms are naturally tied to specific algorithms (e.g., probability measures like KL divergence and MMD to variational inference). Loss components are combined via weighted sums in `CompositeLoss`:
 
 - **Regression losses** -- MSE, L1, Huber for continuous action prediction
 - **Classification losses** -- BCE for binary gripper, cross-entropy for tokenized actions
 - **Probability measures** -- KL divergence, Maximum Mean Discrepancy with configurable kernels for variational algorithms
 - **Optimal transport** -- Sinkhorn divergence for action sequence matching
 
-Loss configs are named by composition (e.g., `regression_KL.yaml`), not by dataset or decoder.
+Loss configs are named by composition (e.g., `regression_kl.yaml`), not by dataset or decoder.
 
 ## Feature Naming Contract
 
@@ -164,9 +156,9 @@ On `EncodingPipeline.__init__()`:
 During experiment validation (`ExperimentValidator.validate_decoder_encoder_compatibility()` in `validation.py`), the decoder's [`DecoderInput`][versatil.models.decoding.decoders.base.DecoderInput] is validated against the encoding pipeline's final features:
 
 ```python
-available_features = encoding_pipeline.get_final_features_to_dimensions()
+available_features = encoding_pipeline.get_features()
 decoder.decoder_input.validate_feature_types(
-    available_features_to_dims=available_features
+    available_features=available_features
 )
 ```
 
@@ -207,15 +199,15 @@ Both spaces expose `get_required_zarr_keys()` to declare which keys must exist i
 
 ## From Training to Deployment
 
-After training, a policy checkpoint can be deployed directly via [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] (float inference with `torch.compile`) or compressed first for edge deployment:
+After training, a policy checkpoint can be deployed directly via [`PolicyRuntime`][versatil.inference.policy_runtime.base.PolicyRuntime], either using floating-point inference (optionally with `torch.compile`) or a compressed backend-specific artifact for edge deployment:
 
 ```
 Training checkpoint (.ckpt)
   → PostTrainingCompressor.compress()
     → Preparation → Pruning → Quantization
-  → Compressed checkpoint (.pt2)
-    → CompressedPolicyLoader
+  → Compressed checkpoint (metadata + .pt2/.pte artifact)
+    → CompressedPolicyRuntime
       → InferenceClient (ZMQ transport to robot/simulation)
 ```
 
-Both [`PolicyLoader`][versatil.inference.policy_loading.float_loader.PolicyLoader] and [`CompressedPolicyLoader`][versatil.inference.policy_loading.compressed_loader.CompressedPolicyLoader] implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.
+Both [`FloatPolicyRuntime`][versatil.inference.policy_runtime.float_runtime.FloatPolicyRuntime] and [`CompressedPolicyRuntime`][versatil.inference.policy_runtime.compressed_runtime.CompressedPolicyRuntime] implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the [`InferenceClient`][versatil.inference.inference_client.InferenceClient] works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.

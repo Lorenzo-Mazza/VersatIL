@@ -44,7 +44,7 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         return True
 ```
 
-The `forward()` / `predict()` contract ensures a clean separation: training logic (noise injection, flow interpolation, latent encoding) lives in the algorithm, while the neural network computation lives in the decoder.
+The `forward()` / `predict()` contract keeps the two concerns apart: training logic (noise injection, flow interpolation, latent encoding) lives in the algorithm, while the neural network computation lives in the decoder.
 
 ### Algorithm Targets
 

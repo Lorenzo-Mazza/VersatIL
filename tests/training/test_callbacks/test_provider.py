@@ -7,9 +7,6 @@ from pytorch_lightning import Callback
 
 from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.decoders.factory.free_action_transformer import (
-    FreeActionTransformer,
-)
 from versatil.training.callbacks.provider import CallbackProvider
 
 
@@ -55,4 +52,3 @@ class TestCallbackProviderProtocol:
 
     def test_real_components_have_get_callbacks(self):
         assert hasattr(VariationalAlgorithm, "get_callbacks")
-        assert hasattr(FreeActionTransformer, "get_callbacks")

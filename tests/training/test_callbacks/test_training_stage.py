@@ -1,6 +1,7 @@
 """Tests for versatil.training.callbacks.training_stage module."""
 
 import copy
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,8 +20,9 @@ from versatil.configs.training import (
     TrainingConfig,
 )
 from versatil.metrics.base import LossOutput, ScalarWeightedLoss
-from versatil.metrics.components import PriorDenoisingLoss, RegressionLoss
-from versatil.metrics.composite import CompositeLoss
+from versatil.metrics.losses.composite import CompositeLoss
+from versatil.metrics.losses.prior_denoising import PriorDenoisingLoss
+from versatil.metrics.losses.regression import RegressionLoss
 from versatil.models.policy import Policy
 from versatil.training.callbacks.training_stage import TrainingStageCallback
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
@@ -140,7 +142,10 @@ def staged_trainer_factory() -> Callable[..., MagicMock]:
 @pytest.mark.unit
 class TestTrainingStageCallback:
     def test_requires_non_empty_stages(self) -> None:
-        with pytest.raises(ValueError, match="requires a non-empty stage list"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("TrainingStageCallback requires a non-empty stage list."),
+        ):
             TrainingStageCallback(stages=[])
 
     def test_applies_stage_on_train_start(

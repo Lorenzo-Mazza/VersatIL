@@ -4,7 +4,7 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
 
-from versatil.configs.data.metadata import CameraMetadataConfig
+from versatil.configs.data.metadata import RGBCameraMetadataConfig
 from versatil.configs.data.raw.zarr_meta import DatasetMetadataConfig
 
 
@@ -28,10 +28,9 @@ class TestDatasetMetadataInstantiation:
     def test_dataset_metadata_instantiates_with_observations(self):
         config = DatasetMetadataConfig(
             observations={
-                "left": CameraMetadataConfig(
+                "left": RGBCameraMetadataConfig(
                     camera_key="left",
                     dtype="float32",
-                    channels=3,
                 ),
             },
         )

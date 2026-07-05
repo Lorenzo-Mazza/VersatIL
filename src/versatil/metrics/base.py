@@ -1,6 +1,7 @@
 """Base classes for loss computation and metrics tracking."""
 
 import abc
+import copy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,37 +39,6 @@ class LossOutput:
             result[key] = value.item() if isinstance(value, torch.Tensor) else value
         return result
 
-    def __add__(self, other: "LossOutput") -> "LossOutput":
-        """Add two LossOutput objects component-wise.
-
-        Args:
-            other: Another LossOutput instance
-
-        Returns:
-            New LossOutput with summed losses
-        """
-        if not isinstance(other, LossOutput):
-            raise TypeError(f"Cannot add LossOutput with {type(other)}")
-
-        new_total = self.total_loss + other.total_loss
-        new_components = {}
-
-        all_keys = set(self.component_losses.keys()) | set(
-            other.component_losses.keys()
-        )
-        device = self.total_loss.device
-        zero = torch.tensor(0.0, device=device)
-        for key in all_keys:
-            val1 = self.component_losses.get(key, zero)
-            val2 = other.component_losses.get(key, zero)
-            new_components[key] = val1 + val2
-
-        return LossOutput(
-            total_loss=new_total,
-            component_losses=new_components,
-            metadata={**self.metadata, **other.metadata},
-        )
-
 
 def _merge_weights(
     existing_weights: WeightsDictionary,
@@ -81,7 +51,7 @@ def _merge_weights(
     (dict subtree replaced by scalar, or scalar replaced by dict) raise
     ``TypeError``.
     """
-    merged = existing_weights
+    merged = copy.deepcopy(existing_weights)
     for key, value in override_weights.items():
         if key not in existing_weights:
             raise KeyError(
@@ -175,14 +145,17 @@ class BaseLoss(nn.Module, ABC):
 
     @abstractmethod
     def get_required_keys(self) -> set[str]:
-        """Get the set of keys this loss expects from the targets dictionary.
+        """Get the set of output keys this loss consumes.
 
-        This is used for validation to ensure the action space contains all
-        necessary keys for the configured loss. For composite losses, this should
-        recursively collect keys from all sub-losses.
+        Used at experiment validation to check every key the loss reads is
+        produced by the decoder, the algorithm, or a non-predicted action-space
+        entry (see ``experiment.validate_loss_keys``). Losses that read their
+        targets from the predictions dictionary report those keys here. For
+        composite losses, this should recursively collect keys from all
+        sub-losses.
 
         Returns:
-            Set of target dictionary keys required by this loss
+            Set of output keys required by this loss
         """
         raise NotImplementedError
 
@@ -230,7 +203,10 @@ def reduce_loss_with_padding(
         pad_mask = pad_mask.unsqueeze(-1)
     masked_loss = loss_tensor * pad_mask
     if reduction == "mean":
-        return masked_loss.sum() / (pad_mask.sum() + 1e-8)
+        # Divide by valid elements, not valid timesteps, so the masked mean
+        # matches the scale of loss_tensor.mean() on unpadded inputs.
+        valid_elements = pad_mask.expand_as(loss_tensor).sum()
+        return masked_loss.sum() / (valid_elements + 1e-8)
     elif reduction == "sum":
         return masked_loss.sum()
     else:

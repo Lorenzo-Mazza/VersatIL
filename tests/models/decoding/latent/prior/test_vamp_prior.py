@@ -1,6 +1,7 @@
 """Tests for versatil.models.decoding.latent.prior.vamp_prior module."""
 
 import copy
+import gc
 import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -438,6 +439,26 @@ class TestVampPriorEncoder:
         encoder.train()
         prior.eval()
         assert encoder.training is True
+
+    @pytest.mark.unit
+    def test_wired_encoder_survives_posterior_garbage_collection(
+        self,
+        vamp_prior_factory: Callable[..., VampPrior],
+        mock_encoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        batch_size = 2
+        latent_dimension = 16
+        prior = vamp_prior_factory(latent_dimension=latent_dimension)
+        encoder = mock_encoder_factory(latent_dimension=latent_dimension)
+        prior.wire_posterior(posterior=encoder)
+        del encoder
+        gc.collect()
+        observations = feature_dictionary_factory(batch_size=batch_size)
+
+        sample = prior.sample_prior(batch_size=batch_size, observations=observations)
+
+        assert sample.shape == (batch_size, latent_dimension)
 
 
 class TestVampPriorGetMixtureParams:

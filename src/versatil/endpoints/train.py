@@ -2,18 +2,16 @@
 
 import logging
 import os
-from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-import versatil.common.argparse_compat  # noqa: F401
 from versatil.common.logging import override_log_format
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.validation import validate_experiment
 from versatil.workspace import Workspace
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-EXPERIMENTS_DIR = PROJECT_ROOT / "hydra_configs"
+EXPERIMENTS_DIR = get_hydra_configs_dir()
 
 
 @hydra.main(version_base=None, config_path=str(EXPERIMENTS_DIR), config_name="main")

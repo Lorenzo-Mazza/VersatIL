@@ -1,0 +1,14 @@
+defaults:
+  - encoder/vlm/vlm_encoder@encoders.left
+  - _self_
+encoders:
+  left:
+    input_keys:
+    - ${cameras:LEFT}
+    # Language is routed automatically in a VLM
+    model_name: ${vlm_model:CLIP_VITB32}
+    pretrained: true
+    frozen: true
+    pooling_method: default
+
+fusion_stages: []

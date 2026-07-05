@@ -31,14 +31,14 @@ def concat_fusion_factory() -> Callable[..., ConcatFusion]:
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "concat_fused",
-        hidden_dim: int = 32,
+        hidden_dimension: int = 32,
     ) -> ConcatFusion:
         if input_features is None:
             input_features = ["rgb_features", "depth_features"]
         return ConcatFusion(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
 
     return factory
@@ -50,7 +50,7 @@ class TestConcatFusionInitialization:
         concat_fusion_factory: Callable[..., ConcatFusion],
     ):
         module = concat_fusion_factory()
-        assert hasattr(module, "hidden_dim")
+        assert hasattr(module, "hidden_dimension")
         assert hasattr(module, "projections")
         assert hasattr(module, "setup")
         assert hasattr(module, "get_output_specification")
@@ -62,22 +62,22 @@ class TestConcatFusionInitialization:
             ["feat_a", "feat_b", "feat_c"],
         ],
     )
-    @pytest.mark.parametrize("hidden_dim", [32, 128])
+    @pytest.mark.parametrize("hidden_dimension", [32, 128])
     @pytest.mark.parametrize("output_name", ["concat_fused", "my_output"])
     def test_stores_configuration(
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],
         input_features: list[str],
-        hidden_dim: int,
+        hidden_dimension: int,
         output_name: str,
     ):
         module = concat_fusion_factory(
             input_features=input_features,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             output_name=output_name,
         )
         assert module.input_features == input_features
-        assert module.hidden_dim == hidden_dim
+        assert module.hidden_dimension == hidden_dimension
         assert module.output_name == output_name
 
 
@@ -105,11 +105,11 @@ class TestConcatFusionForward:
         input_tensor_factory: Callable[..., torch.Tensor],
         time_steps: int | None,
     ):
-        hidden_dim = 32
+        hidden_dimension = 32
         batch_size = 2
         module = concat_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         module.setup(
             feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
@@ -127,7 +127,7 @@ class TestConcatFusionForward:
             ),
         ]
         output = module(features)
-        expected_dim = hidden_dim * 2
+        expected_dim = hidden_dimension * 2
         if time_steps is not None:
             assert output.shape == (batch_size, time_steps, expected_dim)
         else:
@@ -140,11 +140,11 @@ class TestConcatFusionForward:
         input_tensor_factory: Callable[..., torch.Tensor],
         num_features: int,
     ):
-        hidden_dim = 16
+        hidden_dimension = 16
         feature_names = [f"feat_{i}" for i in range(num_features)]
         module = concat_fusion_factory(
             input_features=feature_names,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         dims = dict.fromkeys(feature_names, (32,))
         module.setup(feature_registry=_make_registry(dims))
@@ -152,12 +152,12 @@ class TestConcatFusionForward:
             input_tensor_factory(input_dimension=32) for _ in range(num_features)
         ]
         output = module(features)
-        assert output.shape[-1] == hidden_dim * num_features
+        assert output.shape[-1] == hidden_dimension * num_features
 
 
 class TestConcatFusionGetOutputSpecification:
     @pytest.mark.parametrize(
-        "num_features, hidden_dim, expected_dim",
+        "num_features, hidden_dimension, expected_dim",
         [
             (2, 32, 64),
             (3, 16, 48),
@@ -167,13 +167,13 @@ class TestConcatFusionGetOutputSpecification:
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],
         num_features: int,
-        hidden_dim: int,
+        hidden_dimension: int,
         expected_dim: int,
     ):
         feature_names = [f"feat_{i}" for i in range(num_features)]
         module = concat_fusion_factory(
             input_features=feature_names,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         spec = module.get_output_specification()
         assert spec.dimension[0] == expected_dim

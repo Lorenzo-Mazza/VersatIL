@@ -3,8 +3,9 @@
 import timm
 import torch
 
-from versatil.data.constants import RGB_CAMERAS
+from versatil.data.constants import CameraModality
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.adaptation.lora import LoRAAdaptation, apply_lora_config
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     FlatBackboneType,
@@ -15,6 +16,11 @@ from versatil.models.encoding.encoders.image_mixin import (
     resize_to_target_size,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.pooling.pooling_head import create_token_pooling_head
 
@@ -29,8 +35,11 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         frozen: bool,
         pooling_method: str = PoolingMethod.DEFAULT.value,
         backbone: str = FlatBackboneType.DINOV2_VITB14.value,
+        image_size: int | tuple[int, int] | None = None,
+        intermediate_layer_index: int | None = None,
         model_dtype: str | None = None,
-    ):
+        lora_config: LoRAAdaptation | None = None,
+    ) -> None:
         """Initialize flat RGB encoder with timm backbone.
 
         Args:
@@ -40,10 +49,16 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
             pooling_method: Feature pooling strategy for patch tokens.
                 Defaults to CLS token selection.
             backbone: timm model name for the backbone.
+            image_size: Optional image size passed to timm during backbone
+                construction.
+            intermediate_layer_index: Optional intermediate layer index for
+                feature extraction. Negative values index from the end.
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional PEFT LoRA adapter configuration.
         """
         specification = EncoderInput(
-            keys=input_keys, at_least_one_of_groups=[RGB_CAMERAS]
+            keys=input_keys,
+            required_camera_modalities=[CameraModality.RGB],
         )
         super().__init__(
             input_specification=specification,
@@ -67,8 +82,19 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.pooling_method = pooling_method
         self.backbone_name = backbone
-        self.image_size: int | tuple[int, int] | None = None
+        self.image_size = image_size
+        self.intermediate_layer_index = intermediate_layer_index
+        self.lora_config = lora_config
         self._build_backbone()
+        if (
+            pooling_method == PoolingMethod.DEFAULT.value
+            and self.backbone.num_prefix_tokens == 0
+        ):
+            raise ValueError(
+                f"Backbone '{backbone}' has no class token, so DEFAULT pooling "
+                "would silently return the first patch token. Use AVERAGE, "
+                "LEARNED_AGGREGATION, or NONE pooling instead."
+            )
         self.feature_dim: int = int(self.backbone.num_features)
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
@@ -80,28 +106,21 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
             super()._freeze_weights()
         self._apply_model_dtype()
 
-    def _build_backbone(self):
+    def _build_backbone(self) -> None:
         """Build backbone using timm library."""
         pretrained_config = timm.get_pretrained_cfg(self.backbone_name)
         fixed_input_size = getattr(pretrained_config, "fixed_input_size", False)
-        if fixed_input_size and self.image_size is not None:
-            self.backbone = timm.create_model(
-                self.backbone_name,
-                pretrained=self.pretrained,
-                img_size=self.image_size,
-            )
+        kwargs: dict[str, bool | int | tuple[int, int] | str] = {
+            "pretrained": self.pretrained,
+        }
+        if self._uses_openai_clip_backbone():
+            kwargs["act_layer"] = "quick_gelu"
+        if self.image_size is not None:
+            kwargs["img_size"] = self.image_size
         elif fixed_input_size:
-            self.backbone = timm.create_model(
-                self.backbone_name,
-                pretrained=self.pretrained,
-                img_size=pretrained_config.input_size[-1],
-            )
-        else:
-            self.backbone = timm.create_model(
-                self.backbone_name,
-                pretrained=self.pretrained,
-            )
-        patch_embedding = getattr(self.backbone, "patch_embed", None)
+            kwargs["img_size"] = pretrained_config.input_size[-1]
+        backbone = timm.create_model(self.backbone_name, **kwargs)
+        patch_embedding = getattr(backbone, "patch_embed", None)
         self.requires_strict_image_size = (
             getattr(patch_embedding, "strict_img_size", False)
             if patch_embedding is not None
@@ -113,12 +132,62 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         else:
             self.expected_image_size = None
             self.patch_size = None
+        self.backbone = apply_lora_config(
+            model=backbone,
+            lora_config=self.lora_config,
+            frozen=self.frozen,
+        )
+
+    def _uses_openai_clip_backbone(self) -> bool:
+        """Return whether the timm backbone needs OpenAI CLIP QuickGELU."""
+        return self.backbone_name in {
+            FlatBackboneType.CLIP_VITL14_224_OPENAI.value,
+            FlatBackboneType.CLIP_VITL14_336_OPENAI.value,
+        }
+
+    def _resolve_configured_intermediate_layer_index(self) -> int:
+        """Resolve the configured ViT block index."""
+        if self.intermediate_layer_index is None:
+            raise RuntimeError("intermediate_layer_index is not configured.")
+        blocks = getattr(self.backbone, "blocks", None)
+        if blocks is None:
+            raise ValueError(
+                f"Backbone '{self.backbone_name}' does not expose ViT blocks for "
+                "intermediate-layer extraction."
+            )
+        return self._resolve_intermediate_layer_index(
+            intermediate_layer_index=self.intermediate_layer_index,
+            output_count=len(blocks),
+        )
+
+    def _forward_backbone_features(self, images: torch.Tensor) -> torch.Tensor:
+        """Return token features from the configured backbone layer."""
+        if self.intermediate_layer_index is None:
+            return self.backbone.forward_features(images)
+        layer_index = self._resolve_configured_intermediate_layer_index()
+        if not hasattr(self.backbone, "forward_intermediates"):
+            raise ValueError(
+                f"Backbone '{self.backbone_name}' does not support intermediate-layer "
+                "extraction."
+            )
+        features = self.backbone.forward_intermediates(
+            images,
+            indices=[layer_index],
+            return_prefix_tokens=True,
+            output_fmt="NLC",
+            intermediates_only=True,
+        )[0]
+        if isinstance(features, tuple):
+            patch_tokens, prefix_tokens = features
+            return torch.cat([prefix_tokens, patch_tokens], dim=1)
+        return features
 
     def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
         """Encode a single camera's images through the backbone and pooling.
 
         Args:
-            images: Image tensor of shape (B, C, H, W).
+            images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
 
         Returns:
             Feature tensor.
@@ -130,14 +199,16 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
                 target_height=expected_height,
                 target_width=expected_width,
             )
-        last_hidden_state = self.backbone.forward_features(images)
+        last_hidden_state = self._forward_backbone_features(images)
         return self.token_pooling_head(last_hidden_state)
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode images into features.
 
         Args:
-            inputs: Dict mapping camera keys to image tensors (B, C, H, W).
+            inputs: Dict mapping camera keys to image tensors (B*T, C, H, W);
+                ``forward()`` flattens the temporal axis into the batch
+                before dispatching here.
 
         Returns:
             Dict with RGB features. Single camera: key is ``rgb``.
@@ -178,6 +249,66 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
         if not isinstance(metadata, CameraMetadata):
             return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
         return None
+
+    @staticmethod
+    def _to_size_pair(value: int | tuple[int, int]) -> tuple[int, int]:
+        """Normalize scalar or pair size metadata to ``(height, width)``.
+
+        Args:
+            value: Scalar square size or explicit ``(height, width)`` pair.
+
+        Returns:
+            Explicit ``(height, width)`` pair.
+        """
+        if isinstance(value, int):
+            return value, value
+        return value
+
+    def _get_patch_grid(self) -> tuple[int, int] | None:
+        """Return the ViT patch grid when image and patch sizes are known.
+
+        Returns:
+            ``(patch_grid_height, patch_grid_width)`` when the backbone exposes
+            image and patch sizes, otherwise ``None``.
+
+        Note:
+            ``None`` does not change the map values when the token count forms
+            a square grid. The attribution map conversion infers that square
+            grid and raises if the token count cannot be mapped unambiguously.
+        """
+        if self.expected_image_size is None or self.patch_size is None:
+            return None
+        image_height, image_width = self._to_size_pair(self.expected_image_size)
+        patch_height, patch_width = self._to_size_pair(self.patch_size)
+        return image_height // patch_height, image_width // patch_width
+
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return a transformer block for patch-token attribution maps.
+
+        Returns:
+            One token-sequence target with NLC layout, prefix-token count, and
+            patch-grid metadata when available. Returns an empty list for
+            backbones that do not expose a ViT ``blocks`` sequence.
+
+        Note:
+            Standard CLS-token ViTs often read only the CLS token in the final
+            head, so final patch-token outputs can be uninformative. When the
+            backbone exposes at least two blocks, this selects the block before
+            the last block.
+        """
+        blocks = getattr(self.backbone, "blocks", None)
+        if blocks is None or len(blocks) == 0:
+            return []
+        target_block = blocks[-2] if len(blocks) > 1 else blocks[-1]
+        return [
+            VisionExplanationTarget(
+                layer=target_block,
+                target_kind=ExplanationTargetKind.TOKEN_SEQUENCE.value,
+                activation_layout=ActivationLayout.NLC.value,
+                prefix_token_count=int(getattr(self.backbone, "num_prefix_tokens", 0)),
+                patch_grid=self._get_patch_grid(),
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Get structured output specification with feature names and dimensions.

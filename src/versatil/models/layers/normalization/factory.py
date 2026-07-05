@@ -38,7 +38,7 @@ def _create_base_norm(
             )
         case NormalizationType.RMS_NORM.value:
             return RMSNorm(
-                dimension, eps=epsilon, elementwise_affine=elementwise_affine
+                dimension, epsilon=epsilon, elementwise_affine=elementwise_affine
             )
         case _:
             raise ValueError(
@@ -51,18 +51,18 @@ def create_normalization_layer(
     normalization_type: str,
     dimension: int,
     epsilon: float = 1e-6,
-    condition_dim: int | None = None,
+    conditioning_dimension: int | None = None,
 ) -> nn.Module:
     """Create a normalization layer, optionally wrapped with adaptive conditioning.
 
-    When ``condition_dim`` is provided, returns an AdaNorm that wraps the base
+    When ``conditioning_dimension`` is provided, returns an AdaNorm that wraps the base
     normalization with a learned modulation. Otherwise returns a plain norm.
 
     Args:
         normalization_type: Base normalization type (use NormalizationType enum values).
         dimension: Feature dimension.
         epsilon: Small constant for numerical stability.
-        condition_dim: Conditioning dimension. When set, wraps the base norm
+        conditioning_dimension: Conditioning dimension. When set, wraps the base norm
             in AdaNorm for adaptive modulation.
 
     Returns:
@@ -71,7 +71,7 @@ def create_normalization_layer(
     Raises:
         ValueError: If normalization_type is not supported.
     """
-    if condition_dim is not None:
+    if conditioning_dimension is not None:
         base_norm = _create_base_norm(
             normalization_type=normalization_type,
             dimension=dimension,
@@ -80,7 +80,7 @@ def create_normalization_layer(
         )
         return AdaNorm(
             base_norm=base_norm,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=dimension,
         )
     return _create_base_norm(
@@ -94,13 +94,13 @@ def create_block_normalization(
     normalization_type: str,
     dimension: int,
     epsilon: float = 1e-6,
-    condition_dim: int | None = None,
+    conditioning_dimension: int | None = None,
     use_gating: bool = False,
     init_strategy: Literal["zero", "xavier"] = "zero",
 ) -> BlockNormalization:
     """Create normalization for transformer blocks: ``(x, condition) -> (normed, gate)``.
 
-    When ``condition_dim`` is provided, returns an AdaNorm with learned
+    When ``conditioning_dimension`` is provided, returns an AdaNorm with learned
     modulation (and optional gating for AdaLN-Zero). Otherwise returns
     an UnconditionedNorm that wraps a plain normalization layer.
 
@@ -108,9 +108,9 @@ def create_block_normalization(
         normalization_type: Base normalization type (use NormalizationType enum values).
         dimension: Feature dimension.
         epsilon: Small constant for numerical stability.
-        condition_dim: Conditioning dimension. When set, creates AdaNorm.
+        conditioning_dimension: Conditioning dimension. When set, creates AdaNorm.
         use_gating: Whether to produce a learned gate (AdaLN-Zero).
-            Only applies when condition_dim is set.
+            Only applies when conditioning_dimension is set.
         init_strategy: Initialization strategy for modulation weights.
 
     Returns:
@@ -119,7 +119,7 @@ def create_block_normalization(
     Raises:
         ValueError: If normalization_type is not supported.
     """
-    if condition_dim is not None:
+    if conditioning_dimension is not None:
         base_norm = _create_base_norm(
             normalization_type=normalization_type,
             dimension=dimension,
@@ -128,7 +128,7 @@ def create_block_normalization(
         )
         return AdaNorm(
             base_norm=base_norm,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=dimension,
             use_gate=use_gating,
             init_strategy=init_strategy,

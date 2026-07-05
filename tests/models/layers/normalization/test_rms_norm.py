@@ -14,12 +14,12 @@ def rms_norm_factory() -> Callable[..., RMSNorm]:
 
     def factory(
         normalized_shape: int = 64,
-        eps: float = 1e-6,
+        epsilon: float = 1e-6,
         elementwise_affine: bool = True,
     ) -> RMSNorm:
         return RMSNorm(
             normalized_shape=normalized_shape,
-            eps=eps,
+            epsilon=epsilon,
             elementwise_affine=elementwise_affine,
         )
 
@@ -29,21 +29,21 @@ def rms_norm_factory() -> Callable[..., RMSNorm]:
 class TestRMSNormInitialization:
     @pytest.mark.parametrize("normalized_shape", [32, 128])
     @pytest.mark.parametrize("elementwise_affine", [True, False])
-    @pytest.mark.parametrize("eps", [1e-6, 1e-8])
+    @pytest.mark.parametrize("epsilon", [1e-6, 1e-8])
     def test_stores_configuration(
         self,
         rms_norm_factory: Callable[..., RMSNorm],
         normalized_shape: int,
         elementwise_affine: bool,
-        eps: float,
+        epsilon: float,
     ):
         norm = rms_norm_factory(
             normalized_shape=normalized_shape,
             elementwise_affine=elementwise_affine,
-            eps=eps,
+            epsilon=epsilon,
         )
         assert norm.elementwise_affine == elementwise_affine
-        assert norm.eps == eps
+        assert norm.epsilon == epsilon
 
     def test_affine_weight_is_learnable_and_initialized_to_ones(
         self,
@@ -138,12 +138,12 @@ class TestRMSNormForward:
         feature_dimension = 64
         norm_small_eps = rms_norm_factory(
             normalized_shape=feature_dimension,
-            eps=1e-6,
+            epsilon=1e-6,
             elementwise_affine=False,
         )
         norm_large_eps = rms_norm_factory(
             normalized_shape=feature_dimension,
-            eps=1.0,
+            epsilon=1.0,
             elementwise_affine=False,
         )
         # Near-zero input where eps dominates the denominator

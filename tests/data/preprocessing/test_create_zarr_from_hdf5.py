@@ -3,8 +3,6 @@
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
-import albumentations as A
-import cv2
 import numpy as np
 
 from versatil.data.preprocessing.create_zarr_from_hdf5 import (
@@ -77,8 +75,6 @@ class TestIterHdf5Episodes:
         episodes = list(
             _iter_hdf5_episodes(
                 schema=schema,
-                resizer=A.NoOp(),
-                depth_resizer=A.NoOp(),
             )
         )
 
@@ -105,8 +101,6 @@ class TestIterHdf5Episodes:
         list(
             _iter_hdf5_episodes(
                 schema=schema,
-                resizer=A.NoOp(),
-                depth_resizer=A.NoOp(),
             )
         )
 
@@ -130,21 +124,15 @@ class TestIterHdf5Episodes:
             cameras={},
             extract_return={"position": np.zeros((5, 3), dtype=np.float32)},
         )
-        resizer = A.NoOp()
-        depth_resizer = A.NoOp()
 
         list(
             _iter_hdf5_episodes(
                 schema=schema,
-                resizer=resizer,
-                depth_resizer=depth_resizer,
             )
         )
 
         schema.extract_episode.assert_called_once_with(
             demo_group=mock_demo_group,
-            resizer=resizer,
-            depth_resizer=depth_resizer,
         )
 
     @patch("versatil.data.preprocessing.create_zarr_from_hdf5.h5py.File")
@@ -169,8 +157,6 @@ class TestIterHdf5Episodes:
         episodes = list(
             _iter_hdf5_episodes(
                 schema=schema,
-                resizer=A.NoOp(),
-                depth_resizer=A.NoOp(),
             )
         )
 
@@ -200,8 +186,6 @@ class TestIterHdf5Episodes:
         list(
             _iter_hdf5_episodes(
                 schema=schema,
-                resizer=A.NoOp(),
-                depth_resizer=A.NoOp(),
             )
         )
 
@@ -211,58 +195,6 @@ class TestIterHdf5Episodes:
 
 
 class TestCreateReplayBufferFromHdf5:
-    @patch("versatil.data.preprocessing.create_zarr_from_hdf5.A.Resize")
-    @patch(
-        "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
-    )
-    @patch("versatil.data.preprocessing.create_zarr_from_hdf5.h5py.File")
-    def test_cameras_present_creates_resize_transforms(
-        self,
-        mock_h5py_file,
-        mock_create_zarr,
-        mock_resize_class,
-        mock_schema_factory: Callable[..., MagicMock],
-        mock_camera_metadata_factory: Callable[..., MagicMock],
-    ):
-        mock_h5py_file.return_value.__enter__ = MagicMock(return_value=MagicMock())
-        mock_h5py_file.return_value.__exit__ = MagicMock(return_value=False)
-        camera = mock_camera_metadata_factory(image_width=128, image_height=96)
-        schema = mock_schema_factory(
-            hdf5_paths=["/data/file.hdf5"],
-            demo_names_per_file={"/data/file.hdf5": ["demo_0"]},
-            cameras={"left": camera},
-            extract_return={"position": np.zeros((5, 3), dtype=np.float32)},
-        )
-
-        create_replay_buffer_from_hdf5(schema=schema)
-
-        # Source always creates both an RGB resizer and a depth resizer
-        # (with INTER_NEAREST) whenever cameras are present
-        assert mock_resize_class.call_count == 2
-        mock_resize_class.assert_any_call(height=96, width=128)
-        mock_resize_class.assert_any_call(
-            height=96,
-            width=128,
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-    @patch(
-        "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
-    )
-    def test_no_cameras_creates_noop_transforms(
-        self,
-        mock_create_zarr,
-        mock_schema_factory: Callable[..., MagicMock],
-    ):
-        schema = mock_schema_factory(
-            hdf5_paths=[],
-            cameras={},
-        )
-
-        create_replay_buffer_from_hdf5(schema=schema)
-
-        mock_create_zarr.assert_called_once()
-
     @patch(
         "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
     )

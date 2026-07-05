@@ -17,7 +17,7 @@ from versatil.configs.training import (
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
 from versatil.training.lightning_policy import LightningPolicy
@@ -83,9 +83,12 @@ def real_policy_factory() -> Callable[..., Policy]:
             algorithm=MagicMock(spec=DecodingAlgorithm),
             decoder=MagicMock(
                 spec=ActionDecoder,
-                decoder_input=MagicMock(requires_vlm_backbone=False),
+                decoder_input=DecoderInput(keys=[]),
             ),
-            observation_space=MagicMock(spec=ObservationSpace),
+            observation_space=MagicMock(
+                spec=ObservationSpace,
+                observations_metadata={},
+            ),
             action_space=MagicMock(spec=ActionSpace),
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
@@ -211,12 +214,20 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         callback_metrics: dict[str, torch.Tensor] | None = None,
         logger: Mock | None = "default",
         optimizers: list[torch.optim.Optimizer] | None = None,
+        sanity_checking: bool = False,
+        val_dataloaders: Mock | None = None,
+        accumulate_grad_batches: int = 1,
+        is_last_batch: bool = False,
     ) -> Mock:
         trainer = MagicMock(spec="pl.Trainer")
         trainer.current_epoch = current_epoch
         trainer.global_step = global_step
         trainer.max_epochs = max_epochs
         trainer.estimated_stepping_batches = estimated_stepping_batches
+        trainer.sanity_checking = sanity_checking
+        trainer.val_dataloaders = val_dataloaders
+        trainer.accumulate_grad_batches = accumulate_grad_batches
+        trainer.is_last_batch = is_last_batch
         trainer.callback_metrics = (
             callback_metrics if callback_metrics is not None else {}
         )

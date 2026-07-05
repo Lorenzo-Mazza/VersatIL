@@ -2,6 +2,7 @@
 
 import logging
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -15,6 +16,7 @@ def _export_with_dynamic_batch(
     model: nn.Module,
     example_inputs: tuple[torch.Tensor, ...],
     dynamic_shapes_key: str | None = None,
+    max_batch_size: int | None = None,
 ) -> torch.export.ExportedProgram:
     """Export model with dynamic batch dimension on all inputs.
 
@@ -24,11 +26,25 @@ def _export_with_dynamic_batch(
         dynamic_shapes_key: If provided, wraps shapes in a dict
             with this key (for models with named *args). Otherwise
             uses a positional tuple.
+        max_batch_size: Optional upper bound for the dynamic batch dimension.
 
     Returns:
         ExportedProgram with dynamic batch dimension.
+
+    Raises:
+        ValueError: If ``max_batch_size`` is invalid for the example inputs.
     """
-    batch_dim = torch.export.Dim("batch", min=1)
+    if max_batch_size is not None:
+        if max_batch_size < 1:
+            raise ValueError("max_batch_size must be >= 1.")
+        example_batch_sizes = [tensor.shape[0] for tensor in example_inputs]
+        largest_example_batch = max(example_batch_sizes)
+        if max_batch_size < largest_example_batch:
+            raise ValueError(
+                f"max_batch_size {max_batch_size} is smaller than example "
+                f"batch size {largest_example_batch}."
+            )
+    batch_dim = torch.export.Dim("batch", min=1, max=max_batch_size)
     per_input_shapes = tuple({0: batch_dim} for _ in range(len(example_inputs)))
     if dynamic_shapes_key is not None:
         dynamic_shapes = {dynamic_shapes_key: per_input_shapes}
@@ -101,6 +117,9 @@ def build_example_inputs(
 
     for key, state_meta in observation_space.numerical_observations.items():
         observation_shapes[key] = (observation_horizon, state_meta.dimension)
+        observation_dtypes[key] = torch.from_numpy(
+            np.empty(0, dtype=np.dtype(state_meta.dtype))
+        ).dtype
 
     if tokenizer is not None and tokenizer.observation_tokenizer is not None:
         token_length = tokenizer.observation_tokenizer.max_token_len

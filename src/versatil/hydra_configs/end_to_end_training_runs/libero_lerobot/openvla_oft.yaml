@@ -1,0 +1,83 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: libero_lerobot
+  - /task/dataloader: libero_lerobot
+  - /task/action_space: libero_precomputed_lerobot
+  - /task/observation_space: libero_rgb_lerobot
+  - /training: default
+  - /policy/decoder: openvla_oft
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: regression_gripper_l1
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 8
+  dataloader:
+    batch_size: 2
+    image_norm_type: ${image_norm_type:ZERO_TO_ONE}
+    kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
+    tokenization:
+      tokenize_observations: true
+      observation_tokenizer:
+        tokenizer_model: ${prismatic_llm_model:LLAMA2_7B_PURE}
+        observation_keys:
+          - ${obs_key:LANGUAGE}
+        max_token_len: 96
+        raw_text: true
+        prompt_template: "In: What action should the robot take to {instruction}?\nOut: "
+        padding_strategy: ${token_padding:MAX_LENGTH}
+
+experiment:
+  precision: ${precision:BF16_MIXED}
+  checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
+
+training:
+  num_epochs: 10
+  gradient_accumulate_every: 32
+  early_stopping_patience: 10
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+  lr_schedule: "cosine_with_min_lr"
+  lr_warmup_steps: 1000
+  lr_scheduler_kwargs:
+    min_lr: 2.5e-6
+  optimizer:
+    lr: 2.5e-5
+    betas: [0.9, 0.95]
+    weight_decay: 0.01
+    param_groups: []
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  encoding_pipeline:
+    _target_: versatil.models.encoding.pipeline.EncodingPipeline
+    encoders: {}
+    observation_space: ${task.observation_space}
+    fusion_stages: []
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:EE_ORI_ACTION}
+        mse_weight: 0.0
+        l1_weight: 1.0
+      gripper_loss:
+        action_keys:
+          - ${proprio_key:GRIPPER_STATE_ACTION}
+        mse_weight: 0.0
+        l1_weight: 0.05
+      trajectory_length:
+        action_key: ${proprio_key:EE_POS_ACTION}

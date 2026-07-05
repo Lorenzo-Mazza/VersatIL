@@ -32,7 +32,7 @@ def mlp_fusion_factory() -> Callable[..., MLPFusion]:
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "mlp_fused",
-        hidden_dim: int = 32,
+        hidden_dimension: int = 32,
         mlp_hidden_dims: list[int] | None = None,
         activation_name: str = ActivationFunction.GELU.value,
         dropout: float = 0.1,
@@ -44,7 +44,7 @@ def mlp_fusion_factory() -> Callable[..., MLPFusion]:
         return MLPFusion(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             mlp_hidden_dims=mlp_hidden_dims,
             activation_name=activation_name,
             dropout=dropout,
@@ -59,27 +59,27 @@ class TestMLPFusionInitialization:
         mlp_fusion_factory: Callable[..., MLPFusion],
     ):
         module = mlp_fusion_factory()
-        assert hasattr(module, "hidden_dim")
+        assert hasattr(module, "hidden_dimension")
         assert hasattr(module, "projections")
         assert hasattr(module, "setup")
         assert hasattr(module, "get_output_specification")
 
-    @pytest.mark.parametrize("hidden_dim", [32, 128])
+    @pytest.mark.parametrize("hidden_dimension", [32, 128])
     @pytest.mark.parametrize("mlp_hidden_dims", [[64, 32], [128, 64, 32]])
     @pytest.mark.parametrize("output_name", ["mlp_fused", "my_output"])
     def test_stores_configuration(
         self,
         mlp_fusion_factory: Callable[..., MLPFusion],
-        hidden_dim: int,
+        hidden_dimension: int,
         mlp_hidden_dims: list[int],
         output_name: str,
     ):
         module = mlp_fusion_factory(
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
             mlp_hidden_dims=mlp_hidden_dims,
             output_name=output_name,
         )
-        assert module.hidden_dim == hidden_dim
+        assert module.hidden_dimension == hidden_dimension
         assert module.output_dim == mlp_hidden_dims[-1]
         assert module.output_name == output_name
         assert module.mlp is not None
@@ -110,7 +110,7 @@ class TestMLPFusionForward:
         mlp_hidden_dims = [64, 48]
         module = mlp_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=32,
+            hidden_dimension=32,
             mlp_hidden_dims=mlp_hidden_dims,
         )
         module.setup(
@@ -151,7 +151,7 @@ class TestMLPFusionForward:
     ):
         module = mlp_fusion_factory(
             input_features=["feat_a", "feat_b"],
-            hidden_dim=16,
+            hidden_dimension=16,
             mlp_hidden_dims=[32, 16],
             activation_name=activation_name,
         )
@@ -172,12 +172,12 @@ class TestMLPFusionForward:
         input_tensor_factory: Callable[..., torch.Tensor],
         num_features: int,
     ):
-        hidden_dim = 16
+        hidden_dimension = 16
         feature_names = [f"feat_{i}" for i in range(num_features)]
         module = mlp_fusion_factory(
             input_features=feature_names,
-            hidden_dim=hidden_dim,
-            mlp_hidden_dims=[hidden_dim * num_features, 24],
+            hidden_dimension=hidden_dimension,
+            mlp_hidden_dims=[hidden_dimension * num_features, 24],
         )
         dims = dict.fromkeys(feature_names, (32,))
         module.setup(feature_registry=_make_registry(dims))

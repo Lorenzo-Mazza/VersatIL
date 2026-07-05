@@ -1,0 +1,27 @@
+defaults:
+  - pi0
+  - heads@action_heads: pi0
+  - vision_language_model@vlm_backbone: paligemma
+  - _self_
+
+input_keys:
+  - robot_state_proprio
+
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+observation_space: ${task.observation_space}
+device: ${experiment.device}
+
+expert_hidden_size: 1024
+expert_intermediate_size: 4096
+expert_number_of_heads: 8
+expert_number_of_key_value_heads: 1
+expert_number_of_layers: 18
+expert_head_dimension: 256
+time_conditioning: ${time_conditioning:CONCAT_MLP}
+min_period: 0.004
+max_period: 4.0
+proprioceptive_feature_key: robot_state_proprio
+normalization_type: ${normalization:RMS_NORM}
+dropout: 0.0

@@ -1,11 +1,12 @@
 """Tests for versatil.data.task module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
+import torch
 from versatil_constants.shared import ObsKey
-from versatil_constants.tso import TSOObsKey
 
 from versatil.data.constants import (
     ActionComputationMethod,
@@ -13,6 +14,7 @@ from versatil.data.constants import (
     CoordinateSystem,
     GripperType,
     OrientationRepresentation,
+    RawCameraKey,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -77,14 +79,165 @@ def mixed_action_space(
 def _make_mock_schema(
     zarr_keys: list[str],
     observations: dict = None,
+    precomputed_actions: dict = None,
 ) -> MagicMock:
-    """Create a mock DatasetSchema with given zarr keys and observations."""
+    """Create a mock DatasetSchema with given zarr keys and metadata."""
     schema = MagicMock()
     schema.get_required_zarr_keys.return_value = zarr_keys
     schema.metadata = MagicMock()
     schema.metadata.observations = observations or {}
     schema.metadata.get_observation = lambda key: (observations or {}).get(key)
+    schema.metadata.precomputed_actions = precomputed_actions or {}
     return schema
+
+
+class TestActionTensorRoundTrip:
+    def test_concatenation_follows_metadata_insertion_order(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        position = torch.ones(2, 4, 3)
+        gripper = torch.zeros(2, 4, 1)
+        joint = mixed_action_space.concatenate_action_tensors(
+            actions={"gripper": gripper, "position": position},
+            prediction_horizon=4,
+            owner_name="test",
+        )
+        assert joint.shape == (2, 4, 4)
+        # Metadata declares position before gripper; dict order must not
+        # matter.
+        assert torch.equal(joint[..., :3], position)
+        assert torch.equal(joint[..., 3:], gripper)
+
+    def test_split_inverts_concatenation(
+        self,
+        mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        actions = {
+            "position": action_tensor_factory(
+                batch_size=2, sequence_length=4, action_dimension=3
+            ),
+            "gripper": action_tensor_factory(
+                batch_size=2, sequence_length=4, action_dimension=1
+            ),
+        }
+        joint = mixed_action_space.concatenate_action_tensors(
+            actions=actions, prediction_horizon=4, owner_name="test"
+        )
+        split = mixed_action_space.split_action_tensor(
+            action_tensor=joint, owner_name="test"
+        )
+        assert set(split) == set(actions)
+        for key in actions:
+            assert torch.equal(split[key], actions[key])
+
+    def test_split_rejects_wrong_final_dimension(
+        self,
+        mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        with pytest.raises(ValueError, match="final dimension"):
+            mixed_action_space.split_action_tensor(
+                action_tensor=action_tensor_factory(
+                    batch_size=2, sequence_length=4, action_dimension=7
+                ),
+                owner_name="test",
+            )
+
+    def test_validate_rejects_missing_and_extra_keys(
+        self,
+        mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "test expected action keys ['position', 'gripper'], got ['position']."
+            ),
+        ):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=3
+                    )
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "test expected action keys ['position', 'gripper'], "
+                "got ['gripper', 'phase', 'position']."
+            ),
+        ):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=3
+                    ),
+                    "gripper": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=1
+                    ),
+                    "phase": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=1
+                    ),
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+
+    def test_validate_rejects_wrong_horizon_and_batch_mismatch(
+        self,
+        mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Action 'position' must have prediction horizon 4, got 3."),
+        ):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=3, action_dimension=3
+                    ),
+                    "gripper": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=1
+                    ),
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "All action tensors must have the same batch size, "
+                "got 3 for 'gripper' and 2 for 'position'."
+            ),
+        ):
+            mixed_action_space.validate_action_tensors(
+                actions={
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=3
+                    ),
+                    "gripper": action_tensor_factory(
+                        batch_size=3, sequence_length=4, action_dimension=1
+                    ),
+                },
+                prediction_horizon=4,
+                owner_name="test",
+            )
+
+    def test_validate_rejects_empty_action_space(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+    ):
+        empty_space = action_space_factory(actions_metadata={})
+        with pytest.raises(ValueError, match="at least one predicted action"):
+            empty_space.validate_action_tensors(
+                actions={}, prediction_horizon=4, owner_name="test"
+            )
 
 
 class TestActionSpaceInitialization:
@@ -416,38 +569,6 @@ class TestActionSpaceBooleanProperties:
 
         assert not action_space.has_delta_actions
 
-    def test_task_has_phases_when_phase_label_key_present(
-        self,
-        action_space_factory: Callable[..., ActionSpace],
-    ):
-        phase_metadata = ActionMetadata(
-            prediction_dimension=5,
-            is_numerical=True,
-            needs_normalization=False,
-            dtype="int32",
-            is_precomputed=True,
-        )
-        action_space = action_space_factory(
-            actions_metadata={
-                TSOObsKey.PHASE_LABEL.value: phase_metadata,
-            }
-        )
-
-        assert action_space.task_has_phases
-
-    def test_task_has_phases_false_when_no_phase_label(
-        self,
-        action_space_factory: Callable[..., ActionSpace],
-        position_on_the_fly: OnTheFlyActionMetadata,
-    ):
-        action_space = action_space_factory(
-            actions_metadata={
-                "position": position_on_the_fly,
-            }
-        )
-
-        assert not action_space.task_has_phases
-
 
 class TestActionSpaceZarrKeys:
     def test_get_required_zarr_keys_returns_all_metadata_keys(
@@ -459,6 +580,38 @@ class TestActionSpaceZarrKeys:
 
 
 class TestObservationSpacePropertyFiltering:
+    def test_accepts_raw_camera_key_matching_canonical_observation_key(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.AGENTVIEW.value: camera_metadata_factory(
+                    camera_key=RawCameraKey.IMAGE.value
+                ),
+            }
+        )
+
+        assert set(observation_space.rgb_cameras) == {Cameras.AGENTVIEW.value}
+
+    def test_rejects_camera_metadata_under_wrong_observation_key(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        expected_message = (
+            "Camera 'left' has raw_camera_key 'right' which maps to 'right', not 'left'"
+        )
+        with pytest.raises(ValueError, match=expected_message):
+            observation_space_factory(
+                observations_metadata={
+                    Cameras.LEFT.value: camera_metadata_factory(
+                        camera_key=Cameras.RIGHT.value
+                    ),
+                }
+            )
+
     def test_cameras_filters_camera_metadata(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
@@ -478,6 +631,50 @@ class TestObservationSpacePropertyFiltering:
 
         assert Cameras.LEFT.value in observation_space.cameras
         assert "position" not in observation_space.cameras
+
+    def test_depth_cameras_filters_depth_metadata(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            }
+        )
+
+        assert set(observation_space.depth_cameras) == {Cameras.DEPTH.value}
+
+    def test_rgb_cameras_excludes_depth_metadata(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                Cameras.RIGHT.value: camera_metadata_factory(
+                    camera_key=Cameras.RIGHT.value
+                ),
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            }
+        )
+
+        assert set(observation_space.rgb_cameras) == {
+            Cameras.LEFT.value,
+            Cameras.RIGHT.value,
+        }
 
     def test_position_observations_filters_correctly(
         self,
@@ -849,6 +1046,41 @@ class TestTaskSpaceValidation:
                 action_space=action_space_factory(
                     actions_metadata={
                         "gripper_action": gripper_action_metadata_factory(),
+                    }
+                ),
+                observation_space=observation_space_factory(),
+            )
+
+    def test_precomputed_action_metadata_mismatch_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        # Task expects a binary gripper, schema stores a continuous one
+        task_action = gripper_action_metadata_factory(
+            gripper_type=GripperType.BINARY.value,
+        )
+        schema_action = gripper_action_metadata_factory(
+            gripper_type=GripperType.CONTINUOUS.value,
+        )
+        schema = _make_mock_schema(
+            zarr_keys=["gripper_action"],
+            precomputed_actions={"gripper_action": schema_action},
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Precomputed action 'gripper_action' metadata mismatch with schema"
+            ),
+        ):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(
+                    actions_metadata={
+                        "gripper_action": task_action,
                     }
                 ),
                 observation_space=observation_space_factory(),

@@ -4,7 +4,8 @@ import abc
 
 import torch
 
-from versatil.data.constants import DEPTH_CAMERAS, RGB_CAMERAS
+from versatil.data.constants import CameraModality, SampleKey
+from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
@@ -19,7 +20,8 @@ def resize_to_target_size(
     the shorter dimension. No-op if images already match the target.
 
     Args:
-        images: Image tensor of shape (B, C, H, W).
+        images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
         target_height: Target height in pixels.
         target_width: Target width in pixels.
 
@@ -47,12 +49,20 @@ def resize_to_target_size(
     return resized
 
 
+_NON_CAMERA_INPUT_KEYS = frozenset(
+    {
+        SampleKey.TOKENIZED_OBSERVATIONS.value,
+        SampleKey.IS_PAD_OBSERVATION.value,
+    }
+)
+
+
 class ImageEncoderMixin(abc.ABC):
     """Shared logic for encoders that process camera images.
 
-    Provides camera key extraction, multi-camera detection, vision feature
-    naming, and multi-camera encode dispatch. Subclasses set the output
-    modality and camera group via abstract properties.
+    Provides camera key storage, multi-camera detection, vision feature naming,
+    and multi-camera encode dispatch. Camera modality checks are performed by
+    experiment validation because they require observation-space metadata.
     """
 
     @property
@@ -61,20 +71,82 @@ class ImageEncoderMixin(abc.ABC):
         """Output modality prefixed to feature names (e.g. ``'rgb'``, ``'depth'``)."""
         raise NotImplementedError
 
-    @property
-    @abc.abstractmethod
-    def _camera_group(self) -> list[str]:
-        """Valid camera keys for this modality."""
-        raise NotImplementedError
-
-    def _setup_camera_keys(self, input_keys: list[str]) -> None:
-        """Extract camera keys from input keys.
+    @staticmethod
+    def _resolve_intermediate_layer_index(
+        intermediate_layer_index: int | None,
+        output_count: int,
+    ) -> int:
+        """Resolve an intermediate layer index.
 
         Args:
-            input_keys: All input keys for this encoder.
+            intermediate_layer_index: Optional intermediate layer index.
+                Negative values index from the end; ``None`` selects the final
+                layer.
+            output_count: Number of intermediate layers available.
+
+        Returns:
+            Non-negative intermediate layer index.
         """
-        self.camera_keys = [key for key in input_keys if key in self._camera_group]
+        layer_index = (
+            output_count - 1
+            if intermediate_layer_index is None
+            else intermediate_layer_index
+        )
+        if layer_index < 0:
+            layer_index = output_count + layer_index
+        if layer_index < 0 or layer_index >= output_count:
+            raise ValueError(
+                f"intermediate_layer_index={intermediate_layer_index} is outside "
+                f"the valid range for {output_count} intermediate layers."
+            )
+        return layer_index
+
+    def _setup_camera_keys(self, input_keys: list[str]) -> None:
+        """Store declared camera input keys.
+
+        Args:
+            input_keys: Camera input keys declared by the encoder.
+        """
+        self.camera_keys = [
+            key for key in input_keys if key not in _NON_CAMERA_INPUT_KEYS
+        ]
+        self.camera_metadata: dict[str, CameraMetadata] = {}
         self.is_multi_camera = len(self.camera_keys) > 1
+
+    def set_camera_metadata(self, camera_metadata: dict[str, CameraMetadata]) -> None:
+        """Store observation-space camera metadata for runtime camera routing.
+
+        Args:
+            camera_metadata: Observation-space camera metadata keyed by
+                observation key.
+        """
+        declared_camera_keys = [
+            key
+            for key in self.input_specification.keys
+            if key not in _NON_CAMERA_INPUT_KEYS
+        ]
+        unknown_keys = [
+            key for key in declared_camera_keys if key not in camera_metadata
+        ]
+        if unknown_keys:
+            raise ValueError(
+                f"{type(self).__name__} declares camera keys {unknown_keys} "
+                "that are not part of the observation-space cameras "
+                f"{sorted(camera_metadata)}."
+            )
+        self.camera_keys = declared_camera_keys
+        self.camera_metadata = camera_metadata
+        self.is_multi_camera = len(self.camera_keys) > 1
+
+    def _camera_key_for_modality(self, modality: CameraModality) -> str:
+        """Return the first configured camera key with the requested modality."""
+        for camera_key in self.camera_keys:
+            if self.camera_metadata[camera_key].modality == modality:
+                return camera_key
+        raise RuntimeError(
+            f"{type(self).__name__} has no configured {modality.value} camera. "
+            "Run experiment validation and EncodingPipeline setup before forward."
+        )
 
     def _get_vision_feature_names(self) -> list[str]:
         """Get output feature names based on camera configuration.
@@ -94,7 +166,8 @@ class ImageEncoderMixin(abc.ABC):
         """Encode a single camera's images into features.
 
         Args:
-            images: Image tensor of shape (B, C, H, W).
+            images: Image tensor of shape (B*T, C, H, W); ``forward()`` flattens
+                the temporal axis into the batch before dispatching here.
 
         Returns:
             Feature tensor.
@@ -107,7 +180,9 @@ class ImageEncoderMixin(abc.ABC):
         """Dispatch single-image encoding across cameras.
 
         Args:
-            inputs: Dict mapping camera keys to image tensors (B, C, H, W).
+            inputs: Dict mapping camera keys to image tensors (B*T, C, H, W);
+                ``forward()`` flattens the temporal axis into the batch
+                before dispatching here.
 
         Returns:
             Dict with features keyed by modality (single) or
@@ -132,10 +207,6 @@ class RGBEncoderMixin(ImageEncoderMixin):
     def _output_modality(self) -> str:
         return EncoderOutputKeys.RGB.value
 
-    @property
-    def _camera_group(self) -> list[str]:
-        return RGB_CAMERAS
-
 
 class DepthEncoderMixin(ImageEncoderMixin):
     """Mixin for encoders processing single-channel depth camera images."""
@@ -143,10 +214,6 @@ class DepthEncoderMixin(ImageEncoderMixin):
     @property
     def _output_modality(self) -> str:
         return EncoderOutputKeys.DEPTH.value
-
-    @property
-    def _camera_group(self) -> list[str]:
-        return DEPTH_CAMERAS
 
 
 class RGBDEncoderMixin(ImageEncoderMixin):
@@ -156,6 +223,16 @@ class RGBDEncoderMixin(ImageEncoderMixin):
     def _output_modality(self) -> str:
         return EncoderOutputKeys.RGBD.value
 
-    @property
-    def _camera_group(self) -> list[str]:
-        return RGB_CAMERAS + DEPTH_CAMERAS
+    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
+        """Validate that RGBD inputs use camera metadata.
+
+        Args:
+            key: Observation key being validated.
+            metadata: Metadata from the observation space for this key.
+
+        Returns:
+            Error message if incompatible, None if valid.
+        """
+        if not isinstance(metadata, CameraMetadata):
+            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
+        return None

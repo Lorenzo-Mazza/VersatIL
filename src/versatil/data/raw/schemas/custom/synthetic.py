@@ -2,7 +2,6 @@
 
 from typing import Any
 
-import albumentations as A
 import numpy as np
 from pytorch_lightning import Callback
 
@@ -153,8 +152,6 @@ class SyntheticSchema(DatasetSchema):
     def extract_episode(
         self,
         episode_source: Any,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Not applicable for synthetic data.
 

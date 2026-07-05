@@ -8,6 +8,8 @@ import torch
 from pytorch_lightning.callbacks import Callback
 from torch.nn.modules.batchnorm import _BatchNorm
 
+from versatil.training.constants import CheckpointKey
+
 
 class EMACallback(Callback):
     """Exponential Moving Average callback for model weights.
@@ -47,6 +49,7 @@ class EMACallback(Callback):
         self.max_value = max_value
         self.decay = 0.0
         self.ema_model: torch.nn.Module | None = None
+        self._resume_ema_state: dict[str, torch.Tensor] | None = None
 
     def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Create EMA model copy at start of training.
@@ -56,6 +59,9 @@ class EMACallback(Callback):
             pl_module: Lightning module (LightningPolicy)
         """
         self.ema_model = copy.deepcopy(pl_module.policy)
+        if self._resume_ema_state is not None:
+            self.ema_model.load_state_dict(self._resume_ema_state, strict=False)
+            self._resume_ema_state = None
         self.ema_model.eval()
         self.ema_model.requires_grad_(False)
 
@@ -78,12 +84,20 @@ class EMACallback(Callback):
         """
         if self.ema_model is None:
             return
+        window_incomplete = (batch_idx + 1) % trainer.accumulate_grad_batches != 0
+        if window_incomplete and not trainer.is_last_batch:
+            # Track optimizer steps, not micro-batches: updating on every
+            # accumulation micro-batch would decay the average N times faster
+            # than the configured warmup schedule. Lightning also flushes a
+            # partial accumulation window on the epoch's last batch, so that
+            # optimizer step must enter the average too.
+            return
 
         self.decay = self._get_decay(trainer.global_step)
 
         with torch.no_grad():
             for module, ema_module in zip(
-                pl_module.policy.modules(), self.ema_model.modules()
+                pl_module.policy.modules(), self.ema_model.modules(), strict=True
             ):
                 for buffer, ema_buffer in zip(
                     module.buffers(recurse=False),
@@ -137,7 +151,12 @@ class EMACallback(Callback):
         pl_module: pl.LightningModule,
         checkpoint: dict,
     ) -> None:
-        """Inject EMA weights into the checkpoint.
+        """Inject EMA weights into the checkpoint, stashing the raw weights.
+
+        The checkpoint's ``state_dict`` intentionally holds the EMA weights so
+        every saved checkpoint is deployment-ready. The raw fast weights are
+        kept under a separate key so resumed training does not restart from
+        the average with optimizer moments that belong to the raw weights.
 
         Args:
             trainer: Lightning trainer
@@ -146,11 +165,49 @@ class EMACallback(Callback):
         """
         if self.ema_model is None:
             return
+        raw_policy_state: dict[str, torch.Tensor] = {}
         ema_state = self.ema_model.state_dict()
         for key, value in ema_state.items():
             ckpt_key = f"policy.{key}"
             if ckpt_key in checkpoint["state_dict"]:
+                raw_policy_state[ckpt_key] = checkpoint["state_dict"][ckpt_key].clone()
                 checkpoint["state_dict"][ckpt_key] = value.clone()
+        checkpoint[CheckpointKey.RAW_POLICY_STATE_DICT.value] = raw_policy_state
+
+    def on_load_checkpoint(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        checkpoint: dict,
+    ) -> None:
+        """Restore raw training weights and queue the EMA state for rebuild.
+
+        Lightning loads ``state_dict`` (the EMA weights) into the module
+        before this hook runs, so the raw weights are written back onto the
+        policy here and the EMA weights are stashed until ``on_fit_start``
+        recreates the EMA model.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+            checkpoint: Loaded checkpoint dictionary
+        """
+        raw_policy_state = checkpoint.get(CheckpointKey.RAW_POLICY_STATE_DICT.value)
+        if not raw_policy_state:
+            return
+        policy_prefix = "policy."
+        self._resume_ema_state = {
+            key.removeprefix(policy_prefix): checkpoint["state_dict"][key].clone()
+            for key in raw_policy_state
+            if key in checkpoint["state_dict"]
+        }
+        pl_module.policy.load_state_dict(
+            {
+                key.removeprefix(policy_prefix): value
+                for key, value in raw_policy_state.items()
+            },
+            strict=False,
+        )
 
     def on_validation_start(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule

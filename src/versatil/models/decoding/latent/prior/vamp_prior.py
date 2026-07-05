@@ -8,7 +8,6 @@ This allows the prior to be more expressive than a standard Gaussian N(0,I)
 while maintaining the VAE framework.
 """
 
-import weakref
 from typing import Any
 
 import torch
@@ -82,7 +81,7 @@ class VampPrior(PriorLatentEncoder):
             torch.randn(num_components, prediction_horizon, self.action_dim)
         )
         self.log_weights = nn.Parameter(torch.zeros(num_components, 1, 1))
-        self._encoder_ref: weakref.ReferenceType[PosteriorLatentEncoder] | None = None
+        self._encoder_reference: tuple[PosteriorLatentEncoder, ...] = ()
         self.to(torch.device(device))
 
     def get_auxiliary_output_keys(self) -> set[str]:
@@ -184,10 +183,10 @@ class VampPrior(PriorLatentEncoder):
         Args:
             posterior: Posterior encoder that maps inputs to (mu, logvar).
         """
-        self._encoder_ref = weakref.ref(posterior)
+        self._encoder_reference = (posterior,)
 
     def __getstate__(self) -> dict[str, Any]:
-        """Return copy-safe state without the posterior weak reference.
+        """Return copy-safe state without the posterior encoder reference.
 
         Returns:
             Module state with runtime wiring cleared. The owning
@@ -195,24 +194,18 @@ class VampPrior(PriorLatentEncoder):
             posterior after deepcopy or unpickling.
         """
         state = super().__getstate__()
-        state["_encoder_ref"] = None
+        state["_encoder_reference"] = ()
         return state
 
     @property
     def encoder(self) -> PosteriorLatentEncoder:
         """Get the posterior encoder."""
-        if self._encoder_ref is None:
+        if not self._encoder_reference:
             raise RuntimeError(
                 "VampPrior encoder not set. Call wire_posterior() first or ensure "
                 "VariationalAlgorithm properly initializes the prior."
             )
-        encoder = self._encoder_ref()
-        if encoder is None:
-            raise RuntimeError(
-                "VampPrior encoder reference is no longer valid. Keep the posterior "
-                "encoder alive while the prior is in use."
-            )
-        return encoder
+        return self._encoder_reference[0]
 
     def get_mixture_params(
         self,

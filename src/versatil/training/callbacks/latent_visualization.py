@@ -86,6 +86,8 @@ class LatentVisualizationCallback(Callback):
             metrics_accumulator: Either train_metrics or val_metrics.
             split: "train" or "val" — used as a prefix on logged metric keys.
         """
+        if trainer.sanity_checking:
+            return
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
@@ -96,26 +98,28 @@ class LatentVisualizationCallback(Callback):
             return
 
         figures = {}
-        if latent_data.posterior is not None:
-            figures.update(
-                self._build_latent_figures(
-                    z=latent_data.posterior,
-                    labels_by_key=latent_data.labels,
-                    prefix=f"{split}_posterior",
-                    title=f"{split.title()} posterior latent space",
-                )
-            )
-        if latent_data.prior is not None:
-            figures.update(
-                self._build_latent_figures(
-                    z=latent_data.prior,
-                    labels_by_key=latent_data.labels,
-                    prefix=f"{split}_prior",
-                    title=f"{split.title()} prior latent space",
-                )
-            )
-
         try:
+            # Figure creation stays inside the guard: degenerate accumulations
+            # (e.g. a single latent sample) make t-SNE raise, and that must
+            # not abort the training epoch.
+            if latent_data.posterior is not None:
+                figures.update(
+                    self._build_latent_figures(
+                        z=latent_data.posterior,
+                        labels_by_key=latent_data.labels,
+                        prefix=f"{split}_posterior",
+                        title=f"{split.title()} posterior latent space",
+                    )
+                )
+            if latent_data.prior is not None:
+                figures.update(
+                    self._build_latent_figures(
+                        z=latent_data.prior,
+                        labels_by_key=latent_data.labels,
+                        prefix=f"{split}_prior",
+                        title=f"{split.title()} prior latent space",
+                    )
+                )
             latent_stats_table = self._create_latent_stats_table(
                 metrics_accumulator.metadata
             )
@@ -128,9 +132,8 @@ class LatentVisualizationCallback(Callback):
                 trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
         except Exception:
             logger.warning(
-                "Skipping %s latent visualization logging at epoch %s.",
-                split,
-                trainer.current_epoch,
+                f"Skipping {split} latent visualization logging at epoch "
+                f"{trainer.current_epoch}.",
                 exc_info=True,
             )
         finally:
@@ -353,7 +356,9 @@ class LatentVisualizationCallback(Callback):
             )
             if axis.get_legend() is not None and label_values is not None:
                 axis.get_legend().set_title(label_name)
-                for text, value in zip(axis.get_legend().texts, label_values):
+                for text, value in zip(
+                    axis.get_legend().texts, label_values, strict=True
+                ):
                     text.set_text(value)
             axis.set_title(f"{title} PCA (colored by {label_name})")
         else:

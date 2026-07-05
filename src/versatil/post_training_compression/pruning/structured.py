@@ -33,7 +33,7 @@ class StructuredPruner(BasePruner):
                 (e.g., 1 for L1, 2 for L2).
             dimension: Weight tensor dimension along which to prune.
             layer_types: PrunableLayerType values to target. Defaults
-                to Conv1d and Conv2d.
+                to Conv1d, Conv2d, and Linear.
 
         Raises:
             ValueError: If amount is not in the open interval (0, 1).
@@ -84,15 +84,27 @@ class StructuredPruner(BasePruner):
 
         Returns:
             Tuple of (total_parameters, zero_parameters).
+
+        Raises:
+            ValueError: If the target module contains no prunable layers.
         """
-        for child_module in module.modules():
-            if isinstance(child_module, self._layer_types):
-                prune.ln_structured(
-                    child_module,
-                    name=PruningTargetAttribute.WEIGHT.value,
-                    amount=self._amount,
-                    n=self._norm_order,
-                    dim=self._dimension,
-                )
-                prune.remove(child_module, PruningTargetAttribute.WEIGHT.value)
+        target_layers = [
+            child_module
+            for child_module in module.modules()
+            if isinstance(child_module, self._layer_types)
+        ]
+        if not target_layers:
+            raise ValueError(
+                "Structured pruning selected no modules; the target module "
+                f"contains no {[t.__name__ for t in self._layer_types]} layers."
+            )
+        for child_module in target_layers:
+            prune.ln_structured(
+                child_module,
+                name=PruningTargetAttribute.WEIGHT.value,
+                amount=self._amount,
+                n=self._norm_order,
+                dim=self._dimension,
+            )
+            prune.remove(child_module, PruningTargetAttribute.WEIGHT.value)
         return self.compute_sparsity(module)

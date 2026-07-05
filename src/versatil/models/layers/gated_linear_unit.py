@@ -16,22 +16,22 @@ class GatedLinearUnit(nn.Module):
     compared to a simple linear + activation.
 
     Args:
-        input_dim: Input feature dimension.
-        hidden_dim: Hidden dimension (output will be this size).
+        input_dimension: Input feature dimension.
+        hidden_dimension: Hidden dimension (output will be this size).
         bias: Whether to use bias in linear layers.
         gate_activation: Activation applied to the gate projection.
     """
 
     def __init__(
         self,
-        input_dim: int,
-        hidden_dim: int,
+        input_dimension: int,
+        hidden_dimension: int,
         bias: bool = False,
         gate_activation: nn.Module | None = None,
     ):
         super().__init__()
-        self.gate_proj = nn.Linear(input_dim, hidden_dim, bias=bias)
-        self.value_proj = nn.Linear(input_dim, hidden_dim, bias=bias)
+        self.gate_proj = nn.Linear(input_dimension, hidden_dimension, bias=bias)
+        self.value_proj = nn.Linear(input_dimension, hidden_dimension, bias=bias)
         self.gate_activation = gate_activation or nn.SiLU()
         self._init_weights()
 
@@ -45,6 +45,7 @@ class GatedLinearUnit(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the gated projection: activation(gate(x)) * value(x)."""
         gate = self.gate_activation(self.gate_proj(x))
         value = self.value_proj(x)
         return gate * value
@@ -53,10 +54,10 @@ class GatedLinearUnit(nn.Module):
 class SwiGLU(GatedLinearUnit):
     """Swish-Gated Linear Unit: GLU with SiLU (Swish) activation."""
 
-    def __init__(self, input_dim: int, hidden_dim: int, bias: bool = False):
+    def __init__(self, input_dimension: int, hidden_dimension: int, bias: bool = False):
         super().__init__(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
+            input_dimension=input_dimension,
+            hidden_dimension=hidden_dimension,
             bias=bias,
             gate_activation=nn.SiLU(),
         )
@@ -65,10 +66,10 @@ class SwiGLU(GatedLinearUnit):
 class GeGLU(GatedLinearUnit):
     """GELU-Gated Linear Unit: GLU with GELU(approximate='tanh') activation."""
 
-    def __init__(self, input_dim: int, hidden_dim: int, bias: bool = False):
+    def __init__(self, input_dimension: int, hidden_dimension: int, bias: bool = False):
         super().__init__(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
+            input_dimension=input_dimension,
+            hidden_dimension=hidden_dimension,
             bias=bias,
             gate_activation=nn.GELU(approximate="tanh"),
         )

@@ -77,7 +77,7 @@ class TestInitializeGenerationCache:
         caches = initialize_generation_cache(
             batch_size=2,
             num_layers=number_of_layers,
-            num_heads=4,
+            number_of_heads=4,
             head_dimension=8,
             device=device,
         )
@@ -89,7 +89,7 @@ class TestInitializeGenerationCache:
         caches = initialize_generation_cache(
             batch_size=3,
             num_layers=2,
-            num_heads=4,
+            number_of_heads=4,
             head_dimension=16,
             device=device,
         )
@@ -102,7 +102,7 @@ class TestInitializeGenerationCache:
         caches = initialize_generation_cache(
             batch_size=2,
             num_layers=1,
-            num_heads=4,
+            number_of_heads=4,
             head_dimension=8,
             device=device,
         )
@@ -112,7 +112,7 @@ class TestInitializeGenerationCache:
         caches = initialize_generation_cache(
             batch_size=2,
             num_layers=1,
-            num_heads=4,
+            number_of_heads=4,
             head_dimension=8,
             device=device,
             dtype=torch.float16,

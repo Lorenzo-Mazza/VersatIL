@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf
 from tso_robotics_sockets import (
     CompressionType,
     InferenceResponseKey,
@@ -16,13 +17,16 @@ from tso_robotics_sockets import (
 )
 from versatil_constants.shared import ObsKey
 
+from versatil.data.constants import DatasetType
+from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
+from versatil.inference.policy_runtime.base import PolicyRuntime
 from versatil.inference.protocol import (
     ActionTransport,
     ObservationTransport,
-    PolicyInference,
+    OnlineExplanationSource,
 )
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
@@ -43,12 +47,47 @@ class EnvironmentState:
     temporal_aggregator: TemporalAggregator | None = None
 
 
+def infer_rotate_images(config: DictConfig) -> bool:
+    """Whether incoming simulator images must be rotated 180 degrees.
+
+    The LIBERO simulator emits images flipped relative to the lerobot dataset
+    orientation the policy was trained on, so the mismatch is a property of
+    the training data source, derived from the checkpoint's dataset schema.
+
+    Args:
+        config: Full training config saved with the checkpoint, either as the
+            composed DictConfig or as an instantiated MainConfig whose schema
+            node is a real DatasetSchema.
+
+    Returns:
+        True for policies trained on LIBERO lerobot datasets.
+    """
+    if isinstance(config, DictConfig):
+        schema_node = OmegaConf.select(config, "task.dataset_schema")
+        if schema_node is None:
+            return False
+        if isinstance(schema_node, DictConfig):
+            target = str(schema_node.get("_target_", ""))
+            dataset_type = str(schema_node.get("dataset_type", ""))
+            return (
+                target.endswith("LeRobotDatasetSchemaV30")
+                and dataset_type == DatasetType.LIBERO.value
+            )
+        schema = schema_node
+    else:
+        schema = config.task.dataset_schema
+    return (
+        isinstance(schema, LeRobotDatasetSchemaV30)
+        and schema.dataset_type == DatasetType.LIBERO.value
+    )
+
+
 class InferenceClient:
     """Connects a trained policy to a simulation or real-world robot environment via custom transport protocols."""
 
     def __init__(
         self,
-        policy_loader: PolicyInference,
+        policy_runtime: PolicyRuntime,
         observation_transport: ObservationTransport,
         action_transport: ActionTransport,
         temporal_aggregation: bool = False,
@@ -59,11 +98,12 @@ class InferenceClient:
         max_timesteps: int = 800,
         timing_log: bool = False,
         update_rate_hz: float | None = None,
-    ):
+        online_explanation_source: OnlineExplanationSource | None = None,
+    ) -> None:
         """Initialize the inference client.
 
         Args:
-            policy_loader: Loaded policy providing inference and metadata.
+            policy_runtime: Runtime providing policy inference and metadata.
             observation_transport: Protocol for receiving observations from the environment.
             action_transport: Protocol for sending actions to the environment.
             temporal_aggregation: Whether to use temporal ensemble. When enabled,
@@ -81,27 +121,44 @@ class InferenceClient:
             max_timesteps: Maximum episode length for temporal aggregation.
             timing_log: Whether to log per-step timing breakdown.
             update_rate_hz: Target action-send frequency in Hz.
+            online_explanation_source: Optional source that converts the exact
+                ready observation batch used for policy inference into
+                explanations.
         """
-        self.policy_loader = policy_loader
+        self.policy_runtime = policy_runtime
         self.observation_transport = observation_transport
         self.action_transport = action_transport
         self.temporal_aggregation = temporal_aggregation
         self.action_execution_horizon = (
             action_execution_horizon
             if action_execution_horizon is not None
-            else policy_loader.prediction_horizon
+            else policy_runtime.prediction_horizon
         )
-        if self.action_execution_horizon > policy_loader.prediction_horizon:
+        if (
+            self.action_execution_horizon > 1
+            and policy_runtime.observation_horizon > 1
+            and not temporal_aggregation
+        ):
+            logging.warning(
+                f"Executing {self.action_execution_horizon} actions per "
+                f"observation with "
+                f"observation_horizon={policy_runtime.observation_horizon}: "
+                f"the policy's history will hold frames "
+                f"{self.action_execution_horizon} steps apart, while training "
+                "windows are contiguous."
+            )
+        if self.action_execution_horizon > policy_runtime.prediction_horizon:
             raise ValueError(
                 f"action_execution_horizon ({self.action_execution_horizon}) cannot exceed "
-                f"prediction_horizon ({policy_loader.prediction_horizon})."
+                f"prediction_horizon ({policy_runtime.prediction_horizon})."
             )
         self.compression_type = compression_type
         self.timing_log = timing_log
         self.update_rate_hz = update_rate_hz
+        self.online_explanation_source = online_explanation_source
         self.timestep = 0
-        observation_space = policy_loader.observation_space
-        action_space = policy_loader.action_space
+        observation_space = policy_runtime.observation_space
+        action_space = policy_runtime.action_space
         self.camera_keys, self.state_keys, self.has_language = (
             self._bucket_observation_keys(observation_space=observation_space)
         )
@@ -115,14 +172,19 @@ class InferenceClient:
             camera_keys=self.camera_keys,
             state_keys=self.state_keys,
             has_language=self.has_language,
-            camera_metadata=policy_loader.observation_space.cameras,
+            camera_metadata=policy_runtime.observation_space.cameras,
             compression_type=compression_type,
-            rotate_images=policy_loader.config.inference.rotate_images,
-            depth_clamp_range=policy_loader.depth_clamp_range,
+            rotate_images=infer_rotate_images(config=policy_runtime.config),
+            depth_clamp_ranges=policy_runtime.depth_clamp_ranges,
+            state_dtypes={
+                key: metadata.dtype
+                for key, metadata in (observation_space.observations_metadata.items())
+                if key in self.state_keys and metadata.is_numerical
+            },
         )
         self.action_postprocessor = ActionPostprocessor(
             action_space=action_space,
-            denoising_thresholds=policy_loader.denoising_thresholds,
+            denoising_thresholds=policy_runtime.denoising_thresholds,
         )
         self._temporal_config = {
             "favor_more_recent": favor_more_recent,
@@ -165,13 +227,13 @@ class InferenceClient:
             max_steps: Maximum number of steps in the episode.
         """
         self.observation_transport.register(
-            client_name=self.policy_loader.checkpoint_path
+            client_name=self.policy_runtime.client_identifier
         )
         for _step_idx in range(max_steps):
             try:
                 status = self.step()
             except Exception:
-                logging.exception("Fatal error at step %d", _step_idx)
+                logging.exception(f"Fatal error at step {_step_idx}")
                 raise
             if status == EpisodeStatus.FINISHED.value:
                 break
@@ -184,27 +246,13 @@ class InferenceClient:
         """
         step_start = time.time() if self.timing_log else None
 
-        response = self.observation_transport.receive(
-            requested_keys=self.all_observation_keys,
-            compression_type=self.compression_type,
-        )
-        status = self._check_status(response=response)
-        if status != EpisodeStatus.CONTINUE.value:
-            return status
-
         if self.timing_log:
             preprocessing_start = time.time()
 
-        self._handle_reset_signal(response=response)
-        per_environment_observations = self.observation_preprocessor.parse_response(
-            response=response
-        )
-        self._update_environment_states(
-            per_environment_observations=per_environment_observations
-        )
-        self._remove_inactive_environments(
-            per_environment_observations=per_environment_observations
-        )
+        status = self._ingest_observation()
+        if status != EpisodeStatus.CONTINUE.value:
+            return status
+
         if self.timing_log:
             preprocessing_duration = time.time() - preprocessing_start
             inference_start = time.time()
@@ -236,19 +284,42 @@ class InferenceClient:
             postprocessing_duration = time.time() - postprocessing_start
             total_duration = time.time() - step_start
             logging.info(
-                "[TIMING] Step %d: preprocess=%.4fs inference=%.4fs "
-                "postprocess=%.4fs total=%.4fs fps=%.1f",
-                self.timestep,
-                preprocessing_duration,
-                inference_duration,
-                postprocessing_duration,
-                total_duration,
-                1.0 / total_duration,
+                f"[TIMING] Step {self.timestep}: "
+                f"preprocess={preprocessing_duration:.4f}s "
+                f"inference={inference_duration:.4f}s "
+                f"postprocess={postprocessing_duration:.4f}s "
+                f"total={total_duration:.4f}s "
+                f"fps={1.0 / total_duration:.1f}"
             )
 
         self.timestep += 1
 
         return EpisodeStatus.CONTINUE.value
+
+    def _ingest_observation(self) -> str:
+        """Receive one observation and update per-environment buffers.
+
+        Returns:
+            Episode status string; buffers are only updated on ``CONTINUE``.
+        """
+        response = self.observation_transport.receive(
+            requested_keys=self.all_observation_keys,
+            compression_type=self.compression_type,
+        )
+        status = self._check_status(response=response)
+        if status != EpisodeStatus.CONTINUE.value:
+            return status
+        self._handle_reset_signal(response=response)
+        per_environment_observations = self.observation_preprocessor.parse_response(
+            response=response
+        )
+        self._update_environment_states(
+            per_environment_observations=per_environment_observations
+        )
+        self._remove_inactive_environments(
+            per_environment_observations=per_environment_observations
+        )
+        return status
 
     def reset(self) -> None:
         """Reset all environment states for a new episode."""
@@ -294,8 +365,8 @@ class InferenceClient:
         reset_indices = response.get(
             InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value, []
         )
-        for environment_index in reset_indices:
-            environment_index = int(environment_index)
+        for raw_index in reset_indices:
+            environment_index = int(raw_index)
             if environment_index in self.environment_states:
                 state = self.environment_states[environment_index]
                 state.observation_buffer.reset()
@@ -344,15 +415,15 @@ class InferenceClient:
             buffer_keys = buffer_keys + [ObsKey.LANGUAGE.value]
 
         observation_buffer = ObservationBuffer(
-            buffer_size=self.policy_loader.observation_horizon,
+            buffer_size=self.policy_runtime.observation_horizon,
             required_keys=buffer_keys,
         )
         temporal_aggregator = None
         if self.temporal_aggregation:
             temporal_aggregator = TemporalAggregator(
-                device=self.policy_loader.device,
+                device=self.policy_runtime.device,
                 action_keys_to_dimensions=self.action_keys_to_dimensions,
-                prediction_horizon=self.policy_loader.prediction_horizon,
+                prediction_horizon=self.policy_runtime.prediction_horizon,
                 exponential_decay=self._temporal_config["exponential_decay"],
                 favor_more_recent=self._temporal_config["favor_more_recent"],
                 max_timesteps=self._temporal_config["max_timesteps"],
@@ -364,11 +435,13 @@ class InferenceClient:
 
     def _get_actions_for_ready_environments(
         self,
-    ) -> dict[int, dict[str, list[float]]]:
+    ) -> dict[int, list[dict[str, list[float]]]]:
         """Run inference for environments with full observation buffers.
 
         Returns:
-            Dict mapping environment index to structured action dict.
+            Dict mapping environment index to the per-step structured action
+            dicts of the predicted chunk. Temporal aggregation produces a
+            single averaged step per environment.
         """
         ready_indices = []
         camera_batches: dict[str, list[torch.Tensor]] = {
@@ -411,10 +484,40 @@ class InferenceClient:
         if self.has_language:
             observation_dict[ObsKey.LANGUAGE.value] = language_batch
 
-        action_dict = self.policy_loader.run_inference(obs_dict=observation_dict)
+        self._explain_online_observation_batch(
+            observation_dict=observation_dict,
+            ready_indices=ready_indices,
+        )
+        action_dict = self.policy_runtime.run_inference(obs_dict=observation_dict)
 
         return self._distribute_actions(
             action_dict=action_dict, ready_indices=ready_indices
+        )
+
+    def _explain_online_observation_batch(
+        self,
+        observation_dict: dict[str, Any],
+        ready_indices: list[int],
+    ) -> None:
+        """Send the ready inference observation batch to the online source.
+
+        Args:
+            observation_dict: The same batch passed to
+                ``PolicyRuntime.run_inference``.
+            ready_indices: Environment indices represented by the batch rows.
+        """
+        if self.online_explanation_source is None:
+            return
+        display_observation = {
+            camera_key: observation_dict[camera_key].detach().cpu()
+            for camera_key in self.camera_keys
+            if isinstance(observation_dict[camera_key], torch.Tensor)
+        }
+        self.online_explanation_source.explain_observation_batch(
+            observation=observation_dict,
+            display_observation=display_observation,
+            environment_indices=ready_indices,
+            timestep=self.timestep,
         )
 
     def _distribute_actions(
@@ -473,7 +576,6 @@ class InferenceClient:
         except Exception:
             logging.warning("Error closing observation transport", exc_info=True)
         try:
-            if hasattr(self.action_transport, "close"):
-                self.action_transport.close()
+            self.action_transport.close()
         except Exception:
             logging.warning("Error closing action transport", exc_info=True)

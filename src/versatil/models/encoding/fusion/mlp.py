@@ -1,7 +1,7 @@
 import torch
 
 from versatil.models.encoding.fusion.base import SequentialFusion
-from versatil.models.feature_meta import FeatureMetadata
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 
@@ -13,7 +13,7 @@ class MLPFusion(SequentialFusion):
         self,
         input_features: list[str],
         output_name: str,
-        hidden_dim: int,
+        hidden_dimension: int,
         mlp_hidden_dims: list[int],
         activation_name: str = ActivationFunction.GELU.value,
         dropout: float = 0.1,
@@ -22,7 +22,7 @@ class MLPFusion(SequentialFusion):
         Args:
             input_features: List of feature names to fuse.
             output_name: Name of the output fused feature.
-            hidden_dim: Dimension to project each input feature to before fusion.
+            hidden_dimension: Dimension to project each input feature to before fusion.
             mlp_hidden_dims: List of hidden layer dimensions for the MLP.
             activation_name: Name of the activation function to use in the MLP.
             dropout: Dropout rate for the MLP.
@@ -30,11 +30,11 @@ class MLPFusion(SequentialFusion):
         super().__init__(
             input_features=input_features,
             output_name=output_name,
-            hidden_dim=hidden_dim,
+            hidden_dimension=hidden_dimension,
         )
         self.mlp = MLP(
-            input_dim=hidden_dim * len(input_features),
-            hidden_dims=mlp_hidden_dims,
+            input_dimension=hidden_dimension * len(input_features),
+            hidden_dimensions=mlp_hidden_dims,
             activation_function=ActivationFunction(
                 activation_name
             ).to_torch_activation(),
@@ -55,7 +55,7 @@ class MLPFusion(SequentialFusion):
         if self.projections is None:
             raise RuntimeError("Projections must be set up before forward pass")
         projected = []
-        for feat, proj in zip(features, self.projections):
+        for feat, proj in zip(features, self.projections, strict=True):
             projected.append(proj(feat))
         concat = torch.cat(projected, dim=-1)
         result: torch.Tensor = self.mlp(concat)
@@ -63,8 +63,11 @@ class MLPFusion(SequentialFusion):
 
     def get_output_specification(self) -> FeatureMetadata:
         """Get output specification."""
+        dimension: tuple[int, ...] = (self.output_dim,)
+        if self._output_feature_type == FeatureType.SEQUENTIAL.value:
+            dimension = (self._output_sequence_length, self.output_dim)
         return FeatureMetadata(
             key=self.output_name,
             feature_type=self._output_feature_type,
-            dimension=(self.output_dim,),
+            dimension=dimension,
         )

@@ -73,7 +73,7 @@ class TestDualStreamLayerInitialization:
             assert mock_ff_block.call_count == 2
             norm_calls = mock_norm.call_args_list
             for call in norm_calls:
-                assert call.kwargs["condition_dim"] == conditioning_dimension
+                assert call.kwargs["conditioning_dimension"] == conditioning_dimension
                 assert call.kwargs["use_gating"] == use_gating
 
 
@@ -165,7 +165,7 @@ class TestDualStreamLayerForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning = condition_factory(
-            batch_size=BATCH_SIZE, condition_dim=EMBEDDING_DIMENSION
+            batch_size=BATCH_SIZE, conditioning_dimension=EMBEDDING_DIMENSION
         )
         attention_output_primary = sequence_tensor_factory(
             batch_size=BATCH_SIZE,

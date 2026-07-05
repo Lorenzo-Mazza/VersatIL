@@ -4,9 +4,14 @@ import numpy as np
 import torch
 
 from versatil.common.tensor_ops import tensor_to_str
-from versatil.configs.data.tokenizer import TokenizationConfig
+from versatil.configs.data.tokenizer import (
+    ActionDiscretizerConfig,
+    ActionTokenIdMappingConfig,
+    TokenizationConfig,
+)
 from versatil.data.constants import (
-    Cameras,
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -21,9 +26,72 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.processing.action_processor import ActionProcessor
 from versatil.data.task import ObservationSpace
+from versatil.data.tokenization.action_discretizer import (
+    BinnedActionDiscretizer,
+    FastActionDiscretizer,
+)
+from versatil.data.tokenization.action_token_id_mapping import (
+    IdentityActionTokenIdMapping,
+    LanguageVocabularyActionTokenIdMapping,
+)
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 from versatil.data.tokenization.tokenizer import Tokenizer
+
+
+def _build_action_discretizer(
+    config: ActionDiscretizerConfig,
+    device: torch.device | None,
+    time_horizon: int | None = None,
+    action_dim: int | None = None,
+) -> FastActionDiscretizer | BinnedActionDiscretizer:
+    """Instantiate the configured action discretizer.
+
+    Args:
+        config: Discretizer configuration.
+        device: Target device for discretizer tensors.
+        time_horizon: Action-chunk time horizon. Pretrained FAST discretizers
+            skip fitting, so the decode shape must be provided up front.
+        action_dim: Total tokenized action dimension, with the same purpose
+            as ``time_horizon``.
+    """
+    match config.type:
+        case ActionDiscretizerType.FAST.value:
+            return FastActionDiscretizer(
+                use_pretrained=config.use_pretrained,
+                tokenizer_model=config.tokenizer_model,
+                time_horizon=time_horizon,
+                action_dim=action_dim,
+            )
+        case ActionDiscretizerType.BINNED.value:
+            return BinnedActionDiscretizer(
+                num_bins=config.num_bins,
+                device=device,
+                binning_strategy=config.binning_strategy,
+                min_value=config.min_value,
+                max_value=config.max_value,
+            )
+        case unsupported_type:
+            raise ValueError(f"Unsupported action discretizer type: {unsupported_type}")
+
+
+def _build_token_id_mapping(
+    config: ActionTokenIdMappingConfig,
+) -> IdentityActionTokenIdMapping | LanguageVocabularyActionTokenIdMapping:
+    """Instantiate the configured action token-id mapping."""
+    if config.type == ActionTokenIdMappingType.IDENTITY.value:
+        return IdentityActionTokenIdMapping()
+    if config.type == ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value:
+        if config.language_tokenizer_model is None:
+            raise ValueError(
+                "language_tokenizer_model must be provided for language-vocabulary "
+                "action token-id mapping"
+            )
+        return LanguageVocabularyActionTokenIdMapping(
+            language_tokenizer_model=config.language_tokenizer_model,
+            num_special_tokens_to_skip=config.num_special_tokens_to_skip,
+        )
+    raise ValueError(f"Unsupported action token-id mapping type: {config.type}")
 
 
 class TransformBuilder:
@@ -46,6 +114,8 @@ class TransformBuilder:
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
         action_sample_size: int = 2048,
+        episode_selection_mask: np.ndarray | None = None,
+        seed: int = 42,
     ):
         """Initialize transform builder.
 
@@ -69,11 +139,19 @@ class TransformBuilder:
                 mixture-density head k-means++). Set to 0 to disable. Memory cost
                 per action key is ``action_sample_size * action_dim * bytes_per_element``
                 (four bytes for float32, eight for float64).
+            episode_selection_mask: Optional boolean mask over episodes.
+                Statistics, tokenizers, and denoising thresholds are fitted
+                only on selected episodes (the training split), keeping
+                validation data out of the fitted transforms.
+            seed: Seed for the subsampling used by depth-quantile estimation,
+                so fitted statistics are reproducible.
         """
         self.replay_buffer = replay_buffer
         self.action_processor = action_processor
         self.observation_space = observation_space
         self.episode_ends = episode_ends
+        self.episode_selection_mask = episode_selection_mask
+        self._selected_step_mask = self._build_selected_step_mask()
         self.kinematics_norm_type = kinematics_norm_type
         self.image_norm_type = image_norm_type
         self.depth_norm_type = depth_norm_type
@@ -85,6 +163,49 @@ class TransformBuilder:
         self.min_kinematics_std = min_kinematics_std
         self.min_kinematics_range = min_kinematics_range
         self.action_sample_size = action_sample_size
+        self._random_generator = np.random.default_rng(seed)
+
+    def _build_selected_step_mask(self) -> np.ndarray | None:
+        """Return a per-step mask of selected episodes, or None for all."""
+        if self.episode_selection_mask is None or bool(
+            np.all(self.episode_selection_mask)
+        ):
+            return None
+        step_mask = np.zeros(int(self.episode_ends[-1]), dtype=bool)
+        episode_start = 0
+        for episode_index, episode_end in enumerate(self.episode_ends):
+            if self.episode_selection_mask[episode_index]:
+                step_mask[episode_start:episode_end] = True
+            episode_start = int(episode_end)
+        return step_mask
+
+    def _is_episode_selected(self, episode_index: int) -> bool:
+        """Return whether an episode contributes to fitted statistics."""
+        if self.episode_selection_mask is None:
+            return True
+        return bool(self.episode_selection_mask[episode_index])
+
+    def _select_step_rows(self, array: np.ndarray) -> np.ndarray:
+        """Filter an (n_steps, ...) array down to selected-episode rows."""
+        if self._selected_step_mask is None:
+            return array
+        return array[self._selected_step_mask]
+
+    def _select_episodes_contiguous(
+        self, array: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return selected-episode rows with remapped episode boundaries."""
+        if self._selected_step_mask is None:
+            return array, self.episode_ends
+        selected_rows = array[self._selected_step_mask]
+        selected_lengths = []
+        episode_start = 0
+        for episode_index, episode_end in enumerate(self.episode_ends):
+            if self._is_episode_selected(episode_index=episode_index):
+                selected_lengths.append(int(episode_end) - episode_start)
+            episode_start = int(episode_end)
+        remapped_ends = np.cumsum(np.asarray(selected_lengths, dtype=np.int64))
+        return selected_rows, remapped_ends
 
     def create_normalizer_and_tokenizer(
         self,
@@ -114,10 +235,21 @@ class TransformBuilder:
         cross_indices = self.episode_ends[:-1] - 1
         valid_mask = np.ones(len(next(iter(action_data.values()))), dtype=bool)
         valid_mask[cross_indices] = False
+        if self._selected_step_mask is not None:
+            valid_mask &= self._selected_step_mask[: len(valid_mask)]
         valid_action_data = {key: data[valid_mask] for key, data in action_data.items()}
+        # On-the-fly actions at episode-final rows straddle episode boundaries
+        # and must stay out of the fitted statistics. Precomputed actions are
+        # valid training targets there, so their stats cover every selected row.
+        stats_action_data = {
+            key: self._select_step_rows(array=action_source_data[key])
+            if action_meta[key].is_precomputed
+            else data
+            for key, data in valid_action_data.items()
+        }
 
         normalizer = self._create_normalizer(
-            action_data=valid_action_data,
+            action_data=stats_action_data,
             action_meta=action_meta,
             device=device,
         )
@@ -126,9 +258,17 @@ class TransformBuilder:
             self.tokenization_config.tokenize_observations
             or self.tokenization_config.tokenize_actions
         ):
+            tokenizer_action_data = (
+                {
+                    key: self._select_step_rows(array=action_source_data[key])
+                    for key in valid_action_data
+                }
+                if self.action_processor.action_space.has_only_precomputed_actions
+                else valid_action_data
+            )
             tokenizer = self._create_tokenizer(
                 normalizer=normalizer,
-                action_data=valid_action_data,
+                action_data=tokenizer_action_data,
                 action_meta=action_meta,
                 device=device,
             )
@@ -142,12 +282,14 @@ class TransformBuilder:
             if isinstance(meta, OnTheFlyActionMetadata):
                 source_meta = meta.source_metadata
                 if isinstance(source_meta, PositionObservationMetadata):
-                    obs_data = self.replay_buffer[key][:]
+                    obs_data, selected_episode_ends = self._select_episodes_contiguous(
+                        array=self.replay_buffer[key][:]
+                    )
                     self.action_processor.compute_denoising_threshold(
                         obs_data=obs_data,
                         key=key,
                         meta=source_meta,
-                        episode_ends=self.episode_ends,
+                        episode_ends=selected_episode_ends,
                     )
         self.action_processor.log_movement_distribution()
 
@@ -182,7 +324,9 @@ class TransformBuilder:
                     raise ValueError(
                         f"Cannot normalize non-numerical observation key: {key}"
                     )
-                data_to_normalize[key] = self.replay_buffer[key][:]
+                data_to_normalize[key] = self._select_step_rows(
+                    array=self.replay_buffer[key][:]
+                )
 
         action_normalization_keys: set[str] = set()
         for key, meta in action_meta.items():
@@ -226,9 +370,8 @@ class TransformBuilder:
             device: Target device
             winsorize_depth: Apply winsorization to depth
         """
-        for camera_key, _camera_meta in self.observation_space.cameras.items():
-            # TODO: this currently assumes that only a camera with key "depth" is a depth camera - should ideally be specified in metadata
-            if camera_key == Cameras.DEPTH.value:
+        for camera_key, camera_metadata in self.observation_space.cameras.items():
+            if camera_metadata.is_depth:
                 depth_stats = self._compute_depth_stats_streaming(
                     camera_key, winsorize_depth
                 )
@@ -260,6 +403,11 @@ class TransformBuilder:
         """
         depth_array = self.replay_buffer[camera_key]
         n_frames = depth_array.shape[0]
+        selected_frame_indices = (
+            np.flatnonzero(self._selected_step_mask[:n_frames])
+            if self._selected_step_mask is not None
+            else None
+        )
         total_pixels = depth_array.size
         p_lower, p_upper = None, None
         if winsorize and self.depth_winsorize_quantiles:
@@ -267,13 +415,27 @@ class TransformBuilder:
             dtype = depth_array.dtype
             if total_pixels == 0:
                 reservoir = np.empty(0, dtype=dtype)
+            elif selected_frame_indices is not None:
+                # Quantiles must come from selected episodes only: sample a
+                # subset of selected frames and pool their pixels.
+                sampled_frame_count = min(200, len(selected_frame_indices))
+                sampled_frames = np.sort(
+                    self._random_generator.choice(
+                        selected_frame_indices, sampled_frame_count, replace=False
+                    )
+                )
+                pooled = depth_array[sampled_frames].ravel()
+                if pooled.size > reservoir_size:
+                    pooled = self._random_generator.choice(
+                        pooled, reservoir_size, replace=False
+                    )
+                reservoir = pooled
             elif total_pixels <= reservoir_size:
-                # Small array - load all and ravel (zarr v3 arrays don't have .ravel())
+                # Small array - load all and ravel
                 reservoir = depth_array[:].ravel()
             else:
                 # Large array - sample using multi-dimensional indexing
-                # (zarr v3 doesn't support flat indexing on arrays)
-                flat_indices = np.random.choice(
+                flat_indices = self._random_generator.choice(
                     total_pixels, reservoir_size, replace=False
                 )
                 multi_indices = np.unravel_index(flat_indices, depth_array.shape)
@@ -293,6 +455,8 @@ class TransformBuilder:
         for start in range(0, n_frames, chunk_size):
             end = min(start + chunk_size, n_frames)
             chunk = depth_array[start:end]
+            if self._selected_step_mask is not None:
+                chunk = chunk[self._selected_step_mask[start:end]]
             if chunk.size == 0:
                 continue
             if p_lower is not None:
@@ -402,7 +566,9 @@ class TransformBuilder:
                 max_token_len=obs_config.max_token_len,
                 device=device,
                 raw_text=obs_config.raw_text,
+                prompt_template=obs_config.prompt_template,
                 padding_strategy=obs_config.padding_strategy,
+                trust_remote_code=obs_config.trust_remote_code,
             )
             if obs_config.bin_continuous_data:
                 data_to_bin = {}
@@ -412,7 +578,7 @@ class TransformBuilder:
                         continue
                     if not meta.is_numerical:
                         continue
-                    obs_data = self.replay_buffer[key][:]
+                    obs_data = self._select_step_rows(array=self.replay_buffer[key][:])
                     if meta.needs_normalization:
                         obs_data = normalizer[key].normalize(obs_data)
                         obs_data = (
@@ -427,8 +593,8 @@ class TransformBuilder:
 
             if not observation_tokenizer._is_fitted:
                 logging.warning(
-                    "No observation data was used for observation binning tokenizer."
-                    " Observation binning tokenizer will be a pass-through."
+                    "No observation data was used for observation binning."
+                    " Observation binning will be a pass-through."
                 )
                 observation_tokenizer.fit({})  # Pass-through
 
@@ -439,17 +605,37 @@ class TransformBuilder:
                     "action_tokenizer config must be provided when tokenize_actions=True"
                 )
 
+            # Pretrained discretizers skip fitting, so the decode chunk shape
+            # must be recorded here or it would never be persisted. The
+            # tokenized dimension mirrors the encode-time filter below.
+            tokenized_action_dim = sum(
+                action_data[key].shape[-1]
+                for key, meta in action_meta.items()
+                if meta.is_numerical and meta.requires_prediction_head
+            )
             action_tokenizer = ActionTokenizer(
-                tokenizer_chain=action_config.tokenizer_chain,
-                use_pretrained_fast=action_config.use_pretrained_fast,
-                language_tokenizer_model=action_config.language_tokenizer_model,
+                action_discretizer=_build_action_discretizer(
+                    config=action_config.action_discretizer,
+                    device=device,
+                    time_horizon=self.prediction_horizon,
+                    action_dim=tokenized_action_dim
+                    if tokenized_action_dim > 0
+                    else None,
+                ),
+                token_id_mapping=_build_token_id_mapping(
+                    action_config.token_id_mapping
+                ),
                 max_token_len=action_config.max_token_len,
                 device=device,
             )
-            if not action_config.use_pretrained_fast:
+            if not action_tokenizer._is_fitted:
                 actions_to_tokenize = {}
                 for key, meta in action_meta.items():
-                    if not meta.is_numerical:
+                    # Match the encode-time filter in normalize_actions: a
+                    # numerical key without a prediction head is excluded from
+                    # the tokenized tensor, so fitting on it would misalign
+                    # every per-dimension bin.
+                    if not (meta.is_numerical and meta.requires_prediction_head):
                         continue
                     if meta.needs_normalization:
                         action = normalizer[key].normalize(action_data[key])
@@ -484,28 +670,49 @@ class TransformBuilder:
         Returns:
             Action chunks of shape (N_chunks, prediction_horizon, total_D)
         """
-        action_components = []
-        for key in sorted(action_dict.keys()):
-            action_components.append(action_dict[key])
+        # Canonical metadata order; keys without metadata keep dict order.
+        metadata_order = {
+            key: index
+            for index, key in enumerate(
+                self.action_processor.action_space.actions_metadata
+            )
+        }
+        ordered_keys = sorted(
+            action_dict, key=lambda key: metadata_order.get(key, len(metadata_order))
+        )
+        action_components = [action_dict[key] for key in ordered_keys]
         all_actions = np.concatenate(action_components, axis=-1)
-        # Compute episode lengths (each episode loses 1 action for on-the-fly computation)
+        # On-the-fly action computation loses the final row of each episode.
+        terminal_offset = (
+            0 if self.action_processor.action_space.has_only_precomputed_actions else 1
+        )
         episode_lengths = []
         for i in range(len(self.episode_ends)):
             if i == 0:
-                episode_lengths.append(self.episode_ends[i] - 1)
+                episode_lengths.append(self.episode_ends[i] - terminal_offset)
             else:
                 episode_lengths.append(
-                    self.episode_ends[i] - self.episode_ends[i - 1] - 1
+                    self.episode_ends[i] - self.episode_ends[i - 1] - terminal_offset
                 )
         chunks = []
         episode_start = 0
-        for length in episode_lengths:
+        for episode_index, length in enumerate(episode_lengths):
+            if not self._is_episode_selected(episode_index=episode_index):
+                # Unselected episodes contributed no rows to the filtered
+                # action arrays, so the running offset must not advance.
+                continue
             episode_actions = all_actions[episode_start : episode_start + length]
             if length >= self.prediction_horizon:
                 for i in range(length - self.prediction_horizon + 1):
                     chunks.append(episode_actions[i : i + self.prediction_horizon])
             episode_start += length
 
+        if len(chunks) == 0:
+            raise ValueError(
+                "No episode is long enough to build a single action chunk of "
+                f"prediction_horizon={self.prediction_horizon}; check the "
+                "dataset and horizon configuration."
+            )
         return np.stack(chunks, axis=0)
 
     @staticmethod
@@ -565,7 +772,8 @@ class TransformBuilder:
             f"min: {sample.min():.4f}, max: {sample.max():.4f}, "
             f"mean: {sample.mean():.4f}, std: {sample.std():.4f}"
         )
-        if camera_key != Cameras.DEPTH.value:
+        camera_metadata = self.observation_space.cameras[camera_key]
+        if not camera_metadata.is_depth:
             sample = sample.astype(np.float32) / 255.0
         sample_normalized = normalizer[camera_key].normalize(sample)
         logging.info(

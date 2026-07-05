@@ -56,7 +56,6 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        autoregressive: bool = True,
     ):
         """Initialize a decoder layer with midpoint latent K/V conditioning.
 
@@ -73,7 +72,6 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
             attention_type: Attention implementation name.
             bias: Whether linear projections use bias.
             normalization_epsilon: Epsilon for normalization layers.
-            autoregressive: Whether self-attention uses autoregressive caching.
         """
         super().__init__(
             embedding_dimension=embedding_dimension,
@@ -88,7 +86,6 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
             use_cross_attention=False,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            autoregressive=autoregressive,
         )
 
         self.latent_proj = nn.Linear(latent_dim, embedding_dimension, bias=False)
@@ -107,7 +104,7 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
         """Forward pass through latent-conditioned decoder layer.
 
         Args:
-            hidden_states: Input embeddings (B, seq_len, embedding_dim).
+            hidden_states: Input embeddings (B, seq_len, embedding_dimension).
             encoded_features: Not used. Kept for signature compatibility.
             self_attention_mask: Causal mask (B, 1, query_len, key_len), True = masked.
             cross_attention_mask: Not used. Kept for signature compatibility.
@@ -227,7 +224,6 @@ class FreeTransformerLatentEncoder(nn.Module):
             use_cross_attention=True,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            autoregressive=False,  # non-causal self-attention on the query
         )
         self.use_global_latent = use_global_latent
         self.layers = nn.ModuleList(
@@ -397,7 +393,6 @@ class FreeTransformer(TransformerMixin, nn.Module):
             use_cross_attention=False,  # No cross-attention
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            autoregressive=True,  # Causal self-attention
         )
         mid = number_of_decoder_layers // 2
         decoder_layers = []
@@ -474,7 +469,7 @@ class FreeTransformer(TransformerMixin, nn.Module):
             layers=initialize_generation_cache(
                 batch_size=batch_size,
                 num_layers=self.number_of_decoder_layers,
-                num_heads=self.number_of_key_value_heads,
+                number_of_heads=self.number_of_key_value_heads,
                 head_dimension=self.head_dimension,
                 device=device,
                 dtype=dtype,

@@ -9,6 +9,8 @@ class AttentionDecompositionMode(enum.StrEnum):
 
 
 class Axis(enum.StrEnum):
+    """Spatial image axes."""
+
     HEIGHT = "height"
     WIDTH = "width"
 

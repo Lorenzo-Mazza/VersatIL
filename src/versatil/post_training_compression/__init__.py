@@ -1,1 +1,1 @@
-"""Post-training compression: preparation, pruning, serialization, reporting."""
+"""Post-training compression, reporting, and deployment artifact export."""

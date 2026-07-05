@@ -54,7 +54,9 @@ class CacheableLayer(Protocol):
 
     def precompute_conditioning_kv(
         self, encoded_features: torch.Tensor
-    ) -> ConditioningLayerCache | None: ...
+    ) -> ConditioningLayerCache | None:
+        """Project encoded features to cacheable conditioning keys and values."""
+        ...
 
 
 def precompute_conditioning(

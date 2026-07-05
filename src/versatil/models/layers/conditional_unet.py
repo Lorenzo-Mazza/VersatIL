@@ -24,6 +24,8 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 
 
 class ConditionalUnet1D(nn.Module):
+    """1D U-Net over action sequences with FiLM conditioning on global features."""
+
     def __init__(
         self,
         input_dimension: int,
@@ -56,7 +58,6 @@ class ConditionalUnet1D(nn.Module):
             down_dimensions = [256, 512, 1024]
         all_dimensions = [input_dimension] + list(down_dimensions)
         starting_dimension = down_dimensions[0]
-        diffusion_step_embedding_dimension = diffusion_step_embedding_dimension
         diffusion_step_encoder = nn.Sequential(
             SinusoidalPositionalEncoding1D(
                 embedding_dimension=diffusion_step_embedding_dimension,
@@ -80,7 +81,9 @@ class ConditionalUnet1D(nn.Module):
         if global_conditioning_dimension is not None:
             condition_dimension += global_conditioning_dimension
 
-        input_output_pairs = list(zip(all_dimensions[:-1], all_dimensions[1:]))
+        input_output_pairs = list(
+            zip(all_dimensions[:-1], all_dimensions[1:], strict=True)
+        )
 
         local_condition_encoder = None
         if local_conditioning_dimension is not None:
@@ -283,18 +286,22 @@ class ConditionalUnet1D(nn.Module):
         for middle_module in self.middle_modules:
             x = middle_module(x=x, condition=global_features)
 
-        for index, (first_residual_block, second_residual_block, upsample) in enumerate(
-            self.upsampling_modules
-        ):
+        for (
+            first_residual_block,
+            second_residual_block,
+            upsample,
+        ) in self.upsampling_modules:
             x = torch.cat((x, hidden_states.pop()), dim=1)
             x = first_residual_block(x=x, condition=global_features)
-            if (
-                index == (len(self.upsampling_modules) - 1)
-                and len(local_hidden_states) > 0
-            ):
-                x = x + local_hidden_states[1]
             x = second_residual_block(x=x, condition=global_features)
             x = upsample(x)
+
+        # The up-path local conditioning joins after the last upsample, where
+        # x is back at full temporal resolution and base width — the mirror of
+        # the down-path injection. Injecting inside the loop would add a
+        # full-resolution tensor to a half-resolution feature map.
+        if len(local_hidden_states) > 0:
+            x = x + local_hidden_states[1]
 
         x = self.final_convolution(x)
 

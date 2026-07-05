@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.conditional_action_unet import (
     ConditionalActionUNet,
@@ -30,7 +30,6 @@ POSITION_DIM = 3
 def unet_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
-    action_heads_factory: Callable[..., dict[str, ActionHead]],
 ) -> Callable[..., ConditionalActionUNet]:
     """Factory for ConditionalActionUNet instances with small dimensions."""
 
@@ -45,7 +44,6 @@ def unet_decoder_factory(
         down_dimensions: list[int] | None = None,
         kernel_size: int = KERNEL_SIZE,
         num_groups: int = NUM_GROUPS,
-        use_local_conditioning: bool = False,
         condition_predict_scale: bool = False,
         observation_horizon: int = OBSERVATION_HORIZON,
         prediction_horizon: int = PREDICTION_HORIZON,
@@ -62,14 +60,10 @@ def unet_decoder_factory(
             gripper_dim=gripper_dim,
         )
         observation_space = mock_observation_space_factory()
-        action_heads = action_heads_factory(
-            action_space=action_space,
-            input_dim=embedding_dimension,
-        )
         return ConditionalActionUNet(
             input_keys=input_keys,
             action_space=action_space,
-            action_heads=action_heads,
+            action_heads={},
             observation_space=observation_space,
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
@@ -78,13 +72,13 @@ def unet_decoder_factory(
             down_dimensions=down_dimensions,
             kernel_size=kernel_size,
             num_groups=num_groups,
-            use_local_conditioning=use_local_conditioning,
             condition_predict_scale=condition_predict_scale,
         )
 
     return factory
 
 
+@pytest.mark.unit
 class TestConditionalActionUNetInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -110,13 +104,11 @@ class TestConditionalActionUNetInitialization:
             down_dimensions=down_dimensions,
             kernel_size=kernel_size,
             condition_predict_scale=condition_predict_scale,
-            use_local_conditioning=False,
         )
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.down_dimensions == down_dimensions
         assert decoder.kernel_size == kernel_size
         assert decoder.condition_predict_scale is condition_predict_scale
-        assert decoder.use_local_conditioning is False
 
     def test_unet_not_initialized_before_forward(
         self,
@@ -125,25 +117,12 @@ class TestConditionalActionUNetInitialization:
         decoder = unet_decoder_factory()
         assert decoder._unet is None
 
-    def test_device_tracker_is_persisted(
+    def test_private_module_attr_reference_is_not_persisted(
         self,
         unet_decoder_factory: Callable[..., ConditionalActionUNet],
     ):
         decoder = unet_decoder_factory()
-        assert "_device_tracker" in decoder.state_dict()
-
-    def test_local_conditioning_raises_not_implemented(
-        self,
-        unet_decoder_factory: Callable[..., ConditionalActionUNet],
-    ):
-        with pytest.raises(
-            NotImplementedError,
-            match=re.escape(
-                "Local conditioning is not yet implemented. "
-                "Use global conditioning (obs_as_global_cond=True) for now."
-            ),
-        ):
-            unet_decoder_factory(use_local_conditioning=True)
+        assert "_module_attr_reference" not in decoder.state_dict()
 
     def test_decoder_input_rejects_spatial_features(
         self,
@@ -159,34 +138,41 @@ class TestConditionalActionUNetInitialization:
         decoder = unet_decoder_factory()
         assert decoder.decoder_input.requires_actions is True
 
-    def test_action_heads_blocks_cleared_when_present(
+    def test_rejects_action_heads_when_configured(
         self,
         mock_action_space_factory: Callable[..., MagicMock],
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
         observation_space = mock_observation_space_factory()
-        head_with_blocks = ActionHead(input_dim=EMBEDDING_DIMENSION)
+        head_with_blocks = ActionHead(input_dimension=EMBEDDING_DIMENSION)
         head_with_blocks.blocks = torch.nn.ModuleList(
             [torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)]
         )
         action_heads = {"position_action": head_with_blocks}
-        decoder = ConditionalActionUNet(
-            input_keys=["rgb_features"],
-            action_space=action_space,
-            action_heads=action_heads,
-            observation_space=observation_space,
-            observation_horizon=OBSERVATION_HORIZON,
-            prediction_horizon=PREDICTION_HORIZON,
-            device="cpu",
-            embedding_dimension=EMBEDDING_DIMENSION,
-            down_dimensions=list(DOWN_DIMENSIONS),
-            kernel_size=KERNEL_SIZE,
-            num_groups=NUM_GROUPS,
-        )
-        assert len(decoder.action_heads["position_action"].blocks) == 0
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "ConditionalActionUNet uses action_head_layout=none, "
+                "so action_heads must be empty. Got ['position_action']."
+            ),
+        ):
+            ConditionalActionUNet(
+                input_keys=["rgb_features"],
+                action_space=action_space,
+                action_heads=action_heads,
+                observation_space=observation_space,
+                observation_horizon=OBSERVATION_HORIZON,
+                prediction_horizon=PREDICTION_HORIZON,
+                device="cpu",
+                embedding_dimension=EMBEDDING_DIMENSION,
+                down_dimensions=list(DOWN_DIMENSIONS),
+                kernel_size=KERNEL_SIZE,
+                num_groups=NUM_GROUPS,
+            )
 
 
+@pytest.mark.integration
 class TestConditionalActionUNetForward:
     def test_raises_without_actions(
         self,
@@ -219,7 +205,7 @@ class TestConditionalActionUNetForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             ),
         ):
@@ -313,12 +299,12 @@ class TestConditionalActionUNetForward:
         decoder = unet_decoder_factory()
         decoder.eval()
         features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        timestep = features[DecoderOutputKey.TIMESTEP.value]
+        timestep = features[AlgorithmContextKey.TIMESTEP.value]
         actions = noisy_actions_factory()
         with torch.no_grad():
             decoder(features=features, actions=actions)
             decoder(features=features, actions=actions)
-        assert features[DecoderOutputKey.TIMESTEP.value] is timestep
+        assert features[AlgorithmContextKey.TIMESTEP.value] is timestep
 
     def test_with_multiple_action_heads(
         self,
@@ -377,11 +363,11 @@ class TestConditionalActionUNetForward:
         decoder = unet_decoder_factory()
         decoder.eval()
         features_t0 = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
-        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(
+        features_t0[AlgorithmContextKey.TIMESTEP.value] = torch.zeros(
             BATCH_SIZE, dtype=torch.long
         )
         features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
-        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full(
+        features_t99[AlgorithmContextKey.TIMESTEP.value] = torch.full(
             (BATCH_SIZE,), 99, dtype=torch.long
         )
         actions = noisy_actions_factory()

@@ -18,13 +18,19 @@ def has_batchnorm_buffers(module: nn.Module) -> bool:
 
     Checks for running_mean, running_var, weight, and bias as either
     buffers or parameters, since standard BN stores weight/bias as
-    parameters while frozen variants store them as buffers.
+    parameters while frozen variants store them as buffers. All four must
+    be one-dimensional tensors of the same length, which rules out modules
+    that merely reuse these attribute names.
     """
+    tensors: list[torch.Tensor] = []
     for name in BATCHNORM_ATTRIBUTE_NAMES:
         attribute = getattr(module, name, None)
         if not isinstance(attribute, torch.Tensor):
             return False
-    return True
+        tensors.append(attribute)
+    return all(
+        tensor.dim() == 1 and tensor.shape == tensors[0].shape for tensor in tensors
+    )
 
 
 def _is_standard_batchnorm_already_prepared(module: nn.Module) -> bool:
@@ -73,11 +79,12 @@ def _create_replacement_batchnorm(
 ) -> nn.BatchNorm1d | nn.BatchNorm2d | nn.BatchNorm3d:
     """Create a standard BatchNorm with parameters copied from a frozen BN.
 
-    Detects the original batch norm dimension from the module type.
-    Falls back to BatchNorm2d for frozen or non-standard variants.
+    The replacement dimension is inferred from a "1d"/"3d" suffix in the
+    frozen module's class name; every other variant maps to BatchNorm2d.
+    The class name is the only static dimension signal frozen variants
+    expose, and 2d matches the frozen BN layers found in vision backbones.
     """
     class_name = type(batchnorm).__name__.lower()
-    # This string detection is hacky but allows handling arbitrary BN variants
     if "1d" in class_name:
         replacement_class = nn.BatchNorm1d
     elif "3d" in class_name:

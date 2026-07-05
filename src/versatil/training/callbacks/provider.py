@@ -17,4 +17,6 @@ class CallbackProvider(Protocol):
     this protocol.
     """
 
-    def get_callbacks(self, experiment_config: ExperimentConfig) -> list[Callback]: ...
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list[Callback]:
+        """Return training callbacks contributed by this component."""
+        ...

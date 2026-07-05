@@ -7,8 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import LayerNorm
 
-from versatil.data.constants import RGB_CAMERAS, Cameras
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -16,6 +15,11 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.image_mixin import RGBDEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+    VisionExplanationTarget,
+)
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import PatchEmbedding
 from versatil.models.layers.constants import AttentionDecompositionMode
@@ -36,7 +40,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         self,
         input_keys: str | list[str],
         embedding_dimension: int = 512,
-        num_heads: int = 8,
+        number_of_heads: int = 8,
         ffn_dimension: int = 2048,
         decomposition_mode: str = AttentionDecompositionMode.SEPARABLE.value,
         initial_decay: float = 2.0,
@@ -52,7 +56,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         Args:
             input_keys: Input keys for RGB and depth observations.
             embedding_dimension: Dimension of patch embeddings and attention.
-            num_heads: Number of attention heads.
+            number_of_heads: Number of attention heads.
             ffn_dimension: Hidden dimension of the feed-forward network.
             decomposition_mode: Attention computation strategy (full or separable).
             initial_decay: Initial decay rate for spatial biases.
@@ -64,7 +68,9 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
-            keys=input_keys, required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS]
+            keys=input_keys,
+            exactly_one_camera_modality=[CameraModality.RGB, CameraModality.DEPTH],
+            required_camera_modalities=[CameraModality.RGB, CameraModality.DEPTH],
         )
         super().__init__(
             input_specification=specification,
@@ -80,6 +86,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             raise ValueError(
                 "Freezing GeometricRGBDEncoder does not make sense as it has no pretrained weights. Set frozen=False."
             )
+        self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.embedding_dimension = embedding_dimension
         self.decomposition_mode = AttentionDecompositionMode(decomposition_mode)
         self.pooling_method = pooling_method
@@ -95,12 +102,13 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         self.attention_block = GeometricAttentionEncoderBlock(
             decomposition_mode=AttentionDecompositionMode(decomposition_mode),
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             ffn_dimension=ffn_dimension,
             initial_decay=initial_decay,
             decay_range=decay_range,
         )
-        self.norm = nn.LayerNorm(embedding_dimension, eps=1e-6)
+        self.pre_attention_norm = nn.LayerNorm(embedding_dimension, eps=1e-6)
+        self.post_attention_norm = nn.LayerNorm(embedding_dimension, eps=1e-6)
         self.pooling_head: PoolingHead | None = None
         self.output_dim: int | tuple[int, ...] = self.embedding_dimension
         if frozen:
@@ -133,17 +141,20 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         """Encode RGB and depth into joint RGBD features using geometric attention.
 
         Args:
-            rgb_image: RGB image tensor of shape (B, C, H, W).
-            depth_map: Depth map tensor of shape (B, 1, H, W).
+            rgb_image: RGB image tensor of shape (B*T, C, H, W); ``forward()``
+                flattens the temporal axis into the batch before
+                dispatching here.
+            depth_map: Depth map tensor of shape (B*T, 1, H, W), temporally
+                flattened like ``rgb_image``.
 
         Returns:
             Tuple of (features, H_patches, W_patches) where features has shape
-            (B, embedding_dimension, H_patches, W_patches).
+            (B*T, embedding_dimension, H_patches, W_patches).
         """
         features, H_patches, W_patches = self.patch_embed(
             rgb_image, return_patch_size=True
         )  # (B, N_patches, embedding_dimension)
-        features = self.norm(features)
+        features = self.pre_attention_norm(features)
         features = features.reshape(
             rgb_image.shape[0], H_patches, W_patches, self.embedding_dimension
         )
@@ -153,7 +164,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         features = self.attention_block(
             features, depth_map_resized
         )  # (B, H_patches, W_patches, embedding_dimension)
-        features = self.norm(features)
+        features = self.post_attention_norm(features)
         features = features.permute(
             0, 3, 1, 2
         ).contiguous()  # (B, embedding_dimension, H_patches, W_patches)
@@ -168,12 +179,8 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         Returns:
             Dict with RGBD features.
         """
-        rgb_key = [
-            k
-            for k in self.input_specification.keys
-            if k in self.input_specification.one_of_groups[0]
-        ][0]
-        depth_key = self.input_specification.required[0]
+        rgb_key = self._camera_key_for_modality(modality=CameraModality.RGB)
+        depth_key = self._camera_key_for_modality(modality=CameraModality.DEPTH)
         rgb = inputs[rgb_key]
         depth = inputs[depth_key]
 
@@ -206,31 +213,19 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
         self._apply_model_dtype()
 
-    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
-        """Validate that RGB keys have 3-channel metadata and depth key is single-channel.
-
-        Args:
-            key: Observation key being validated.
-            metadata: Metadata from the observation space for this key.
+    def get_explainability_targets(self) -> list[VisionExplanationTarget]:
+        """Return the geometric attention block for spatial attribution maps.
 
         Returns:
-            Error message if incompatible, None if valid.
+            One NHWC spatial feature-map target from the RGBD attention block.
         """
-        if not isinstance(metadata, CameraMetadata):
-            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
-        if key == Cameras.DEPTH.value:
-            if not metadata.is_single_channel:
-                return (
-                    f"Expected single-channel depth for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        else:
-            if not metadata.is_rgb:
-                return (
-                    f"Expected 3-channel RGB for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        return None
+        return [
+            VisionExplanationTarget(
+                layer=self.attention_block,
+                target_kind=ExplanationTargetKind.SPATIAL_FEATURE_MAP.value,
+                activation_layout=ActivationLayout.NHWC.value,
+            )
+        ]
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         """Return the output feature names and dimensions for this encoder.

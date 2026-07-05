@@ -8,7 +8,6 @@ They do not define how data is used at runtime (that's determined by task space 
 import abc
 from typing import Any
 
-import albumentations as A
 import numpy as np
 
 from versatil.data.metadata import (
@@ -54,8 +53,6 @@ class DatasetSchema(abc.ABC):
     def extract_episode(
         self,
         episode_source: Any,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
     ) -> dict[str, np.ndarray]:
         """Extract all data from an episode source.
 
@@ -64,8 +61,6 @@ class DatasetSchema(abc.ABC):
 
         Args:
             episode_source: Format-specific episode data source
-            resizer: Albumentations resizer for RGB images
-            depth_resizer: Albumentations resizer for depth images
 
         Returns:
             Dictionary mapping zarr keys to numpy arrays

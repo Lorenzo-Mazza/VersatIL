@@ -676,7 +676,10 @@ class TestFreeTransformerInitialization:
         # Non-middle layers should reject the latent kwarg
         for index, layer in enumerate(model.decoder_layers):
             if index != mid_index:
-                with pytest.raises(TypeError):
+                with pytest.raises(
+                    TypeError,
+                    match=re.escape("got an unexpected keyword argument 'latent'"),
+                ):
                     layer(hidden_states=hidden_states, latent=latent)
 
     def test_total_decoder_layers_count(
@@ -704,7 +707,7 @@ class TestFreeTransformerInitialization:
     ):
         normalization_epsilon = 1e-4
         model = free_transformer_factory(normalization_epsilon=normalization_epsilon)
-        assert model.final_normalization.eps == normalization_epsilon
+        assert model.final_normalization.epsilon == normalization_epsilon
 
     def test_latent_encoder_uses_configured_global_latent_mode(
         self,

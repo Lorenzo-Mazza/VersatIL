@@ -255,8 +255,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         assert Cameras.LEFT.value in data
@@ -326,8 +324,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         assert ObsKey.LANGUAGE.value in data
@@ -392,8 +388,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
@@ -431,8 +425,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         assert data["action"].shape == (5, 3)
@@ -500,8 +492,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         assert camera_key in data
@@ -553,8 +543,6 @@ class TestLiberoSchemaExtractEpisode:
         with pytest.raises(ValueError, match="not found in HDF5"):
             schema.extract_episode(
                 demo_group=demo_group,
-                resizer=noop_resizer,
-                depth_resizer=noop_resizer,
             )
 
     def test_extracts_string_dtype_observation(
@@ -634,8 +622,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         assert "task_desc" in data
@@ -687,8 +673,6 @@ class TestLiberoSchemaExtractEpisode:
 
         data = schema.extract_episode(
             demo_group=demo_group,
-            resizer=noop_resizer,
-            depth_resizer=noop_resizer,
         )
 
         assert ObsKey.LANGUAGE.value not in data

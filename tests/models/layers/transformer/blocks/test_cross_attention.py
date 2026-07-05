@@ -145,10 +145,10 @@ class TestCrossAttentionBlockForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         conditioning_a = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         conditioning_b = condition_factory(
-            batch_size=2, condition_dim=EMBEDDING_DIMENSION
+            batch_size=2, conditioning_dimension=EMBEDDING_DIMENSION
         )
         output_a = block(
             hidden_states=hidden_states,

@@ -144,6 +144,23 @@ class TestExpertUsageCallback:
 
         trainer.logger.log_metrics.assert_not_called()
 
+    def test_does_not_log_during_sanity_checking(
+        self,
+        mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=1)
+        pl_module = mock_pl_module_factory()
+        pl_module.val_metrics.compute_expert_usage.return_value = {
+            "expert_usage": np.array([0.3, 0.5, 0.2])
+        }
+        trainer = mock_trainer_factory(current_epoch=0, sanity_checking=True)
+
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.val_metrics.compute_expert_usage.assert_not_called()
+        trainer.logger.log_metrics.assert_not_called()
+
 
 @pytest.mark.unit
 class TestCreateExpertUsageFigure:

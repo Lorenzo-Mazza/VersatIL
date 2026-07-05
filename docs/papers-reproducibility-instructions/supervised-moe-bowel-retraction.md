@@ -121,7 +121,7 @@ WANDB_ENTITY=your-team
 ```
 
 The bowel-retraction schema used by the configs below is
-`hydra_configs/task/dataset_schema/bowel_retraction_v2.yaml`. It expects
+`src/versatil/hydra_configs/task/dataset_schema/bowel_retraction_v2.yaml`. It expects
 `VERSATIL_BOWEL_RETRACTION_DIR` to contain `v1/` and `v2/`, and writes the
 preprocessed cache to:
 
@@ -135,7 +135,7 @@ first training run.
 ## Fixed-Viewpoint Training Configs
 
 Run commands from the VersatIL repository root. These configs use
-`hydra_configs/task/dataset_schema/bowel_retraction_v2.yaml`, which loads
+`src/versatil/hydra_configs/task/dataset_schema/bowel_retraction_v2.yaml`, which loads
 `v1/` and `v2/`.
 
 ACT baseline:
@@ -149,23 +149,23 @@ Supervised PhaseACT / MoE policy:
 
 ```bash
 python -m versatil.endpoints.train \
-    --config-name end_to_end_training_runs/bowel_retraction/phase_act
+    --config-name end_to_end_training_runs/bowel_retraction/moe_act
 ```
 
 Relevant config files:
 
 ```text
-hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
-hydra_configs/end_to_end_training_runs/bowel_retraction/phase_act.yaml
-hydra_configs/task/dataset_schema/bowel_retraction_v2.yaml
-hydra_configs/task/dataloader/bowel_retraction.yaml
+src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
+src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/moe_act.yaml
+src/versatil/hydra_configs/task/dataset_schema/bowel_retraction_v2.yaml
+src/versatil/hydra_configs/task/dataloader/bowel_retraction.yaml
 ```
 
 To disable Weights & Biases for a local smoke test:
 
 ```bash
 python -m versatil.endpoints.train \
-    --config-name end_to_end_training_runs/bowel_retraction/phase_act \
+    --config-name end_to_end_training_runs/bowel_retraction/moe_act \
     experiment.use_wandb=false
 ```
 
@@ -173,7 +173,7 @@ python -m versatil.endpoints.train \
 
 The random-viewpoint experiments use the fixed-viewpoint data together with the
 two random-viewpoint recording folders. These configs use
-`hydra_configs/task/dataset_schema/bowel_retraction_v3.yaml`, which expects the
+`src/versatil/hydra_configs/task/dataset_schema/bowel_retraction_v3.yaml`, which expects the
 public Hugging Face layout:
 
 ```text
@@ -189,7 +189,7 @@ Train the PhaseACT / MoE policy on fixed-plus-random viewpoint data:
 
 ```bash
 python -m versatil.endpoints.train \
-    --config-name end_to_end_training_runs/bowel_retraction/phase_language_act
+    --config-name end_to_end_training_runs/bowel_retraction/moe_act_language
 ```
 
 The ACT-style counterpart over the same v3/mixed-viewpoint data is:
@@ -202,10 +202,10 @@ python -m versatil.endpoints.train \
 Relevant random-viewpoint config files:
 
 ```text
-hydra_configs/end_to_end_training_runs/bowel_retraction/phase_language_act.yaml
-hydra_configs/end_to_end_training_runs/bowel_retraction/act_language.yaml
-hydra_configs/task/dataset_schema/bowel_retraction_v3.yaml
-hydra_configs/task/dataloader/bowel_retraction_language.yaml
+src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/moe_act_language.yaml
+src/versatil/hydra_configs/end_to_end_training_runs/bowel_retraction/act_language.yaml
+src/versatil/hydra_configs/task/dataset_schema/bowel_retraction_v3.yaml
+src/versatil/hydra_configs/task/dataloader/bowel_retraction_language.yaml
 ```
 
 For a random-viewpoint-only ablation, override

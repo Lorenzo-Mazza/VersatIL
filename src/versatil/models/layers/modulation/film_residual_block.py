@@ -14,7 +14,7 @@ class FiLMedResBlock(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        condition_dim: int,
+        conditioning_dimension: int,
         stride: int = 1,
         downsample: nn.Module | None = None,
     ):
@@ -30,7 +30,7 @@ class FiLMedResBlock(nn.Module):
         )
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.film1 = ConditionalModulation(
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=out_channels,
             use_shift=True,
             activation=ActivationFunction.LINEAR.value,
@@ -42,7 +42,7 @@ class FiLMedResBlock(nn.Module):
         )
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.film2 = ConditionalModulation(
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             feature_dim=out_channels,
             use_shift=True,
             activation=ActivationFunction.LINEAR.value,
@@ -53,6 +53,7 @@ class FiLMedResBlock(nn.Module):
         self.downsample = downsample
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        """Apply the FiLM-modulated residual convolution block."""
         identity = x if self.downsample is None else self.downsample(x)
 
         out = self.conv1(x)

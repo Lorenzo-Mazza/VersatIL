@@ -1,0 +1,13 @@
+${proprio_key:SYNTHETIC_POSITION_ACTION}:
+  _target_: versatil.models.decoding.action_heads.GaussianHead
+  input_dimension: ${policy.decoder.embedding_dimension}
+  blocks:
+    - _target_: versatil.models.decoding.action_heads.blocks.MLPBlock
+      input_dimension: ${policy.decoder.embedding_dimension}
+      hidden_dimensions:
+        - 32
+      output_dim: null
+      activation: ${activation_function:SILU}
+      dropout: ${policy.decoder.dropout_rate}
+  min_logvar: -2.0
+  max_logvar: 4.0

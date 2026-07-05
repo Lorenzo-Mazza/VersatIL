@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - /explainability
+  - _self_
+
+checkpoint_path: ???

@@ -12,8 +12,8 @@ class LanguageEncoderMixin:
     """Shared logic for encoders that process tokenized text sequences.
 
     Provides language key setup, text padding/truncation, and input
-    extraction with validation. Mixed into LanguageEncoder, TwoTowerVLM,
-    PaliGemma, and SmolVLM encoders.
+    extraction with validation. Mixed into LanguageEncoder, VLM encoders,
+    and generative language-model components.
     """
 
     def _setup_language_keys(self, output_modality: str) -> None:

@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - /end_to_end_training_runs/libero_lerobot/bcat_language
+  - /quantization: qat_int2_weight_only
+  - _self_
+
+policy:
+  encoding_pipeline:
+    encoders:
+      instruction:
+        use_embeddings_only: false

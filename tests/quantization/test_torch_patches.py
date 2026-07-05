@@ -1,395 +1,193 @@
 """Tests for versatil.quantization.torch_patches module."""
 
+import logging
 import sys
-import types
-from collections.abc import Callable
-from typing import Any
-from unittest.mock import patch
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
-import torch
-from packaging.version import Version
-from torch.fx.graph import Graph
-from torch.fx.passes.utils.source_matcher_utils import SourcePartition
-from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torchao.quantization.pt2e.quantizer import Quantizer
-from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
-    X86InductorQuantizer,
-)
 
 from versatil.quantization.torch_patches import (
-    _PT2E_MODULE_PATCHES,
-    _VERSATIL_PATCHED_SENTINEL,
-    _is_patch_needed,
-    _make_patched_get_source_partitions,
-    patch_get_source_partitions,
-    patch_pt2e_python314,
+    SourcePatch,
+    TorchaoPatchFinder,
+    register_torchao_patches,
 )
 
-
-@pytest.fixture
-def mock_graph_with_torch_fn_metadata() -> Callable[..., Graph]:
-    """Factory for FX graphs with torch_fn metadata simulating the bug."""
-
-    def factory(
-        torch_fn_value: Any = ("linear.default", "aten"),
-    ) -> Graph:
-        graph = Graph()
-        input_node = graph.placeholder("x")
-        input_node.meta["torch_fn"] = None
-
-        linear_node = graph.call_function(
-            torch.ops.aten.linear.default, args=(input_node,)
-        )
-        linear_node.meta["torch_fn"] = torch_fn_value
-
-        output_node = graph.output(linear_node)
-        output_node.meta["torch_fn"] = None
-
-        return graph
-
-    return factory
+FAKE_MODULE_NAME = "torch_patches_fake_target"
 
 
 @pytest.fixture
-def original_function_returning_empty() -> Callable[
-    ..., dict[Any, list[SourcePartition]]
-]:
-    """Simulates the buggy get_source_partitions that always returns empty."""
+def fake_module_factory(
+    tmp_path: Path,
+) -> Iterator:
+    installed_finders: list[TorchaoPatchFinder] = []
 
-    def empty_original(
-        graph: Graph,
-        wanted_sources: list[Any],
-        filter_fn: Callable | None = None,
-    ) -> dict[Any, list[SourcePartition]]:
-        return {}
+    def factory(source: str, patches: list[SourcePatch]) -> Path:
+        module_path = tmp_path / f"{FAKE_MODULE_NAME}.py"
+        module_path.write_text(source)
+        finder = TorchaoPatchFinder(module_patches={FAKE_MODULE_NAME: patches})
+        sys.meta_path.insert(0, finder)
+        installed_finders.append(finder)
+        sys.path.insert(0, str(tmp_path))
+        return module_path
 
-    return empty_original
+    yield factory
 
-
-@pytest.fixture
-def original_function_returning_results() -> Callable[
-    ..., dict[Any, list[SourcePartition]]
-]:
-    """Simulates a working get_source_partitions that returns non-empty results."""
-
-    def nonempty_original(
-        graph: Graph,
-        wanted_sources: list[Any],
-        filter_fn: Callable | None = None,
-    ) -> dict[Any, list[SourcePartition]]:
-        sentinel_partition = SourcePartition(nodes=[], source=wanted_sources[0])
-        return {wanted_sources[0]: [sentinel_partition]}
-
-    return nonempty_original
-
-
-@pytest.fixture
-def clean_source_matcher():
-    """Yield the source_matcher module and restore it after test."""
-    module = torch.fx.passes.utils.source_matcher_utils
-    original = module.get_source_partitions
-    yield module
-    module.get_source_partitions = original
-    if hasattr(module, _VERSATIL_PATCHED_SENTINEL):
-        delattr(module, _VERSATIL_PATCHED_SENTINEL)
+    for finder in installed_finders:
+        sys.meta_path.remove(finder)
+    if str(tmp_path) in sys.path:
+        sys.path.remove(str(tmp_path))
+    sys.modules.pop(FAKE_MODULE_NAME, None)
 
 
 @pytest.mark.unit
-class TestIsPatchNeeded:
-    @pytest.mark.parametrize(
-        "torch_version, torchao_return, expected",
-        [
-            ("2.11.0", Version("0.16.0"), False),
-            ("2.10.0", None, False),
-            ("2.10.0", Version("0.17.0"), False),
-            ("2.10.0", Version("0.16.0"), True),
-            ("2.10.0+cu128", Version("0.16.0"), True),
-        ],
-        ids=[
-            "torch_too_new",
-            "torchao_missing",
-            "torchao_too_new",
-            "both_affected",
-            "cuda_suffix",
-        ],
-    )
-    def test_version_check(self, torch_version, torchao_return, expected):
-        with (
-            patch(
-                "versatil.quantization.torch_patches.torch.__version__",
-                torch_version,
-            ),
-            patch(
-                "versatil.quantization.torch_patches._get_torchao_version",
-                return_value=torchao_return,
-            ),
-        ):
-            assert _is_patch_needed() is expected
+class TestPatchingImport:
+    def test_replacement_applies_in_memory_only(self, fake_module_factory) -> None:
+        module_path = fake_module_factory(
+            source='VALUE = "original"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement='VALUE = "patched"',
+                    required=True,
+                ),
+            ],
+        )
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert module.VALUE == "patched"
+        assert 'VALUE = "original"' in module_path.read_text()
+        assert not (module_path.parent / "__pycache__").exists()
+
+    def test_already_fixed_source_is_accepted(self, fake_module_factory) -> None:
+        fake_module_factory(
+            source='VALUE = "patched"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement='VALUE = "patched"',
+                    required=True,
+                ),
+            ],
+        )
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert module.VALUE == "patched"
+
+    def test_unknown_source_raises_for_required_patch(
+        self, fake_module_factory
+    ) -> None:
+        fake_module_factory(
+            source='VALUE = "rewritten upstream"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement='VALUE = "patched"',
+                    required=True,
+                ),
+            ],
+        )
+
+        with pytest.raises(RuntimeError, match="does not match the version"):
+            __import__(FAKE_MODULE_NAME)
+
+    def test_missing_original_is_skipped_for_optional_patch(
+        self, fake_module_factory
+    ) -> None:
+        fake_module_factory(
+            source='VALUE = "statement removed upstream"\n',
+            patches=[
+                SourcePatch(
+                    original='VALUE = "original"',
+                    replacement="pass",
+                    required=False,
+                ),
+            ],
+        )
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert module.VALUE == "statement removed upstream"
+
+    def test_common_replacement_does_not_mask_later_patches(
+        self, fake_module_factory
+    ) -> None:
+        # Both patches replace with "pass"; applying the first must not make
+        # the second look already applied.
+        fake_module_factory(
+            source="FIRST = 1\nSECOND = 2\n",
+            patches=[
+                SourcePatch(original="FIRST = 1", replacement="pass", required=True),
+                SourcePatch(original="SECOND = 2", replacement="pass", required=True),
+            ],
+        )
+
+        module = __import__(FAKE_MODULE_NAME)
+
+        assert not hasattr(module, "FIRST")
+        assert not hasattr(module, "SECOND")
 
 
 @pytest.mark.unit
-class TestMakePatchedGetSourcePartitions:
-    def test_delegates_to_original_when_original_returns_results(
-        self,
-        original_function_returning_results,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(
-            original_function_returning_results
-        )
-        graph = mock_graph_with_torch_fn_metadata()
-
-        result = patched(graph, [torch.nn.Linear])
-
-        assert torch.nn.Linear in result
-        assert len(result[torch.nn.Linear]) == 1
-
-    def test_fallback_matches_string_name_against_class_name(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata()
-
-        result = patched(graph, [torch.nn.Linear])
-
-        assert torch.nn.Linear in result
-        partition = result[torch.nn.Linear][0]
-        assert partition.source is torch.nn.Linear
-        assert len(partition.nodes) == 1
-
-    @pytest.mark.parametrize(
-        "torch_fn_value",
-        [
-            ("linear.default", "aten"),
-            "linear.default",
-            ("Linear.default", "aten"),
-        ],
-        ids=["tuple", "string", "case_insensitive"],
-    )
-    def test_fallback_handles_torch_fn_formats(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-        torch_fn_value,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata(
-            torch_fn_value=torch_fn_value,
+class TestRegisterTorchaoPatches:
+    def test_registration_is_idempotent(self) -> None:
+        register_torchao_patches()
+        finder_count_before = sum(
+            isinstance(finder, TorchaoPatchFinder) for finder in sys.meta_path
         )
 
-        result = patched(graph, [torch.nn.Linear])
+        register_torchao_patches()
 
-        assert torch.nn.Linear in result
-
-    def test_fallback_strips_deduplication_suffix(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata(
-            torch_fn_value=("linear_1.default", "aten"),
+        finder_count_after = sum(
+            isinstance(finder, TorchaoPatchFinder) for finder in sys.meta_path
         )
+        assert finder_count_before == finder_count_after == 1
 
-        result = patched(graph, [torch.nn.Linear])
-
-        assert torch.nn.Linear in result
-
-    def test_fallback_returns_empty_when_no_class_matches(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata(
-            torch_fn_value=("conv2d.default", "aten"),
-        )
-
-        result = patched(graph, [torch.nn.Linear])
-
-        assert result == {}
-
-    def test_fallback_skips_nodes_without_torch_fn(
-        self,
-        original_function_returning_empty,
-    ):
-        graph = Graph()
-        input_node = graph.placeholder("x")
-        graph.output(input_node)
-
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-
-        assert patched(graph, [torch.nn.Linear]) == {}
-
-    def test_fallback_returns_empty_when_wanted_sources_has_no_classes(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata()
-
-        assert patched(graph, [torch.nn.functional.linear]) == {}
-
-    def test_fallback_respects_filter_fn(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata()
-
-        result = patched(graph, [torch.nn.Linear], filter_fn=lambda node: False)
-
-        assert result == {}
-
-    def test_partition_tracks_input_and_output_nodes(
-        self,
-        original_function_returning_empty,
-        mock_graph_with_torch_fn_metadata,
-    ):
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-        graph = mock_graph_with_torch_fn_metadata()
-        nodes = list(graph.nodes)
-        input_node = nodes[0]
-        linear_node = nodes[1]
-
-        result = patched(graph, [torch.nn.Linear])
-
-        partition = result[torch.nn.Linear][0]
-        assert input_node in partition.input_nodes
-        assert linear_node in partition.output_nodes
-
-    def test_multiple_matching_nodes_produce_separate_partitions(
-        self,
-        original_function_returning_empty,
-    ):
-        graph = Graph()
-        x = graph.placeholder("x")
-        x.meta["torch_fn"] = None
-        linear1 = graph.call_function(torch.ops.aten.linear.default, args=(x,))
-        linear1.meta["torch_fn"] = ("linear.default", "aten")
-        linear2 = graph.call_function(torch.ops.aten.linear.default, args=(linear1,))
-        linear2.meta["torch_fn"] = ("linear_1.default", "aten")
-        output = graph.output(linear2)
-        output.meta["torch_fn"] = None
-
-        patched = _make_patched_get_source_partitions(original_function_returning_empty)
-
-        result = patched(graph, [torch.nn.Linear])
-
-        assert torch.nn.Linear in result
-        assert len(result[torch.nn.Linear]) == 2
-
-
-@pytest.mark.unit
-class TestPatchGetSourcePartitions:
-    def test_patch_is_idempotent(self):
-        source_matcher_module = torch.fx.passes.utils.source_matcher_utils
-        with patch.object(
-            source_matcher_module,
-            _VERSATIL_PATCHED_SENTINEL,
-            True,
-            create=True,
-        ):
-            original_before = source_matcher_module.get_source_partitions
-            patch_get_source_partitions()
-            assert source_matcher_module.get_source_partitions is original_before
-
-    def test_skips_patch_when_versions_not_affected(self):
-        source_matcher_module = torch.fx.passes.utils.source_matcher_utils
-        with (
-            patch(
-                "versatil.quantization.torch_patches._is_patch_needed",
-                return_value=False,
-            ),
-            patch.object(
-                source_matcher_module,
-                _VERSATIL_PATCHED_SENTINEL,
-                False,
-                create=True,
-            ),
-        ):
-            original_before = source_matcher_module.get_source_partitions
-            patch_get_source_partitions()
-            assert source_matcher_module.get_source_partitions is original_before
-
-    def test_applies_patch_when_versions_affected(
-        self,
-        clean_source_matcher,
-    ):
-        original_function = clean_source_matcher.get_source_partitions
-        with (
-            patch(
-                "versatil.quantization.torch_patches._is_patch_needed",
-                return_value=True,
-            ),
-            patch.object(
-                clean_source_matcher,
-                _VERSATIL_PATCHED_SENTINEL,
-                False,
-                create=True,
-            ),
-        ):
-            patch_get_source_partitions()
-            patched_function = clean_source_matcher.get_source_partitions
-
-            assert patched_function is not original_function
-            assert getattr(clean_source_matcher, _VERSATIL_PATCHED_SENTINEL)
-
-    def test_patches_cross_module_bindings(
-        self,
-        clean_source_matcher,
-    ):
-        original_function = clean_source_matcher.get_source_partitions
-        fake_module = types.ModuleType("_test_versatil_fake_consumer")
-        fake_module.get_source_partitions = original_function
-        sys.modules[fake_module.__name__] = fake_module
+    def test_warns_when_target_module_already_imported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        installed = [
+            finder for finder in sys.meta_path if isinstance(finder, TorchaoPatchFinder)
+        ]
+        for finder in installed:
+            sys.meta_path.remove(finder)
+        sys.modules.setdefault("torchao.quantization.qat.fake_quantize_config", sys)
         try:
-            with (
-                patch(
-                    "versatil.quantization.torch_patches._is_patch_needed",
-                    return_value=True,
-                ),
-                patch.object(
-                    clean_source_matcher,
-                    _VERSATIL_PATCHED_SENTINEL,
-                    False,
-                    create=True,
-                ),
-            ):
-                patch_get_source_partitions()
-                assert fake_module.get_source_partitions is not original_function
-                assert (
-                    fake_module.get_source_partitions
-                    is clean_source_matcher.get_source_partitions
-                )
+            with caplog.at_level(logging.WARNING):
+                register_torchao_patches()
+            assert any(
+                "imported before versatil" in record.message
+                for record in caplog.records
+            )
         finally:
-            del sys.modules[fake_module.__name__]
+            if sys.modules.get("torchao.quantization.qat.fake_quantize_config") is sys:
+                del sys.modules["torchao.quantization.qat.fake_quantize_config"]
+            for finder in list(sys.meta_path):
+                if isinstance(finder, TorchaoPatchFinder):
+                    sys.meta_path.remove(finder)
+            for finder in installed:
+                sys.meta_path.insert(0, finder)
 
 
-@pytest.mark.unit
-class TestPatchPT2EPython314:
-    def test_skips_on_python_below_314(self):
-        with patch(
-            "versatil.quantization.torch_patches.sys.version_info",
-            (3, 13, 0),
-        ):
-            patch_pt2e_python314()
+@pytest.mark.integration
+class TestTorchaoPatchesIntegration:
+    def test_qat_group_size_propagates_in_memory(self) -> None:
+        fake_quantize_config = pytest.importorskip(
+            "torchao.quantization.qat.fake_quantize_config"
+        )
+        quantization = pytest.importorskip("torchao.quantization")
 
-    def test_pt2e_imports_succeed_on_current_python(self):
-        assert Quantizer is not None
-        assert prepare_pt2e is not None
-        assert convert_pt2e is not None
-        assert X86InductorQuantizer is not None
+        base_config = quantization.Int4WeightOnlyConfig(group_size=32, version=2)
+        _, weight_config = fake_quantize_config._infer_fake_quantize_configs(
+            base_config
+        )
 
-    def test_patch_targets_cover_all_known_crash_sites(self):
-        expected_modules = {
-            "torchao.quantization.pt2e",
-            "torchao.quantization.pt2e.quantizer.quantizer",
-        }
+        assert weight_config.group_size == 32
 
-        assert set(_PT2E_MODULE_PATCHES.keys()) == expected_modules
+    @pytest.mark.skipif(
+        sys.version_info < (3, 14), reason="crash only exists on Python 3.14+"
+    )
+    def test_pt2e_imports_on_python_314(self) -> None:
+        pytest.importorskip("torchao.quantization.pt2e")

@@ -1,5 +1,6 @@
 """Tests for versatil.post_training_compression.export module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -125,6 +126,7 @@ class TestBuildExampleInputs:
     ):
         state_meta = MagicMock()
         state_meta.dimension = 7
+        state_meta.dtype = "float32"
         obs_space = observation_space_factory(
             numerical_observations={"proprio_robot_frame": state_meta},
         )
@@ -277,6 +279,56 @@ class TestExportWithDynamicBatch:
         with torch.no_grad():
             result = exported(*different_batch)
         assert result.shape == (batch_size, 2)
+
+    @pytest.mark.parametrize(
+        "max_batch_size, runtime_batch_size",
+        [
+            (2, 2),
+            (8, 8),
+        ],
+    )
+    def test_bounded_dynamic_batch_accepts_sizes_within_bound(
+        self,
+        simple_exportable_model: nn.Module,
+        flat_input_factory: Callable[..., tuple[torch.Tensor, ...]],
+        max_batch_size: int,
+        runtime_batch_size: int,
+    ) -> None:
+        example_inputs = flat_input_factory()
+
+        exported = _export_with_dynamic_batch(
+            model=simple_exportable_model,
+            example_inputs=example_inputs,
+            max_batch_size=max_batch_size,
+        ).module()
+
+        runtime_inputs = flat_input_factory(batch_size=runtime_batch_size)
+        with torch.no_grad():
+            result = exported(*runtime_inputs)
+        assert result.shape == (runtime_batch_size, 2)
+
+    @pytest.mark.parametrize(
+        "max_batch_size, message",
+        [
+            (0, "max_batch_size must be >= 1."),
+            (1, "max_batch_size 1 is smaller than example batch size 2."),
+        ],
+    )
+    def test_bounded_dynamic_batch_rejects_invalid_bound(
+        self,
+        simple_exportable_model: nn.Module,
+        flat_input_factory: Callable[..., tuple[torch.Tensor, ...]],
+        max_batch_size: int,
+        message: str,
+    ) -> None:
+        example_inputs = flat_input_factory()
+
+        with pytest.raises(ValueError, match=re.escape(message)):
+            _export_with_dynamic_batch(
+                model=simple_exportable_model,
+                example_inputs=example_inputs,
+                max_batch_size=max_batch_size,
+            )
 
     def test_dynamic_shapes_key_wraps_in_dict(
         self, simple_exportable_model, flat_input_factory

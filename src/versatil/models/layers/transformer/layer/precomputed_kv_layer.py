@@ -85,7 +85,7 @@ class PrecomputedKVCrossAttentionLayer(nn.Module):
             normalization=create_block_normalization(
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
@@ -101,7 +101,7 @@ class PrecomputedKVCrossAttentionLayer(nn.Module):
             normalization=create_block_normalization(
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,

@@ -17,7 +17,10 @@ from typing import Any
 import torch
 
 from versatil.configs.experiment import ExperimentConfig
-from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.algorithm.base import (
+    DecodingAlgorithm,
+    resolve_feature_reference,
+)
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent.posterior.base_posterior import (
@@ -196,6 +199,13 @@ class VariationalAlgorithm(DecodingAlgorithm):
             )
         return latent
 
+    def injected_feature_keys(self) -> set[str]:
+        """Latent keys added on top of the base algorithm's injections."""
+        return self.base_algorithm.injected_feature_keys() | {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.PRIOR_LATENT.value,
+        }
+
     def forward(
         self,
         network: ActionDecoder,
@@ -241,15 +251,13 @@ class VariationalAlgorithm(DecodingAlgorithm):
         if sample_from_prior:
             if LatentKey.PRIOR_LATENT.value not in prior_output:
                 # Sample from prior only when needed (avoids costly denoising inference during training)
-                batch_size = next(iter(features.values())).shape[0]
+                batch_size, _, _ = resolve_feature_reference(features=features)
                 prior_output[LatentKey.PRIOR_LATENT.value] = self.prior.sample_prior(
                     batch_size=batch_size, observations=features
                 )
             latent = prior_output[LatentKey.PRIOR_LATENT.value]
-            posterior_decoder_latent = None
         else:
             latent = self._posterior_latent_for_decoder(posterior_output)
-            posterior_decoder_latent = latent
         features_with_latent = {
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent,
@@ -259,15 +267,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features_with_latent,
             actions=actions,
         )
-        if posterior_decoder_latent is None:
-            predictions.update(posterior_output)
-        else:
-            predictions.update(
-                {
-                    **posterior_output,
-                    LatentKey.POSTERIOR_LATENT.value: posterior_decoder_latent,
-                }
-            )
+
+        predictions.update(posterior_output)
         predictions.update(prior_output)
         return predictions
 
@@ -298,7 +299,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         Returns:
             Dictionary containing action predictions
         """
-        batch_size = next(iter(features.values())).shape[0]
+        batch_size, _, _ = resolve_feature_reference(features=features)
         latent_embedding = self._sample_prior(features=features, batch_size=batch_size)
         features_with_latent = {
             **features,

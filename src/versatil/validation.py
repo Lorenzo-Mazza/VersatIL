@@ -1,4 +1,4 @@
-"""Experiment validation module for validating global experiment configuration."""
+"""Experiment validation module for validating global training experiment configuration."""
 
 from __future__ import annotations
 
@@ -6,8 +6,13 @@ import logging
 
 from versatil.configs.main import MainConfig
 from versatil.configs.training import TrainingConfig
-from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
-from versatil.data.metadata import CameraMetadata
+from versatil.data.constants import (
+    CameraModality,
+    ImageNormalizationType,
+    ObsKey,
+    SampleKey,
+)
+from versatil.data.metadata import CameraMetadata, ObservationMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss, _merge_weights
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
@@ -15,9 +20,12 @@ from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.vlm import VLMBackboneDecoderMixin
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
-from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.models.input_specification import InputSpecification
+from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 
 
@@ -46,7 +54,7 @@ class ExperimentValidator:
         is_tokenized: bool = False,
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
-        quantization_config: object | None = None,
+        quantization_config: BaseQuantizationWorkflow | None = None,
         training_config: TrainingConfig | None = None,
     ):
         """Initialize validator with policy components.
@@ -112,8 +120,8 @@ class ExperimentValidator:
     @staticmethod
     def _encoder_image_model_identifier(encoder: EncodingMixin) -> str:
         """Return normalized model identifiers exposed by image encoders."""
-        identifiers = []
-        for attribute_name in ("backbone_name", "model_name"):
+        identifiers = [type(encoder).__name__.lower()]
+        for attribute_name in ("backbone_name", "model_name", "vision_backbone_id"):
             value = getattr(encoder, attribute_name, None)
             if isinstance(value, str):
                 identifiers.append(value.lower())
@@ -125,6 +133,20 @@ class ExperimentValidator:
         """Validate image normalization for pretrained vision-family identifiers."""
         identifier = self._encoder_image_model_identifier(encoder)
         if not identifier:
+            return
+        if (
+            "dinosiglip" in identifier
+            or "dinov2_siglip" in identifier
+            or "dinov2siglip" in identifier
+            or "prismatic" in identifier
+        ):
+            self._require_image_norm_type(
+                encoder_name=encoder_name,
+                model_description="DINOv2+SigLIP vision backbone",
+                required_norm_types={ImageNormalizationType.ZERO_TO_ONE.value},
+                requirement_description="zero-to-one camera tensors before its internal DINOv2/SigLIP standardization",
+                suggestion="'zero_to_one'",
+            )
             return
         if "dinov3" in identifier:
             self._require_image_norm_type(
@@ -182,31 +204,17 @@ class ExperimentValidator:
                 "Language observations require tokenization to be enabled."
             )
             return
-        available_keys = set()
-        if self.is_tokenized and self.tokenized_obs_keys:
-            tokenized_any = False
-            for (
-                obs_key,
-                obs_meta,
-            ) in self.observation_space.observations_metadata.items():
-                if isinstance(obs_meta, CameraMetadata):
-                    available_keys.add(obs_key)
-                elif obs_key in self.tokenized_obs_keys:
-                    tokenized_any = True
-                else:
-                    available_keys.add(obs_key)
-
-            if has_language and ObsKey.LANGUAGE.value not in self.tokenized_obs_keys:
-                self.errors.append(
-                    f"Language observations are enabled but '{ObsKey.LANGUAGE.value}' is not in "
-                    f"observation_tokenizer.observation_keys: {self.tokenized_obs_keys}"
-                )
-            if tokenized_any:
-                available_keys.add(SampleKey.TOKENIZED_OBSERVATIONS.value)
-                available_keys.add(SampleKey.IS_PAD_OBSERVATION.value)
-        else:
-            for obs_key in self.observation_space.observations_metadata:
-                available_keys.add(obs_key)
+        available_keys = self._available_observation_keys()
+        if (
+            has_language
+            and self.is_tokenized
+            and self.tokenized_obs_keys
+            and ObsKey.LANGUAGE.value not in self.tokenized_obs_keys
+        ):
+            self.errors.append(
+                f"Language observations are enabled but '{ObsKey.LANGUAGE.value}' is not in "
+                f"observation_tokenizer.observation_keys: {self.tokenized_obs_keys}"
+            )
 
         configured_encoder_inputs = set()
         for encoder_name, encoder in self.encoding_pipeline.encoders.items():
@@ -230,6 +238,10 @@ class ExperimentValidator:
                     f"Please either add them to the observation space or modify encoder configuration."
                 )
 
+            self._validate_camera_modality_constraints(
+                owner_name=f"Encoder '{encoder_name}'",
+                input_specification=encoder.input_specification,
+            )
             for key in input_keys:
                 metadata = self.observation_space.observations_metadata.get(key)
                 if metadata is None:
@@ -237,6 +249,10 @@ class ExperimentValidator:
                 error = encoder.validate_input_metadata(key=key, metadata=metadata)
                 if error:
                     self.errors.append(f"Encoder '{encoder_name}': {error}")
+
+        configured_encoder_inputs.update(
+            self._validate_decoder_observation_inputs(available_keys=available_keys)
+        )
 
         uncovered_keys = available_keys - configured_encoder_inputs
         uncovered_keys -= {
@@ -249,26 +265,172 @@ class ExperimentValidator:
                 f"but no encoder is configured to process them."
             )
 
+    def _available_observation_keys(self) -> set[str]:
+        """Return runtime observation keys after optional observation tokenization."""
+        if not self.is_tokenized or not self.tokenized_obs_keys:
+            return set(self.observation_space.observations_metadata)
+
+        available_keys = set()
+        tokenized_any = False
+        for obs_key, obs_meta in self.observation_space.observations_metadata.items():
+            if isinstance(obs_meta, CameraMetadata):
+                available_keys.add(obs_key)
+            elif obs_key in self.tokenized_obs_keys:
+                tokenized_any = True
+            else:
+                available_keys.add(obs_key)
+
+        if tokenized_any:
+            available_keys.add(SampleKey.TOKENIZED_OBSERVATIONS.value)
+            available_keys.add(SampleKey.IS_PAD_OBSERVATION.value)
+        return available_keys
+
+    def _observation_feature_metadata(self) -> dict[str, FeatureMetadata]:
+        """Build typed metadata for raw observations passed directly to decoders."""
+        raw_features = {}
+        available_keys = self._available_observation_keys()
+        for key, metadata in self.observation_space.observations_metadata.items():
+            if key not in available_keys:
+                continue
+            if isinstance(metadata, CameraMetadata):
+                raw_features[key] = FeatureMetadata(
+                    key=key,
+                    feature_type=FeatureType.SPATIAL.value,
+                    dimension=(
+                        metadata.channels,
+                        metadata.image_height,
+                        metadata.image_width,
+                    ),
+                )
+            elif isinstance(metadata, ObservationMetadata):
+                raw_features[key] = FeatureMetadata(
+                    key=key,
+                    feature_type=FeatureType.FLAT.value,
+                    dimension=(metadata.dimension,),
+                )
+        return raw_features
+
+    def _validate_decoder_observation_inputs(
+        self, available_keys: set[str]
+    ) -> set[str]:
+        """Validate observation tensors consumed directly by decoders."""
+        configured_inputs = set(self.decoder.decoder_input.keys).intersection(
+            available_keys
+        )
+        if not self.decoder.decoder_input.needs_raw_observations:
+            return configured_inputs
+
+        if not isinstance(self.decoder, VLMBackboneDecoderMixin):
+            return configured_inputs
+
+        vlm_backbone = self.decoder.vlm_backbone
+        input_specification = vlm_backbone.input_specification
+        input_keys = input_specification.keys
+        configured_inputs.update(input_keys)
+        self._validate_encoder_image_normalization(
+            encoder_name=f"{type(self.decoder).__name__}.vlm_backbone",
+            encoder=vlm_backbone,
+        )
+        missing = set(input_keys) - available_keys
+        missing -= {SampleKey.IS_PAD_OBSERVATION.value}
+        if missing:
+            self.errors.append(
+                f"Decoder '{type(self.decoder).__name__}' requires observation "
+                f"keys {missing} which are not in observation space. "
+                f"Available keys: {available_keys}."
+            )
+        for key in input_keys:
+            metadata = self.observation_space.observations_metadata.get(key)
+            if metadata is None:
+                continue
+            error = vlm_backbone.validate_input_metadata(key=key, metadata=metadata)
+            if error:
+                self.errors.append(
+                    f"Decoder '{type(self.decoder).__name__}' VLM backbone: {error}"
+                )
+        self._validate_camera_modality_constraints(
+            owner_name=f"Decoder '{type(self.decoder).__name__}' VLM backbone",
+            input_specification=input_specification,
+        )
+        return configured_inputs
+
+    def _validate_camera_modality_constraints(
+        self,
+        owner_name: str,
+        input_specification: InputSpecification,
+    ) -> None:
+        """Validate semantic camera modality constraints against observation metadata."""
+        if (
+            not input_specification.exactly_one_camera_modality
+            and not input_specification.required_camera_modalities
+        ):
+            return
+
+        input_keys = list(input_specification.keys)
+        keys_by_modality = {modality: [] for modality in CameraModality}
+        for key in input_keys:
+            metadata = self.observation_space.observations_metadata.get(key)
+            if metadata is None or not isinstance(metadata, CameraMetadata):
+                continue
+            keys_by_modality[metadata.modality].append(key)
+
+        for modality in input_specification.exactly_one_camera_modality:
+            matching_keys = keys_by_modality[modality]
+            if len(matching_keys) != 1:
+                self.errors.append(
+                    f"{owner_name} requires exactly one {modality.value} camera "
+                    f"input, got {matching_keys} from input keys {input_keys}."
+                )
+        required_modalities = input_specification.required_camera_modalities
+        required_modality_values = [modality.value for modality in required_modalities]
+        if required_modalities:
+            for modality, matching_keys in keys_by_modality.items():
+                if modality not in required_modalities and matching_keys:
+                    self.errors.append(
+                        f"{owner_name} accepts only camera modalities "
+                        f"{required_modality_values}, but input key(s) "
+                        f"{matching_keys} have {modality.value} camera metadata."
+                    )
+
+        for modality in required_modalities:
+            matching_keys = keys_by_modality[modality]
+            if not matching_keys:
+                self.errors.append(
+                    f"{owner_name} requires a {modality.value} camera input, "
+                    f"got none from input keys {input_keys}."
+                )
+
     def validate_decoder_encoder_compatibility(self) -> None:
-        """Validate that decoder inputs match encoder outputs."""
+        """Validate that decoder inputs match encoder outputs or raw observations."""
         available_features = self.encoding_pipeline.get_features()
-        available_feature_names = list(available_features.keys())
+        available_observation_keys = self._available_observation_keys()
+        available_feature_names = set(available_features.keys())
+        available_input_names = (
+            available_feature_names
+            | available_observation_keys
+            | self.algorithm.injected_feature_keys()
+        )
         decoder_input_keys = self.decoder.decoder_input.keys
 
         for expected_feature in decoder_input_keys:
-            if expected_feature not in available_feature_names:
+            if expected_feature not in available_input_names:
                 self.errors.append(
-                    f"Action decoding network expects input feature '{expected_feature}' "
-                    f"but it's not produced by any encoder or fusion layer. "
-                    f"Available features: {available_feature_names}"
+                    f"Action decoder expects input key '{expected_feature}' but it "
+                    "is neither a raw observation nor produced by any encoder or "
+                    "fusion layer. Available raw observations: "
+                    f"{sorted(available_observation_keys)}. Available encoded "
+                    f"features: {sorted(available_feature_names)}"
                 )
 
         self.decoder.decoder_input.validate_feature_types(
-            available_features=available_features
+            available_features={
+                **available_features,
+                **self._observation_feature_metadata(),
+            }
         )
 
         if isinstance(self.decoder, MoEDecoder):
-            self._validate_moe_gating_feature(available_feature_names)
+            self._validate_moe_gating_feature(sorted(available_feature_names))
 
     def _validate_moe_gating_feature(self, available_features: list[str]) -> None:
         """Validate MoE gating feature key exists."""
@@ -309,7 +471,7 @@ class ExperimentValidator:
     def validate_loss_keys(self) -> None:
         """Validate that loss keys reference valid action heads or auxiliary keys."""
         valid_loss_keys: set[str] = set()
-        valid_loss_keys.update(self.decoder.action_heads.keys())
+        valid_loss_keys.update(self.decoder.get_loss_output_keys())
 
         for key, meta in self.action_space.actions_metadata.items():
             if not meta.requires_prediction_head:
@@ -330,10 +492,12 @@ class ExperimentValidator:
     def validate_quantization(self) -> None:
         """Validate that quantization config is present and is a valid strategy."""
         config = self.quantization_config
-        if not isinstance(config, (PT2EStrategy, QuantizeApiStrategy)):
-            self.warnings.append(
+        if config is None:
+            return
+        if not isinstance(config, BaseQuantizationWorkflow):
+            self.errors.append(
                 f"Quantization config is type {type(config).__name__}, "
-                f"expected PT2EStrategy or QuantizeApiStrategy. "
+                "expected a quantization workflow with quantization_mode. "
                 f"This may indicate incorrect Hydra instantiation."
             )
 
@@ -349,14 +513,14 @@ class ExperimentValidator:
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             self.errors.append(f"Training stage names must be unique: {duplicates}.")
-        for previous, current in zip(stages, stages[1:]):
+        for previous, current in zip(stages, stages[1:], strict=False):
             if current.start_epoch <= previous.start_epoch:
                 self.errors.append(
                     "training.stages must be listed in strictly increasing "
                     "start_epoch order."
                 )
                 break
-        for previous, current in zip(stages, stages[1:]):
+        for previous, current in zip(stages, stages[1:], strict=False):
             if (
                 previous.end_epoch is not None
                 and previous.end_epoch > current.start_epoch

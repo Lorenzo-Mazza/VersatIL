@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders.timestep_conditioning import (
     extract_timestep_conditioning,
     filter_timestep_feature,
@@ -30,7 +30,7 @@ def timestep_action_heads_factory(
     def factory(output_dim: int = ACTION_DIMENSION) -> dict[str, ActionHead]:
         return {
             "position_action": action_head_factory(
-                input_dim=EMBEDDING_DIMENSION,
+                input_dimension=EMBEDDING_DIMENSION,
                 output_dim=output_dim,
             )
         }
@@ -38,6 +38,7 @@ def timestep_action_heads_factory(
     return factory
 
 
+@pytest.mark.unit
 class TestValidateNoisyActionTensors:
     def test_accepts_valid_action_tensors(
         self,
@@ -104,12 +105,13 @@ class TestValidateNoisyActionTensors:
             )
 
 
+@pytest.mark.unit
 class TestExtractTimestepConditioning:
     def test_extracts_vector_timestep(
         self,
     ):
         timesteps = torch.arange(BATCH_SIZE)
-        features = {DecoderOutputKey.TIMESTEP.value: timesteps}
+        features = {AlgorithmContextKey.TIMESTEP.value: timesteps}
         extracted = extract_timestep_conditioning(
             features=features,
             batch_size=BATCH_SIZE,
@@ -121,7 +123,7 @@ class TestExtractTimestepConditioning:
         self,
     ):
         features = {
-            DecoderOutputKey.TIMESTEP.value: torch.arange(BATCH_SIZE).unsqueeze(-1)
+            AlgorithmContextKey.TIMESTEP.value: torch.arange(BATCH_SIZE).unsqueeze(-1)
         }
         extracted = extract_timestep_conditioning(
             features=features,
@@ -137,7 +139,7 @@ class TestExtractTimestepConditioning:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
+                f"Missing '{AlgorithmContextKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             ),
         ):
@@ -150,11 +152,11 @@ class TestExtractTimestepConditioning:
     def test_raises_for_invalid_timestep_shape(
         self,
     ):
-        features = {DecoderOutputKey.TIMESTEP.value: torch.zeros(BATCH_SIZE, 2)}
+        features = {AlgorithmContextKey.TIMESTEP.value: torch.zeros(BATCH_SIZE, 2)}
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"'{DecoderOutputKey.TIMESTEP.value}' must have shape "
+                f"'{AlgorithmContextKey.TIMESTEP.value}' must have shape "
                 "(B,) or (B, 1), got torch.Size([2, 2])."
             ),
         ):
@@ -165,6 +167,7 @@ class TestExtractTimestepConditioning:
             )
 
 
+@pytest.mark.unit
 class TestFilterTimestepFeature:
     def test_returns_new_dict_without_timestep(
         self,
@@ -172,9 +175,9 @@ class TestFilterTimestepFeature:
         timestep = torch.arange(BATCH_SIZE)
         observation = torch.zeros(BATCH_SIZE, EMBEDDING_DIMENSION)
         features = {
-            DecoderOutputKey.TIMESTEP.value: timestep,
+            AlgorithmContextKey.TIMESTEP.value: timestep,
             "rgb_features": observation,
         }
         filtered = filter_timestep_feature(features=features)
         assert filtered == {"rgb_features": observation}
-        assert DecoderOutputKey.TIMESTEP.value in features
+        assert AlgorithmContextKey.TIMESTEP.value in features

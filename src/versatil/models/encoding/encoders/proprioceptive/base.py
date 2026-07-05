@@ -18,7 +18,7 @@ class ProprioceptiveEncoder(Encoder):
         self,
         input_keys: str | list[str],
         output_dim: int,
-        hidden_dims: list[int] | None = None,
+        hidden_dimensions: list[int] | None = None,
         activation: str = ActivationFunction.RELU.value,
         dropout: float = 0.0,
         pretrained: bool = False,
@@ -30,7 +30,7 @@ class ProprioceptiveEncoder(Encoder):
         Args:
             input_keys: Keys for proprioceptive inputs
             output_dim: Output feature dimension
-            hidden_dims: Hidden layer dimensions. If None or [], creates simple linear layer.
+            hidden_dimensions: Hidden layer dimensions. If None or [], creates simple linear layer.
                         If [128], creates one hidden layer. If [256, 128], creates two hidden layers.
             activation: Activation function from ActivationFunction enum
             dropout: Dropout rate between layers
@@ -46,16 +46,16 @@ class ProprioceptiveEncoder(Encoder):
             model_dtype=model_dtype,
         )
         self.output_dim = output_dim
-        self.hidden_dims = hidden_dims
+        self.hidden_dimensions = hidden_dimensions
         self.dropout = dropout
         self.activation_fn = ActivationFunction(activation).to_torch_activation()
         self.network: MLP | None = None
 
-    def _build_network(self, input_dim: int):
+    def _build_network(self, input_dimension: int):
         """Build MLP network."""
         self.network = MLP(
-            input_dim=input_dim,
-            hidden_dims=self.hidden_dims,
+            input_dimension=input_dimension,
+            hidden_dimensions=self.hidden_dimensions,
             output_dim=self.output_dim,
             activation_function=self.activation_fn,
             dropout=self.dropout,
@@ -79,7 +79,7 @@ class ProprioceptiveEncoder(Encoder):
         has_network_keys = any(k.startswith(network_prefix) for k in state_dict)
         if has_network_keys and self.network is None:
             first_weight = state_dict[network_prefix + "layers.0.weight"]
-            self._build_network(input_dim=first_weight.shape[1])
+            self._build_network(input_dimension=first_weight.shape[1])
             self.network = self.network.to(first_weight.device)
         super()._load_from_state_dict(
             state_dict,

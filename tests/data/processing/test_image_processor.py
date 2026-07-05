@@ -10,7 +10,11 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from versatil.data.metadata import CameraMetadata
+from versatil.data.metadata import (
+    CameraMetadata,
+    DepthCameraMetadata,
+    RGBCameraMetadata,
+)
 from versatil.data.processing.image_processor import ImageProcessor
 
 
@@ -57,13 +61,20 @@ def camera_metadata_factory() -> Callable[..., dict[str, CameraMetadata]]:
             cameras = {"left": (3, 224, 224)}
         result = {}
         for camera_key, (channels, height, width) in cameras.items():
-            result[camera_key] = CameraMetadata(
-                camera_key=camera_key,
-                dtype="uint8",
-                channels=channels,
-                image_height=height,
-                image_width=width,
-            )
+            if channels == 1:
+                result[camera_key] = DepthCameraMetadata(
+                    camera_key=camera_key,
+                    dtype="float32",
+                    image_height=height,
+                    image_width=width,
+                )
+            else:
+                result[camera_key] = RGBCameraMetadata(
+                    camera_key=camera_key,
+                    dtype="uint8",
+                    image_height=height,
+                    image_width=width,
+                )
         return result
 
     return factory
@@ -115,6 +126,53 @@ class TestImageProcessorInitialization:
         processor = ImageProcessor(camera_metadata=metadata, train=True)
         assert "left" in processor._rgb_cameras
         assert "depth" not in processor._rgb_cameras
+
+
+class TestNormalizeImageTensor:
+    def test_scales_by_max_pixel_value(self):
+        image = torch.tensor([[[0, 128, 255]]], dtype=torch.uint8)
+
+        result = ImageProcessor.normalize_image_tensor(
+            image=image,
+            max_pixel_value=255.0,
+        )
+
+        assert result.dtype == torch.float32
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[[0.0, 128.0 / 255.0, 1.0]]]),
+        )
+
+    def test_uint16_casts_without_scaling(self):
+        image = torch.tensor([[[0, 255, 1024]]], dtype=torch.uint16)
+
+        result = ImageProcessor.normalize_image_tensor(image=image)
+
+        assert result.dtype == torch.float32
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[[0.0, 255.0, 1024.0]]]),
+        )
+
+    def test_float_above_one_scales_by_max_pixel_value(self):
+        image = torch.tensor([[[0.0, 128.0, 255.0]]])
+
+        result = ImageProcessor.normalize_image_tensor(
+            image=image,
+            max_pixel_value=255.0,
+        )
+
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[[0.0, 128.0 / 255.0, 1.0]]]),
+        )
+
+    def test_float_above_one_preserved_by_default(self):
+        image = torch.tensor([[[0.0, 128.0, 255.0]]])
+
+        result = ImageProcessor.normalize_image_tensor(image=image)
+
+        torch.testing.assert_close(result, image)
 
 
 class TestProcess:
@@ -184,6 +242,77 @@ class TestProcess:
         result = processor.process(images=images, camera_key="left")
         assert torch.allclose(result, torch.ones_like(result))
 
+    def test_max_pixel_value_normalizes_single_channel_camera(self):
+        metadata = {
+            "left": CameraMetadata(
+                camera_key="left",
+                dtype="uint8",
+                channels=1,
+                image_height=2,
+                image_width=2,
+                max_pixel_value=255.0,
+            )
+        }
+        processor = ImageProcessor(camera_metadata=metadata, train=False)
+        images = np.array(
+            [
+                [
+                    [0, 128],
+                    [255, 64],
+                ]
+            ],
+            dtype=np.uint8,
+        )
+
+        result = processor.process(images=images, camera_key="left")
+
+        expected = torch.tensor(
+            [
+                [
+                    [
+                        [0.0, 128.0 / 255.0],
+                        [1.0, 64.0 / 255.0],
+                    ]
+                ]
+            ]
+        )
+        torch.testing.assert_close(result, expected)
+
+    def test_uint16_single_channel_values_cast_without_scaling(self):
+        metadata = {
+            "left": CameraMetadata(
+                camera_key="left",
+                dtype="uint16",
+                channels=1,
+                image_height=2,
+                image_width=2,
+            )
+        }
+        processor = ImageProcessor(camera_metadata=metadata, train=False)
+        images = np.array(
+            [
+                [
+                    [0, 255],
+                    [1024, 4096],
+                ]
+            ],
+            dtype=np.uint16,
+        )
+
+        result = processor.process(images=images, camera_key="left")
+
+        expected = torch.tensor(
+            [
+                [
+                    [
+                        [0.0, 255.0],
+                        [1024.0, 4096.0],
+                    ]
+                ]
+            ]
+        )
+        torch.testing.assert_close(result, expected)
+
     def test_color_augmentation_applied_only_to_rgb(
         self,
         synthetic_rgb_images: Callable[..., np.ndarray],
@@ -249,17 +378,23 @@ class TestProcess:
     def test_spatial_augmentation_applied_to_depth(
         self,
         synthetic_depth_images: Callable[..., np.ndarray],
-        mock_spatial_augmentation,
         camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
     ):
-        mock_spatial = mock_spatial_augmentation()
+        spatial = A.Compose([A.HorizontalFlip(p=1.0)])
         metadata = camera_metadata_factory(cameras={"depth": (1, 64, 64)})
         processor = ImageProcessor(
-            spatial_augmentation=mock_spatial, camera_metadata=metadata, train=True
+            spatial_augmentation=spatial, camera_metadata=metadata, train=True
         )
         depth_images = synthetic_depth_images(num_timesteps=2, height=64, width=64)
-        processor.process(images=depth_images, camera_key="depth")
-        assert mock_spatial.call_count == 2
+        result = processor.process(images=depth_images, camera_key="depth")
+        flipped = np.flip(depth_images, axis=2).copy()
+        torch.testing.assert_close(
+            result,
+            processor.normalize_image_tensor(
+                image=torch.from_numpy(flipped).unsqueeze(1),
+                max_pixel_value=processor._camera_max_pixel_values.get("depth"),
+            ),
+        )
 
     def test_process_without_resize_skips_resize(
         self,
@@ -274,26 +409,25 @@ class TestProcess:
         self,
         rng: np.random.Generator,
         mock_color_augmentation,
-        mock_spatial_augmentation,
         camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
     ):
         call_order = []
         mock_color = mock_color_augmentation(
             side_effect=lambda image: (call_order.append("color"), {"image": image})[1]
         )
-        mock_spatial = mock_spatial_augmentation(
-            side_effect=lambda image: (
-                call_order.append("spatial"),
-                {"image": image},
-            )[1]
-        )
+        spatial = A.Compose([A.HorizontalFlip(p=1.0)])
         metadata = camera_metadata_factory(cameras={"left": (3, 64, 64)})
         processor = ImageProcessor(
             color_augmentation=mock_color,
-            spatial_augmentation=mock_spatial,
+            spatial_augmentation=spatial,
             camera_metadata=metadata,
             train=True,
         )
+        original_spatial = processor._apply_shared_spatial_transform
+        processor._apply_shared_spatial_transform = lambda frame: (
+            call_order.append("spatial"),
+            original_spatial(frame=frame),
+        )[1]
         images = rng.integers(0, 255, (1, 64, 64, 3), dtype=np.uint8)
         processor.process(images=images, camera_key="left")
         assert call_order == ["color", "spatial"]
@@ -333,3 +467,50 @@ class TestRealHydraConfigIntegration:
         assert isinstance(result, torch.Tensor)
         assert result.shape[0] == images.shape[0]  # same temporal length
         assert result.shape[1] == 3  # channels first after reorder
+
+
+@pytest.mark.unit
+class TestSharedSpatialAugmentation:
+    def test_same_parameters_across_frames_and_cameras_within_sample(
+        self,
+        rng: np.random.Generator,
+        camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+    ):
+        # Random rotation with p=1: identical inputs must produce identical
+        # outputs across frames and cameras when parameters are shared, which
+        # preserves temporal consistency and RGB/depth correspondence.
+        spatial = A.Compose([A.Rotate(limit=30, p=1.0)])
+        metadata = camera_metadata_factory(
+            cameras={"left": (3, 64, 64), "right": (3, 64, 64)}
+        )
+        processor = ImageProcessor(
+            spatial_augmentation=spatial, camera_metadata=metadata, train=True
+        )
+        frame = rng.integers(0, 255, (64, 64, 3), dtype=np.uint8)
+        images = np.stack([frame, frame])
+
+        processor.begin_sample()
+        left = processor.process(images=images, camera_key="left")
+        right = processor.process(images=images, camera_key="right")
+
+        torch.testing.assert_close(left[0], left[1])
+        torch.testing.assert_close(left, right)
+
+    def test_begin_sample_resets_shared_parameters(
+        self,
+        rng: np.random.Generator,
+        camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+    ):
+        spatial = A.Compose([A.Rotate(limit=30, p=1.0)])
+        metadata = camera_metadata_factory(cameras={"left": (3, 64, 64)})
+        processor = ImageProcessor(
+            spatial_augmentation=spatial, camera_metadata=metadata, train=True
+        )
+        images = rng.integers(0, 255, (1, 64, 64, 3), dtype=np.uint8)
+
+        processor.begin_sample()
+        processor.process(images=images, camera_key="left")
+        assert processor._spatial_replay is not None
+
+        processor.begin_sample()
+        assert processor._spatial_replay is None

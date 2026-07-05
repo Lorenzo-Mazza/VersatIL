@@ -54,7 +54,7 @@ def block_factory(
             attention_normalization_primary=create_block_normalization(
                 normalization_type=NormalizationType.RMS_NORM.value,
                 dimension=PRIMARY_EMBEDDING_DIMENSION,
-                condition_dim=conditioning_dimension,
+                conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=0.0,
@@ -153,7 +153,7 @@ class TestPrecomputedDualStreamAttentionBlockForward:
             embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
         )
         conditioning = condition_factory(
-            batch_size=BATCH_SIZE, condition_dim=PRIMARY_EMBEDDING_DIMENSION
+            batch_size=BATCH_SIZE, conditioning_dimension=PRIMARY_EMBEDDING_DIMENSION
         )
         primary_out, _ = block(
             conditioning_cache=conditioning_cache,

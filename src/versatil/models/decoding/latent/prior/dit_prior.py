@@ -9,8 +9,8 @@ import torch.nn as nn
 
 from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
     BetaSchedule,
-    DecoderOutputKey,
     DenoisingAlgorithm,
     LatentKey,
     ODESolver,
@@ -168,7 +168,7 @@ class DiTPrior(PriorLatentEncoder):
         self.latent_standardizer = LatentStandardizer(
             latent_dimension=latent_dimension,
             enabled=latent_standardization_enabled,
-            eps=latent_standardization_eps,
+            epsilon=latent_standardization_eps,
             require_fitted=require_fitted_latent_standardization,
         )
         if (
@@ -229,14 +229,13 @@ class DiTPrior(PriorLatentEncoder):
                 embedding_dimension=embedding_dimension
             )
         self.input_builder = TransformerInputBuilder(
-            embedding_dim=embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
+            embedding_dimension=embedding_dimension,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=embedding_dimension, normalize=True
             ),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=embedding_dimension,
-                maximum_length=1000,
+                maximum_sequence_length=1000,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
@@ -353,7 +352,7 @@ class DiTPrior(PriorLatentEncoder):
         """
         latent_token = self.latent_input_proj(noisy_latent)  # (B, D)
         input_obs = observations.copy()
-        input_obs[DecoderOutputKey.CLASS_TOKEN.value] = latent_token
+        input_obs[AlgorithmContextKey.CLASS_TOKEN.value] = latent_token
         tokens, positional_encoding, padding_mask = self.input_builder(
             input_obs
         )  # (B, T+1, D)
@@ -521,6 +520,7 @@ class DiTPrior(PriorLatentEncoder):
             def velocity_fn(
                 current_latent: torch.Tensor, current_time: torch.Tensor
             ) -> torch.Tensor:
+                """Predict the flow velocity at a continuous timestep."""
                 timestep_embedding = self._get_timestep_embedding_continuous(
                     current_time
                 )  # (B, D)

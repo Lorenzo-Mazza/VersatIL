@@ -34,8 +34,8 @@ def build_feedforward(
     if activation_enum.is_gated:
         feedforward = nn.Sequential(
             activation_enum.to_torch_activation()(
-                input_dim=embedding_dimension,
-                hidden_dim=feedforward_dimension,
+                input_dimension=embedding_dimension,
+                hidden_dimension=feedforward_dimension,
                 bias=bias,
             ),
             nn.Dropout(dropout),

@@ -91,13 +91,6 @@ class TestBidirectionalDecoderInitialization:
         decoder = bidirectional_decoder_factory(number_of_layers=3)
         assert len(decoder.layers) == 3
 
-    def test_layers_are_non_autoregressive(
-        self, bidirectional_decoder_factory: Callable[..., BidirectionalDecoder]
-    ):
-        decoder = bidirectional_decoder_factory(number_of_layers=2)
-        for layer in decoder.layers:
-            assert layer.autoregressive is False
-
     @pytest.mark.parametrize("use_cross_attention", [True, False])
     def test_layers_cross_attention_matches_config(
         self,

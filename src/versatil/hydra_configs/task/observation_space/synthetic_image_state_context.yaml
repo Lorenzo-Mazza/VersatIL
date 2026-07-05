@@ -1,0 +1,36 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+observations_metadata:
+  ${cameras:AGENTVIEW}:
+    _target_: versatil.data.metadata.RGBCameraMetadata
+    camera_key: ${cameras:AGENTVIEW}
+    dtype: uint8
+    image_width: 64
+    image_height: 64
+
+  ${proprio_key:SYNTHETIC_POSITION}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [x, y]
+    dtype: float32
+    dimension: 2
+    needs_normalization: true
+    frame: ${coordinate_system:UNKNOWN}
+
+  ${synthetic_obs_key:CONTEXT}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [c0, c1, c2]
+    dtype: float32
+    dimension: ${task.dataset_schema.num_modes}
+    is_numerical: true
+    needs_normalization: false
+
+  ${synthetic_obs_key:MODE_ID}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [mode]
+    dtype: uint8
+    dimension: 1
+    is_numerical: true
+    needs_normalization: false

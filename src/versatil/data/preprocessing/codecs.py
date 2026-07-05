@@ -55,6 +55,7 @@ class WebPCodec(ArrayBytesCodec):
 
     @classmethod
     def from_dict(cls, data: dict[str, JSON]) -> Self:
+        """Build the codec from a Zarr named-configuration dict."""
         _, config = parse_named_configuration(
             data, WEBP_CODEC_NAME, require_configuration=False
         )
@@ -62,6 +63,7 @@ class WebPCodec(ArrayBytesCodec):
         return cls(**config)
 
     def to_dict(self) -> dict[str, JSON]:
+        """Serialize the codec as a Zarr named-configuration dict."""
         return {
             "name": WEBP_CODEC_NAME,
             "configuration": {"level": self.level},
@@ -90,7 +92,10 @@ class WebPCodec(ArrayBytesCodec):
     def compute_encoded_size(
         self, input_byte_length: int, _chunk_spec: ArraySpec
     ) -> int:
-        raise NotImplementedError
+        """Encoded size is data-dependent for WebP, so it cannot be precomputed."""
+        raise NotImplementedError(
+            "WebP encoded size is data-dependent and cannot be precomputed."
+        )
 
 
 register_codec(key=WEBP_CODEC_NAME, codec_cls=WebPCodec)

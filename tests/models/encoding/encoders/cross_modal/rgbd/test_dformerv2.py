@@ -1,10 +1,8 @@
 """Tests for versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 module."""
 
-import os
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -12,25 +10,33 @@ import pytest
 import torch
 import torch.nn as nn
 
-from versatil.data.constants import RGB_CAMERAS, Cameras
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality, Cameras
+from versatil.data.metadata import (
+    BaseMetadata,
+    CameraMetadata,
+    DepthCameraMetadata,
+    RGBCameraMetadata,
+)
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
+    DFORMER_HUGGINGFACE_REPO,
+    DFORMER_PRETRAINED_FILENAMES,
     DFormerEncoder,
+    DFormerPretrainedWeights,
     DFormerStage,
     DFormerVariant,
 )
-from versatil.models.layers.constants import AttentionDecompositionMode
-
-DFORMER_CHECKPOINT_PATH = (
-    Path(os.environ.get("VERSATIL_PRETRAINED_DIR", "."))
-    / "pretrained_dformer"
-    / "DFormerv2_Small_NYU.pth"
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
 )
+from versatil.models.layers.constants import AttentionDecompositionMode
 
 
 def _mock_build_backbone(
@@ -50,14 +56,17 @@ def _mock_setup_pooling(self, spatial_height: int, spatial_width: int):
 _TINY_VARIANT = {
     "embed_dims": [8, 16],
     "depths": [1, 1],
-    "num_heads": [2, 2],
+    "number_of_heads": [2, 2],
     "decay_ranges": [3, 3],
+    "ffn_ratios": [2, 2],
     "use_layer_scales": [False, True],
 }
 
 
 @pytest.fixture
-def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
+def dformer_encoder_factory(
+    rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+) -> Callable[..., DFormerEncoder]:
     """Factory for DFormerEncoder with mocked backbone.
 
     By default bypasses ``_build_backbone`` and ``PatchEmbedding`` via
@@ -76,9 +85,10 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str | None = None,
+        pretrained_weights: str = DFormerPretrainedWeights.IMAGENET.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         real_build: bool = False,
+        lora_config: LoRAAdaptation | None = None,
     ) -> DFormerEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
@@ -89,7 +99,7 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
                 test_variant: _TINY_VARIANT,
             }
             with patch.dict(DFormerEncoder.VARIANT_CONFIGS, patched_configs):
-                return DFormerEncoder(
+                encoder = DFormerEncoder(
                     input_keys=input_keys,
                     variant=test_variant,
                     decomposition_mode=decomposition_mode,
@@ -98,9 +108,19 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
                     initial_decay=initial_decay,
                     pretrained=pretrained,
                     frozen=frozen,
-                    checkpoint_path=checkpoint_path,
+                    pretrained_weights=pretrained_weights,
                     pooling_method=pooling_method,
+                    lora_config=lora_config,
                 )
+                encoder.set_camera_metadata(
+                    camera_metadata=rgbd_camera_metadata_factory(
+                        rgb_key=Cameras.LEFT.value,
+                        depth_key=Cameras.DEPTH.value,
+                        image_height=224,
+                        image_width=224,
+                    )
+                )
+                return encoder
         with (
             patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
             patch.object(DFormerEncoder, "__init_subclass__", lambda **kw: None),
@@ -109,7 +129,7 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
             ) as mock_patch_embed,
         ):
             mock_patch_embed.return_value = MagicMock()
-            return DFormerEncoder(
+            encoder = DFormerEncoder(
                 input_keys=input_keys,
                 variant=variant,
                 decomposition_mode=decomposition_mode,
@@ -118,11 +138,34 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
                 initial_decay=initial_decay,
                 pretrained=pretrained,
                 frozen=frozen,
-                checkpoint_path=checkpoint_path,
+                pretrained_weights=pretrained_weights,
                 pooling_method=pooling_method,
+                lora_config=lora_config,
             )
+            encoder.set_camera_metadata(
+                camera_metadata=rgbd_camera_metadata_factory(
+                    rgb_key=Cameras.LEFT.value,
+                    depth_key=Cameras.DEPTH.value,
+                    image_height=224,
+                    image_width=224,
+                )
+            )
+            return encoder
 
     return factory
+
+
+def test_dformer_encoder_exposes_final_stage_gradcam_target(
+    dformer_encoder_factory: Callable[..., DFormerEncoder],
+):
+    encoder = dformer_encoder_factory()
+    target_layer = nn.Identity()
+    encoder.stages = nn.ModuleList([nn.Identity(), target_layer])
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is target_layer
+    assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+    assert target.activation_layout == ActivationLayout.NHWC.value
+    assert target.output_index == 0
 
 
 @pytest.fixture
@@ -131,7 +174,7 @@ def dformer_stage_factory() -> Callable[..., DFormerStage]:
 
     def factory(
         embedding_dimension: int = 16,
-        num_heads: int = 2,
+        number_of_heads: int = 2,
         num_blocks: int = 1,
         decomposition_mode: AttentionDecompositionMode = AttentionDecompositionMode.SEPARABLE,
         drop_path_rate: float = 0.0,
@@ -144,7 +187,7 @@ def dformer_stage_factory() -> Callable[..., DFormerStage]:
     ) -> DFormerStage:
         return DFormerStage(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             num_blocks=num_blocks,
             decomposition_mode=decomposition_mode,
             drop_path_rate=drop_path_rate,
@@ -303,12 +346,9 @@ class TestDFormerStageForward:
             downsampled_width,
             output_dimension,
         )
-        assert output_depth.shape == (
-            batch_size,
-            1,
-            downsampled_height,
-            downsampled_width,
-        )
+        # The depth map keeps its original resolution: each block's
+        # geometric bias interpolates to the current grid, like the reference.
+        assert output_depth.shape == (batch_size, 1, height, width)
 
     def test_returns_three_tensors(
         self,
@@ -340,12 +380,38 @@ class TestDFormerEncoderInitialization:
         with expectation:
             dformer_encoder_factory(variant=variant)
 
-    def test_pretrained_without_checkpoint_raises(
+    @pytest.mark.parametrize(
+        "pretrained_weights",
+        [
+            DFormerPretrainedWeights.IMAGENET.value,
+            DFormerPretrainedWeights.NYU.value,
+            DFormerPretrainedWeights.SUNRGBD.value,
+        ],
+    )
+    def test_pretrained_downloads_selected_weights_from_hub(
         self,
         dformer_encoder_factory: Callable[..., DFormerEncoder],
+        tmp_path,
+        pretrained_weights: str,
     ):
-        with pytest.raises(ValueError, match="checkpoint_path"):
-            dformer_encoder_factory(pretrained=True, checkpoint_path=None)
+        checkpoint_path = tmp_path / "backbone.pth"
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.hf_hub_download",
+                return_value=str(checkpoint_path),
+            ) as mock_download,
+            patch.object(DFormerEncoder, "_load_checkpoint") as mock_load,
+        ):
+            dformer_encoder_factory(
+                pretrained=True, pretrained_weights=pretrained_weights
+            )
+        mock_download.assert_called_once_with(
+            repo_id=DFORMER_HUGGINGFACE_REPO,
+            filename=DFORMER_PRETRAINED_FILENAMES[
+                (DFormerVariant.SMALL.value, pretrained_weights)
+            ],
+        )
+        mock_load.assert_called_once_with(str(checkpoint_path))
 
     @pytest.mark.parametrize(
         "variant",
@@ -399,57 +465,25 @@ class TestDFormerEncoderInitialization:
         feature_keys = [m.key for m in spec]
         assert feature_keys == [EncoderOutputKeys.RGBD.value]
 
-    def test_requires_depth_in_input_keys(self):
-        with (
-            pytest.raises(
-                ValueError,
-                match=re.escape("Missing required inputs: {'depth'}"),
-            ),
-            patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(DFormerEncoder, "_setup_pooling", _mock_setup_pooling),
-            patch(
-                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.PatchEmbedding",
-            ) as mock_patch_embed,
-        ):
-            mock_patch_embed.return_value = MagicMock()
-            DFormerEncoder(
-                input_keys=Cameras.LEFT.value,
-                checkpoint_path=None,
-            )
-
-    def test_requires_rgb_camera_in_input_keys(self):
-        with (
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"Exactly one from {RGB_CAMERAS} required, got {set()}"
-                ),
-            ),
-            patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(DFormerEncoder, "_setup_pooling", _mock_setup_pooling),
-            patch(
-                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.PatchEmbedding",
-            ) as mock_patch_embed,
-        ):
-            mock_patch_embed.return_value = MagicMock()
-            DFormerEncoder(
-                input_keys=Cameras.DEPTH.value,
-                checkpoint_path=None,
-            )
-
-    def test_input_specification_requires_depth_camera(
+    def test_input_specification_requires_rgb_and_depth_modalities(
         self,
         dformer_encoder_factory: Callable[..., DFormerEncoder],
     ):
         encoder = dformer_encoder_factory()
-        assert Cameras.DEPTH.value in encoder.input_specification.required
+        assert encoder.input_specification.required_camera_modalities == [
+            CameraModality.RGB,
+            CameraModality.DEPTH,
+        ]
 
-    def test_input_specification_requires_one_rgb_camera(
+    def test_input_specification_requires_one_rgb_and_one_depth_modality(
         self,
         dformer_encoder_factory: Callable[..., DFormerEncoder],
     ):
         encoder = dformer_encoder_factory()
-        assert encoder.input_specification.one_of_groups == [RGB_CAMERAS]
+        assert encoder.input_specification.exactly_one_camera_modality == [
+            CameraModality.RGB,
+            CameraModality.DEPTH,
+        ]
 
 
 class TestDFormerEncoderLoadCheckpoint:
@@ -542,13 +576,12 @@ class TestDFormerEncoderLoadCheckpoint:
 
 
 class TestDFormerEncoderMixin:
-    def test_camera_group_includes_rgb_and_depth(
+    def test_camera_keys_include_configured_rgb_and_depth(
         self,
         dformer_encoder_factory: Callable[..., DFormerEncoder],
     ):
         encoder = dformer_encoder_factory()
-        assert Cameras.LEFT.value in encoder._camera_group
-        assert Cameras.DEPTH.value in encoder._camera_group
+        assert encoder.camera_keys == [Cameras.LEFT.value, Cameras.DEPTH.value]
 
     def test_output_modality_is_rgbd(
         self,
@@ -591,10 +624,9 @@ class TestDFormerEncoderValidateInputMetadata:
         [
             (
                 Cameras.LEFT.value,
-                CameraMetadata(
+                RGBCameraMetadata(
                     camera_key="left",
                     dtype="uint8",
-                    channels=3,
                     image_height=224,
                     image_width=224,
                 ),
@@ -609,14 +641,13 @@ class TestDFormerEncoderValidateInputMetadata:
                     image_height=224,
                     image_width=224,
                 ),
-                f"Expected 3-channel RGB for '{Cameras.LEFT.value}', got 1 channels",
+                None,
             ),
             (
                 Cameras.DEPTH.value,
-                CameraMetadata(
+                DepthCameraMetadata(
                     camera_key="depth",
                     dtype="float32",
-                    channels=1,
                     image_height=224,
                     image_width=224,
                 ),
@@ -631,7 +662,7 @@ class TestDFormerEncoderValidateInputMetadata:
                     image_height=224,
                     image_width=224,
                 ),
-                f"Expected single-channel depth for '{Cameras.DEPTH.value}', got 3 channels",
+                None,
             ),
             (
                 Cameras.LEFT.value,
@@ -654,6 +685,33 @@ class TestDFormerEncoderValidateInputMetadata:
 
 class TestDFormerEncoderIntegration:
     @pytest.mark.integration
+    def test_exposes_real_final_stage_gradcam_target(
+        self,
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
+    ):
+        encoder = DFormerEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+            variant=DFormerVariant.SMALL.value,
+            pretrained=False,
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
+        )
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is encoder.stages[-1]
+        assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+        assert target.activation_layout == ActivationLayout.NHWC.value
+        assert target.output_index == 0
+
+    @pytest.mark.integration
     @pytest.mark.parametrize(
         "variant",
         [
@@ -663,6 +721,7 @@ class TestDFormerEncoderIntegration:
     def test_forward_pass(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
         variant: str,
     ):
         batch_size = 1
@@ -670,8 +729,15 @@ class TestDFormerEncoderIntegration:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
         )
         encoder.set_image_size(image_height=224, image_width=224)
         inputs = rgbd_input_factory(batch_size=batch_size)
@@ -684,6 +750,7 @@ class TestDFormerEncoderIntegration:
     def test_temporal_reshaping(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
         time_steps: int,
     ):
         batch_size = 1
@@ -691,8 +758,15 @@ class TestDFormerEncoderIntegration:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
         )
         encoder.set_image_size(image_height=224, image_width=224)
         inputs = rgbd_input_factory(
@@ -706,20 +780,25 @@ class TestDFormerEncoderIntegration:
 
 @pytest.mark.integration
 class TestDFormerEncoderPretrainedCheckpoint:
-    @pytest.mark.skipif(
-        not DFORMER_CHECKPOINT_PATH.exists(),
-        reason=f"DFormer checkpoint not found at {DFORMER_CHECKPOINT_PATH}",
-    )
     def test_loads_pretrained_weights_and_produces_output(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
     ):
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=True,
-            checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
+            pretrained_weights=DFormerPretrainedWeights.NYU.value,
             pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_camera_metadata(
+            camera_metadata=rgbd_camera_metadata_factory(
+                rgb_key=Cameras.LEFT.value,
+                depth_key=Cameras.DEPTH.value,
+                image_height=224,
+                image_width=224,
+            )
         )
         encoder.set_image_size(image_height=224, image_width=224)
         encoder.eval()
@@ -733,28 +812,32 @@ class TestDFormerEncoderPretrainedCheckpoint:
         assert features.shape == (batch_size, 1, encoder.output_dim)
         assert features.std() > 1e-6
 
-    @pytest.mark.skipif(
-        not DFORMER_CHECKPOINT_PATH.exists(),
-        reason=f"DFormer checkpoint not found at {DFORMER_CHECKPOINT_PATH}",
-    )
     def test_pretrained_features_differ_from_random_init(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rgbd_camera_metadata_factory: Callable[..., dict[str, CameraMetadata]],
     ):
         pretrained_encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=True,
-            checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
+            pretrained_weights=DFormerPretrainedWeights.NYU.value,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         random_encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
             pretrained=False,
-            checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
+        camera_metadata = rgbd_camera_metadata_factory(
+            rgb_key=Cameras.LEFT.value,
+            depth_key=Cameras.DEPTH.value,
+            image_height=224,
+            image_width=224,
+        )
+        pretrained_encoder.set_camera_metadata(camera_metadata=camera_metadata)
+        random_encoder.set_camera_metadata(camera_metadata=camera_metadata)
         pretrained_encoder.set_image_size(image_height=224, image_width=224)
         random_encoder.set_image_size(image_height=224, image_width=224)
         pretrained_encoder.eval()
@@ -768,6 +851,102 @@ class TestDFormerEncoderPretrainedCheckpoint:
             random_features = random_encoder(inputs)[EncoderOutputKeys.RGBD.value]
 
         assert not torch.allclose(pretrained_features, random_features, atol=1e-3)
+
+
+class TestDFormerEncoderLoRA:
+    def test_lora_wraps_stages_and_freezes_base(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        encoder = dformer_encoder_factory(real_build=True, lora_config=lora_config)
+        trainable_names = [
+            name
+            for name, parameter in encoder.named_parameters()
+            if parameter.requires_grad
+        ]
+        assert trainable_names
+        assert all("lora_" in name for name in trainable_names)
+        assert all(
+            not parameter.requires_grad
+            for parameter in encoder.patch_embed.parameters()
+        )
+
+    def test_lora_with_frozen_raises(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        with pytest.raises(ValueError, match="LoRA adaptation cannot be enabled"):
+            dformer_encoder_factory(
+                real_build=True, frozen=True, lora_config=lora_config
+            )
+
+
+class TestDFormerReferenceKeyRemap:
+    @pytest.mark.parametrize(
+        "reference_key, expected_key",
+        [
+            (
+                "layers.0.blocks.1.Attention.q_proj.weight",
+                "stages.0.blocks.1.attention.query_projection.weight",
+            ),
+            (
+                "layers.2.blocks.0.Attention.lepe.dwconv.weight",
+                "stages.2.blocks.0.attention.learned_positional_encodings.convolution.weight",
+            ),
+            (
+                "layers.1.blocks.3.cnn_pos_encode.dwconv.bias",
+                "stages.1.blocks.3.input_positional_encoding.convolution.bias",
+            ),
+            (
+                "layers.0.blocks.0.ffn.dwconv.dwconv.weight",
+                "stages.0.blocks.0.mlp.dwconv.convolution.weight",
+            ),
+            ("layers.3.blocks.2.gamma_1", "stages.3.blocks.2.gamma1"),
+            (
+                "layers.0.blocks.0.Geo.decay",
+                "stages.0.blocks.0.attention.geometric_bias.spatial_decay.decay_rates",
+            ),
+            (
+                "layers.0.blocks.0.Geo.weight",
+                "stages.0.blocks.0.attention.geometric_bias.bias_weights",
+            ),
+            ("extra_norms.2.weight", "stages.3.norm.weight"),
+            ("patch_embed.proj.0.weight", "patch_embed.projection.0.weight"),
+            (
+                "layers.0.downsample.reduction.bias",
+                "stages.0.downsample.reduction.bias",
+            ),
+        ],
+    )
+    def test_translates_reference_names(self, reference_key, expected_key):
+        value = torch.zeros(1)
+        remapped = DFormerEncoder._remap_reference_keys({reference_key: value})
+        assert list(remapped.keys()) == [expected_key]
+
+    def test_load_checkpoint_raises_on_unmatched_keys(
+        self, dformer_encoder_factory, tmp_path
+    ):
+        encoder = dformer_encoder_factory()
+        state_dict = encoder.state_dict()
+        state_dict["layers.9.blocks.0.unknown_tensor"] = torch.zeros(1)
+        checkpoint_path = tmp_path / "checkpoint.pth"
+        torch.save(state_dict, checkpoint_path)
+        with pytest.raises(
+            ValueError, match="Pretrained DFormerv2 checkpoint did not load cleanly"
+        ):
+            encoder._load_checkpoint(str(checkpoint_path))
 
 
 class TestDFormerEncoderRealBuild:
@@ -849,19 +1028,6 @@ class TestDFormerEncoderRealBuild:
 
         torch.save(raw_state, checkpoint_path)
         encoder._load_checkpoint(str(checkpoint_path))
-
-    @pytest.mark.unit
-    def test_pretrained_requires_checkpoint_path(
-        self,
-        dformer_encoder_factory: Callable[..., DFormerEncoder],
-    ):
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Pretrained=True requires a valid checkpoint_path for DFormerEncoder."
-            ),
-        ):
-            dformer_encoder_factory(real_build=True, pretrained=True)
 
     @pytest.mark.unit
     def test_frozen_calls_freeze_weights_on_init(

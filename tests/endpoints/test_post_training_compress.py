@@ -3,6 +3,7 @@
 import gc
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -34,8 +35,8 @@ from tests.endpoints.conftest import (
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
-from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.policy_runtime.compressed_runtime import CompressedPolicyRuntime
+from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
@@ -44,7 +45,7 @@ from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 from versatil.post_training_compression.constants import (
     CompressionFilename,
-    QuantizationStrategy,
+    QuantizationWorkflow,
 )
 from versatil.post_training_compression.export import (
     build_example_inputs,
@@ -59,10 +60,10 @@ from versatil.post_training_compression.pruning import (
     UnstructuredPruner,
 )
 from versatil.post_training_compression.serialization import save_compressed_model
-from versatil.quantization.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.calibration import CalibrationDataProvider
-from versatil.quantization.strategies import PT2EStrategy
-from versatil.quantization.torch_patches import patch_get_source_partitions
+from versatil.quantization.module_target import PT2EQuantizationModuleTarget
+from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 from versatil.workspace import Workspace
 
 IMAGE_HEIGHT = 32
@@ -88,12 +89,41 @@ PTQ_CONFIG_NAMES = [
     for p in sorted(PTQ_CONFIG_DIR.glob("*.yaml"))
     if "example" not in p.stem
 ]
+PTQ_X86_CONFIG_NAME = "end_to_end_ptq/unstructured_prune_x86"
+PTQ_EAGER_XNNPACK_CONFIG_NAME = "end_to_end_ptq/eager_xnnpack"
+PTQ_PT2E_XNNPACK_CONFIG_NAME = "end_to_end_ptq/pt2e_xnnpack"
 
 PTQ_TEST_CONFIGS = [
-    "end_to_end_training_runs/libero_lerobot/action_transformer_language",
-    "end_to_end_training_runs/libero_lerobot/action_transformer",
+    "end_to_end_training_runs/libero_lerobot/bcat_language",
+    "end_to_end_training_runs/libero_lerobot/bcat",
     "end_to_end_training_runs/libero_lerobot/act",
     "end_to_end_training_runs/libero_lerobot/flow_dit_cross_attention",
+]
+
+# torch.export unrolls the flow-matching sampling loop, so every nn.Linear in the
+# denoiser appears num_inference_steps times in the exported graph. torchao's
+# X86InductorQuantizer linear+add fusion annotation builds one SourcePartition
+# per module and raises "Input partition has more than one output node" when a
+# module has multiple call sites (https://github.com/pytorch/ao/issues/4478).
+# Exporting a single denoising step (loop outside the artifact) would avoid the
+# duplication and is the structural fix.
+GLOBAL_PT2E_PARAMS = [
+    pytest.param(config_name, id=config_name.split("/")[-1])
+    if "flow" not in config_name.split("/")[-1]
+    else pytest.param(
+        config_name,
+        id=config_name.split("/")[-1],
+        marks=pytest.mark.xfail(
+            raises=ValueError,
+            strict=True,
+            reason=(
+                "torchao 0.17 X86InductorQuantizer cannot annotate graphs where "
+                "one nn.Linear has multiple call sites (unrolled flow-matching "
+                "denoising loop): https://github.com/pytorch/ao/issues/4478"
+            ),
+        ),
+    )
+    for config_name in PTQ_TEST_CONFIGS
 ]
 
 LEROBOT_METADATA_PATCH = patch(
@@ -104,12 +134,11 @@ LEROBOT_METADATA_PATCH = patch(
 
 @pytest.fixture(autouse=True, scope="session")
 def _configure_inductor():
-    """Set inductor config and patch source partitions once per session."""
+    """Set inductor config once per session."""
     original_freezing = os.environ.get("TORCHINDUCTOR_FREEZING")
     original_cpp_wrapper = inductor_config.cpp_wrapper
     os.environ["TORCHINDUCTOR_FREEZING"] = "1"
     inductor_config.cpp_wrapper = True
-    patch_get_source_partitions()
     yield
     if original_freezing is None:
         os.environ.pop("TORCHINDUCTOR_FREEZING", None)
@@ -182,10 +211,10 @@ def compression_pipeline(trained_checkpoint):
 
     def factory(
         config_name: str = PTQ_TEST_CONFIGS[0],
-    ) -> tuple[PolicyLoader, CalibrationDataProvider, ExportablePolicy]:
+    ) -> tuple[FloatPolicyRuntime, CalibrationDataProvider, ExportablePolicy]:
         output_dir = trained_checkpoint(config_name=config_name)
         with LEROBOT_METADATA_PATCH:
-            policy_loader = PolicyLoader(
+            policy_loader = FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
@@ -228,7 +257,7 @@ def _save_and_verify_inference(
     output_dir: Path,
     tmp_path: Path,
     float_outputs: tuple[torch.Tensor, ...],
-    quantization_strategy: str,
+    quantization_workflow: str,
     expect_divergence: bool = True,
 ) -> None:
     """Save compressed model, verify files exist, verify inference, check divergence."""
@@ -249,7 +278,7 @@ def _save_and_verify_inference(
         normalizer=policy.normalizer,
         training_checkpoint_path=str(output_dir),
         quantization_config=ptq_config,
-        quantization_strategy=quantization_strategy,
+        quantization_workflow=quantization_workflow,
     )
 
     assert (Path(compressed_dir) / "compressed_policy.pt2").exists()
@@ -263,7 +292,9 @@ def _save_and_verify_inference(
     if expect_divergence:
         outputs_changed = any(
             not torch.equal(compressed, original)
-            for compressed, original in zip(compressed_outputs, float_outputs)
+            for compressed, original in zip(
+                compressed_outputs, float_outputs, strict=True
+            )
         )
         assert outputs_changed, (
             "Compressed outputs identical to float — compression may have failed"
@@ -271,22 +302,22 @@ def _save_and_verify_inference(
 
     # Verify compressed inference via mock server
     with LEROBOT_METADATA_PATCH:
-        compressed_loader = CompressedPolicyLoader(
+        compressed_runtime = CompressedPolicyRuntime(
             device=torch.device("cpu"),
             checkpoint_path=compressed_dir,
         )
 
-    assert compressed_loader.input_keys == exportable.observation_keys
-    assert compressed_loader.output_keys == exportable.action_keys
+    assert compressed_runtime.input_keys == exportable.observation_keys
+    assert compressed_runtime.output_keys == exportable.action_keys
 
     port = get_free_port()
     server = start_mock_observation_server(
-        observation_space=compressed_loader.observation_space,
+        observation_space=compressed_runtime.observation_space,
         port=port,
     )
     try:
         client = InferenceClient(
-            policy_loader=compressed_loader,
+            policy_runtime=compressed_runtime,
             observation_transport=SocketObservationTransport(
                 server_address="127.0.0.1",
                 server_port=port,
@@ -341,11 +372,7 @@ def _prune_backbones(policy: torch.nn.Module) -> None:
 
 @pytest.mark.slow
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "config_name",
-    PTQ_TEST_CONFIGS,
-    ids=[c.split("/")[-1] for c in PTQ_TEST_CONFIGS],
-)
+@pytest.mark.parametrize("config_name", GLOBAL_PT2E_PARAMS)
 class TestGlobalPT2EQuantization:
     def test_global_pt2e_quantization(
         self, config_name, tmp_path, compression_pipeline
@@ -357,7 +384,7 @@ class TestGlobalPT2EQuantization:
         output_dir = Path(policy_loader.checkpoint_path)
 
         _prepare_backbones(policy)
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -389,7 +416,7 @@ class TestGlobalPT2EQuantization:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
-            quantization_strategy=QuantizationStrategy.PT2E.value,
+            quantization_workflow=QuantizationWorkflow.PT2E.value,
         )
 
 
@@ -412,7 +439,7 @@ class TestPerModulePT2EWithPruning:
         else:
             _prepare_backbones(policy)
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -441,13 +468,13 @@ class TestPerModulePT2EWithPruning:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
-            quantization_strategy=QuantizationStrategy.PT2E.value,
+            quantization_workflow=QuantizationWorkflow.PT2E.value,
         )
 
 
 @pytest.mark.slow
 @pytest.mark.integration
-class TestGlobalQuantizeApiDynamic:
+class TestGlobalEagerPTQDynamic:
     @pytest.mark.parametrize(
         "embedding_dimension, expect_divergence",
         [
@@ -456,7 +483,7 @@ class TestGlobalQuantizeApiDynamic:
         ],
         ids=["skip_small_layers", "quantize_large_layers"],
     )
-    def test_quantize_api_before_export(
+    def test_eager_before_export(
         self,
         embedding_dimension,
         expect_divergence,
@@ -470,7 +497,7 @@ class TestGlobalQuantizeApiDynamic:
             ],
         )
         with LEROBOT_METADATA_PATCH:
-            policy_loader = PolicyLoader(
+            policy_loader = FloatPolicyRuntime(
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
@@ -486,7 +513,7 @@ class TestGlobalQuantizeApiDynamic:
             num_calibration_steps=3,
         )
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -508,7 +535,7 @@ class TestGlobalQuantizeApiDynamic:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
-            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
             expect_divergence=expect_divergence,
         )
 
@@ -561,7 +588,7 @@ class TestGlobalFallbackPipeline:
         _, zeroed = pruner.prune(module=policy)
         assert zeroed > 0
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
         with torch.no_grad():
@@ -581,7 +608,7 @@ class TestGlobalFallbackPipeline:
         _, zeroed = UnstructuredPruner(amount=0.3).prune(module=policy)
         assert zeroed > 0
 
-        example_inputs = calibration.get_single_batch()
+        example_inputs = next(iter(calibration))
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
         with torch.no_grad():
@@ -598,7 +625,7 @@ class TestCompressorEndToEnd:
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             hydra_config = compose(
-                config_name=PTQ_CONFIG_NAMES[0],
+                config_name=PTQ_X86_CONFIG_NAME,
                 overrides=[f"checkpoint_path={str(output_dir)}"],
             )
         compressor = PostTrainingCompressor(
@@ -610,8 +637,13 @@ class TestCompressorEndToEnd:
                 fuse_conv_batchnorm=True,
             ),
             pruning=[UnstructuredPruner(amount=0.3)],
-            quantization=PT2EStrategy(
-                pt2e_backend=X86InductorBackend(is_dynamic=False),
+            quantization=PT2EQuantizationWorkflow(
+                targets=[
+                    PT2EQuantizationModuleTarget(
+                        module_path="",
+                        pt2e_backend=X86InductorBackend(is_dynamic=False),
+                    )
+                ],
             ),
             calibration_steps=3,
             output_directory=compressed_dir,
@@ -635,7 +667,7 @@ class TestCompressorEndToEnd:
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             hydra_config = compose(
-                config_name=PTQ_CONFIG_NAMES[0],
+                config_name=PTQ_X86_CONFIG_NAME,
                 overrides=[f"checkpoint_path={str(output_dir)}"],
             )
         compressor = PostTrainingCompressor(
@@ -665,7 +697,7 @@ class TestCompressorEndToEnd:
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             hydra_config = compose(
-                config_name=PTQ_CONFIG_NAMES[0],
+                config_name=PTQ_X86_CONFIG_NAME,
                 overrides=[f"checkpoint_path={str(output_dir)}"],
             )
         compressor = PostTrainingCompressor(
@@ -680,3 +712,69 @@ class TestCompressorEndToEnd:
 
         assert str(output_dir / "compressed") in result
         assert (Path(result) / CompressionFilename.COMPRESSED_MODEL.value).exists()
+
+    @pytest.mark.requires_executorch
+    def test_compress_full_pipeline_with_eager_xnnpack(
+        self,
+        tmp_path: Path,
+        trained_checkpoint: Callable[..., Path],
+    ) -> None:
+        output_dir = trained_checkpoint(
+            extra_overrides=["policy.decoder.embedding_dimension=32"],
+        )
+        compressed_dir = str(tmp_path / "compressed_eager_xnnpack")
+
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            hydra_config = compose(
+                config_name=PTQ_EAGER_XNNPACK_CONFIG_NAME,
+                overrides=[
+                    f"checkpoint_path={str(output_dir)}",
+                    f"output_directory={compressed_dir}",
+                ],
+            )
+            compressor = hydra.utils.instantiate(hydra_config)
+
+        with LEROBOT_METADATA_PATCH:
+            result = compressor.compress(hydra_config=hydra_config)
+
+        assert result == compressed_dir
+        assert (
+            Path(compressed_dir) / CompressionFilename.EXECUTORCH_MODEL.value
+        ).exists()
+        assert (Path(compressed_dir) / CompressionFilename.NORMALIZER.value).exists()
+        assert (
+            Path(compressed_dir) / CompressionFilename.COMPRESSION_METADATA.value
+        ).exists()
+
+    @pytest.mark.requires_executorch
+    def test_compress_full_pipeline_with_pt2e_xnnpack(
+        self,
+        tmp_path: Path,
+        trained_checkpoint: Callable[..., Path],
+    ) -> None:
+        output_dir = trained_checkpoint(
+            extra_overrides=["policy.decoder.embedding_dimension=32"],
+        )
+        compressed_dir = str(tmp_path / "compressed_pt2e_xnnpack")
+
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            hydra_config = compose(
+                config_name=PTQ_PT2E_XNNPACK_CONFIG_NAME,
+                overrides=[
+                    f"checkpoint_path={str(output_dir)}",
+                    f"output_directory={compressed_dir}",
+                ],
+            )
+            compressor = hydra.utils.instantiate(hydra_config)
+
+        with LEROBOT_METADATA_PATCH:
+            result = compressor.compress(hydra_config=hydra_config)
+
+        assert result == compressed_dir
+        assert (
+            Path(compressed_dir) / CompressionFilename.EXECUTORCH_MODEL.value
+        ).exists()
+        assert (Path(compressed_dir) / CompressionFilename.NORMALIZER.value).exists()
+        assert (
+            Path(compressed_dir) / CompressionFilename.COMPRESSION_METADATA.value
+        ).exists()

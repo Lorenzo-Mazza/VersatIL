@@ -9,7 +9,10 @@ import torch
 from torch import nn
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    AlgorithmContextKey,
+    LatentKey,
+)
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
@@ -41,7 +44,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         dropout_rate: Dropout probability
         attention_type: Attention mechanism type (use AttentionType enum values)
         latent_dimension: Dimension of VAE latent space (z)
-        use_proprioceptive: Whether to condition on proprioceptive observations
         prediction_horizon: Number of action timesteps
         device: Device to place encoder on
     """
@@ -62,7 +64,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
-        use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         min_logvar: float | None = None,
         deterministic: bool = False,
@@ -83,8 +84,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             activation: Activation function name
             dropout_rate: Dropout probability
             attention_type: Attention mechanism type (use AttentionType enum values)
-            use_proprioceptive: Whether to condition on proprioceptive observations
-            exclude_keys: List of keys to exclude from encoding
+                exclude_keys: List of keys to exclude from encoding
             min_logvar: Minimum log variance for avoiding variance collapse
             deterministic: If True, output deterministic embeddings without reparameterization.
                 Use with MMD or OT regularizers instead of KL divergence.
@@ -114,7 +114,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.deterministic = deterministic
         self.mu_tanh_bound = mu_tanh_bound
         self.embedding_dimension = embedding_dimension
-        self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
         self.number_of_heads = number_of_heads
@@ -146,14 +145,13 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             )
 
         self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
+            embedding_dimension=self.embedding_dimension,
             spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
                 embedding_dimension=self.embedding_dimension, normalize=True
             ),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension,
-                maximum_length=1000,
+                maximum_sequence_length=1000,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
@@ -245,7 +243,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
+        input_observations[AlgorithmContextKey.CLASS_TOKEN.value] = cls_embedding
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension), CLS token at the end
@@ -253,7 +251,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         encoder_output = self.transformer_encoder(
             hidden_states=hidden_states,
             padding_mask=padding_mask,
-        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dimension)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = self._bound_mu(latent_stats)  # (B, latent_dim)

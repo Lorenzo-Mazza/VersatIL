@@ -4,17 +4,19 @@ It uses a GPT-style autoregressive decoder (only self-attention) to generate seq
 """
 
 import torch
-import torch.nn as nn
 
-from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
+from versatil.models.decoding.decoders.autoregressive_mixin import (
+    AutoregressiveDecoderMixin,
+    CachedAutoregressiveGenerationState,
+    PastKeyValues,
+)
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.decoders.discrete import DiscreteDecoder
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -28,7 +30,10 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 
 
-class GPTActionTransformer(ActionDecoder):
+class GPTActionTransformer(
+    AutoregressiveDecoderMixin,
+    DiscreteDecoder,
+):
     """Autoregressive decoder for tokenized action prediction.
 
     Uses pure GPT-style transformer with self-attention only (no cross-attention).
@@ -37,7 +42,7 @@ class GPTActionTransformer(ActionDecoder):
     This is similar to Pi0 FAST but adapted to work with any feature encoder.
     """
 
-    supports_tokenized_actions: bool = True
+    action_head_layout: ActionHeadLayout = ActionHeadLayout.VOCABULARY
 
     def __init__(
         self,
@@ -63,7 +68,7 @@ class GPTActionTransformer(ActionDecoder):
         temperature: float = 1.0,
         learnable_temperature: bool = False,
         deterministic: bool = True,
-    ):
+    ) -> None:
         """Initialize GPTActionTransformer decoder.
 
         Args:
@@ -89,12 +94,10 @@ class GPTActionTransformer(ActionDecoder):
             temperature: Initial temperature for sampling (not used in greedy decoding)
             learnable_temperature: If True, make temperature a learnable parameter
             deterministic: If True, use greedy decoding during inference
-            action_heads: Not used, placeholder for compatibility
         """
         self.action_space = action_space
         self.observation_space = observation_space
         self.observation_horizon = observation_horizon
-        self.device = device
         self.max_seq_len = max_seq_len
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -107,15 +110,6 @@ class GPTActionTransformer(ActionDecoder):
         self.dropout_rate = dropout_rate
         self.attention_dropout = attention_dropout
         self.positional_encoding_type = positional_encoding_type
-        self.temperature = temperature
-        self.learnable_temperature = learnable_temperature
-        self.deterministic = deterministic
-        if action_heads.keys() != {DecoderOutputKey.ACTION_LOGITS.value}:
-            raise ValueError(
-                f"GPTActionTransformer only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads. Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value}"
-                " in your hydra config."
-            )
-        self.action_heads = action_heads
         decoder_input = DecoderInput(
             keys=input_keys,
             requires_actions=True,
@@ -128,21 +122,14 @@ class GPTActionTransformer(ActionDecoder):
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
             device=device,
+            temperature=temperature,
+            learnable_temperature=learnable_temperature,
+            deterministic=deterministic,
         )
-        self.temperature = nn.Parameter(
-            torch.tensor(temperature, dtype=torch.float32),
-            requires_grad=learnable_temperature,
-        )
-        self.token_embedding = None  # Will be set in set_tokenizer
-        self.vocab_size = None
         self._build_transformer_components()
-        self.action_bos_embedding = nn.Parameter(
-            torch.empty(1, 1, self.embedding_dimension)
-        )
-        nn.init.normal_(
-            self.action_bos_embedding,
-            mean=0.0,
-            std=self.gpt_decoder.initializer_range,
+        self._init_action_bos_embedding(
+            embedding_dimension=self.embedding_dimension,
+            initializer_range=self.gpt_decoder.initializer_range,
         )
         self.to(self.device)
 
@@ -159,8 +146,7 @@ class GPTActionTransformer(ActionDecoder):
 
         # This layer transforms input features into a sequence of token embeddings + positional encodings
         self.input_sequence_builder = TransformerInputBuilder(
-            embedding_dim=self.embedding_dimension,
-            has_time_dim=self.observation_horizon > 1,
+            embedding_dimension=self.embedding_dimension,
             spatial_positional_encoding_layer=image_positional_encoding,
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension
@@ -183,171 +169,90 @@ class GPTActionTransformer(ActionDecoder):
             maximum_sequence_length=self.max_seq_len,
         )
 
-    def _load_from_state_dict(
+    def _action_token_initializer_range(self) -> float:
+        """Return the GPT decoder initializer std for token embeddings."""
+        return self.gpt_decoder.initializer_range
+
+    def _action_token_embedding_dimension(self) -> int:
+        """Return the GPT token embedding dimension."""
+        return self.embedding_dimension
+
+    def _build_prefix_self_attention_mask(
         self,
-        state_dict: dict[str, torch.Tensor],
-        prefix: str,
-        local_metadata: dict,
-        strict: bool,
-        missing_keys: list[str],
-        unexpected_keys: list[str],
-        error_msgs: list[str],
-    ) -> None:
-        """Load older checkpoints that predate the learned action BOS token."""
-        action_bos_key = prefix + "action_bos_embedding"
-        if action_bos_key not in state_dict:
-            state_dict[action_bos_key] = self.action_bos_embedding.detach().clone()
-        super()._load_from_state_dict(
-            state_dict=state_dict,
-            prefix=prefix,
-            local_metadata=local_metadata,
-            strict=strict,
-            missing_keys=missing_keys,
-            unexpected_keys=unexpected_keys,
-            error_msgs=error_msgs,
-        )
-
-    def set_tokenizer(self, tokenizer: Tokenizer | None = None) -> None:
-        """Set tokenizer and adjust vocabulary size accordingly.
-
-        Args:
-            tokenizer: Tokenizer with an action tokenizer.
-
-        Raises:
-            ValueError: If tokenizer or action tokenizer is missing.
-        """
-        if tokenizer is None or tokenizer.action_tokenizer is None:
-            raise ValueError(
-                "GPTActionTransformer requires a tokenizer for tokenized action prediction."
-            )
-        device = self.temperature.device
-        self.vocab_size = tokenizer.action_tokenizer.vocab_size
-        output_block_in_features = self.action_heads[
-            DecoderOutputKey.ACTION_LOGITS.value
-        ].output_proj.in_features
-        if output_block_in_features != self.embedding_dimension:
-            token_input_embedding = nn.Embedding(
-                self.vocab_size, output_block_in_features
-            ).to(device)
-            token_projection = nn.Linear(
-                output_block_in_features, self.embedding_dimension
-            ).to(device)
-            self.token_embedding = nn.Sequential(
-                token_input_embedding, token_projection
-            ).to(device)
-            nn.init.normal_(
-                token_input_embedding.weight,
-                mean=0.0,
-                std=self.gpt_decoder.initializer_range,
-            )
-            nn.init.normal_(
-                token_projection.weight,
-                mean=0.0,
-                std=self.gpt_decoder.initializer_range,
-            )
-        else:
-            token_input_embedding = nn.Embedding(
-                self.vocab_size, self.embedding_dimension
-            ).to(device)
-            self.token_embedding = token_input_embedding
-            nn.init.normal_(
-                token_input_embedding.weight,
-                mean=0.0,
-                std=self.gpt_decoder.initializer_range,
-            )
-        lm_head = nn.Linear(
-            output_block_in_features, self.vocab_size, bias=False, device=device
-        )
-        lm_head.weight = (
-            token_input_embedding.weight
-        )  # tie output weights to input embedding weights, like in GPT-2
-        self.action_heads[
-            DecoderOutputKey.ACTION_LOGITS.value
-        ].output_dim = self.vocab_size
-        self.action_heads[
-            DecoderOutputKey.ACTION_LOGITS.value
-        ].output_proj = lm_head  # Replace final projection with tied head
-        super().set_tokenizer(tokenizer)
-
-    def _validate_tokenizer_is_set(self) -> None:
-        """Validate that tokenization modules are initialized before forward.
-
-        Raises:
-            ValueError: If ``set_tokenizer`` has not initialized token embeddings.
-        """
-        if (
-            self.token_embedding is None
-            or self.tokenizer is None
-            or self.vocab_size is None
-        ):
-            raise ValueError(
-                "GPTActionTransformer requires set_tokenizer() to be called before forward."
-            )
-
-    def _get_target_token_ids(
-        self,
-        actions: dict[str, torch.Tensor],
-        batch_size: int,
+        prefix_tokens: torch.Tensor,
+        causal_prefix_suffix_length: int,
     ) -> torch.Tensor:
-        """Read and validate teacher-forcing token ids.
+        """Build the prefix-only self-attention mask used during cache prefill."""
+        prefix_len = prefix_tokens.shape[1]
+        prefix_self_mask = torch.zeros(
+            prefix_tokens.shape[0],
+            1,
+            prefix_len,
+            prefix_len,
+            dtype=torch.bool,
+            device=prefix_tokens.device,
+        )
+        if causal_prefix_suffix_length > 0:
+            if causal_prefix_suffix_length > prefix_len:
+                raise ValueError(
+                    "causal_prefix_suffix_length must be less than or equal to "
+                    f"prefix length {prefix_len}, got {causal_prefix_suffix_length}."
+                )
+            causal_start = prefix_len - causal_prefix_suffix_length
+            prefix_self_mask[:, :, :causal_start, causal_start:] = True
+        return prefix_self_mask
 
-        Args:
-            actions: Training action dictionary.
-            batch_size: Batch size inferred from feature tokens.
+    def _decode_next_autoregressive_step(
+        self,
+        state: CachedAutoregressiveGenerationState,
+    ) -> tuple[torch.Tensor, PastKeyValues]:
+        """Decode one GPT action-token step from cached context."""
+        decoder_output, generation_cache = self.gpt_decoder(
+            hidden_states=state.next_inputs,
+            self_attention_mask=None,
+            generation_cache=state.past_key_values,
+        )
+        return decoder_output, generation_cache
 
-        Returns:
-            Token ids with shape ``(B, token_length)``.
+    def _sample_next_autoregressive_output(
+        self,
+        step_output: torch.Tensor,
+    ) -> torch.Tensor:
+        """Sample the next action token from one GPT step output."""
+        last_output = step_output[:, -1:, :]
+        head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
+        logits = head(last_output)
+        return self._sample_next_action_token(logits=logits)
 
-        Raises:
-            ValueError: If tokenized actions are missing or malformed.
-        """
-        if SampleKey.TOKENIZED_ACTIONS.value not in actions:
-            raise ValueError(
-                f"GPTActionTransformer training requires "
-                f"'{SampleKey.TOKENIZED_ACTIONS.value}' in actions."
-            )
-        target_token_ids = actions[SampleKey.TOKENIZED_ACTIONS.value]
-        if target_token_ids.ndim != 2:
-            raise ValueError(
-                f"'{SampleKey.TOKENIZED_ACTIONS.value}' must have shape "
-                f"(B, token_length), got {target_token_ids.shape}."
-            )
-        if target_token_ids.shape[0] != batch_size:
-            raise ValueError(
-                f"'{SampleKey.TOKENIZED_ACTIONS.value}' batch size must match "
-                f"feature batch size {batch_size}, got {target_token_ids.shape[0]}."
-            )
-        return target_token_ids
+    def _prepare_next_autoregressive_inputs(
+        self,
+        generated_output: torch.Tensor,
+    ) -> torch.Tensor:
+        """Embed sampled action-token IDs for the next cached GPT step."""
+        return self.token_embedding(generated_output)
 
-    def _select_input_features(
-        self, features: dict[str, torch.Tensor]
+    def _get_completed_sequence_mask(
+        self,
+        generated_output: torch.Tensor,
+        state: CachedAutoregressiveGenerationState,
+    ) -> torch.Tensor:
+        """Update the per-sample EOS mask for discrete action generation."""
+        completed = generated_output.squeeze(1) == self.tokenizer.eos_token_id
+        if state.completed_sequence_mask is None:
+            return completed
+        return state.completed_sequence_mask | completed
+
+    def _finalize_autoregressive_outputs(
+        self,
+        generated_outputs: list[torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Select decoder-configured features and their padding masks."""
-        missing_keys = [key for key in self.decoder_input.keys if key not in features]
-        if missing_keys:
-            raise ValueError(
-                f"GPTActionTransformer missing required input features {missing_keys}. "
-                f"Available features: {sorted(features.keys())}."
+        """Pack generated action-token IDs into decoder outputs."""
+        return {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
+                generated_outputs,
+                dim=1,
             )
-
-        selected_features = {}
-        for key in self.decoder_input.keys:
-            selected_features[key] = features[key]
-            padding_mask_key = f"{key}_{EncoderOutputKeys.PADDING_MASK.value}"
-            if padding_mask_key in features:
-                selected_features[padding_mask_key] = features[padding_mask_key]
-        return selected_features
-
-    def _expand_action_bos_embedding(
-        self,
-        batch_size: int,
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        """Return one learned action BOS token per batch item."""
-        return self.action_bos_embedding.to(device=device, dtype=dtype).expand(
-            batch_size, -1, -1
-        )
+        }
 
     def forward(
         self,
@@ -366,10 +271,9 @@ class GPTActionTransformer(ActionDecoder):
         Returns:
             Dict with DecoderOutputKey.ACTION_LOGITS.value (training) or DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (inference)
         """
-        self._validate_tokenizer_is_set()
-        decoder_features = self._select_input_features(features=features)
+        self._validate_action_tokenizer_is_set()
         feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
-            decoder_features
+            features
         )  # (B, token_len, embedding_dimension)
         feature_tokens = (
             feature_tokens + pos_encodings
@@ -386,10 +290,6 @@ class GPTActionTransformer(ActionDecoder):
             predictions = self._forward_inference(
                 feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
             )
-
-        for key in [LatentKey.POSTERIOR_MU.value, LatentKey.POSTERIOR_LOGVAR.value]:
-            if key in features:
-                predictions[key] = features[key]
 
         return predictions
 
@@ -413,31 +313,30 @@ class GPTActionTransformer(ActionDecoder):
         target_token_ids = self._get_target_token_ids(
             actions=actions,
             batch_size=feature_tokens.shape[0],
-        )  # (B, action_token_len)
-        action_token_embeddings = self.token_embedding(
-            target_token_ids
-        )  # (B, action_token_len, emb_dim)
+        )
+        action_token_embeddings = self.token_embedding(target_token_ids)
         action_bos_embedding = self._expand_action_bos_embedding(
             batch_size=feature_tokens.shape[0],
             device=action_token_embeddings.device,
             dtype=action_token_embeddings.dtype,
         )
         action_input_embeddings = torch.cat(
-            [action_bos_embedding, action_token_embeddings], dim=1
+            [action_bos_embedding, action_token_embeddings],
+            dim=1,
         )
-        # query_len = prefix_len + 1 BOS + action_token_len
         full_attention_mask, _ = make_attention_mask(
             feature_tokens=feature_tokens,
             action_tokens=action_input_embeddings,
             feature_token_mask=feature_token_mask,
-        )  # (B, query_len, query_len)
+        )
         full_token_sequence = torch.cat(
-            [feature_tokens, action_input_embeddings], dim=1
-        )  # (B, query_len, emb_dim)
+            [feature_tokens, action_input_embeddings],
+            dim=1,
+        )
         if full_token_sequence.shape[1] > self.max_seq_len:
             raise ValueError(
-                f"Input token length {full_token_sequence.shape[1]} > max_seq_len {self.max_seq_len}. "
-                "No room for any action tokens. "
+                f"Input token length {full_token_sequence.shape[1]} > "
+                f"max_seq_len {self.max_seq_len}. No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count."
             )
 
@@ -446,16 +345,11 @@ class GPTActionTransformer(ActionDecoder):
             encoded_features=None,
             cross_attention_mask=None,
             self_attention_mask=full_attention_mask,
-        )  # (B, query_len, D)
-        # Shift alignment: grabs outputs from the BOS to the penultimate action.
-        # NB: This is crucial for correct teacher forcing without information
-        # leakage from future tokens. The BOS token attends to all feature tokens
-        # and predicts target A[0]; action input A[t] predicts target A[t+1].
-        # Each action input attends to prior action tokens but not future ones.
-        action_outputs = decoder_output[:, prefix_len:-1, :]  # (B, action_token_len, D)
+        )
+        action_outputs = decoder_output[:, prefix_len:-1, :]
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
-            action_outputs
-        )  # (B, action_token_len, vocab_size)
+            action_outputs,
+        )
         return {
             DecoderOutputKey.ACTION_LOGITS.value: logits,
         }
@@ -474,7 +368,6 @@ class GPTActionTransformer(ActionDecoder):
         Returns:
             Dict with tokenized action predictions
         """
-        batch_size = feature_tokens.shape[0]
         prefix_len = feature_tokens.shape[1]
         if prefix_len + 1 >= self.max_seq_len:
             raise ValueError(
@@ -482,60 +375,36 @@ class GPTActionTransformer(ActionDecoder):
                 f"max_seq_len {self.max_seq_len}. No room for generated action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count."
             )
-        current_sequence = feature_tokens
-        prefix_self_mask = torch.zeros(
-            batch_size,
-            1,
-            prefix_len,
-            prefix_len,
-            dtype=torch.bool,
-            device=feature_tokens.device,
-        )
         generation_cache = self.gpt_decoder.create_empty_generation_cache(
-            batch_size=batch_size,
+            batch_size=feature_tokens.shape[0],
             device=feature_tokens.device,
             dtype=feature_tokens.dtype,
         )
         _, generation_cache = self.gpt_decoder(
-            hidden_states=current_sequence,
+            hidden_states=feature_tokens,
             encoded_features=None,
-            self_attention_mask=prefix_self_mask,
-            key_padding_mask=feature_token_mask,  # (B, prefix_len) or None
+            self_attention_mask=self._build_prefix_self_attention_mask(
+                prefix_tokens=feature_tokens,
+                causal_prefix_suffix_length=0,
+            ),
+            key_padding_mask=feature_token_mask,
             cross_attention_mask=None,
             generation_cache=generation_cache,
         )
-        generated_tokens = []
-        next_token_embedding = self._expand_action_bos_embedding(
-            batch_size=batch_size,
+        next_inputs = self._expand_action_bos_embedding(
+            batch_size=feature_tokens.shape[0],
             device=feature_tokens.device,
             dtype=feature_tokens.dtype,
         )
-        for _ in range(self.max_seq_len - prefix_len - 1):
-            decoder_output, generation_cache = self.gpt_decoder(
-                hidden_states=next_token_embedding,
-                self_attention_mask=None,  # Causal mask handled by the cache
-                generation_cache=generation_cache,
-            )
-            last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
-            head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
-            logits = head(last_output)  # (B, 1, vocab_size)
-            logits_scaled = logits / self.temperature.clamp(min=0.01)
-            if self.deterministic:
-                next_token = torch.argmax(logits, dim=-1)  # (B, 1)
-            else:
-                probs = torch.softmax(logits_scaled, dim=-1)
-                next_token = torch.multinomial(
-                    probs.squeeze(1), num_samples=1
-                )  # (B, 1)
-            generated_tokens.append(next_token)
-            if (next_token == self.tokenizer.eos_token_id).all():  # Check across batch
-                break
-            next_token_embedding = self.token_embedding(
-                next_token
-            )  # (B, 1, embedding_dimension)
-
-        return {
-            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
-                generated_tokens, dim=1
-            )  # (B, num_generated_tokens)
-        }
+        initial_state = CachedAutoregressiveGenerationState(
+            step_index=0,
+            sequence_length=prefix_len,
+            past_key_values=generation_cache,
+            next_inputs=next_inputs,
+        )
+        return self._run_cached_autoregressive_generation(
+            initial_state=initial_state,
+            max_generation_steps=self._get_max_generation_steps(
+                available_context_steps=self.max_seq_len - prefix_len - 1,
+            ),
+        )

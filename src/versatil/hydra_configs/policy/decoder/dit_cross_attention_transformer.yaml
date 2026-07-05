@@ -1,0 +1,31 @@
+defaults:
+  - diffusion_act
+  - heads@action_heads: dit_joint
+
+# Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
+input_keys:
+  - left_rgb
+  - right_rgb
+  - camera_frame_proprio
+
+diffusion_transformer_type: ${dit_type:CROSS_ATTENTION}
+max_sequence_length: 1024
+embedding_dimension: 128
+timestep_embedding_dimension: 64
+number_of_heads: 8
+number_of_key_value_heads: null
+number_of_layers: 3
+feedforward_dimension: 512
+activation: ${activation_function:RELU}
+normalization_type: ${normalization:RMS_NORM}
+attention_type: ${attention:MULTI_HEAD}
+dropout_rate: 0.2
+attention_dropout: 0.05
+positional_encoding_type: ${pos_encoding:SINUSOIDAL}
+use_gating: true
+
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+observation_space: ${task.observation_space}
+device: ${experiment.device}

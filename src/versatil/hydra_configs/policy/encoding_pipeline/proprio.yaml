@@ -1,0 +1,15 @@
+defaults:
+  - encoder/proprio@encoders.robot_state
+  - _self_
+
+encoders:
+  robot_state:
+    input_keys:
+      - ${proprio_key:EE_POS}
+      - ${proprio_key:EE_ORI}
+      - ${proprio_key:GRIPPER_STATE}
+    output_dim: 1024
+    pretrained: false
+    frozen: false
+
+fusion_stages: []

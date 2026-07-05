@@ -1,4 +1,4 @@
-"""Action tokenizer with support for FAST tokenization and language vocabulary mapping."""
+"""Action tokenizer for continuous-action discretizers and model token IDs."""
 
 import logging
 import os
@@ -7,49 +7,47 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoTokenizer
-from transformers.processing_utils import ProcessorMixin
 
 from versatil.data.constants import (
+    ActionDiscretizerType,
+    ActionTokenIdMappingType,
     SampleKey,
-    TokenizerType,
 )
-from versatil.data.tokenization.fast import load_fast_processor
+from versatil.data.tokenization.action_discretizer import (
+    ActionDiscretizer,
+    BinnedActionDiscretizer,
+    FastActionDiscretizer,
+)
+from versatil.data.tokenization.action_token_id_mapping import (
+    ActionTokenIdMapping,
+    IdentityActionTokenIdMapping,
+    LanguageVocabularyActionTokenIdMapping,
+)
 
-# Disable tokenizers parallelism to avoid fork warnings with DataLoader workers
+# Disable tokenizers parallelism to avoid fork warnings with DataLoader workers.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 class ActionTokenizer:
-    """Action tokenizer with FAST and language vocabulary mapping support.
+    """Tokenizes continuous action chunks for discrete action-token decoders.
 
-    Note:
-        FAST (Frequency-space Action Sequence Tokenization) provides efficient tokenization
-        of multidimensional continuous action sequences into discrete tokens.
-        When using language tokenizer, FAST tokens are mapped to the END of the language
-        vocabulary, avoiding special tokens. This allows both text and action tokens to
-        coexist in the same vocabulary space.
-        An EOS token is reserved at the end of the vocabulary (ID = original vocab_size).
-        It is appended after real action tokens during encoding and used as the stop signal
-        during autoregressive inference. The EOS position is not masked by is_pad, so the
-        model receives gradient to learn when to stop generating.
+    A single action chunk has shape (time_horizon, action_dim). A batch of
+    chunks has shape (batch_size, time_horizon, action_dim). Encoded model
+    token tensors have shape (max_token_len,) for one chunk or
+    (batch_size, max_token_len) for a batch.
 
-    Attributes:
-        tokenizer_chain: List of tokenizer types to apply
-        use_pretrained_fast: Whether to use pretrained FAST weights
-        language_tokenizer_model: HuggingFace model for language tokenizer
-        fast_vocab_size: FAST tokenizer vocabulary size
-        eos_token_id: EOS token ID reserved at the end of the vocabulary
-        device: Target device for tensors
+    The tokenizer has two explicit parts:
+    - an action discretizer, e.g. FAST or per-value binning;
+    - a token-id mapping, e.g. identity IDs or language-tokenizer tail IDs.
+
+    The class owns sequence behavior: EOS, padding, masks, and
+    batch dispatch.
     """
 
     def __init__(
         self,
-        tokenizer_chain: list[str],
-        use_pretrained_fast: bool = True,
-        language_tokenizer_model: str | None = None,
-        fast_tokenizer_model: str = "physical-intelligence/fast",
-        num_special_tokens_to_skip: int = 128,
+        action_discretizer: ActionDiscretizer | None = None,
+        token_id_mapping: ActionTokenIdMapping | None = None,
         max_token_len: int = 256,
         pad_token_id: int = 0,
         device: torch.device | None = None,
@@ -57,261 +55,121 @@ class ActionTokenizer:
         """Initialize action tokenizer.
 
         Args:
-            tokenizer_chain: List of TokenizerType values to apply in sequence
-                - [TokenizerType.FAST.value]: Just FAST tokenization
-                - [TokenizerType.FAST.value, TokenizerType.LANGUAGE.value]: FAST → language vocab mapping
-            use_pretrained_fast: Whether to use pretrained FAST weights
-            language_tokenizer_model: HuggingFace model if TokenizerType.LANGUAGE in chain
-            fast_tokenizer_model: HuggingFace model for FAST tokenizer
-            num_special_tokens_to_skip: Number of special tokens at end of language vocab to skip
-            max_token_len: Maximum token sequence length (for padding)
-            pad_token_id: Token ID to use for padding
-            device: Target device for tensors
+            action_discretizer: Continuous-action discretizer. Defaults to FAST.
+            token_id_mapping: Mapping from action-local IDs to model token IDs.
+                Defaults to identity.
+            max_token_len: Maximum token sequence length after EOS and padding.
+            pad_token_id: Token ID to use for padding.
+            device: Target device for returned token tensors.
         """
-        self.tokenizer_chain = tokenizer_chain
-        self.use_pretrained_fast = use_pretrained_fast
-        self.fast_tokenizer_model = fast_tokenizer_model
-        self.language_tokenizer_model = language_tokenizer_model
-        # FAST vocab sizes: 2048 for pretrained, 1024 for custom-trained
-        self.fast_vocab_size = 2048 if use_pretrained_fast else 1024
-        self.num_special_tokens_to_skip = num_special_tokens_to_skip
+        self.device = device if device is not None else torch.device("cpu")
         self.max_token_len = max_token_len
         self.pad_token_id = pad_token_id
-        self.eos_token_id: int | None = None  # Set when vocab_size is finalized
-        self.device = device if device is not None else torch.device("cpu")
-
-        self.fast_processor: ProcessorMixin | None = None
-        self.language_tokenizer: AutoTokenizer | None = None
+        self.eos_token_id: int | None = None
         self.vocab_size: int | None = None
-        self._is_fitted = False
 
-        self._build_tokenizers()
+        if action_discretizer is None:
+            action_discretizer = FastActionDiscretizer()
+        if token_id_mapping is None:
+            token_id_mapping = IdentityActionTokenIdMapping()
 
-    def _build_tokenizers(self) -> None:
-        """Build the tokenizer chain."""
-        if TokenizerType.FAST.value in self.tokenizer_chain:
-            self.fast_processor = load_fast_processor(self.fast_tokenizer_model)
-            if self.use_pretrained_fast:
-                self._is_fitted = True
-                self.vocab_size = self.fast_vocab_size
-
-        if TokenizerType.LANGUAGE.value in self.tokenizer_chain:
-            if self.language_tokenizer_model is None:
-                raise ValueError(
-                    f"language_tokenizer_model must be provided when '{TokenizerType.LANGUAGE.value}' is in tokenizer_chain"
-                )
-
-            self.language_tokenizer = AutoTokenizer.from_pretrained(
-                self.language_tokenizer_model
-            )
-            if self.language_tokenizer.pad_token is None:
-                self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
-
-            # Final vocab is language tokenizer's vocab
-            self.vocab_size = self.language_tokenizer.vocab_size
-            required_vocab_size = self.fast_vocab_size + self.num_special_tokens_to_skip
-            if self.vocab_size < required_vocab_size:
-                raise ValueError(
-                    f"Language tokenizer vocab size ({self.vocab_size}) is too small to hold "
-                    f"FAST tokens ({self.fast_vocab_size}) + special tokens ({self.num_special_tokens_to_skip}). "
-                    f"Required: {required_vocab_size}"
-                )
-        if self.vocab_size is not None:
-            self._set_eos_token()
-
-    def _set_eos_token(self) -> None:
-        """Reserve EOS token at the end of the vocabulary and increment vocab_size."""
-        self.eos_token_id = self.vocab_size
-        self.vocab_size += 1
+        self.action_discretizer = action_discretizer
+        self.token_id_mapping = token_id_mapping
+        self._is_fitted = self.action_discretizer.is_fitted
+        self._refresh_vocabulary_if_available()
 
     def fit(self, action_chunks: np.ndarray) -> None:
-        """Fit FAST tokenizer on action chunk data.
-
-        Only needed if use_pretrained_fast=False.
+        """Fit the action discretizer on normalized action chunks.
 
         Args:
-            action_chunks: Action chunks of shape (N, T, D) where:
-                N = number of action chunks
-                T = time horizon (chunk length)
-                D = action dimension
-                Values should be normalized to [-1, 1] range.
-
-        Raises:
-            ValueError: If trying to fit when using pretrained weights.
+            action_chunks: Array with shape
+                (num_chunks, time_horizon, action_dim).
         """
-        if self.use_pretrained_fast:
-            raise ValueError(
-                "Cannot fit when use_pretrained_fast=True. "
-                "Initialize with use_pretrained_fast=False to fit on custom data."
-            )
-
-        if self.fast_processor is None:
-            raise RuntimeError("FAST processor not initialized")
-
         logging.info(
-            f"Fitting FAST tokenizer on {action_chunks.shape[0]} chunks "
+            f"Fitting action discretizer on {action_chunks.shape[0]} chunks "
             f"(time_horizon={action_chunks.shape[1]}, action_dim={action_chunks.shape[2]})"
         )
-        self.fast_processor = self.fast_processor.fit(
-            action_chunks,
-            time_horizon=action_chunks.shape[1],
-            action_dim=action_chunks.shape[2],
-        )
-        self._is_fitted = True
-
-        if self.language_tokenizer is None:
-            self.vocab_size = self.fast_vocab_size
-            self._set_eos_token()
-
+        self.action_discretizer.fit(action_chunks)
+        self._is_fitted = self.action_discretizer.is_fitted
+        self._refresh_vocabulary_if_available(force=True)
         logging.info(
-            f"Fitted action tokenizer (chain={self.tokenizer_chain}, vocab_size={self.vocab_size})"
+            "Fitted action tokenizer "
+            f"(discretizer={type(self.action_discretizer).__name__}, "
+            f"token_id_mapping={type(self.token_id_mapping).__name__}, "
+            f"vocab_size={self.vocab_size})"
         )
 
-    def _map_fast_to_language_vocab(
-        self, fast_tokens: list[int] | np.ndarray
-    ) -> np.ndarray:
-        """Map FAST tokens to language tokenizer vocabulary positions.
-
-        FAST tokens are mapped to the END of the language vocabulary, avoiding special tokens:
-        lang_token_id = lang_vocab_size - 1 - num_special_tokens_to_skip - fast_token_id
-
-        Args:
-            fast_tokens: FAST token IDs in range [0, fast_vocab_size)
-
-        Returns:
-            Mapped token IDs in language vocabulary space
-        """
-        if self.language_tokenizer is None:
-            raise RuntimeError("Language tokenizer not initialized")
-        fast_tokens_arr = (
-            np.array(fast_tokens) if isinstance(fast_tokens, list) else fast_tokens
+    def _refresh_vocabulary_if_available(self, force: bool = False) -> None:
+        """Refresh model vocabulary size and EOS ID when discretizer metadata exists."""
+        if (
+            not force
+            and not self.action_discretizer.is_fitted
+            and not isinstance(
+                self.token_id_mapping, LanguageVocabularyActionTokenIdMapping
+            )
+        ):
+            return
+        self.eos_token_id = self.token_id_mapping.eos_token_id(
+            self.action_discretizer.token_count
         )
-        # Map FAST tokens to end of language vocab
-        mapped_tokens = (
-            self.language_tokenizer.vocab_size
-            - 1
-            - self.num_special_tokens_to_skip
-            - fast_tokens_arr
+        self.vocab_size = self.token_id_mapping.tokenizer_vocab_size(
+            self.action_discretizer.token_count
         )
-        return mapped_tokens
-
-    def _unmap_language_to_fast_vocab(
-        self, lang_tokens: np.ndarray | torch.Tensor
-    ) -> np.ndarray:
-        """Reverse mapping from language vocab positions to FAST token IDs.
-
-        Args:
-            lang_tokens: Token IDs in language vocabulary space
-
-        Returns:
-            FAST token IDs in range [0, fast_vocab_size)
-        """
-        if self.language_tokenizer is None:
-            raise RuntimeError("Language tokenizer not initialized")
-
-        if isinstance(lang_tokens, torch.Tensor):
-            lang_tokens = lang_tokens.cpu().numpy()
-        fast_tokens = (
-            self.language_tokenizer.vocab_size
-            - 1
-            - self.num_special_tokens_to_skip
-            - lang_tokens
-        )
-        return fast_tokens
+        if self.eos_token_id < 0 or self.eos_token_id >= self.vocab_size:
+            raise ValueError(
+                "Action tokenizer EOS token ID must be inside vocabulary: "
+                f"eos_token_id={self.eos_token_id}, vocab_size={self.vocab_size}."
+            )
 
     def encode_chunk(
         self,
         action_chunk: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode a single action chunk to discrete tokens with fixed length and padding.
+        """Encode one normalized action chunk.
 
         Args:
-            action_chunk: Action chunk of shape (T, D) where:
-                T = time horizon
-                D = action dimension
-            is_pad_mask: Boolean mask of shape (T,) indicating which timesteps are padded.
-                If provided, only non-padded actions are tokenized.
+            action_chunk: Array or tensor with shape (time_horizon, action_dim).
+            is_pad_mask: Optional boolean mask with shape (time_horizon,), where
+                True marks padded action rows to drop before tokenization.
 
         Returns:
-            Dict with:
-                - SampleKey.TOKENIZED_ACTIONS.value: Token IDs (max_token_len,) padded to fixed length
-                - SampleKey.IS_PAD_ACTION.value: Padding mask (max_token_len,) indicating which tokens are padding
-
-        Raises:
-            RuntimeError: If tokenizer has not been initialized.
+            Dictionary containing token IDs and token padding mask, each with
+            shape (max_token_len,).
         """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before encoding")
 
-        # Filter out padded actions if mask is provided
-        if is_pad_mask is not None:
-            if isinstance(is_pad_mask, torch.Tensor):
-                is_pad_mask_np = is_pad_mask.cpu().numpy()
-            else:
-                is_pad_mask_np = is_pad_mask
-
-            valid_mask = ~is_pad_mask_np
-            if isinstance(action_chunk, torch.Tensor):
-                action_chunk_to_tokenize = action_chunk[valid_mask].cpu().numpy()
-            else:
-                action_chunk_to_tokenize = action_chunk[valid_mask]
-        else:
-            if isinstance(action_chunk, torch.Tensor):
-                action_chunk_to_tokenize = action_chunk.cpu().numpy()
-            else:
-                action_chunk_to_tokenize = action_chunk
-
-        if self.fast_processor is not None:
-            fast_tokens = self.fast_processor(action_chunk_to_tokenize)[
-                0
-            ]  # Returns list[list[int]], take first
-            if self.language_tokenizer is not None:
-                mapped_tokens = self._map_fast_to_language_vocab(fast_tokens)
-                tokens = mapped_tokens.tolist()
-            else:
-                tokens = fast_tokens
-
-            tokens_len = len(tokens)
-            # Truncate action tokens if needed, leaving room for EOS
-            if tokens_len >= self.max_token_len:
-                logging.warning(
-                    f"Token length ({tokens_len}) exceeds max_token_len ({self.max_token_len}), "
-                    f"truncating to {self.max_token_len - 1}."
-                )
-                tokens = tokens[: self.max_token_len - 1]
-                tokens_len = self.max_token_len - 1
-            # Append EOS after real action tokens — model learns to produce it as stop signal
-            tokens.append(self.eos_token_id)
-            sequence_len = tokens_len + 1  # action tokens + EOS
-            padding_len = self.max_token_len - sequence_len
-            if padding_len > 0:
-                tokens = tokens + [self.pad_token_id] * padding_len
-            is_pad = [False] * sequence_len + [True] * padding_len
-
-            return {
-                SampleKey.TOKENIZED_ACTIONS.value: torch.tensor(
-                    tokens, dtype=torch.long, device=self.device
-                ),
-                SampleKey.IS_PAD_ACTION.value: torch.tensor(
-                    is_pad, dtype=torch.bool, device=self.device
-                ),
-            }
-
-        raise RuntimeError("No tokenizers in chain")
+        action_chunk_to_tokenize = self._select_valid_actions(
+            action_chunk=action_chunk,
+            is_pad_mask=is_pad_mask,
+        )
+        local_tokens = self.action_discretizer.encode(action_chunk_to_tokenize)
+        tokens = self.token_id_mapping.encode(local_tokens).tolist()
+        return self._pad_and_append_eos(tokens)
 
     def encode_batch(
         self,
         action_chunks: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode a batch of action chunks to discrete tokens."""
+        """Encode a batch of normalized action chunks.
+
+        Args:
+            action_chunks: Array or tensor with shape
+                (batch_size, time_horizon, action_dim).
+            is_pad_mask: Optional boolean mask with shape
+                (batch_size, time_horizon), where True marks padded action rows.
+
+        Returns:
+            Dictionary containing token IDs and token padding mask, each with
+            shape (batch_size, max_token_len).
+        """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before encoding")
-        batch_size = action_chunks.shape[0]
         all_tokens = []
         all_is_pad = []
-        for i in range(batch_size):
+        for i in range(action_chunks.shape[0]):
             chunk_pad_mask = is_pad_mask[i] if is_pad_mask is not None else None
             result = self.encode_chunk(action_chunks[i], is_pad_mask=chunk_pad_mask)
             all_tokens.append(result[SampleKey.TOKENIZED_ACTIONS.value])
@@ -327,221 +185,131 @@ class ActionTokenizer:
         action_chunks: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode action chunk(s) to discrete tokens, automatically adapting on the input shape."""
-        if isinstance(action_chunks, torch.Tensor):
-            arr = action_chunks
-        else:
-            arr = np.asarray(action_chunks)
+        """Encode one action chunk or a batch of action chunks.
 
-        if arr.ndim == 2:
-            # Single chunk (T, D)
+        2D input must have shape (time_horizon, action_dim). 3D input must have
+        shape (batch_size, time_horizon, action_dim).
+        """
+        action_chunks_data = (
+            action_chunks
+            if isinstance(action_chunks, torch.Tensor)
+            else np.asarray(action_chunks)
+        )
+        if action_chunks_data.ndim == 2:
             return self.encode_chunk(
                 action_chunk=action_chunks, is_pad_mask=is_pad_mask
             )
-        elif arr.ndim == 3:
-            # Batch (N, T, D)
+        if action_chunks_data.ndim == 3:
             return self.encode_batch(
                 action_chunks=action_chunks, is_pad_mask=is_pad_mask
             )
-        else:
-            raise ValueError(f"Expected 2D or 3D input, got shape {arr.shape}")
+        raise ValueError(
+            f"Expected 2D or 3D input, got shape {action_chunks_data.shape}"
+        )
 
     def decode_chunk(self, tokens: torch.Tensor | list[int] | np.ndarray) -> np.ndarray:
-        """Decode a single token sequence back to action chunk.
+        """Decode one model token sequence into one action chunk.
 
         Args:
-            tokens: Token sequence of shape (max_token_len,) or list of token IDs
+            tokens: 1D model token IDs with shape (token_sequence_len,). The
+                sequence may include EOS and trailing padding IDs.
 
         Returns:
-            Reconstructed action chunk as numpy array of shape (T, D)
-
-        Raises:
-            RuntimeError: If tokenizer has not been initialized.
+            Normalized action chunk with shape (time_horizon, action_dim).
         """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before decoding")
 
-        if isinstance(tokens, torch.Tensor):
-            tokens_arr = tokens.cpu().numpy()
-        elif isinstance(tokens, list):
-            tokens_arr = np.array(tokens)
-        else:
-            tokens_arr = tokens
-
-        valid_tokens = self._strip_decode_special_tokens(tokens_arr)
-        if self.language_tokenizer is not None:
-            fast_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
-        else:
-            fast_tokens = valid_tokens
-
-        if self.fast_processor is not None:
-            decoded_actions = self.fast_processor.decode([fast_tokens.tolist()])
-            if not isinstance(decoded_actions, np.ndarray):
-                raise TypeError(
-                    f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
-                )
-            return decoded_actions[0]  # Return single chunk
-
-        raise RuntimeError("Cannot decode without FAST processor")
+        token_ids_array = self._to_numpy_tokens(tokens)
+        local_tokens = self._strip_and_unmap_tokens(token_ids_array)
+        return self.action_discretizer.decode([local_tokens.tolist()])[0]
 
     def decode_batch(self, tokens: torch.Tensor | np.ndarray) -> np.ndarray:
-        """Decode a batch of discrete tokens back to action chunks.
+        """Decode a batch of model token sequences into action chunks.
 
         Args:
-            tokens: Token tensor or array of shape (N, max_token_len)
+            tokens: 2D model token IDs with shape
+                (batch_size, token_sequence_len). Sequences may include EOS and
+                trailing padding IDs.
 
         Returns:
-            Reconstructed action chunks as numpy array of shape (N, T, D)
-
-        Raises:
-            RuntimeError: If tokenizer has not been initialized.
+            Normalized action chunks with shape
+            (batch_size, time_horizon, action_dim).
         """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted or loaded before decoding")
 
-        if isinstance(tokens, torch.Tensor):
-            tokens_arr = tokens.cpu().numpy()
-        else:
-            tokens_arr = tokens
-
-        tokens_list_of_lists = []
-        for i in range(tokens_arr.shape[0]):
-            sample_tokens = tokens_arr[i]
-            valid_tokens = self._strip_decode_special_tokens(sample_tokens)
-            if self.language_tokenizer is not None:
-                valid_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
-            tokens_list_of_lists.append(valid_tokens.tolist())
-
-        if self.fast_processor is not None:
-            decoded_actions = self.fast_processor.decode(tokens_list_of_lists)
-            if not isinstance(decoded_actions, np.ndarray):
-                raise TypeError(
-                    f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
-                )
-            return decoded_actions
-
-        raise RuntimeError("Cannot decode without FAST processor")
-
-    def _strip_decode_special_tokens(self, tokens: np.ndarray) -> np.ndarray:
-        """Remove EOS and padding without dropping valid FAST token IDs."""
-        tokens_arr = np.asarray(tokens)
-        if self.eos_token_id is not None:
-            eos_indices = np.flatnonzero(tokens_arr == self.eos_token_id)
-            if eos_indices.size > 0:
-                return tokens_arr[: eos_indices[0]]
-
-        end_index = tokens_arr.shape[0]
-        while end_index > 0 and tokens_arr[end_index - 1] == self.pad_token_id:
-            end_index -= 1
-        return tokens_arr[:end_index]
+        token_ids_array = (
+            tokens.detach().cpu().numpy()
+            if isinstance(tokens, torch.Tensor)
+            else tokens
+        )
+        local_token_sequences = [
+            self._strip_and_unmap_tokens(sample_tokens).tolist()
+            for sample_tokens in token_ids_array
+        ]
+        return self.action_discretizer.decode(local_token_sequences)
 
     def decode(self, tokens: torch.Tensor | list[int] | np.ndarray) -> np.ndarray:
-        """Decode discrete tokens back to action chunks, automatically adapting on the input shape."""
-        if isinstance(tokens, torch.Tensor):
-            arr = tokens
-        elif isinstance(tokens, list):
-            arr = np.array(tokens)
-        else:
-            arr = tokens
+        """Decode one model token sequence or a batch of model token sequences.
 
-        if arr.ndim == 1:
-            # Single sequence (max_token_len,)
+        1D token input has shape (token_sequence_len,) and returns shape
+        (time_horizon, action_dim). 2D token input has shape
+        (batch_size, token_sequence_len) and returns shape
+        (batch_size, time_horizon, action_dim).
+        """
+        token_ids_array = self._to_numpy_tokens(tokens)
+        if token_ids_array.ndim == 1:
             return self.decode_chunk(tokens)
-        elif arr.ndim == 2:
-            # Batch (N, max_token_len)
+        if token_ids_array.ndim == 2:
             return self.decode_batch(tokens)
-        else:
-            raise ValueError(f"Expected 1D or 2D input, got shape {arr.shape}")
+        raise ValueError(f"Expected 1D or 2D input, got shape {token_ids_array.shape}")
 
     def to(self, device: torch.device) -> "ActionTokenizer":
-        """Move tokenizer to specified device.
-
-        Args:
-            device: Target device.
-
-        Returns:
-            Self for chaining.
-        """
+        """Move tokenizer tensors to a device."""
         self.device = device
+        self.action_discretizer.to(device)
         return self
 
     def save_pretrained(self, path: str | Path) -> None:
-        """Save tokenizer to disk.
-
-        Args:
-            path: Directory path to save tokenizer
-
-        Raises:
-            RuntimeError: If tokenizer has not been fitted.
-        """
+        """Save tokenizer state and optional external assets."""
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
-
         if not self._is_fitted:
             raise RuntimeError("Cannot save unfitted tokenizer")
 
-        # Save state dict
         torch.save(self.state_dict(), path / "action_tokenizer_state.pt")
-
-        # Save FAST processor if fitted
-        if self.fast_processor is not None and not self.use_pretrained_fast:
-            self.fast_processor.save_pretrained(str(path / "fast_processor"))
-
-        # Save language tokenizer if used
-        if self.language_tokenizer is not None:
-            self.language_tokenizer.save_pretrained(path / "language_tokenizer")
-
+        self.action_discretizer.save_pretrained(path)
+        self.token_id_mapping.save_pretrained(path)
         logging.info(f"Saved action tokenizer to {path}")
 
     def state_dict(self) -> dict[str, Any]:
-        """Get state dictionary for serialization.
-
-        Returns:
-            Dictionary containing tokenizer state.
-        """
-        state = {
-            "tokenizer_chain": self.tokenizer_chain,
-            "use_pretrained_fast": self.use_pretrained_fast,
-            "language_tokenizer_model": self.language_tokenizer_model,
-            "fast_vocab_size": self.fast_vocab_size,
-            "num_special_tokens_to_skip": self.num_special_tokens_to_skip,
+        """Get serializable tokenizer state."""
+        return {
+            "action_discretizer": self.action_discretizer.state_dict(),
+            "token_id_mapping": self.token_id_mapping.state_dict(),
+            "max_token_len": self.max_token_len,
+            "pad_token_id": self.pad_token_id,
             "vocab_size": self.vocab_size,
             "eos_token_id": self.eos_token_id,
             "is_fitted": self._is_fitted,
         }
-        if self.fast_processor is not None:
-            state["time_horizon"] = self.fast_processor.time_horizon
-            state["action_dim"] = self.fast_processor.action_dim
-        return state
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        """Load state dictionary.
-
-        Args:
-            state_dict: State dictionary from state_dict().
-        """
-        self.tokenizer_chain = state_dict["tokenizer_chain"]
-        self.use_pretrained_fast = state_dict["use_pretrained_fast"]
-        self.language_tokenizer_model = state_dict["language_tokenizer_model"]
-        self.fast_vocab_size = state_dict["fast_vocab_size"]
-        self.num_special_tokens_to_skip = state_dict["num_special_tokens_to_skip"]
+        """Load tokenizer state."""
+        self.max_token_len = state_dict.get("max_token_len", self.max_token_len)
+        self.pad_token_id = state_dict.get("pad_token_id", self.pad_token_id)
         self.vocab_size = state_dict["vocab_size"]
         self.eos_token_id = state_dict.get("eos_token_id")
         self._is_fitted = state_dict["is_fitted"]
+        self.action_discretizer.load_state_dict(state_dict["action_discretizer"])
+        self.token_id_mapping.load_state_dict(state_dict["token_id_mapping"])
 
     @classmethod
     def from_pretrained(
         cls, path: str | Path, device: torch.device | None = None
     ) -> "ActionTokenizer":
-        """Load tokenizer from disk.
-
-        Args:
-            path: Directory path where tokenizer was saved
-            device: Target device for tensors
-
-        Returns:
-            Loaded ActionTokenizer instance
-        """
+        """Load tokenizer from disk."""
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Tokenizer path not found: {path}")
@@ -552,25 +320,145 @@ class ActionTokenizer:
             weights_only=False,
         )
 
-        tokenizer = cls(
-            tokenizer_chain=state_dict["tokenizer_chain"],
-            use_pretrained_fast=state_dict["use_pretrained_fast"],
-            language_tokenizer_model=state_dict["language_tokenizer_model"],
-            num_special_tokens_to_skip=state_dict["num_special_tokens_to_skip"],
+        tokenizer = cls._from_state_dict(state_dict=state_dict, device=device)
+        tokenizer.load_state_dict(state_dict)
+        tokenizer.action_discretizer.load_pretrained_assets(path)
+        tokenizer.token_id_mapping.load_pretrained_assets(path)
+        logging.info(f"Loaded action tokenizer from {path}")
+        return tokenizer
+
+    def _pad_and_append_eos(self, tokens: list[int]) -> dict[str, torch.Tensor]:
+        """Append EOS and pad one token sequence to ``max_token_len``."""
+        tokens_len = len(tokens)
+        if tokens_len >= self.max_token_len:
+            raise ValueError(
+                "Encoded action token sequence does not fit in max_token_len "
+                f"after EOS: action_token_count={tokens_len}, "
+                f"max_token_len={self.max_token_len}. Increase max_token_len "
+                "or use a tokenizer that emits fewer action tokens."
+            )
+
+        tokens.append(self.eos_token_id)
+        sequence_len = tokens_len + 1
+        padding_len = self.max_token_len - sequence_len
+        if padding_len > 0:
+            tokens = tokens + [self.pad_token_id] * padding_len
+        is_pad = [False] * sequence_len + [True] * padding_len
+
+        return {
+            SampleKey.TOKENIZED_ACTIONS.value: torch.tensor(
+                tokens, dtype=torch.long, device=self.device
+            ),
+            SampleKey.IS_PAD_ACTION.value: torch.tensor(
+                is_pad, dtype=torch.bool, device=self.device
+            ),
+        }
+
+    def _strip_and_unmap_tokens(self, tokens: np.ndarray) -> np.ndarray:
+        """Remove special tokens and map model IDs back to local action IDs."""
+        valid_tokens = self._strip_decode_special_tokens(tokens)
+        return self.token_id_mapping.decode(valid_tokens).astype(np.int64)
+
+    def _strip_decode_special_tokens(self, tokens: np.ndarray) -> np.ndarray:
+        """Remove EOS and trailing padding without dropping valid zero token IDs."""
+        token_ids_array = np.asarray(tokens)
+        if self.eos_token_id is not None:
+            eos_indices = np.flatnonzero(token_ids_array == self.eos_token_id)
+            if eos_indices.size > 0:
+                return token_ids_array[: eos_indices[0]]
+
+        end_index = token_ids_array.shape[0]
+        while end_index > 0 and token_ids_array[end_index - 1] == self.pad_token_id:
+            end_index -= 1
+        return token_ids_array[:end_index]
+
+    def _select_valid_actions(
+        self,
+        action_chunk: np.ndarray | torch.Tensor,
+        is_pad_mask: torch.Tensor | np.ndarray | None,
+    ) -> np.ndarray:
+        """Drop padded action rows before fitting or encoding one chunk."""
+        if is_pad_mask is None:
+            if isinstance(action_chunk, torch.Tensor):
+                return action_chunk.detach().cpu().numpy()
+            return action_chunk
+
+        if isinstance(is_pad_mask, torch.Tensor):
+            padding_mask_array = is_pad_mask.detach().cpu().numpy()
+        else:
+            padding_mask_array = is_pad_mask
+        valid_mask = ~padding_mask_array
+        if isinstance(action_chunk, torch.Tensor):
+            return action_chunk[valid_mask].detach().cpu().numpy()
+        return action_chunk[valid_mask]
+
+    @staticmethod
+    def _to_numpy_tokens(tokens: torch.Tensor | list[int] | np.ndarray) -> np.ndarray:
+        """Convert token containers to a NumPy array."""
+        if isinstance(tokens, torch.Tensor):
+            return tokens.detach().cpu().numpy()
+        if isinstance(tokens, list):
+            return np.array(tokens)
+        return tokens
+
+    @classmethod
+    def _from_state_dict(
+        cls,
+        state_dict: dict[str, Any],
+        device: torch.device | None,
+    ) -> "ActionTokenizer":
+        """Create an action tokenizer with components described by serialized state."""
+        action_discretizer = _build_action_discretizer_from_state(
+            state_dict["action_discretizer"],
+            device=device,
+        )
+        token_id_mapping = _build_token_id_mapping_from_state(
+            state_dict["token_id_mapping"]
+        )
+        return cls(
+            action_discretizer=action_discretizer,
+            token_id_mapping=token_id_mapping,
+            max_token_len=state_dict.get("max_token_len", 256),
+            pad_token_id=state_dict.get("pad_token_id", 0),
             device=device,
         )
 
-        tokenizer.load_state_dict(state_dict)
-        fast_path = path / "fast_processor"
-        if fast_path.exists() and tokenizer.fast_processor is not None:
-            tokenizer.fast_processor = load_fast_processor(str(fast_path))
-            tokenizer.fast_processor.time_horizon = state_dict.get("time_horizon")
-            tokenizer.fast_processor.action_dim = state_dict.get("action_dim")
-            tokenizer._is_fitted = True
 
-        lang_path = path / "language_tokenizer"
-        if lang_path.exists():
-            tokenizer.language_tokenizer = AutoTokenizer.from_pretrained(lang_path)
+def _build_action_discretizer_from_state(
+    state_dict: dict[str, Any],
+    device: torch.device | None,
+) -> ActionDiscretizer:
+    """Instantiate an action discretizer from serialized state."""
+    match state_dict["type"]:
+        case ActionDiscretizerType.FAST.value:
+            return FastActionDiscretizer(
+                use_pretrained=state_dict["use_pretrained"],
+                tokenizer_model=state_dict.get(
+                    "tokenizer_model", "physical-intelligence/fast"
+                ),
+            )
+        case ActionDiscretizerType.BINNED.value:
+            return BinnedActionDiscretizer(
+                num_bins=state_dict["num_bins"],
+                device=device,
+            )
+        case unsupported_type:
+            raise ValueError(f"Unsupported action discretizer type: {unsupported_type}")
 
-        logging.info(f"Loaded action tokenizer from {path}")
-        return tokenizer
+
+def _build_token_id_mapping_from_state(
+    state_dict: dict[str, Any],
+) -> ActionTokenIdMapping:
+    """Instantiate a token-id mapping from serialized state."""
+    match state_dict["type"]:
+        case ActionTokenIdMappingType.IDENTITY.value:
+            return IdentityActionTokenIdMapping()
+        case ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value:
+            return LanguageVocabularyActionTokenIdMapping(
+                language_tokenizer_model=state_dict["language_tokenizer_model"],
+                num_special_tokens_to_skip=state_dict["num_special_tokens_to_skip"],
+            )
+        case unsupported_type:
+            raise ValueError(
+                f"Unsupported action token-id mapping type: {unsupported_type}"
+            )

@@ -6,10 +6,16 @@ from versatil.models.layers.positional_encoding.base import add_positional_encod
 
 
 class FlashAttention(nn.Module):
+    """Multi-head attention through PyTorch scaled_dot_product_attention."""
+
     def __init__(
         self, embedding_dimension: int, number_of_heads: int, dropout: float = 0.0
     ):
         super().__init__()
+        if number_of_heads < 1:
+            raise ValueError(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            )
         if embedding_dimension % number_of_heads != 0:
             raise ValueError(
                 "Attention layer embedding_dimension must be divisible by number_of_heads."

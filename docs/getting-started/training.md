@@ -8,7 +8,7 @@ VersatIL trains policies via the `versatil.endpoints.train` module. Each trainin
 python -m versatil.endpoints.train --config-name end_to_end_training_runs/bowel_retraction/act
 ```
 
-End-to-end configs live in `hydra_configs/end_to_end_training_runs/` and are organized by dataset:
+End-to-end configs live in `src/versatil/hydra_configs/end_to_end_training_runs/` and are organized by dataset:
 
 ```bash
 # ACT on bowel retraction
@@ -51,7 +51,7 @@ Swap entire config groups using the `group=option` syntax:
 # Use MMD loss instead of default
 python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
-    policy/loss=regression_gripper_MMD
+    policy/loss=regression_gripper_mmd
 ```
 
 This replaces the loss config block while keeping everything else intact.
@@ -146,7 +146,7 @@ python -m versatil.endpoints.train \
 
 ## Training Configuration Reference
 
-Key fields in the default training config (`hydra_configs/training/default.yaml`):
+Key fields in the default training config (`src/versatil/hydra_configs/training/default.yaml`):
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -210,7 +210,7 @@ that match no configured pattern are assigned to the implicit reserved group
 `unmatched`, which must not be used as a custom group name.
 
 `loss_weights` is not a flat scalar map anymore. It must match the public loss
-weight tree. For a scalar-weight leaf such as [`PriorDenoisingLoss`][versatil.metrics.components.PriorDenoisingLoss], the patch
+weight tree. For a scalar-weight leaf such as [`PriorDenoisingLoss`][versatil.metrics.losses.prior_denoising.PriorDenoisingLoss], the patch
 shape is:
 
 ```yaml
@@ -268,7 +268,7 @@ training:
 
 ### CUDA Issues
 
-Verify CUDA 12.8+ with `nvidia-smi` and check that `torch.cuda.is_available()` returns `True`.
+Verify the installed driver supports the pinned CUDA 13.0 PyTorch wheels with `nvidia-smi`, then check that `torch.cuda.is_available()` returns `True`.
 
 ### Data Loading
 

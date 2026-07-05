@@ -11,7 +11,7 @@ This package provides two types of latent modules:
    Model the prior distribution p(z|s) over latent variables.
    Used during inference when actions are unavailable.
    - GaussianPrior: Simple N(0, I) prior (default, no training required)
-   - DiffusionPrior: Learned diffusion-based prior that matches posterior distribution
+   - DiTPrior: Learned diffusion-based prior that matches posterior distribution
 """
 
 from versatil.models.decoding.latent.posterior.base_posterior import (

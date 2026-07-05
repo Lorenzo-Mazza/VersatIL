@@ -6,24 +6,25 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
 
+from versatil.configs.adaptation import LoRAAdaptationConfig
 from versatil.configs.encoding.encoder import (
     ConditionalCNNEncoderConfig,
     DFormerEncoderConfig,
+    DinoV2SigLIPRGBEncoderConfig,
     EncoderConfig,
     FlatRGBEncoderConfig,
     GeometricRGBDEncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
-    PaliGemmaEncoderConfig,
     ProprioEncoderConfig,
-    SmolVLMEncoderConfig,
     SpatialDepthEncoderConfig,
     SpatialRGBEncoderConfig,
-    TwoTowerVLMEncoderConfig,
+    VLMEncoderConfig,
 )
 from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
+    DinoV2SigLIPBackboneType,
     LanguageEncoderType,
     PoolingMethod,
 )
@@ -78,12 +79,27 @@ class TestSpatialRGBEncoderConfig:
         )
         assert config.batch_norm_handling == BatchNormHandling.FROZEN.value
 
+    def test_intermediate_layer_index_default_is_none(self):
+        config = SpatialRGBEncoderConfig(
+            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
+        )
+        assert config.intermediate_layer_index is None
+
     def test_inherits_from_image_encoder_config(self):
         config = SpatialRGBEncoderConfig(
             input_keys=["left"], backbone="timm/resnet18.a1_in1k"
         )
         assert isinstance(config, ImageEncoderConfig)
         assert isinstance(config, EncoderConfig)
+
+    def test_stores_lora_config(self):
+        lora_config = LoRAAdaptationConfig(enabled=True)
+        config = SpatialRGBEncoderConfig(
+            input_keys=["left"],
+            backbone="timm/resnet18.a1_in1k",
+            lora_config=lora_config,
+        )
+        assert config.lora_config is lora_config
 
 
 @pytest.mark.unit
@@ -93,7 +109,7 @@ class TestConditionalCNNEncoderConfig:
             input_keys=["left"],
             backbone="timm/resnet18.a1_in1k",
             condition_key="language",
-            condition_dim=512,
+            conditioning_dimension=512,
         )
         assert (
             config._target_
@@ -105,16 +121,27 @@ class TestConditionalCNNEncoderConfig:
             input_keys=["left"], backbone="timm/resnet18.a1_in1k"
         )
         assert config.condition_key == MISSING
-        assert config.condition_dim == MISSING
+        assert config.conditioning_dimension == MISSING
 
-    def test_inherits_from_cnn_encoder_config(self):
+    def test_inherits_from_image_encoder_config(self):
         config = ConditionalCNNEncoderConfig(
             input_keys=["left"],
             backbone="timm/resnet18.a1_in1k",
             condition_key="language",
-            condition_dim=512,
+            conditioning_dimension=512,
         )
-        assert isinstance(config, SpatialRGBEncoderConfig)
+        assert isinstance(config, ImageEncoderConfig)
+
+    def test_stores_lora_config(self):
+        lora_config = LoRAAdaptationConfig(enabled=True)
+        config = ConditionalCNNEncoderConfig(
+            input_keys=["left"],
+            backbone="timm/resnet18.a1_in1k",
+            condition_key="language",
+            conditioning_dimension=512,
+            lora_config=lora_config,
+        )
+        assert config.lora_config is lora_config
 
 
 @pytest.mark.unit
@@ -129,6 +156,40 @@ class TestFlatRGBEncoderConfig:
     def test_pooling_method_default_is_none_string(self):
         config = FlatRGBEncoderConfig(input_keys=["left"])
         assert config.pooling_method == PoolingMethod.NONE.value
+
+    def test_stores_lora_config(self):
+        lora_config = LoRAAdaptationConfig(enabled=True)
+        config = FlatRGBEncoderConfig(
+            input_keys=["left"],
+            backbone="timm/vit_base_patch14_dinov2.lvd142m",
+            lora_config=lora_config,
+        )
+        assert config.lora_config is lora_config
+
+
+@pytest.mark.unit
+class TestDinoV2SigLIPRGBEncoderConfig:
+    def test_target_points_to_dinov2_siglip_rgb_encoder(self):
+        config = DinoV2SigLIPRGBEncoderConfig(input_keys=["left"])
+        assert (
+            config._target_
+            == "versatil.models.encoding.encoders.rgb.dinov2_siglip.DinoV2SigLIPRGBEncoder"
+        )
+
+    def test_backbone_default_is_dinov2_siglip_224_string(self):
+        config = DinoV2SigLIPRGBEncoderConfig(input_keys=["left"])
+        assert (
+            config.backbone == DinoV2SigLIPBackboneType.DINOV2_SIGLIP_VIT_SO_224PX.value
+        )
+
+    def test_stores_lora_config(self):
+        lora_config = LoRAAdaptationConfig(enabled=True)
+        config = DinoV2SigLIPRGBEncoderConfig(
+            input_keys=["left"],
+            backbone=DinoV2SigLIPBackboneType.DINOV2_SIGLIP_VIT_SO_384PX.value,
+            lora_config=lora_config,
+        )
+        assert config.lora_config is lora_config
 
 
 @pytest.mark.unit
@@ -147,6 +208,19 @@ class TestSpatialDepthEncoderConfig:
     def test_batch_norm_handling_default_is_frozen_string(self):
         config = SpatialDepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert config.batch_norm_handling == BatchNormHandling.FROZEN.value
+
+    def test_intermediate_layer_index_default_is_none(self):
+        config = SpatialDepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        assert config.intermediate_layer_index is None
+
+    def test_stores_lora_config(self):
+        lora_config = LoRAAdaptationConfig(enabled=True)
+        config = SpatialDepthEncoderConfig(
+            input_keys=["depth"],
+            backbone="resnet18",
+            lora_config=lora_config,
+        )
+        assert config.lora_config is lora_config
 
 
 @pytest.mark.unit
@@ -198,16 +272,16 @@ class TestProprioEncoderConfig:
 
 
 @pytest.mark.unit
-class TestTwoTowerVLMEncoderConfig:
+class TestVLMEncoderConfig:
     def test_target_points_to_vlm_encoder(self):
-        config = TwoTowerVLMEncoderConfig(input_keys=["left"], model_name="clip")
+        config = VLMEncoderConfig(input_keys=["left"], model_name="clip")
         assert (
             config._target_
-            == "versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder"
+            == "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.VLMEncoder"
         )
 
     def test_model_name_required(self):
-        config = TwoTowerVLMEncoderConfig(input_keys=["left"])
+        config = VLMEncoderConfig(input_keys=["left"])
         assert config.model_name == MISSING
 
 
@@ -223,60 +297,6 @@ class TestImageEncoderConfig:
 
     def test_inherits_from_encoder_config(self):
         assert issubclass(ImageEncoderConfig, EncoderConfig)
-
-
-@pytest.mark.unit
-class TestPaliGemmaEncoderConfig:
-    def test_target_points_to_paligemma_encoder(self):
-        config = PaliGemmaEncoderConfig(input_keys=["left"], model_name="test")
-        assert (
-            config._target_
-            == "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder"
-        )
-
-    @pytest.mark.parametrize("use_embeddings_only", [True, False])
-    @pytest.mark.parametrize("max_text_length", [32, 128])
-    def test_stores_configuration(
-        self,
-        use_embeddings_only: bool,
-        max_text_length: int,
-    ):
-        config = PaliGemmaEncoderConfig(
-            input_keys=["left"],
-            model_name="test",
-            use_embeddings_only=use_embeddings_only,
-            max_text_length=max_text_length,
-        )
-        assert config.model_name == "test"
-        assert config.use_embeddings_only == use_embeddings_only
-        assert config.max_text_length == max_text_length
-
-
-@pytest.mark.unit
-class TestSmolVLMEncoderConfig:
-    def test_target_points_to_smolvlm_encoder(self):
-        config = SmolVLMEncoderConfig(input_keys=["left"], model_name="test")
-        assert (
-            config._target_
-            == "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder"
-        )
-
-    @pytest.mark.parametrize("use_embeddings_only", [True, False])
-    @pytest.mark.parametrize("max_text_length", [32, 128])
-    def test_stores_configuration(
-        self,
-        use_embeddings_only: bool,
-        max_text_length: int,
-    ):
-        config = SmolVLMEncoderConfig(
-            input_keys=["left"],
-            model_name="test",
-            use_embeddings_only=use_embeddings_only,
-            max_text_length=max_text_length,
-        )
-        assert config.model_name == "test"
-        assert config.use_embeddings_only == use_embeddings_only
-        assert config.max_text_length == max_text_length
 
 
 @pytest.mark.unit
@@ -331,7 +351,7 @@ class TestEncoderTargetResolutionIntegration:
                     input_keys=["left"],
                     backbone="timm/resnet18.a1_in1k",
                     condition_key="lang",
-                    condition_dim=512,
+                    conditioning_dimension=512,
                 ),
                 "ConditionalCNNEncoder",
             ),
@@ -344,20 +364,10 @@ class TestEncoderTargetResolutionIntegration:
             (lambda: DFormerEncoderConfig(), "DFormerEncoder"),
             (lambda: GeometricRGBDEncoderConfig(), "GeometricRGBDEncoder"),
             (
-                lambda: TwoTowerVLMEncoderConfig(
-                    input_keys=["left"], model_name="clip"
-                ),
-                "TwoTowerVLMEncoder",
+                lambda: VLMEncoderConfig(input_keys=["left"], model_name="clip"),
+                "VLMEncoder",
             ),
             (lambda: LanguageEncoderConfig(), "LanguageEncoder"),
-            (
-                lambda: PaliGemmaEncoderConfig(input_keys=["left"], model_name="test"),
-                "PaliGemmaEncoder",
-            ),
-            (
-                lambda: SmolVLMEncoderConfig(input_keys=["left"], model_name="test"),
-                "SmolVLMEncoder",
-            ),
         ],
     )
     def test_target_resolves_to_importable_class(

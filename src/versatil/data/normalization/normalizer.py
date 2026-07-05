@@ -258,6 +258,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         min_range: float = 4e-2,
         sample_size: int = 0,
     ):
+        """Fit scale and offset for one field from data statistics."""
         self.params_dict = _fit(
             data,
             last_n_dims=last_n_dims,
@@ -318,6 +319,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         """Create a normalizer from explicit scale, offset, and input stats."""
 
         def to_tensor(x):
+            """Convert input to a flat float tensor."""
             if not isinstance(x, torch.Tensor):
                 x = torch.from_numpy(x)
             x = x.flatten()
@@ -472,7 +474,8 @@ def _fit(
     input_min, _ = tensor_data.min(dim=0)
     input_max, _ = tensor_data.max(dim=0)
     input_mean = tensor_data.mean(dim=0)
-    input_std = tensor_data.std(dim=0)
+    # correction=0 keeps single-row fits finite
+    input_std = tensor_data.std(dim=0, correction=0)
 
     if mode == KinematicsNormalizationType.MIN_MAX.value:
         if fit_offset:
@@ -539,6 +542,18 @@ def _fit(
     return parameters
 
 
+def _trailing_dims_flatten_to(shape: torch.Size, stat_dim: int) -> bool:
+    """Whether a suffix of the shape multiplies to exactly stat_dim elements."""
+    trailing_size = 1
+    for dim_size in reversed(shape):
+        trailing_size *= dim_size
+        if trailing_size == stat_dim:
+            return True
+        if trailing_size > stat_dim:
+            return False
+    return False
+
+
 @torch.no_grad()
 def _normalize(
     x: torch.Tensor | np.ndarray,
@@ -562,11 +577,25 @@ def _normalize(
     scale = params["scale"]
     offset = params["offset"]
     x = x.to(device=scale.device, dtype=scale.dtype)
+    stat_dim = scale.shape[0]
     source_shape = x.shape
-    x = x.reshape(-1, scale.shape[0])
+    if stat_dim == 1:
+        pass  # scalar stats broadcast over any shape
+    elif _trailing_dims_flatten_to(shape=source_shape, stat_dim=stat_dim):
+        x = x.reshape(-1, stat_dim)
+    elif x.ndim >= 3 and x.shape[-3] == stat_dim:
+        # Channels-first image data: broadcast over the channel dimension.
+        scale = scale.view(stat_dim, 1, 1)
+        offset = offset.view(stat_dim, 1, 1)
+    else:
+        raise ValueError(
+            f"Cannot align normalizer stats of size {stat_dim} with input of "
+            f"shape {tuple(source_shape)}: expected trailing dimensions to "
+            "flatten to the stat size or, for channels-first images, the "
+            "third-to-last dimension to match."
+        )
     x = x * scale + offset if forward else (x - offset) / scale
-    x = x.reshape(source_shape)
-    return x
+    return x.reshape(source_shape)
 
 
 class SequentialNormalizer(SingleFieldLinearNormalizer):
@@ -614,6 +643,7 @@ class SequentialNormalizer(SingleFieldLinearNormalizer):
         min_std: float = 2e-2,
         min_range: float = 4e-2,
     ) -> None:
+        """Fit per-key normalizers over a dict of arrays."""
         raise NotImplementedError("SequentialNormalizer does not support fitting")
 
     def normalize(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:

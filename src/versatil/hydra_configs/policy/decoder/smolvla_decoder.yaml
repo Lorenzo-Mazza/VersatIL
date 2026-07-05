@@ -1,0 +1,25 @@
+defaults:
+  - smolvla
+  - heads@action_heads: smolvla
+  - vision_language_model@vlm_backbone: smolvlm
+  - _self_
+
+input_keys:
+  - robot_state_proprio
+
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+observation_space: ${task.observation_space}
+device: ${experiment.device}
+
+expert_width_multiplier: 0.5
+num_expert_layers: -1
+num_vlm_layers: -1
+self_attention_every_n_layers: 2
+proprioceptive_feature_key: robot_state_proprio
+min_period: 0.004
+max_period: 4.0
+freeze_vlm: true
+normalization_type: ${normalization:RMS_NORM}
+dropout: 0.1

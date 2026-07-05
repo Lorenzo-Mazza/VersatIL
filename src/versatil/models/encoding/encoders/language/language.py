@@ -2,10 +2,15 @@
 
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.tokenization.huggingface import load_huggingface_tokenizer
+from versatil.models.adaptation.lora import (
+    LoRAAdaptation,
+    apply_lora_config,
+)
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
@@ -36,6 +41,8 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         max_token_len: int = 128,
         use_embeddings_only: bool = False,
         model_dtype: str | None = None,
+        lora_config: LoRAAdaptation | None = None,
+        trust_remote_code: bool = False,
     ):
         """
         Args:
@@ -47,6 +54,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             max_token_len: Maximum token sequence length for the encoder
             use_embeddings_only: If True, use only the pretrained token embedding layer
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            lora_config: Optional LoRA adapter configuration.
+            trust_remote_code: Whether to allow HuggingFace models that ship
+                custom modeling code (e.g. nvidia/llama-nemotron-embed).
         """
         specification = EncoderInput(
             keys=[
@@ -68,6 +78,10 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         self.model_name = model_name
         self.max_token_len = max_token_len
         self.use_embeddings_only = use_embeddings_only
+        self.lora_config = lora_config
+        self.trust_remote_code = trust_remote_code
+        if self.use_embeddings_only and lora_config is not None and lora_config.enabled:
+            raise ValueError("LoRA is not supported when use_embeddings_only=True.")
         if self.use_embeddings_only and self.pooling_method != PoolingMethod.NONE.value:
             raise ValueError(
                 "use_embeddings_only=True is only compatible with pooling_method=PoolingMethod.NONE"
@@ -78,9 +92,17 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             if self.use_embeddings_only
             else self.config.hidden_size
         )
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = load_huggingface_tokenizer(
+            tokenizer_model=model_name, trust_remote_code=trust_remote_code
+        )
         self._has_cls_token = tokenizer.cls_token_id is not None
         self._num_prefix_tokens = 1 if self._has_cls_token else 0
+        if pooling_method == PoolingMethod.DEFAULT.value and not self._has_cls_token:
+            raise ValueError(
+                f"Tokenizer for '{model_name}' has no CLS token, so DEFAULT "
+                "pooling would silently return the first prompt token. Use "
+                "AVERAGE or NONE pooling instead."
+            )
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.feature_dim,
@@ -99,14 +121,16 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
 
     def _build_encoder(self):
         """Build language encoder and tokenizer."""
-        self.config = AutoConfig.from_pretrained(self.model_name)
+        self.config = AutoConfig.from_pretrained(
+            self.model_name, trust_remote_code=self.trust_remote_code
+        )
         if self.use_embeddings_only:
             # Models like ALBERT use factorized embeddings where
             # embedding_size != hidden_size
             if hasattr(self.config, "embedding_size"):
-                embedding_dim = self.config.embedding_size
+                embedding_dimension = self.config.embedding_size
             elif hasattr(self.config, "hidden_size"):
-                embedding_dim = self.config.hidden_size
+                embedding_dimension = self.config.hidden_size
             else:
                 raise ValueError(
                     f"Config for {self.model_name} has neither "
@@ -114,10 +138,12 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
                 )
             self.encoder = nn.Embedding(
                 num_embeddings=self.config.vocab_size,
-                embedding_dim=embedding_dim,
+                embedding_dim=embedding_dimension,
             )
             if self.pretrained:
-                temp_model = AutoModel.from_pretrained(self.model_name)
+                temp_model = AutoModel.from_pretrained(
+                    self.model_name, trust_remote_code=self.trust_remote_code
+                )
                 source_emb = temp_model.get_input_embeddings()
                 self.encoder.load_state_dict(source_emb.state_dict())
                 del temp_model
@@ -126,12 +152,21 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         else:
             if self.pretrained:
                 self.encoder = AutoModel.from_pretrained(
-                    self.model_name, attn_implementation=self.attention_type
+                    self.model_name,
+                    attn_implementation=self.attention_type,
+                    trust_remote_code=self.trust_remote_code,
                 )
             else:
                 self.encoder = AutoModel.from_config(
-                    self.config, attn_implementation=self.attention_type
+                    self.config,
+                    attn_implementation=self.attention_type,
+                    trust_remote_code=self.trust_remote_code,
                 )
+            self.encoder = apply_lora_config(
+                model=self.encoder,
+                lora_config=self.lora_config,
+                frozen=self.frozen,
+            )
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode pre-tokenized text into language features.

@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from versatil.models.layers.positional_encoding.rotary import (
+    RasterRotaryPositionalEncoding2D,
     RotaryPositionalEncoding,
     RotaryPositionalEncoding1D,
     RotaryPositionalEncoding2D,
@@ -20,13 +21,13 @@ def rotary_factory() -> Callable[..., RotaryPositionalEncoding1D]:
 
     def factory(
         embedding_dimension: int = 64,
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         base_frequency: float = 10000.0,
         learnable_frequencies: bool = False,
     ) -> RotaryPositionalEncoding1D:
         return RotaryPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             base_frequency=base_frequency,
             learnable_frequencies=learnable_frequencies,
         )
@@ -40,13 +41,13 @@ def rotary_2d_factory() -> Callable[..., RotaryPositionalEncoding2D]:
 
     def factory(
         embedding_dimension: int = 128,
-        num_heads: int = 4,
+        number_of_heads: int = 4,
         base_frequency: float = 10000.0,
         learnable_frequencies: bool = False,
     ) -> RotaryPositionalEncoding2D:
         return RotaryPositionalEncoding2D(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             base_frequency=base_frequency,
             learnable_frequencies=learnable_frequencies,
         )
@@ -74,22 +75,22 @@ def rotation_input_factory(
 
 class TestRotaryPositionalEncoding:
     @pytest.mark.parametrize("embedding_dimension", [64, 128])
-    @pytest.mark.parametrize("num_heads", [4, 8])
+    @pytest.mark.parametrize("number_of_heads", [4, 8])
     @pytest.mark.parametrize("base_frequency", [10000.0, 5000.0])
     def test_stores_configuration(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
         base_frequency: float,
     ):
         module = RotaryPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
             base_frequency=base_frequency,
         )
         assert module.embedding_dimension == embedding_dimension
-        assert module.num_heads == num_heads
-        assert module.head_dimension == embedding_dimension // num_heads
+        assert module.number_of_heads == number_of_heads
+        assert module.head_dimension == embedding_dimension // number_of_heads
 
     def test_odd_head_dimension_raises_value_error(self):
         with pytest.raises(
@@ -98,33 +99,35 @@ class TestRotaryPositionalEncoding:
         ):
             RotaryPositionalEncoding1D(
                 embedding_dimension=60,
-                num_heads=4,
+                number_of_heads=4,
             )
 
     def test_zero_heads_raise_value_error(self):
-        num_heads = 0
+        number_of_heads = 0
         with pytest.raises(
             ValueError,
-            match=re.escape(f"num_heads must be positive, got {num_heads}."),
+            match=re.escape(
+                f"number_of_heads must be positive, got {number_of_heads}."
+            ),
         ):
             RotaryPositionalEncoding1D(
                 embedding_dimension=48,
-                num_heads=num_heads,
+                number_of_heads=number_of_heads,
             )
 
     def test_non_divisible_embedding_dimension_raises_value_error(self):
         embedding_dimension = 50
-        num_heads = 8
+        number_of_heads = 8
         with pytest.raises(
             ValueError,
             match=re.escape(
                 f"embedding_dimension ({embedding_dimension}) must be divisible "
-                f"by num_heads ({num_heads})."
+                f"by number_of_heads ({number_of_heads})."
             ),
         ):
             RotaryPositionalEncoding1D(
                 embedding_dimension=embedding_dimension,
-                num_heads=num_heads,
+                number_of_heads=number_of_heads,
             )
 
     def test_non_positive_embedding_dimension_raises_value_error(self):
@@ -137,7 +140,7 @@ class TestRotaryPositionalEncoding:
         ):
             RotaryPositionalEncoding1D(
                 embedding_dimension=embedding_dimension,
-                num_heads=4,
+                number_of_heads=4,
             )
 
     def test_non_positive_base_frequency_raises_value_error(self):
@@ -148,12 +151,12 @@ class TestRotaryPositionalEncoding:
         ):
             RotaryPositionalEncoding1D(
                 embedding_dimension=48,
-                num_heads=4,
+                number_of_heads=4,
                 base_frequency=base_frequency,
             )
 
     @pytest.mark.parametrize(
-        "embedding_dimension, num_heads",
+        "embedding_dimension, number_of_heads",
         [
             (64, 4),
             (128, 8),
@@ -163,13 +166,13 @@ class TestRotaryPositionalEncoding:
         self,
         rotary_factory: Callable[..., RotaryPositionalEncoding1D],
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
     ):
         module = rotary_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
         )
-        head_dimension = embedding_dimension // num_heads
+        head_dimension = embedding_dimension // number_of_heads
         assert module.frequencies.shape == (head_dimension,)
 
     @pytest.mark.parametrize("learnable_frequencies", [True, False])
@@ -339,32 +342,10 @@ class TestRotaryApplyRotationHalf:
         assert result.shape == (2, 4, 8, 16)
 
 
-class TestComputeFrequenciesHalf:
-    @pytest.mark.parametrize("dimension", [8, 16, 32])
-    def test_output_shape(self, dimension: int):
-        frequencies = RotaryPositionalEncoding._compute_frequencies_half(
-            dimension=dimension, base_frequency=10000.0
-        )
-        assert frequencies.shape == (dimension // 2,)
-
-    def test_first_element_is_one(self):
-        frequencies = RotaryPositionalEncoding._compute_frequencies_half(
-            dimension=16, base_frequency=10000.0
-        )
-        assert frequencies[0].item() == pytest.approx(1.0)
-
-    def test_monotonically_decreasing(self):
-        frequencies = RotaryPositionalEncoding._compute_frequencies_half(
-            dimension=16, base_frequency=10000.0
-        )
-        for i in range(len(frequencies) - 1):
-            assert frequencies[i] > frequencies[i + 1]
-
-
 class TestRotaryPositionalEncoding1D:
     @pytest.mark.parametrize("seq_len", [8, 16])
     @pytest.mark.parametrize(
-        "embedding_dimension, num_heads",
+        "embedding_dimension, number_of_heads",
         [
             (64, 4),
             (128, 8),
@@ -375,13 +356,13 @@ class TestRotaryPositionalEncoding1D:
         rotary_factory: Callable[..., RotaryPositionalEncoding1D],
         seq_len: int,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
     ):
         module = rotary_factory(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
         )
-        head_dimension = embedding_dimension // num_heads
+        head_dimension = embedding_dimension // number_of_heads
         sine, cosine = module.compute_rotation_components(seq_len=seq_len)
         assert sine.shape == (seq_len, head_dimension)
         assert cosine.shape == (seq_len, head_dimension)
@@ -390,7 +371,7 @@ class TestRotaryPositionalEncoding1D:
         self,
         rotary_factory: Callable[..., RotaryPositionalEncoding1D],
     ):
-        module = rotary_factory(embedding_dimension=64, num_heads=4)
+        module = rotary_factory(embedding_dimension=64, number_of_heads=4)
         sine, cosine = module.compute_rotation_components(seq_len=8)
         # Position 0 -> angles = 0 * freq = 0 -> sin(0) = 0, cos(0) = 1
         assert torch.allclose(sine[0], torch.zeros_like(sine[0]), atol=1e-6)
@@ -399,21 +380,21 @@ class TestRotaryPositionalEncoding1D:
 
 class TestRotaryPositionalEncoding2D:
     @pytest.mark.parametrize("embedding_dimension", [128, 256])
-    @pytest.mark.parametrize("num_heads", [4, 8])
+    @pytest.mark.parametrize("number_of_heads", [4, 8])
     def test_stores_half_head_dim(
         self,
         embedding_dimension: int,
-        num_heads: int,
+        number_of_heads: int,
     ):
         module = RotaryPositionalEncoding2D(
             embedding_dimension=embedding_dimension,
-            num_heads=num_heads,
+            number_of_heads=number_of_heads,
         )
-        expected_half = (embedding_dimension // num_heads) // 2
+        expected_half = (embedding_dimension // number_of_heads) // 2
         assert module.half_head_dim == expected_half
 
     def test_odd_half_head_dim_raises_value_error(self):
-        # embedding_dimension=24, num_heads=4 -> head_dim=6, half_head_dim=3
+        # embedding_dimension=24, number_of_heads=4 -> head_dim=6, half_head_dim=3
         # 3 % 2 != 0, so it should raise
         with pytest.raises(
             ValueError,
@@ -421,7 +402,7 @@ class TestRotaryPositionalEncoding2D:
         ):
             RotaryPositionalEncoding2D(
                 embedding_dimension=24,
-                num_heads=4,
+                number_of_heads=4,
             )
 
     @pytest.mark.parametrize(
@@ -437,7 +418,7 @@ class TestRotaryPositionalEncoding2D:
         height: int,
         width: int,
     ):
-        module = rotary_2d_factory(embedding_dimension=128, num_heads=4)
+        module = rotary_2d_factory(embedding_dimension=128, number_of_heads=4)
         head_dimension = 128 // 4
         sine, cosine = module.compute_rotation_components(
             height=height,
@@ -450,6 +431,39 @@ class TestRotaryPositionalEncoding2D:
         self,
         rotary_2d_factory: Callable[..., RotaryPositionalEncoding2D],
     ):
-        module = rotary_2d_factory(embedding_dimension=128, num_heads=4)
+        module = rotary_2d_factory(embedding_dimension=128, number_of_heads=4)
         head_dimension = 128 // 4
         assert module.frequencies.shape == (head_dimension,)
+
+
+@pytest.mark.unit
+class TestRasterRotaryPositionalEncoding2D:
+    def test_matches_reference_angle_construction(self):
+        embedding_dimension, number_of_heads = 32, 2
+        head_dimension = embedding_dimension // number_of_heads
+        height, width = 3, 5
+        encoding = RasterRotaryPositionalEncoding2D(
+            embedding_dimension=embedding_dimension, number_of_heads=number_of_heads
+        )
+        sine, cosine = encoding.compute_rotation_components(height=height, width=width)
+        # Reference: angle = 1/10000**linspace(0,1,d/2) repeated pairwise,
+        # rotated by the flattened raster index.
+        angle = 1.0 / (10000 ** torch.linspace(0, 1, head_dimension // 2))
+        angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
+        index = torch.arange(height * width, dtype=torch.float32)
+        expected_sine = torch.sin(index[:, None] * angle[None, :]).reshape(
+            height, width, -1
+        )
+        expected_cosine = torch.cos(index[:, None] * angle[None, :]).reshape(
+            height, width, -1
+        )
+        torch.testing.assert_close(sine, expected_sine)
+        torch.testing.assert_close(cosine, expected_cosine)
+
+    def test_same_raster_index_shares_rotation_across_rows(self):
+        encoding = RasterRotaryPositionalEncoding2D(
+            embedding_dimension=16, number_of_heads=2
+        )
+        sine, _ = encoding.compute_rotation_components(height=2, width=4)
+        wide_sine, _ = encoding.compute_rotation_components(height=1, width=8)
+        torch.testing.assert_close(sine.reshape(8, -1), wide_sine.reshape(8, -1))

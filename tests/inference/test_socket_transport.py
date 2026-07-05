@@ -73,6 +73,7 @@ class TestSocketObservationTransportInitialization:
             patched_client_class.assert_called_once_with(
                 server_address="10.0.0.5",
                 server_port=7777,
+                request_timeout_seconds=None,
             )
 
     def test_creates_socket_client_with_default_address_and_port(
@@ -83,6 +84,7 @@ class TestSocketObservationTransportInitialization:
             patched_client_class.assert_called_once_with(
                 server_address="127.0.0.1",
                 server_port=5555,
+                request_timeout_seconds=None,
             )
 
 
@@ -226,6 +228,7 @@ class TestSocketActionTransportInitialization:
             patched_client_class.assert_called_once_with(
                 server_address="10.0.0.5",
                 server_port=7777,
+                request_timeout_seconds=None,
             )
 
     def test_creates_socket_client_with_default_address_and_port(
@@ -236,6 +239,7 @@ class TestSocketActionTransportInitialization:
             patched_client_class.assert_called_once_with(
                 server_address="127.0.0.1",
                 server_port=5555,
+                request_timeout_seconds=None,
             )
 
 
@@ -325,3 +329,28 @@ class TestSocketActionTransportClose:
         transport.close()
 
         mock_socket_client.close.assert_called_once()
+
+
+@pytest.mark.unit
+class TestRequestTimeoutPlumbing:
+    def test_timeout_forwarded_to_socket_client(self):
+        with patch(SOCKET_CLIENT_PATH) as mock_client_class:
+            SocketObservationTransport(
+                server_address="127.0.0.1",
+                server_port=5555,
+                request_timeout_seconds=1.5,
+            )
+        mock_client_class.assert_called_once_with(
+            server_address="127.0.0.1",
+            server_port=5555,
+            request_timeout_seconds=1.5,
+        )
+
+    def test_default_timeout_is_blocking(self):
+        with patch(SOCKET_CLIENT_PATH) as mock_client_class:
+            SocketActionTransport(server_address="127.0.0.1", server_port=5555)
+        mock_client_class.assert_called_once_with(
+            server_address="127.0.0.1",
+            server_port=5555,
+            request_timeout_seconds=None,
+        )

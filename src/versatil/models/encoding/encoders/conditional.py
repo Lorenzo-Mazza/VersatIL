@@ -53,11 +53,18 @@ class ConditionalEncoder(EncodingMixin):
         Returns:
             Flattened inputs, flattened conditioning, batch_size, temporal_length.
         """
-        first_tensor = next(iter(inputs.values()))
-        batch_size = first_tensor.shape[0]
-        temporal_length = first_tensor.shape[1]
+        first_key = next(iter(inputs))
+        batch_size = inputs[first_key].shape[0]
+        temporal_length = inputs[first_key].shape[1]
         flattened = {}
         for key, tensor in inputs.items():
+            if tensor.shape[:2] != (batch_size, temporal_length):
+                raise ValueError(
+                    f"Encoder input '{key}' has leading dimensions "
+                    f"{tuple(tensor.shape[:2])} but '{first_key}' has "
+                    f"({batch_size}, {temporal_length}); all inputs must share "
+                    "one (batch, time) layout."
+                )
             flattened[key] = tensor.reshape(
                 batch_size * temporal_length, *tensor.shape[2:]
             )
@@ -65,12 +72,26 @@ class ConditionalEncoder(EncodingMixin):
             conditioning = conditioning.reshape(
                 batch_size * temporal_length, *conditioning.shape[2:]
             )
+        elif conditioning.dim() >= 3 and conditioning.shape[1] == 1:
+            # Single-timestep conditioning (e.g. language) replicates across
+            # the image temporal length.
+            conditioning = conditioning.expand(
+                batch_size, temporal_length, *conditioning.shape[2:]
+            ).reshape(batch_size * temporal_length, *conditioning.shape[2:])
         elif conditioning.dim() == 2:
             # Conditioning has no temporal dim — replicate across time
             conditioning = (
                 conditioning.unsqueeze(1)
                 .expand(batch_size, temporal_length, *conditioning.shape[1:])
                 .reshape(batch_size * temporal_length, *conditioning.shape[1:])
+            )
+        else:
+            raise ValueError(
+                f"Conditioning shape {tuple(conditioning.shape)} does not match "
+                f"the image temporal length {temporal_length}: expected "
+                f"(B, {temporal_length}, ...) or a time-less (B, ...) tensor. "
+                "Passing it through unflattened would broadcast against a "
+                f"(B*T={batch_size * temporal_length}, ...) batch downstream."
             )
         return flattened, conditioning, batch_size, temporal_length
 

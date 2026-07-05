@@ -11,8 +11,10 @@ import timm
 import torch
 import torch.nn as nn
 
-from versatil.data.constants import RGB_CAMERAS
-from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.data.constants import CameraModality
+from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
@@ -23,20 +25,18 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.encoding.encoders.rgb.conditional_cnn import (
     ConditionalCNNEncoder,
 )
+from versatil.models.encoding.explainability import (
+    ActivationLayout,
+    ExplanationTargetKind,
+)
 
 CONDITIONAL_CNN_BACKBONES = list(ConditionalCNNEncoder.BACKBONE_CONFIGS.keys())
 
 
 def _mock_build_filmed_backbone(self):
     """Side-effect to set backbone layer attributes without timm."""
-    self.conv1 = nn.Identity()
-    self.bn1 = nn.Identity()
-    self.relu = nn.Identity()
-    self.maxpool = nn.Identity()
-    self.layer1 = nn.ModuleList()
-    self.layer2 = nn.ModuleList()
-    self.layer3 = nn.ModuleList()
-    self.layer4 = nn.ModuleList()
+    self.backbone = MagicMock()
+    self.backbone.return_value = torch.zeros(1, 512, 7, 7)
 
 
 @pytest.fixture(scope="session")
@@ -89,13 +89,14 @@ def conditional_cnn_factory(
     def factory(
         input_keys: str | list[str] = "left",
         condition_key: str = "language_instruction",
-        condition_dim: int = 64,
+        conditioning_dimension: int = 64,
         backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
         real_build: bool = False,
+        lora_config: LoRAAdaptation | None = None,
     ) -> ConditionalCNNEncoder:
         if not real_build:
             with patch.object(
@@ -106,22 +107,24 @@ def conditional_cnn_factory(
                 return ConditionalCNNEncoder(
                     input_keys=input_keys,
                     condition_key=condition_key,
-                    condition_dim=condition_dim,
+                    conditioning_dimension=conditioning_dimension,
                     backbone=backbone,
                     pooling_method=pooling_method,
                     batch_norm_handling=batch_norm_handling,
                     pretrained=pretrained,
                     frozen=frozen,
+                    lora_config=lora_config,
                 )
         return ConditionalCNNEncoder(
             input_keys=input_keys,
             condition_key=condition_key,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             backbone=backbone,
             pooling_method=pooling_method,
             batch_norm_handling=batch_norm_handling,
             pretrained=pretrained,
             frozen=frozen,
+            lora_config=lora_config,
         )
 
     return factory
@@ -135,13 +138,25 @@ def conditioning_factory(
 
     def factory(
         batch_size: int = 2,
-        condition_dim: int = 64,
+        conditioning_dimension: int = 64,
         time_steps: int = 1,
     ) -> torch.Tensor:
-        shape = (batch_size, time_steps, condition_dim)
+        shape = (batch_size, time_steps, conditioning_dimension)
         return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
 
     return factory
+
+
+def test_conditional_cnn_encoder_exposes_last_layer4_block_gradcam_target(
+    conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+):
+    encoder = conditional_cnn_factory()
+    target_layer = MagicMock()
+    encoder.backbone.layer4 = [MagicMock(), target_layer]
+    target = encoder.get_explainability_targets()[0]
+    assert target.layer is target_layer
+    assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+    assert target.activation_layout == ActivationLayout.NCHW.value
 
 
 class TestConditionalCNNEncoderInitialization:
@@ -178,7 +193,7 @@ class TestConditionalCNNEncoderInitialization:
             ConditionalCNNEncoder(
                 input_keys="left",
                 condition_key="language_instruction",
-                condition_dim=64,
+                conditioning_dimension=64,
                 backbone=backbone,
             )
 
@@ -204,7 +219,7 @@ class TestConditionalCNNEncoderInitialization:
             BatchNormHandling.DEFAULT.value,
         ],
     )
-    @pytest.mark.parametrize("condition_dim", [64, 128])
+    @pytest.mark.parametrize("conditioning_dimension", [64, 128])
     def test_stores_configuration(
         self,
         conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
@@ -212,48 +227,86 @@ class TestConditionalCNNEncoderInitialization:
         backbone: str,
         pooling_method: str,
         batch_norm_handling: str,
-        condition_dim: int,
+        conditioning_dimension: int,
     ):
         encoder = conditional_cnn_factory(
             input_keys=input_keys,
             backbone=backbone,
             pooling_method=pooling_method,
             batch_norm_handling=batch_norm_handling,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         assert encoder.backbone_name == backbone
         assert encoder.pooling_method == pooling_method
         assert encoder.batch_norm_handling == batch_norm_handling
-        assert encoder.condition_dim == condition_dim
+        assert encoder.conditioning_dimension == conditioning_dimension
         assert encoder.condition_key == "language_instruction"
         assert encoder.feature_dim == 512
         assert encoder.input_specification.keys == [input_keys]
 
+    @pytest.mark.unit
+    def test_stores_lora_config(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        encoder = conditional_cnn_factory(lora_config=lora_config)
+        assert encoder.lora_config is lora_config
+
+    @pytest.mark.unit
+    def test_build_backbone_applies_lora_config(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+        lora_passthrough: Callable[
+            [torch.nn.Module, LoRAAdaptation | None, bool], torch.nn.Module
+        ],
+    ):
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+
+        with patch(
+            "versatil.models.encoding.encoders.rgb.conditional_cnn.apply_lora_config",
+            side_effect=lora_passthrough,
+        ) as mock_apply_lora:
+            encoder = conditional_cnn_factory(
+                real_build=True,
+                frozen=False,
+                lora_config=lora_config,
+            )
+
+        assert mock_apply_lora.call_args.kwargs["model"] is encoder.backbone
+        assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
+        assert mock_apply_lora.call_args.kwargs["frozen"] is False
+
     @pytest.mark.parametrize(
-        "input_keys, expectation",
+        "input_keys",
         [
-            ("left", does_not_raise()),
-            ("right", does_not_raise()),
-            (["left", "right"], does_not_raise()),
-            (
-                "invalid_camera",
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        f"At least one from {RGB_CAMERAS} required, got {set()}"
-                    ),
-                ),
-            ),
+            "left",
+            "right",
+            ["left", "right"],
+            "invalid_camera",
         ],
     )
-    def test_input_keys_validation(
+    def test_input_keys_are_stored_without_key_list_validation(
         self,
         conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
         input_keys: str | list[str],
-        expectation,
     ):
-        with expectation:
-            conditional_cnn_factory(input_keys=input_keys)
+        encoder = conditional_cnn_factory(input_keys=input_keys)
+        expected_keys = [input_keys] if isinstance(input_keys, str) else input_keys
+        assert encoder.input_specification.keys == expected_keys
+        assert encoder.input_specification.required_camera_modalities == [
+            CameraModality.RGB
+        ]
 
 
 class TestConditionalCNNEncoderForward:
@@ -267,8 +320,8 @@ class TestConditionalCNNEncoderForward:
     ):
         batch_size = 2
         feature_dimension = 512
-        condition_dim = 64
-        encoder = conditional_cnn_factory(condition_dim=condition_dim)
+        conditioning_dimension = 64
+        encoder = conditional_cnn_factory(conditioning_dimension=conditioning_dimension)
 
         effective_batch = batch_size * time_steps
         mock_pooling = MagicMock()
@@ -281,7 +334,7 @@ class TestConditionalCNNEncoderForward:
         )
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             time_steps=time_steps,
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
@@ -297,8 +350,8 @@ class TestConditionalCNNEncoderForward:
         batch_size = 2
         time_steps = 3
         feature_dimension = 512
-        condition_dim = 64
-        encoder = conditional_cnn_factory(condition_dim=condition_dim)
+        conditioning_dimension = 64
+        encoder = conditional_cnn_factory(conditioning_dimension=conditioning_dimension)
 
         effective_batch = batch_size * time_steps
         mock_pooling = MagicMock()
@@ -311,7 +364,7 @@ class TestConditionalCNNEncoderForward:
         )
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
         features = output[EncoderOutputKeys.RGB.value]
@@ -324,12 +377,12 @@ class TestConditionalCNNEncoderForward:
         conditioning_factory: Callable[..., torch.Tensor],
     ):
         batch_size = 2
-        condition_dim = 64
-        encoder = conditional_cnn_factory(condition_dim=condition_dim)
+        conditioning_dimension = 64
+        encoder = conditional_cnn_factory(conditioning_dimension=conditioning_dimension)
         inputs = image_input_factory(batch_size=batch_size)
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         with pytest.raises(
             RuntimeError,
@@ -364,10 +417,10 @@ class TestConditionalCNNEncoderMultiCamera:
     ):
         batch_size = 2
         feature_dimension = 512
-        condition_dim = 64
+        conditioning_dimension = 64
         encoder = conditional_cnn_factory(
             input_keys=["left", "right"],
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         mock_pooling = MagicMock()
         mock_pooling.return_value = torch.zeros(batch_size, feature_dimension)
@@ -378,7 +431,7 @@ class TestConditionalCNNEncoderMultiCamera:
         }
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
         rgb = EncoderOutputKeys.RGB.value
@@ -407,10 +460,9 @@ class TestConditionalCNNEncoderValidateInputMetadata:
         "metadata, expected_error",
         [
             (
-                CameraMetadata(
+                RGBCameraMetadata(
                     camera_key="left",
                     dtype="uint8",
-                    channels=3,
                     image_height=224,
                     image_width=224,
                 ),
@@ -428,7 +480,7 @@ class TestConditionalCNNEncoderValidateInputMetadata:
                     image_height=224,
                     image_width=224,
                 ),
-                "Expected 3-channel RGB for 'left', got 1 channels",
+                None,
             ),
         ],
     )
@@ -446,6 +498,29 @@ class TestConditionalCNNEncoderValidateInputMetadata:
 class TestConditionalCNNEncoderIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", CONDITIONAL_CNN_BACKBONES)
+    def test_exposes_real_gradcam_target_per_backbone(
+        self,
+        backbone: str,
+    ):
+        encoder = ConditionalCNNEncoder(
+            input_keys="left",
+            condition_key="language_instruction",
+            conditioning_dimension=64,
+            backbone=backbone,
+            pooling_method=PoolingMethod.AVERAGE.value,
+            batch_norm_handling=BatchNormHandling.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+        ).cpu()
+
+        target = encoder.get_explainability_targets()[0]
+
+        assert target.layer is encoder.backbone.layer4[-1]
+        assert target.target_kind == ExplanationTargetKind.SPATIAL_FEATURE_MAP.value
+        assert target.activation_layout == ActivationLayout.NCHW.value
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("backbone", CONDITIONAL_CNN_BACKBONES)
     def test_forward_pass_per_backbone(
         self,
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -453,11 +528,11 @@ class TestConditionalCNNEncoderIntegration:
         backbone: str,
     ):
         batch_size = 2
-        condition_dim = 64
+        conditioning_dimension = 64
         encoder = ConditionalCNNEncoder(
             input_keys="left",
             condition_key="language_instruction",
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             backbone=backbone,
             pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
@@ -466,11 +541,57 @@ class TestConditionalCNNEncoderIntegration:
         inputs = image_input_factory(batch_size=batch_size)
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
         features = output[EncoderOutputKeys.RGB.value]
         assert features.shape == (batch_size, 1, encoder.output_dim)
+
+    @pytest.mark.integration
+    def test_lora_forward_pass_reduces_trainable_parameters(
+        self,
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        conditioning_factory: Callable[..., torch.Tensor],
+        parameter_count: Callable[[torch.nn.Module], int],
+        trainable_parameter_count: Callable[[torch.nn.Module], int],
+    ):
+        batch_size = 1
+        conditioning_dimension = 64
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        )
+        encoder = ConditionalCNNEncoder(
+            input_keys="left",
+            condition_key="language_instruction",
+            conditioning_dimension=conditioning_dimension,
+            backbone=SpatialBackboneType.RESNET18.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
+            pretrained=False,
+            frozen=False,
+            lora_config=lora_config,
+        ).cpu()
+        encoder.set_image_size(image_height=64, image_width=64)
+        inputs = image_input_factory(batch_size=batch_size, height=64, width=64)
+        conditioning = conditioning_factory(
+            batch_size=batch_size,
+            conditioning_dimension=conditioning_dimension,
+        )
+        output = encoder(inputs=inputs, conditioning=conditioning)
+        trainable_parameter_names = [
+            name
+            for name, parameter in encoder.backbone.named_parameters()
+            if parameter.requires_grad
+        ]
+        trainable_parameters = trainable_parameter_count(encoder.backbone)
+        total_parameters = parameter_count(encoder.backbone)
+        features = output[EncoderOutputKeys.RGB.value]
+        assert features.shape == (batch_size, 1, encoder.output_dim)
+        assert trainable_parameter_names
+        assert all("lora_" in name for name in trainable_parameter_names)
+        assert 0 < trainable_parameters < total_parameters
 
     @pytest.mark.integration
     @pytest.mark.parametrize("time_steps", [1, 2])
@@ -481,11 +602,11 @@ class TestConditionalCNNEncoderIntegration:
         time_steps: int,
     ):
         batch_size = 2
-        condition_dim = 64
+        conditioning_dimension = 64
         encoder = ConditionalCNNEncoder(
             input_keys="left",
             condition_key="language_instruction",
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             backbone=SpatialBackboneType.RESNET18.value,
             pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
@@ -497,7 +618,7 @@ class TestConditionalCNNEncoderIntegration:
         )
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             time_steps=time_steps,
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
@@ -520,11 +641,11 @@ class TestConditionalCNNEncoderIntegration:
         batch_norm_handling: str,
     ):
         batch_size = 2
-        condition_dim = 64
+        conditioning_dimension = 64
         encoder = ConditionalCNNEncoder(
             input_keys="left",
             condition_key="language_instruction",
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             backbone=SpatialBackboneType.RESNET18.value,
             batch_norm_handling=batch_norm_handling,
             pooling_method=PoolingMethod.AVERAGE.value,
@@ -534,7 +655,7 @@ class TestConditionalCNNEncoderIntegration:
         inputs = image_input_factory(batch_size=batch_size)
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
         assert EncoderOutputKeys.RGB.value in output
@@ -555,7 +676,7 @@ class TestConditionalCNNEncoderIntegration:
         encoder = ConditionalCNNEncoder(
             input_keys="left",
             condition_key="language_instruction",
-            condition_dim=64,
+            conditioning_dimension=64,
             backbone=SpatialBackboneType.RESNET18.value,
             pretrained=False,
             frozen=frozen,
@@ -577,7 +698,7 @@ class TestConditionalCNNEncoderIntegration:
         encoder = ConditionalCNNEncoder(
             input_keys="left",
             condition_key="language_instruction",
-            condition_dim=64,
+            conditioning_dimension=64,
             backbone=SpatialBackboneType.RESNET18.value,
             pooling_method=pooling_method,
             pretrained=False,
@@ -598,7 +719,7 @@ class TestConditionalCNNEncoderApplyBatchNormHandling:
             ConditionalCNNEncoder(
                 input_keys="left",
                 condition_key="language_instruction",
-                condition_dim=64,
+                conditioning_dimension=64,
                 backbone=SpatialBackboneType.RESNET18.value,
                 batch_norm_handling=invalid_handling,
                 pretrained=False,
@@ -611,12 +732,12 @@ class TestConditionalCNNEncoderCopyPretrainedWeights:
         encoder = ConditionalCNNEncoder(
             input_keys="left",
             condition_key="language_instruction",
-            condition_dim=64,
+            conditioning_dimension=64,
             backbone=SpatialBackboneType.RESNET18.value,
             pretrained=True,
         ).cpu()
         # Verify conv weights are non-zero (pretrained weights loaded)
-        first_block = encoder.layer1[0]
+        first_block = encoder.backbone.layer1[0]
         conv1_weight_norm = first_block.conv1.weight.data.abs().sum().item()
         assert conv1_weight_norm > 0.0
 
@@ -635,12 +756,12 @@ class TestConditionalCNNEncoderRealBuild:
             pretrained=pretrained,
         )
         assert mock_timm_resnet_backend.create_model_mock.called
-        assert isinstance(encoder.conv1, nn.Conv2d)
-        assert isinstance(encoder.bn1, (nn.BatchNorm2d, nn.GroupNorm))
-        assert len(encoder.layer1) == 2
-        assert len(encoder.layer2) == 2
-        assert len(encoder.layer3) == 2
-        assert len(encoder.layer4) == 2
+        assert isinstance(encoder.backbone.conv1, nn.Conv2d)
+        assert isinstance(encoder.backbone.bn1, (nn.BatchNorm2d, nn.GroupNorm))
+        assert len(encoder.backbone.layer1) == 2
+        assert len(encoder.backbone.layer2) == 2
+        assert len(encoder.backbone.layer3) == 2
+        assert len(encoder.backbone.layer4) == 2
         assert encoder.feature_dim == 512
 
     @pytest.mark.unit
@@ -653,7 +774,7 @@ class TestConditionalCNNEncoderRealBuild:
         encoder = conditional_cnn_factory(real_build=True, pretrained=True)
         # conv weights in the FiLMed block must match the base model's
         # conv weights for all non-BN parameters.
-        first_filmed_block = encoder.layer1[0]
+        first_filmed_block = encoder.backbone.layer1[0]
         first_base_block = base_model.layer1[0]
         assert torch.allclose(
             first_filmed_block.conv1.weight.data,
@@ -664,7 +785,7 @@ class TestConditionalCNNEncoderRealBuild:
             first_base_block.conv2.weight.data,
         )
         # layer2 has a downsample branch — verify it was copied too
-        second_filmed_block = encoder.layer2[0]
+        second_filmed_block = encoder.backbone.layer2[0]
         second_base_block = base_model.layer2[0]
         assert torch.allclose(
             second_filmed_block.downsample[0].weight.data,
@@ -690,7 +811,7 @@ class TestConditionalCNNEncoderRealBuild:
             real_build=True,
             batch_norm_handling=batch_norm_handling,
         )
-        assert isinstance(encoder.bn1, expected_bn1_type)
+        assert isinstance(encoder.backbone.bn1, expected_bn1_type)
 
     @pytest.mark.unit
     def test_frozen_calls_freeze_weights_on_init(
@@ -731,10 +852,10 @@ class TestConditionalCNNEncoderRealBuild:
         conditioning_factory: Callable[..., torch.Tensor],
     ):
         batch_size = 2
-        condition_dim = 64
+        conditioning_dimension = 64
         encoder = conditional_cnn_factory(
             real_build=True,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
         encoder.set_image_size(image_height=64, image_width=64)
@@ -743,7 +864,7 @@ class TestConditionalCNNEncoderRealBuild:
         )
         conditioning = conditioning_factory(
             batch_size=batch_size,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             time_steps=1,
         ).squeeze(1)
         output = encoder(inputs=inputs, conditioning=conditioning)
@@ -752,16 +873,26 @@ class TestConditionalCNNEncoderRealBuild:
         assert rgb.shape[-1] == encoder.feature_dim
 
 
+class _TestConditionalBackbone(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=7, padding=3)
+        self.bn1 = nn.Identity()
+        self.activation = nn.Identity()
+        self.maxpool = nn.Identity()
+        self.layer1 = nn.ModuleList()
+        self.layer2 = nn.ModuleList()
+        self.layer3 = nn.ModuleList()
+        self.layer4 = nn.ModuleList()
+
+    def forward(self, images: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        del conditioning
+        return self.conv1(images)
+
+
 def _real_filmed_build_backbone(self):
-    """Install a real FiLM-style backbone stub with actual nn.Module params."""
-    self.conv1 = nn.Conv2d(3, 16, kernel_size=7, padding=3)
-    self.bn1 = nn.Identity()
-    self.relu = nn.Identity()
-    self.maxpool = nn.Identity()
-    self.layer1 = nn.ModuleList()
-    self.layer2 = nn.ModuleList()
-    self.layer3 = nn.ModuleList()
-    self.layer4 = nn.ModuleList()
+    """Install a real conditional backbone with actual nn.Module params."""
+    self.backbone = _TestConditionalBackbone()
 
 
 class TestConditionalCNNEncoderModelDtype:
@@ -778,7 +909,7 @@ class TestConditionalCNNEncoderModelDtype:
             ConditionalCNNEncoder(
                 input_keys="left",
                 condition_key="language_instruction",
-                condition_dim=64,
+                conditioning_dimension=64,
                 backbone=SpatialBackboneType.RESNET18.value,
                 pretrained=False,
             )
@@ -806,7 +937,7 @@ class TestConditionalCNNEncoderModelDtype:
             encoder = ConditionalCNNEncoder(
                 input_keys="left",
                 condition_key="language_instruction",
-                condition_dim=64,
+                conditioning_dimension=64,
                 backbone=SpatialBackboneType.RESNET18.value,
                 pooling_method=PoolingMethod.SPATIAL_SOFTMAX.value,
                 batch_norm_handling=BatchNormHandling.DEFAULT.value,

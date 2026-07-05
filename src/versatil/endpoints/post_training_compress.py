@@ -2,21 +2,20 @@
 
 Note:
     The full workflow is the following: load policy → validate → fuse layers → prune →
-    export → quantize → save .pt2 compressed checkpoint.
+    export → quantize → save the compressed checkpoint as a Torch Export ``.pt2``
+    or ExecuTorch ``.pte`` artifact, depending on the deployment backend.
 """
 
 import logging
-from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-import versatil.common.argparse_compat  # noqa: F401
 from versatil.common.logging import override_log_format
+from versatil.configs.paths import get_hydra_configs_dir
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-EXPERIMENTS_DIR = PROJECT_ROOT / "hydra_configs"
+EXPERIMENTS_DIR = get_hydra_configs_dir()
 
 
 @hydra.main(

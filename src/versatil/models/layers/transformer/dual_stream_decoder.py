@@ -87,14 +87,14 @@ class DualStreamBidirectionalDecoder(TransformerMixin, nn.Module):
             self.positional_encoding_observation = create_positional_encoding(
                 encoding_type=positional_encoding_type,
                 embedding_dimension=embedding_dimension,
-                maximum_length=maximum_sequence_length_observation,
-                num_heads=number_of_heads,
+                maximum_sequence_length=maximum_sequence_length_observation,
+                number_of_heads=number_of_heads,
             )
             self.positional_encoding_action = create_positional_encoding(
                 encoding_type=positional_encoding_type,
                 embedding_dimension=embedding_dimension,
-                maximum_length=maximum_sequence_length_action,
-                num_heads=number_of_heads,
+                maximum_sequence_length=maximum_sequence_length_action,
+                number_of_heads=number_of_heads,
             )
         self.layers = nn.ModuleList(
             [
