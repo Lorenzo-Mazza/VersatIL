@@ -1,6 +1,7 @@
 """VersatIL library."""
 
 import logging
+import os
 import warnings
 
 from dotenv import load_dotenv
@@ -11,6 +12,10 @@ from versatil.common.set_cache_dir import (
 )
 
 load_dotenv()
+
+# Albumentations checks PyPI for updates at import time; keep imports
+# offline-safe and free of network warnings.
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
 
 CACHE_DIR = resolve_cache_directory()
 
@@ -67,9 +72,4 @@ warnings.filterwarnings(
     "ignore",
     message="Checkpoint directory.*exists and is not empty",
     module="pytorch_lightning",
-)
-warnings.filterwarnings(
-    "ignore",
-    message="crc32c usage is deprecated",
-    module="numcodecs.*",
 )

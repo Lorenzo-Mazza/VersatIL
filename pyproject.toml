@@ -42,6 +42,7 @@ dependencies = [
   "av>=16.1",
   "diffusers>=0.36",
   "geomloss>=0.2.6",
+  "google-crc32c>=1.7",
   "h5py>=3.15",
   "huggingface-hub>=1.5",
   "hydra-core>=1.4.0.dev5,<1.5",
@@ -191,7 +192,6 @@ filterwarnings = [
     "ignore:.*isinstance.*LeafSpec.*:FutureWarning",
     "ignore:.*Importing from torchao.dtypes.*:DeprecationWarning",
     "ignore:.*Importing BlockSparseLayout.*:DeprecationWarning",
-    "ignore:.*crc32c usage is deprecated.*:DeprecationWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"
