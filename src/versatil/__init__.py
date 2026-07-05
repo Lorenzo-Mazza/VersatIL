@@ -1,32 +1,20 @@
 """VersatIL library."""
 
 import logging
-import os
 import warnings
-from pathlib import Path
 
 from dotenv import load_dotenv
 
+from versatil.common.set_cache_dir import (
+    resolve_cache_directory,
+    setup_cache_directories,
+)
+
 load_dotenv()
 
-# Set cache dirs before importing transformers/timm — they read
-CACHE_DIR = Path(os.environ["VERSATIL_CACHE_DIR"])
+CACHE_DIR = resolve_cache_directory()
 
-
-def setup_cache_directories():
-    """Configure cache directories for model downloads."""
-    os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
-    os.environ["HF_HUB_CACHE"] = str(CACHE_DIR / "huggingface" / "hub")
-    os.environ["TORCH_HOME"] = str(CACHE_DIR / "torch")
-    for cache_path in [
-        CACHE_DIR / "huggingface" / "transformers",
-        CACHE_DIR / "huggingface" / "hub",
-        CACHE_DIR / "torch" / "hub",
-    ]:
-        cache_path.mkdir(parents=True, exist_ok=True)
-
-
-setup_cache_directories()
+setup_cache_directories(cache_dir=CACHE_DIR)
 
 logging.getLogger("torch.utils._pytree").setLevel(logging.ERROR)
 

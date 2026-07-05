@@ -8,6 +8,7 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 from versatil_constants.tso import TSOObsKey
 
+from versatil.common.set_cache_dir import resolve_cache_directory
 from versatil.configs.adaptation import LoRAAdaptationConfig
 from versatil.configs.data.augmentations import AugmentationPipelineConfig
 from versatil.configs.data.dataloader import DataLoaderConfig
@@ -646,9 +647,7 @@ def register_resolvers():
     if not OmegaConf.has_resolver("cache_dir"):
         OmegaConf.register_resolver(
             "cache_dir",
-            lambda: os.environ.get(
-                "VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")
-            ),
+            lambda: str(resolve_cache_directory()),
         )
     if not OmegaConf.has_resolver("prunable_layer"):
         OmegaConf.register_resolver(
