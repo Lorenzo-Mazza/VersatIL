@@ -300,8 +300,18 @@ We provide ZMQ server wrappers for common robot learning simulators, so VersatIL
 ---
 
 #### 🔍 Explainability
-We provide tools for model interpretability, such as visualization of the feature maps from the trained policy vision encoders.
-We currently support Grad-CAM, Grad-CAM++, Ablation-CAM and Integrated Gradients for visual explanations of the model's predictions.
+Visual attribution for trained policies: per-camera heatmaps showing which image regions drove the predicted actions.
+We currently support Grad-CAM, Grad-CAM++, and Ablation-CAM, computed over every visual module of the policy (encoding-pipeline encoders as well as decoder-owned VLM vision towers), either on offline dataset samples or live during inference.
+
+```bash
+python -m versatil.endpoints.explain \
+    checkpoint_path=/path/to/training/checkpoint \
+    explanation_types='[gradcam]' \
+    split=val \
+    max_samples=16
+```
+
+Heatmap overlays (and optionally raw tensors) are written next to the checkpoint. See the [explainability guide](docs/architecture/explainability.md) for sources, targeting, and output formats.
 
 ---
 
