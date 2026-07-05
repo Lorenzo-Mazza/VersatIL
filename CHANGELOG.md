@@ -10,20 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.1] - 2026-07-05
 
 ### Fixed
-- The bundled Roboto Serif font ships with its SIL Open Font License text, as
-  the OFL requires for redistribution.
-- The PyPI project page renders the logo and reflects the reworked README.
+- Ship the SIL OFL license text with the bundled Roboto Serif font.
+- The PyPI project page renders the logo correctly.
 
 ### Added
 - `CITATION.cff` and a `CONTRIBUTING.md` contributor guide.
 
 ### Changed
-- README rewritten as a showcase; deep-dive material moved into the docs.
-- Flow matching is described as simulation-free velocity-field regression and
-  cites Lipman et al. (arXiv:2210.02747) instead of the Rectified Flow paper.
-- Documentation refresh: published dataset links, quantization/compression
-  background sections, ExecuTorch source-build instructions in the
-  installation guide, and an explainability card on the docs landing page.
+- README rewritten and documentation refreshed for the public release.
 
 ## [0.4.0] - 2026-07-05
 
