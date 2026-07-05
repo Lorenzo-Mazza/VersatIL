@@ -232,18 +232,3 @@ class TestXNNPACKPT2EBackendRuntimeHooks:
             assert os.environ["TORCHINDUCTOR_FREEZING"] == "before"
 
         assert os.environ["TORCHINDUCTOR_FREEZING"] == "before"
-
-    def test_lower_returns_converted_model(
-        self,
-        xnnpack_backend_factory: Callable[..., XNNPACKPT2EBackend],
-    ) -> None:
-        backend = xnnpack_backend_factory()
-        converted_model = nn.Linear(in_features=4, out_features=2)
-        example_inputs = (torch.zeros(2, 4),)
-
-        result = backend.lower(
-            converted_model=converted_model,
-            example_inputs=example_inputs,
-        )
-
-        assert result is converted_model

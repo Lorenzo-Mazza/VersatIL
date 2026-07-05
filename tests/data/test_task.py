@@ -1,5 +1,6 @@
 """Tests for versatil.data.task module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -78,13 +79,15 @@ def mixed_action_space(
 def _make_mock_schema(
     zarr_keys: list[str],
     observations: dict = None,
+    precomputed_actions: dict = None,
 ) -> MagicMock:
-    """Create a mock DatasetSchema with given zarr keys and observations."""
+    """Create a mock DatasetSchema with given zarr keys and metadata."""
     schema = MagicMock()
     schema.get_required_zarr_keys.return_value = zarr_keys
     schema.metadata = MagicMock()
     schema.metadata.observations = observations or {}
     schema.metadata.get_observation = lambda key: (observations or {}).get(key)
+    schema.metadata.precomputed_actions = precomputed_actions or {}
     return schema
 
 
@@ -109,10 +112,15 @@ class TestActionTensorRoundTrip:
     def test_split_inverts_concatenation(
         self,
         mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
     ):
         actions = {
-            "position": torch.randn(2, 4, 3),
-            "gripper": torch.randn(2, 4, 1),
+            "position": action_tensor_factory(
+                batch_size=2, sequence_length=4, action_dimension=3
+            ),
+            "gripper": action_tensor_factory(
+                batch_size=2, sequence_length=4, action_dimension=1
+            ),
         }
         joint = mixed_action_space.concatenate_action_tensors(
             actions=actions, prediction_horizon=4, owner_name="test"
@@ -127,28 +135,54 @@ class TestActionTensorRoundTrip:
     def test_split_rejects_wrong_final_dimension(
         self,
         mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
     ):
         with pytest.raises(ValueError, match="final dimension"):
             mixed_action_space.split_action_tensor(
-                action_tensor=torch.randn(2, 4, 7), owner_name="test"
+                action_tensor=action_tensor_factory(
+                    batch_size=2, sequence_length=4, action_dimension=7
+                ),
+                owner_name="test",
             )
 
     def test_validate_rejects_missing_and_extra_keys(
         self,
         mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "test expected action keys ['position', 'gripper'], got ['position']."
+            ),
+        ):
             mixed_action_space.validate_action_tensors(
-                actions={"position": torch.randn(2, 4, 3)},
+                actions={
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=3
+                    )
+                },
                 prediction_horizon=4,
                 owner_name="test",
             )
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "test expected action keys ['position', 'gripper'], "
+                "got ['gripper', 'phase', 'position']."
+            ),
+        ):
             mixed_action_space.validate_action_tensors(
                 actions={
-                    "position": torch.randn(2, 4, 3),
-                    "gripper": torch.randn(2, 4, 1),
-                    "phase": torch.randn(2, 4, 1),
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=3
+                    ),
+                    "gripper": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=1
+                    ),
+                    "phase": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=1
+                    ),
                 },
                 prediction_horizon=4,
                 owner_name="test",
@@ -157,21 +191,39 @@ class TestActionTensorRoundTrip:
     def test_validate_rejects_wrong_horizon_and_batch_mismatch(
         self,
         mixed_action_space: ActionSpace,
+        action_tensor_factory: Callable[..., torch.Tensor],
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Action 'position' must have prediction horizon 4, got 3."),
+        ):
             mixed_action_space.validate_action_tensors(
                 actions={
-                    "position": torch.randn(2, 3, 3),
-                    "gripper": torch.randn(2, 4, 1),
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=3, action_dimension=3
+                    ),
+                    "gripper": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=1
+                    ),
                 },
                 prediction_horizon=4,
                 owner_name="test",
             )
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "All action tensors must have the same batch size, "
+                "got 3 for 'gripper' and 2 for 'position'."
+            ),
+        ):
             mixed_action_space.validate_action_tensors(
                 actions={
-                    "position": torch.randn(2, 4, 3),
-                    "gripper": torch.randn(3, 4, 1),
+                    "position": action_tensor_factory(
+                        batch_size=2, sequence_length=4, action_dimension=3
+                    ),
+                    "gripper": action_tensor_factory(
+                        batch_size=3, sequence_length=4, action_dimension=1
+                    ),
                 },
                 prediction_horizon=4,
                 owner_name="test",
@@ -994,6 +1046,41 @@ class TestTaskSpaceValidation:
                 action_space=action_space_factory(
                     actions_metadata={
                         "gripper_action": gripper_action_metadata_factory(),
+                    }
+                ),
+                observation_space=observation_space_factory(),
+            )
+
+    def test_precomputed_action_metadata_mismatch_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        # Task expects a binary gripper, schema stores a continuous one
+        task_action = gripper_action_metadata_factory(
+            gripper_type=GripperType.BINARY.value,
+        )
+        schema_action = gripper_action_metadata_factory(
+            gripper_type=GripperType.CONTINUOUS.value,
+        )
+        schema = _make_mock_schema(
+            zarr_keys=["gripper_action"],
+            precomputed_actions={"gripper_action": schema_action},
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Precomputed action 'gripper_action' metadata mismatch with schema"
+            ),
+        ):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(
+                    actions_metadata={
+                        "gripper_action": task_action,
                     }
                 ),
                 observation_space=observation_space_factory(),

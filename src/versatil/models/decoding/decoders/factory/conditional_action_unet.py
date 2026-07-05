@@ -53,7 +53,6 @@ class ConditionalActionUNet(ActionDecoder):
         down_dimensions: list[int] | None = None,
         kernel_size: int = 5,
         num_groups: int = 8,
-        use_local_conditioning: bool = False,
         condition_predict_scale: bool = False,
     ) -> None:
         """Initialize Conditional U-Net decoder.
@@ -70,11 +69,8 @@ class ConditionalActionUNet(ActionDecoder):
             down_dimensions: List of channel dimensions for downsampling layers
             kernel_size: Kernel size for convolutions in residual blocks
             num_groups: Number of groups for group normalization
-            use_local_conditioning: Whether to use local (sequence-aligned) conditioning
             condition_predict_scale: If True, conditions predict scaling factors in FiLM
 
-        Raises:
-            ValueError: If local conditioning is requested but not yet implemented
         """
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -94,17 +90,10 @@ class ConditionalActionUNet(ActionDecoder):
         if down_dimensions is None:
             down_dimensions = [256, 512, 1024]
 
-        if use_local_conditioning:
-            raise NotImplementedError(
-                "Local conditioning is not yet implemented. "
-                "Use global conditioning (obs_as_global_cond=True) for now."
-            )
-
         self.embedding_dimension = embedding_dimension
         self.down_dimensions = down_dimensions
         self.kernel_size = kernel_size
         self.num_groups = num_groups
-        self.use_local_conditioning = use_local_conditioning
         self.condition_predict_scale = condition_predict_scale
 
         self._global_conditioning_dimension: int | None = None

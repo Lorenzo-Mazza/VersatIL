@@ -548,6 +548,13 @@ class TaskSpace:
                     raise ValueError(
                         f"Precomputed action '{key}' not found in dataset schema."
                     )
+                schema_action = self.dataset_schema.metadata.precomputed_actions.get(
+                    key
+                )
+                if schema_action is not None and action_meta != schema_action:
+                    raise ValueError(
+                        f"Precomputed action '{key}' metadata mismatch with schema"
+                    )
         for key, task_obs in self.observation_space.observations_metadata.items():
             if key not in zarr_keys:
                 raise ValueError(f"Observation '{key}' not found in dataset schema.")

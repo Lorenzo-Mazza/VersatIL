@@ -4,8 +4,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from contextlib import contextmanager
 
-import torch
-import torch.nn as nn
 from torchao.quantization.pt2e.quantizer import Quantizer
 
 
@@ -62,11 +60,3 @@ class BasePT2EBackend(ABC):
         where the actual compilation is deferred to the first
         forward pass.
         """
-
-    @abstractmethod
-    def lower(
-        self,
-        converted_model: nn.Module,
-        example_inputs: tuple[torch.Tensor, ...],
-    ) -> nn.Module:
-        """Apply backend-specific lowering to the converted model."""

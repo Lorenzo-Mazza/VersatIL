@@ -48,7 +48,6 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
-        use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         learn_variance: bool = True,
         min_logvar: float | None = None,
@@ -73,7 +72,6 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.max_logvar = max_logvar
         self.deterministic = deterministic
         self.embedding_dimension = embedding_dimension
-        self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
         self.number_of_heads = number_of_heads

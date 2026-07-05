@@ -6,7 +6,11 @@ from dataclasses import replace
 import torch
 import torch.nn as nn
 
-from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
+from versatil.models.decoding.constants import (
+    DecoderOutputKey,
+    LatentKey,
+    MoERoutingType,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 from versatil.models.layers.activation import ActivationFunction
@@ -154,11 +158,23 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
                 - Combined predictions from routed experts (action keys)
                 - routing_weights: Computed routing weights
                 - expert_outputs: Individual expert prediction dictionaries
+
+        Raises:
+            KeyError: If the gating key for the current mode (gating_feature_key
+                in training, inference_gating_key in eval) is missing from
+                ``features``.
         """
         if self.training:
             gating_key = self.gating_feature_key
         else:
             gating_key = self.inference_gating_key
+        if gating_key not in features:
+            raise KeyError(
+                f"MoE gating feature '{gating_key}' is missing from decoder "
+                f"features {sorted(features)}. Algorithm-injected latents are "
+                f"exposed under '{LatentKey.POSTERIOR_LATENT.value}' during "
+                "both training and inference."
+            )
         gating_feature = features[gating_key]  # (B, embedding dimension)
         mixing_probabilities = self.compute_routing_weights(
             gating_feature

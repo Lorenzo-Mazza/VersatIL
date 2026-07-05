@@ -44,7 +44,6 @@ def unet_decoder_factory(
         down_dimensions: list[int] | None = None,
         kernel_size: int = KERNEL_SIZE,
         num_groups: int = NUM_GROUPS,
-        use_local_conditioning: bool = False,
         condition_predict_scale: bool = False,
         observation_horizon: int = OBSERVATION_HORIZON,
         prediction_horizon: int = PREDICTION_HORIZON,
@@ -73,7 +72,6 @@ def unet_decoder_factory(
             down_dimensions=down_dimensions,
             kernel_size=kernel_size,
             num_groups=num_groups,
-            use_local_conditioning=use_local_conditioning,
             condition_predict_scale=condition_predict_scale,
         )
 
@@ -106,13 +104,11 @@ class TestConditionalActionUNetInitialization:
             down_dimensions=down_dimensions,
             kernel_size=kernel_size,
             condition_predict_scale=condition_predict_scale,
-            use_local_conditioning=False,
         )
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.down_dimensions == down_dimensions
         assert decoder.kernel_size == kernel_size
         assert decoder.condition_predict_scale is condition_predict_scale
-        assert decoder.use_local_conditioning is False
 
     def test_unet_not_initialized_before_forward(
         self,
@@ -127,19 +123,6 @@ class TestConditionalActionUNetInitialization:
     ):
         decoder = unet_decoder_factory()
         assert "_module_attr_reference" not in decoder.state_dict()
-
-    def test_local_conditioning_raises_not_implemented(
-        self,
-        unet_decoder_factory: Callable[..., ConditionalActionUNet],
-    ):
-        with pytest.raises(
-            NotImplementedError,
-            match=re.escape(
-                "Local conditioning is not yet implemented. "
-                "Use global conditioning (obs_as_global_cond=True) for now."
-            ),
-        ):
-            unet_decoder_factory(use_local_conditioning=True)
 
     def test_decoder_input_rejects_spatial_features(
         self,

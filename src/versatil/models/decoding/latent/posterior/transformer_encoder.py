@@ -44,7 +44,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         dropout_rate: Dropout probability
         attention_type: Attention mechanism type (use AttentionType enum values)
         latent_dimension: Dimension of VAE latent space (z)
-        use_proprioceptive: Whether to condition on proprioceptive observations
         prediction_horizon: Number of action timesteps
         device: Device to place encoder on
     """
@@ -65,7 +64,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
-        use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         min_logvar: float | None = None,
         deterministic: bool = False,
@@ -86,8 +84,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             activation: Activation function name
             dropout_rate: Dropout probability
             attention_type: Attention mechanism type (use AttentionType enum values)
-            use_proprioceptive: Whether to condition on proprioceptive observations
-            exclude_keys: List of keys to exclude from encoding
+                exclude_keys: List of keys to exclude from encoding
             min_logvar: Minimum log variance for avoiding variance collapse
             deterministic: If True, output deterministic embeddings without reparameterization.
                 Use with MMD or OT regularizers instead of KL divergence.
@@ -117,7 +114,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.deterministic = deterministic
         self.mu_tanh_bound = mu_tanh_bound
         self.embedding_dimension = embedding_dimension
-        self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
         self.number_of_heads = number_of_heads

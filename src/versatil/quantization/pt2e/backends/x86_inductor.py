@@ -4,10 +4,7 @@ import os
 from collections.abc import Generator
 from contextlib import contextmanager
 
-import torch
 import torch._inductor.config as inductor_config
-import torch.nn as nn
-from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 from torchao.quantization.pt2e.quantizer import Quantizer
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
@@ -118,19 +115,3 @@ class X86InductorBackend(BasePT2EBackend):
         os.environ[_CUDA_VISIBLE_DEVICES_KEY] = ""
         os.environ[_TORCHINDUCTOR_FREEZING_KEY] = "1"
         inductor_config.cpp_wrapper = True
-
-    def lower(
-        self,
-        converted_model: nn.Module,
-        example_inputs: tuple[torch.Tensor, ...],
-    ) -> nn.Module:
-        """Apply X86 Inductor lowering to the converted model.
-
-        Args:
-            converted_model: The PT2E-converted model.
-            example_inputs: Example inputs for lowering optimization.
-
-        Returns:
-            The lowered model with X86 Inductor operator fusion.
-        """
-        return lower_pt2e_quantized_to_x86(converted_model, example_inputs)

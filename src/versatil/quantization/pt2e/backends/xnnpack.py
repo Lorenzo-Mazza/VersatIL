@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from types import ModuleType
 
 import torch
-import torch.nn as nn
 from torch.fx import Node
 from torchao.quantization.pt2e.quantizer import Quantizer
 
@@ -95,24 +94,6 @@ class XNNPACKPT2EBackend(BasePT2EBackend):
 
     def activate_environment(self) -> None:
         """No-op because XNNPACK deployment does not use torch.compile env."""
-
-    def lower(
-        self,
-        converted_model: nn.Module,
-        example_inputs: tuple[torch.Tensor, ...],
-    ) -> nn.Module:
-        """Return the converted model unchanged.
-
-        Args:
-            converted_model: PT2E-converted graph module.
-            example_inputs: Example inputs kept for backend interface symmetry.
-
-        Returns:
-            The PT2E-converted graph module. ExecuTorch XNNPACK lowering is
-            handled by the deployment backend that serializes the ``.pte`` file.
-        """
-        _ = example_inputs
-        return converted_model
 
 
 def _load_xnnpack_quantizer_module() -> ModuleType:

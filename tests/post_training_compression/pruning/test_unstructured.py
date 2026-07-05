@@ -212,3 +212,18 @@ class TestUnstructuredPruner:
 
         assert zeroed > 0
         assert zeroed / total > 0.3
+
+    def test_prune_raises_when_no_layers_match(self):
+        pruner = UnstructuredPruner(
+            amount=0.5, layer_types=[PrunableLayerType.CONV2D.value]
+        )
+        module = nn.Sequential(nn.LayerNorm(4), nn.ReLU())
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Unstructured pruning selected no modules; the target module "
+                "contains no ['Conv2d'] layers."
+            ),
+        ):
+            pruner.prune(module=module)

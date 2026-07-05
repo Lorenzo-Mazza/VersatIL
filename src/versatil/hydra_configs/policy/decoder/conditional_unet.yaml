@@ -22,7 +22,6 @@ num_groups: 8
 
 # Local conditioning (sequence-aligned features)
 # Currently not implemented - use global conditioning only
-use_local_conditioning: false
 
 # Whether conditions predict scaling factors in FiLM
 condition_predict_scale: true

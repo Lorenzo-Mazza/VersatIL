@@ -1,11 +1,10 @@
 """Tests for versatil.quantization.pt2e.backends.x86_inductor module."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import torch
-import torch.nn as nn
 
 
 @pytest.mark.unit
@@ -156,27 +155,3 @@ class TestX86InductorBackendActivateEnvironment:
 
         os.environ.pop("TORCHINDUCTOR_FREEZING", None)
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-
-
-@pytest.mark.unit
-class TestX86InductorBackendLower:
-    @patch(
-        "versatil.quantization.pt2e.backends.x86_inductor.lower_pt2e_quantized_to_x86"
-    )
-    def test_delegates_to_torchao_lowering(
-        self,
-        mock_lower,
-        x86_inductor_backend_factory,
-    ):
-        mock_converted = MagicMock(spec=nn.Module)
-        mock_lowered = MagicMock(spec=nn.Module)
-        mock_lower.return_value = mock_lowered
-        example_inputs = (MagicMock(),)
-
-        result = x86_inductor_backend_factory().lower(
-            converted_model=mock_converted,
-            example_inputs=example_inputs,
-        )
-
-        mock_lower.assert_called_once_with(mock_converted, example_inputs)
-        assert result is mock_lowered
