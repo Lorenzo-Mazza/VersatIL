@@ -1,5 +1,7 @@
 """Tests for versatil.configs.data.augmentations module."""
 
+import warnings
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -98,14 +100,10 @@ class TestImageCompressionConfig:
         config = ImageCompressionConfig()
         assert config._target_ == "albumentations.ImageCompression"
 
-    @pytest.mark.parametrize("quality_lower", [30, 70])
-    @pytest.mark.parametrize("quality_upper", [80, 100])
-    def test_stores_quality_range(self, quality_lower, quality_upper):
-        config = ImageCompressionConfig(
-            quality_lower=quality_lower, quality_upper=quality_upper
-        )
-        assert config.quality_lower == quality_lower
-        assert config.quality_upper == quality_upper
+    @pytest.mark.parametrize("quality_range", [(30, 80), (70, 100)])
+    def test_stores_quality_range(self, quality_range):
+        config = ImageCompressionConfig(quality_range=quality_range)
+        assert config.quality_range == quality_range
 
 
 @pytest.mark.unit
@@ -200,10 +198,17 @@ class TestAugmentationInstantiation:
         instance = instantiate(config)
         assert type(instance).__name__ == "GaussianBlur"
 
-    def test_coarse_dropout_instantiates(self):
-        config = CoarseDropoutConfig()
+    def test_coarse_dropout_instantiates_with_configured_ranges(self):
+        config = CoarseDropoutConfig(
+            num_holes_range=(2, 4),
+            hole_height_range=(3, 5),
+            hole_width_range=(6, 7),
+        )
         instance = instantiate(config)
         assert type(instance).__name__ == "CoarseDropout"
+        assert instance.num_holes_range == (2, 4)
+        assert instance.hole_height_range == (3, 5)
+        assert instance.hole_width_range == (6, 7)
 
     def test_shift_scale_rotate_instantiates(self):
         config = ShiftScaleRotateConfig()
@@ -220,10 +225,11 @@ class TestAugmentationInstantiation:
         instance = instantiate(config)
         assert type(instance).__name__ == "Rotate"
 
-    def test_image_compression_instantiates(self):
-        config = ImageCompressionConfig()
+    def test_image_compression_instantiates_with_configured_range(self):
+        config = ImageCompressionConfig(quality_range=(30, 90))
         instance = instantiate(config)
         assert type(instance).__name__ == "ImageCompression"
+        assert instance.quality_range == (30, 90)
 
     def test_pipeline_instantiates_with_transforms(self):
         config = AugmentationPipelineConfig(
@@ -232,3 +238,33 @@ class TestAugmentationInstantiation:
         instance = instantiate(config)
         assert type(instance).__name__ == "Compose"
         assert len(instance.transforms) == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config",
+    [
+        ColorJitterConfig(),
+        RandomSunFlareConfig(),
+        RandomBrightnessContrastConfig(),
+        RandomGammaConfig(),
+        CLAHEConfig(),
+        RandomShadowConfig(),
+        ImageCompressionConfig(),
+        GaussianBlurConfig(),
+        CoarseDropoutConfig(),
+        ShiftScaleRotateConfig(),
+        CenterCropConfig(height=224, width=224),
+        RotateConfig(),
+    ],
+    ids=lambda config: type(config).__name__,
+)
+def test_augmentation_config_arguments_are_accepted_by_albumentations(config):
+    # Albumentations warns and silently ignores unknown arguments, so any
+    # warning here means a configured value would not reach the transform.
+    # The ShiftScaleRotate deprecation is exempt: its arguments are honored,
+    # it just recommends Affine as a replacement.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warnings.filterwarnings("ignore", message="ShiftScaleRotate is a special case")
+        instantiate(config)

@@ -178,7 +178,6 @@ filterwarnings = [
     "ignore:.*self.log.*:UserWarning",
     "ignore::DeprecationWarning:geomloss",
     "ignore::SyntaxWarning:geomloss",
-    "ignore:.*are not valid for transform.*:UserWarning",
     "ignore:ShiftScaleRotate is a special case.*:UserWarning",
     "ignore:Initializing zero-element tensors.*:UserWarning",
     "ignore:.*weights_only=False.*:FutureWarning",
@@ -244,7 +243,6 @@ select = [
 ignore = [
     "E501",   # Line too long (let formatter handle this)
     "B008",   # Do not perform function calls in argument defaults (needed for FastAPI/Hydra)
-    "B905",   # zip without explicit strict parameter
     "N806",   # Variable in function should be lowercase (allow uppercase for tensor dimensions like B, T, C, H, W)
     "N812",   # Lowercase imported as non-lowercase (for backwards compatibility)
     "N999",   # Invalid module name (some legacy modules)

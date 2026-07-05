@@ -373,20 +373,31 @@ class LACTConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
+class MixtureOfExpertsDecoderConfig:
     """Mixture of Experts (MoE) decoder configuration.
+
+    The wrapper takes every generic decoder setting (action heads, input keys,
+    spaces, horizons, device) from ``base_expert``, so it intentionally does
+    not extend ``DecodingNetworkConfig``.
 
     Attributes:
         _target_: Import path instantiated by Hydra.
         base_expert: Decoder config replicated per expert.
         num_experts: Number of expert decoders.
         gating_feature_key: Feature key routed to the gating network during training.
-        inference_gating_key: If None, uses gating_feature_key.
+        inference_gating_key: Feature key routed to the gating network at
+            inference when it differs from gating_feature_key. None uses
+            gating_feature_key. The key must exist in the decoder features at
+            inference; variational algorithms expose their sampled latent under
+            the posterior key ('latent') during both training and inference.
         gating_input_dim: Gating network input dimension; null derives routing from the
             latent.
         gating_hidden_dims: Gating network hidden layer widths.
+        gating_activation: Activation function inside the gating network.
         routing_type: Expert routing: soft or top_k.
-        top_k: Experts activated per sample with top_k routing.
+        top_k: Number of expert outputs mixed per sample with top_k routing.
+            Every expert still runs a forward pass; routing selects and
+            renormalizes the top-k outputs rather than skipping computation.
         temperature: Routing softmax temperature.
         learnable_temperature: Whether the routing temperature is learned.
         gating_dropout: Dropout probability inside the gating network.
@@ -400,6 +411,7 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     inference_gating_key: str | None = None  # If None, uses gating_feature_key
     gating_input_dim: int | None = None
     gating_hidden_dims: list[int] = field(default_factory=list)
+    gating_activation: str = ActivationFunction.SILU.value
     routing_type: str = MoERoutingType.SOFT.value
     top_k: int = 2
     temperature: float = 1.0
@@ -512,7 +524,6 @@ class ConditionalActionUNetConfig(DecodingNetworkConfig):
         down_dimensions: List of channel dimensions for downsampling layers.
         kernel_size: Kernel size for convolutions in residual blocks.
         num_groups: Number of groups for group normalization.
-        use_local_conditioning: Whether to use local (sequence-aligned) conditioning.
         condition_predict_scale: If True, conditions predict scaling factors in FiLM.
     """
 
@@ -521,7 +532,6 @@ class ConditionalActionUNetConfig(DecodingNetworkConfig):
     down_dimensions: list[int] = field(default_factory=lambda: [256, 512, 1024])
     kernel_size: int = 5
     num_groups: int = 8
-    use_local_conditioning: bool = False
     condition_predict_scale: bool = False
 
 

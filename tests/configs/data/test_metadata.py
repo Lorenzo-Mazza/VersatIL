@@ -54,9 +54,9 @@ class TestPositionObservationMetadataConfig:
         config = PositionObservationMetadataConfig()
         assert config.frame == CoordinateSystem.ROBOT_BASE.value
 
-    def test_inherits_from_observation_metadata_config(self):
+    def test_does_not_expose_is_numerical(self):
         config = PositionObservationMetadataConfig()
-        assert isinstance(config, ObservationMetadataConfig)
+        assert not hasattr(config, "is_numerical")
 
 
 @pytest.mark.unit
@@ -184,9 +184,9 @@ class TestPositionActionMetadataConfig:
         config = PositionActionMetadataConfig()
         assert config.computation_method is None
 
-    def test_inherits_from_precomputed_action_metadata_config(self):
+    def test_does_not_expose_is_numerical(self):
         config = PositionActionMetadataConfig()
-        assert isinstance(config, PrecomputedActionMetadataConfig)
+        assert not hasattr(config, "is_numerical")
 
 
 @pytest.mark.unit

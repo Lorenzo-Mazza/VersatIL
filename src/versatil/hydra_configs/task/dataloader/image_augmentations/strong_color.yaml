@@ -23,6 +23,5 @@ transforms:
   - _target_: albumentations.RandomShadow
     p: 0.6
   - _target_: albumentations.ImageCompression
-    quality_lower: 30
-    quality_upper: 100
+    quality_range: [30, 100]
     p: 0.3

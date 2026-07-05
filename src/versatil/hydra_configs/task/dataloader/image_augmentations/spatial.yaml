@@ -4,9 +4,9 @@ transforms:
     blur_limit: [3, 7]
     p: 0.5
   - _target_: albumentations.CoarseDropout
-    max_holes: 8
-    max_height: 8
-    max_width: 8
+    num_holes_range: [8, 8]
+    hole_height_range: [8, 8]
+    hole_width_range: [8, 8]
     p: 0.3
   - _target_: albumentations.ShiftScaleRotate
     rotate_limit: [0, 0]

@@ -249,18 +249,23 @@ class TestLACTConfig:
 @pytest.mark.unit
 class TestMixtureOfExpertsDecoderConfig:
     def test_target_points_to_moe_decoder(self):
-        config = MixtureOfExpertsDecoderConfig(input_keys=["features"])
+        config = MixtureOfExpertsDecoderConfig()
         assert config._target_ == "versatil.models.decoding.decoders.moe.MoEDecoder"
 
     def test_routing_type_default_is_soft_string(self):
-        config = MixtureOfExpertsDecoderConfig(input_keys=["features"])
+        config = MixtureOfExpertsDecoderConfig()
         assert config.routing_type == MoERoutingType.SOFT.value
 
     def test_required_fields(self):
-        config = MixtureOfExpertsDecoderConfig(input_keys=["features"])
+        config = MixtureOfExpertsDecoderConfig()
         assert config.base_expert == MISSING
         assert config.num_experts == MISSING
         assert config.gating_feature_key == MISSING
+
+    def test_does_not_expose_generic_decoder_fields(self):
+        config = MixtureOfExpertsDecoderConfig()
+        assert not hasattr(config, "input_keys")
+        assert not hasattr(config, "action_heads")
 
 
 @pytest.mark.unit

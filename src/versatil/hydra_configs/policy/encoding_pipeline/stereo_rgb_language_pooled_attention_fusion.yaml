@@ -36,8 +36,8 @@ fusion_stages:
     input_features:
       - left_rgb
       - right_rgb
-    context_features:
       - instruction_language
+    input_feature_query: instruction_language
     output_name: fused_visual
     hidden_dimension: 256
     number_of_heads: 4

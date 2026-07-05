@@ -129,15 +129,13 @@ class ImageCompressionConfig(AugmentationConfig):
 
     Attributes:
         _target_: Import path instantiated by Hydra.
-        quality_lower: Lower bound of the JPEG/WebP quality range.
-        quality_upper: Upper bound of the JPEG/WebP quality range.
+        quality_range: Inclusive (lower, upper) JPEG/WebP quality range.
         compression_type: Compression codec, jpeg or webp.
         p: Probability of applying the transform.
     """
 
     _target_: str = "albumentations.ImageCompression"
-    quality_lower: int = 50
-    quality_upper: int = 100
+    quality_range: tuple[int, int] = (50, 100)
     compression_type: str = "jpeg"
     p: float = 0.2
 
@@ -166,16 +164,16 @@ class CoarseDropoutConfig(AugmentationConfig):
 
     Attributes:
         _target_: Import path instantiated by Hydra.
-        max_holes: Maximum number of dropped rectangular regions.
-        max_height: Maximum height of a dropped region in pixels.
-        max_width: Maximum width of a dropped region in pixels.
+        num_holes_range: Inclusive range for the number of dropped regions.
+        hole_height_range: Inclusive height range of a dropped region in pixels.
+        hole_width_range: Inclusive width range of a dropped region in pixels.
         p: Probability of applying the transform.
     """
 
     _target_: str = "albumentations.CoarseDropout"
-    max_holes: int = 8
-    max_height: int = 8
-    max_width: int = 8
+    num_holes_range: tuple[int, int] = (8, 8)
+    hole_height_range: tuple[int, int] = (8, 8)
+    hole_width_range: tuple[int, int] = (8, 8)
     p: float = 0.3
 
 

@@ -18,8 +18,8 @@ from versatil.data.constants import (
 
 
 @dataclass
-class ObservationMetadataConfig:
-    """Config for ObservationMetadata.
+class BaseObservationMetadataConfig:
+    """Fields shared by every observation metadata config.
 
     Attributes:
         _target_: Import path instantiated by Hydra.
@@ -28,7 +28,6 @@ class ObservationMetadataConfig:
         dimension: Dimension that will be used to store the observation in the zarr
             store.
         dtype: Numpy dtype the values are stored as.
-        is_numerical: Whether the observation is numerical rather than text.
         needs_normalization: Whether the observation is normalized by the fitted
             normalizer.
         slice_start: Optional starting index for slicing a larger stored observation
@@ -37,18 +36,32 @@ class ObservationMetadataConfig:
             observation vector.
     """
 
-    _target_: str = "versatil.data.metadata.ObservationMetadata"
+    _target_: str = MISSING
     raw_data_column_keys: list[str] = MISSING
     dimension: int = MISSING
     dtype: str = MISSING
-    is_numerical: bool = MISSING
     needs_normalization: bool = MISSING
     slice_start: int | None = None
     slice_end: int | None = None
 
 
 @dataclass
-class PositionObservationMetadataConfig(ObservationMetadataConfig):
+class ObservationMetadataConfig(BaseObservationMetadataConfig):
+    """Config for ObservationMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        is_numerical: Whether the observation is numerical rather than text. The
+            specialized observation configs omit this field because their runtime
+            classes are numerical by definition.
+    """
+
+    _target_: str = "versatil.data.metadata.ObservationMetadata"
+    is_numerical: bool = MISSING
+
+
+@dataclass
+class PositionObservationMetadataConfig(BaseObservationMetadataConfig):
     """Config for PositionObservationMetadata.
 
     Attributes:
@@ -61,7 +74,7 @@ class PositionObservationMetadataConfig(ObservationMetadataConfig):
 
 
 @dataclass
-class OrientationObservationMetadataConfig(ObservationMetadataConfig):
+class OrientationObservationMetadataConfig(BaseObservationMetadataConfig):
     """Config for OrientationObservationMetadata.
 
     Attributes:
@@ -76,7 +89,7 @@ class OrientationObservationMetadataConfig(ObservationMetadataConfig):
 
 
 @dataclass
-class GripperObservationMetadataConfig(ObservationMetadataConfig):
+class GripperObservationMetadataConfig(BaseObservationMetadataConfig):
     """Config for GripperObservationMetadata.
 
     Attributes:
@@ -198,8 +211,8 @@ class OnTheFlyActionMetadataConfig:
 
 
 @dataclass
-class PrecomputedActionMetadataConfig:
-    """Config for PrecomputedActionMetadata.
+class BasePrecomputedActionMetadataConfig:
+    """Fields shared by every precomputed action metadata config.
 
     Attributes:
         _target_: Import path instantiated by Hydra.
@@ -209,22 +222,35 @@ class PrecomputedActionMetadataConfig:
             store.
         prediction_dimension: Dimension for model prediction. May differ from storage,
             e.g., class labels stored as 1 column but predicted as n_classes logits.
-        is_numerical: Whether the action is numerical rather than text.
         needs_normalization: Whether the action is normalized by the fitted normalizer.
         dtype: Numpy dtype the values are stored as.
     """
 
-    _target_: str = "versatil.data.metadata.PrecomputedActionMetadata"
+    _target_: str = MISSING
     raw_data_column_keys: list[str] = MISSING
     storage_dimension: int = MISSING
     prediction_dimension: int = MISSING
-    is_numerical: bool = MISSING
     needs_normalization: bool = MISSING
     dtype: str = MISSING
 
 
 @dataclass
-class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
+class PrecomputedActionMetadataConfig(BasePrecomputedActionMetadataConfig):
+    """Config for PrecomputedActionMetadata.
+
+    Attributes:
+        _target_: Import path instantiated by Hydra.
+        is_numerical: Whether the action is numerical rather than text. The
+            specialized action configs omit this field because their runtime
+            classes are numerical by definition.
+    """
+
+    _target_: str = "versatil.data.metadata.PrecomputedActionMetadata"
+    is_numerical: bool = MISSING
+
+
+@dataclass
+class PositionActionMetadataConfig(BasePrecomputedActionMetadataConfig):
     """Config for PositionActionMetadata.
 
     Attributes:
@@ -239,7 +265,7 @@ class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
 
 
 @dataclass
-class OrientationActionMetadataConfig(PrecomputedActionMetadataConfig):
+class OrientationActionMetadataConfig(BasePrecomputedActionMetadataConfig):
     """Config for OrientationActionMetadata.
 
     Attributes:
@@ -254,7 +280,7 @@ class OrientationActionMetadataConfig(PrecomputedActionMetadataConfig):
 
 
 @dataclass
-class GripperActionMetadataConfig(PrecomputedActionMetadataConfig):
+class GripperActionMetadataConfig(BasePrecomputedActionMetadataConfig):
     """Config for GripperActionMetadata.
 
     Attributes:
