@@ -24,7 +24,7 @@ _Imitation Learning for Any Robot Policy._
 
 ---
 
-VersatIL is a composable PyTorch framework for training robot policies through Imitation Learning. It decouples **Data**, **Algorithm**, and **Architecture** so you can build, benchmark, and deploy any policy from config alone.
+VersatIL is a composable PyTorch framework for training robot policies through Imitation Learning. It decouples **Data**, **Algorithm**, **Architecture**, and **Loss** so you can build, benchmark, and deploy any policy from config alone.
 
 The key features are:
 
@@ -120,6 +120,14 @@ The key features are:
     Transport protocols, preprocessing, temporal aggregation.
 
     [:octicons-arrow-right-24: Inference](architecture/inference.md)
+
+-   **Explainability**
+
+    ---
+
+    Grad-CAM, Grad-CAM++, and Ablation-CAM heatmaps for any trained policy.
+
+    [:octicons-arrow-right-24: Explainability](architecture/explainability.md)
 
 -   **Quantization**
 

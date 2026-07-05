@@ -113,7 +113,7 @@ Generative modeling via Denoising Score Matching. Trains the network to denoise 
 
 ## [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching]
 
-Generative modeling via Continuous Normalizing Flows. Trains the network to predict velocity fields that transport samples from noise to actions.
+Simulation-free generative modeling via conditional flow matching. Trains the network to regress velocity fields that transport samples from noise to actions, then integrates the learned field as an ODE at inference.
 
 **Training (`forward`):**
 

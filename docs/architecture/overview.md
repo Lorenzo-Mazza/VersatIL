@@ -46,7 +46,7 @@ VersatIL decouples the learning paradigm from the neural network structure. The 
 
 - [`BehavioralCloning`][versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning] -- direct supervised learning of expert actions
 - [`Diffusion`][versatil.models.decoding.algorithm.diffusion.Diffusion] -- iterative denoising via Denoising Score Matching
-- [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching] -- continuous normalizing flows
+- [`FlowMatching`][versatil.models.decoding.algorithm.flow_matching.FlowMatching] -- velocity-field regression along noise-to-action paths
 - [`VariationalAlgorithm`][versatil.models.decoding.algorithm.variational.VariationalAlgorithm] -- wraps any base algorithm with VAE-style latent variables
 
 **[`ActionDecoder`][versatil.models.decoding.decoders.base.ActionDecoder]** defines *what* neural network processes features:

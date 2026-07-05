@@ -123,8 +123,43 @@ uv sync --python "$PYTHON_VERSION" --extra cpu --extra executorch
 
 The `executorch` extra is ignored on Python 3.14 by package markers because the
 published ExecuTorch wheel currently declares `requires-python = ">=3.10,<3.14"`.
-Use the source-build flow from the README when ExecuTorch is needed in a Python
-3.14 environment.
+Python 3.14 environments need an ExecuTorch package built from source in the
+active `versatil` environment:
+
+```bash
+cd ..
+git clone https://github.com/pytorch/executorch.git
+cd executorch
+git submodule update --init --recursive
+
+# Build dependencies must be present because --no-build-isolation is used.
+pip install "cmake>=3.24,<4.0.0" "packaging>=24.2" pyyaml "setuptools>=77.0.3" wheel zstd certifi ninja
+
+SITE_PACKAGES=$(python - <<'PY'
+import site
+print(site.getsitepackages()[0])
+PY
+)
+# CUDA and OpenVINO must be disabled explicitly
+# because setup.py auto-enables them when nvcc / Linux are detected; the LLM
+# kernels are preset defaults this deployment does not need.
+CMAKE_PREFIX_PATH="$SITE_PACKAGES" \
+CMAKE_BUILD_PARALLEL_LEVEL=8 \
+CMAKE_ARGS="-DEXECUTORCH_BUILD_CUDA=OFF -DEXECUTORCH_BUILD_OPENVINO=OFF -DEXECUTORCH_BUILD_KERNELS_LLM=OFF -DEXECUTORCH_BUILD_KERNELS_LLM_AOT=OFF" \
+python -m pip install . --no-build-isolation --ignore-requires-python --no-deps -v
+
+cd ../versatil
+
+# Runtime dependencies are skipped by --no-deps; install the AoT set manually.
+pip install flatbuffers "ruamel.yaml" sympy tabulate pytorch-tokenizers \
+    expecttest hypothesis kgb parameterized
+
+# Now all ExecuTorch-gated tests should pass.
+pytest -m requires_executorch -o addopts=""
+```
+
+`python -m pip check` can still report a `scikit-learn` metadata conflict in
+Python 3.14 environments. The XNNPACK export path works with the built package.
 
 ### Install Pre-commit Hooks
 
@@ -189,7 +224,7 @@ WANDB_ENTITY=your-team
 ## Verifying the Installation
 
 Activate the environment and run the default local test selection. This excludes
-slow, integration, and GPU-only tests via `pyproject.toml`:
+slow, integration, GPU-only, and ExecuTorch-dependent tests via `pyproject.toml`:
 
 ```bash
 mamba activate versatil

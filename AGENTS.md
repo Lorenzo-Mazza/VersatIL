@@ -207,7 +207,7 @@ When implementing a new decoder factory: always pre-add `pos_encodings` from the
 **Algorithm** defines the learning paradigm (how to train/predict):
 - Behavioral Cloning: direct supervision
 - Diffusion: iterative denoising
-- Flow Matching: continuous normalizing flows
+- Flow Matching: velocity-field regression along noise-to-action paths
 
 **Architecture** defines the neural network structure:
 - Transformer, MLP, UNet, DETR, etc.
