@@ -1,6 +1,8 @@
 """Tests for versatil.metrics.losses.optimal_transport module."""
 
 import re
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -789,3 +791,26 @@ class TestRelaxedConditionalLatentOptimalTransportLossForward:
             ),
         ):
             instance.forward(predictions=predictions, targets={}, is_pad=None)
+
+
+def test_geomloss_stays_unimported_without_an_optimal_transport_loss():
+    # PyKeOps JIT compilation makes the geomloss import expensive, so it must
+    # stay constructor-local. A subprocess gives a clean interpreter where no
+    # other test has imported geomloss already.
+    script = (
+        "import sys; "
+        "import versatil; "
+        "import versatil.endpoints.train; "
+        "import versatil.endpoints.deploy; "
+        "import versatil.endpoints.explain; "
+        "import versatil.endpoints.post_training_compress; "
+        "import versatil.metrics.losses.optimal_transport; "
+        "assert 'geomloss' not in sys.modules, 'geomloss imported eagerly'; "
+        "assert 'pykeops' not in sys.modules, 'pykeops imported eagerly'"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

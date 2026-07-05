@@ -1,5 +1,6 @@
 """Tests for versatil.data.dataloader module."""
 
+import re
 import shutil
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -403,7 +404,7 @@ class TestCollectDatasetPaths:
 
     def test_nonexistent_folder_raises(self, tmp_path):
         missing = tmp_path / "missing"
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(FileNotFoundError, match=re.escape(str(missing))):
             _collect_dataset_paths(
                 dataset_folders=[str(missing)],
                 episode_filename="episode.csv",

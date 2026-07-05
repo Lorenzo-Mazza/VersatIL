@@ -1,5 +1,7 @@
 """Tests for versatil.metrics.base module."""
 
+import re
+
 import numpy as np
 import pytest
 import torch
@@ -198,14 +200,28 @@ class TestReduceLossWithPaddingMasked:
 @pytest.mark.unit
 class TestBaseLossIsAbstract:
     def test_cannot_instantiate_directly(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "Can't instantiate abstract class BaseLoss without an "
+                "implementation for abstract methods 'forward', "
+                "'get_required_keys'"
+            ),
+        ):
             BaseLoss()
 
     def test_subclass_must_implement_forward_and_get_required_keys(self):
         class IncompleteLoss(BaseLoss):
             pass
 
-        with pytest.raises(TypeError):
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "Can't instantiate abstract class IncompleteLoss without an "
+                "implementation for abstract methods 'forward', "
+                "'get_required_keys'"
+            ),
+        ):
             IncompleteLoss()
 
 
@@ -329,7 +345,10 @@ class TestScalarWeightedLoss:
 
     def test_set_weights_missing_required_key_raises(self):
         loss = self._ScalarLeaf(weight=0.5)
-        with pytest.raises(KeyError):
+        with pytest.raises(
+            KeyError,
+            match=re.escape("_ScalarLeaf.set_weights: missing=['weight'], extra=[]."),
+        ):
             loss.set_weights({})
 
     def test_update_weights_rejects_unknown_key(self):

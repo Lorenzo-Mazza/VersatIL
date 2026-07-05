@@ -19,7 +19,7 @@ class _ArbitraryCodeExecution:
 class TestVersatilCheckpointSafeGlobals:
     def test_checkpoint_with_config_hyperparameters_loads(self):
         checkpoint = {
-            "state_dict": {"layer.weight": torch.randn(2, 2)},
+            "state_dict": {"layer.weight": torch.ones(2, 2)},
             "hyper_parameters": OmegaConf.structured(TrainingConfig()),
             "epoch": 3,
         }

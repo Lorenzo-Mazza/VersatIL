@@ -492,10 +492,14 @@ class TestBinaryMaximumMeanDiscrepancyLossForward:
 
 
 class TestMMDBranches:
-    def test_missing_prior_latent_raises_without_fixed_gaussian(self):
+    def test_missing_prior_latent_raises_without_fixed_gaussian(
+        self, rng: np.random.Generator
+    ):
         loss = MaximumMeanDiscrepancyLoss(use_fixed_gaussian_as_prior=False)
         predictions = {
-            LatentKey.POSTERIOR_LATENT.value: torch.randn(4, 8),
+            LatentKey.POSTERIOR_LATENT.value: torch.from_numpy(
+                rng.standard_normal((4, 8)).astype(np.float32)
+            ),
             LatentKey.PRIOR_LATENT.value: None,
         }
         with pytest.raises(ValueError, match="Prior latent is required"):
@@ -504,13 +508,17 @@ class TestMMDBranches:
     @pytest.mark.parametrize("kernel_type", ["rbf", "imq"])
     @pytest.mark.parametrize("use_median_heuristic", [True, False])
     def test_kernel_variants_produce_finite_loss(
-        self, kernel_type, use_median_heuristic
+        self, kernel_type, use_median_heuristic, rng: np.random.Generator
     ):
         loss = MaximumMeanDiscrepancyLoss(
             use_fixed_gaussian_as_prior=True,
             kernel_type=kernel_type,
             use_median_heuristic=use_median_heuristic,
         )
-        predictions = {LatentKey.POSTERIOR_LATENT.value: torch.randn(6, 8)}
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: torch.from_numpy(
+                rng.standard_normal((6, 8)).astype(np.float32)
+            )
+        }
         output = loss(predictions, {})
         assert output.total_loss.isfinite()

@@ -157,7 +157,7 @@ class TestEMACallbackOnFitStart:
 
         assert callback.ema_model is not None
         for ema_param, policy_param in zip(
-            callback.ema_model.parameters(), policy.parameters()
+            callback.ema_model.parameters(), policy.parameters(), strict=True
         ):
             assert torch.equal(ema_param.data, policy_param.data)
 
@@ -380,7 +380,9 @@ class TestEMACallbackOnTrainBatchEnd:
             batch_idx=0,
         )
         assert callback.ema_model is None
-        for before, after in zip(policy_params_before, pl_module.policy.parameters()):
+        for before, after in zip(
+            policy_params_before, pl_module.policy.parameters(), strict=True
+        ):
             torch.testing.assert_close(before, after)
 
     def test_logs_decay_at_global_step_100(

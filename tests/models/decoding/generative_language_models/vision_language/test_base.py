@@ -739,15 +739,29 @@ class TestGenerativeVLMStaticMethodsUnit:
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        "method_name",
-        ["_compute_num_image_tokens", "_embed_images", "_get_language_model"],
+        "method_name, error_message",
+        [
+            (
+                "_compute_num_image_tokens",
+                "Subclasses must return the number of image tokens per camera.",
+            ),
+            (
+                "_embed_images",
+                "Subclasses must embed camera images into token sequences.",
+            ),
+            (
+                "_get_language_model",
+                "Subclasses must return the language model submodule.",
+            ),
+        ],
     )
     def test_abstract_method_default_body_raises_not_implemented(
         self,
         method_name: str,
+        error_message: str,
     ) -> None:
         method = getattr(GenerativeVLM, method_name)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(NotImplementedError, match=re.escape(error_message)):
             if method_name == "_compute_num_image_tokens":
                 method(GenerativeVLM, config=None)
             elif method_name == "_embed_images":

@@ -162,5 +162,5 @@ def verify_reload_fidelity(
         return False
     return all(
         torch.equal(original, reloaded)
-        for original, reloaded in zip(original_outputs, reloaded_outputs)
+        for original, reloaded in zip(original_outputs, reloaded_outputs, strict=True)
     )

@@ -1,5 +1,6 @@
 """Tests for versatil.explainability.writer module."""
 
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -106,24 +107,41 @@ class TestExplanationWriterFilenames:
 @pytest.mark.unit
 class TestWriterHelpers:
     @pytest.mark.parametrize(
-        "image_format", ["", "nested/png", "\\bad", ".", "notaformat"]
+        "image_format, error_message",
+        [
+            ("", "overlay_image_format cannot be empty."),
+            (
+                "nested/png",
+                "overlay_image_format must be a file extension, got: nested/png",
+            ),
+            ("\\bad", "overlay_image_format must be a file extension, got: \\bad"),
+            (".", "overlay_image_format cannot be only '.'."),
+            (
+                "notaformat",
+                "OpenCV cannot write overlay images with extension '.notaformat'.",
+            ),
+        ],
     )
-    def test_invalid_overlay_extension_raises(self, image_format: str):
-        with pytest.raises(ValueError):
+    def test_invalid_overlay_extension_raises(
+        self, image_format: str, error_message: str
+    ):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
             ExplanationWriter.normalize_image_extension(image_format)
 
     def test_extension_gains_leading_dot(self):
         assert ExplanationWriter.normalize_image_extension("PNG ") == ".png"
 
-    def test_single_channel_image_is_replicated_to_rgb(self):
-        image = torch.rand(1, 4, 4)
+    def test_single_channel_image_is_replicated_to_rgb(self, rng: np.random.Generator):
+        image = torch.from_numpy(rng.random((1, 4, 4)).astype(np.float32))
         array = ExplanationWriter.image_tensor_to_numpy(image)
         assert array.shape == (4, 4, 3)
         assert np.allclose(array[..., 0], array[..., 1])
 
-    def test_invalid_channel_count_raises(self):
+    def test_invalid_channel_count_raises(self, rng: np.random.Generator):
         with pytest.raises(ValueError, match="1 or 3 channels"):
-            ExplanationWriter.image_tensor_to_numpy(torch.rand(2, 4, 4))
+            ExplanationWriter.image_tensor_to_numpy(
+                torch.from_numpy(rng.random((2, 4, 4)).astype(np.float32))
+            )
 
     def test_out_of_range_image_is_rescaled(self):
         image = torch.tensor([[[-1.0, 3.0]]]).repeat(3, 1, 1)

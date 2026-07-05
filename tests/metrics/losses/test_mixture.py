@@ -237,7 +237,7 @@ class TestGaussianMixtureNLLossForward:
         reference = loss(reference_predictions, {"position": no_pad_target}).total_loss
         assert finite.item() == pytest.approx(reference.item(), rel=1e-5)
 
-    def test_trajectory_loss_separates_opposite_modes(self):
+    def test_trajectory_loss_separates_opposite_modes(self, rng: np.random.Generator):
         torch.manual_seed(0)
         batch_size, horizon, num_experts, action_dim = 256, 60, 2, 2
         timesteps = torch.linspace(0, 2 * math.pi, horizon)
@@ -249,7 +249,14 @@ class TestGaussianMixtureNLLossForward:
             [mode_a if i < batch_size // 2 else mode_b for i in range(batch_size)]
         )
         targets = targets + 0.01 * torch.randn_like(targets)
-        means = torch.nn.Parameter(torch.randn(num_experts, horizon, action_dim) * 0.3)
+        means = torch.nn.Parameter(
+            torch.from_numpy(
+                rng.standard_normal((num_experts, horizon, action_dim)).astype(
+                    np.float32
+                )
+            )
+            * 0.3
+        )
         logvars = torch.nn.Parameter(torch.zeros(num_experts, horizon, action_dim))
         pi_logits = torch.nn.Parameter(torch.zeros(num_experts))
         optimizer = torch.optim.Adam([means, logvars, pi_logits], lr=1e-2)

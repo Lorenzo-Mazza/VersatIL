@@ -1,4 +1,4 @@
-"""Integration tests for PT2E quantization and pruning."""
+"""Tests for versatil.quantization.workflows.pt2e integration with real policies."""
 
 import os
 import time
@@ -212,7 +212,9 @@ class TestPT2EQuantizationPipeline:
             float_output = float_model(*example_inputs)
             quantized_output = quantized_model(*example_inputs)
 
-        for float_tensor, quant_tensor in zip(float_output, quantized_output):
+        for float_tensor, quant_tensor in zip(
+            float_output, quantized_output, strict=True
+        ):
             assert float_tensor.shape == quant_tensor.shape
 
     def test_quantized_output_is_close_to_float(
@@ -381,7 +383,7 @@ class TestSaveLoadRoundtrip:
         with torch.no_grad():
             reloaded_output = quantized_model(*example_inputs)
 
-        for original, reloaded in zip(original_output, reloaded_output):
+        for original, reloaded in zip(original_output, reloaded_output, strict=True):
             assert torch.equal(original, reloaded)
 
 

@@ -1236,6 +1236,7 @@ class TestPipelineOutputDtype:
         encoder_mock_factory: Callable[..., MagicMock],
         default_observation_space,
         output_dtype: torch.dtype,
+        rng: np.random.Generator,
     ):
         batch_size = 2
         encoder = encoder_mock_factory(
@@ -1243,7 +1244,7 @@ class TestPipelineOutputDtype:
             output_dimensions={"embedding": (64,)},
             input_keys=["left"],
             forward_return={
-                "embedding": torch.randn(batch_size, 64, dtype=torch.float64)
+                "embedding": torch.from_numpy(rng.standard_normal((batch_size, 64)))
             },
             batch_size=batch_size,
         )
@@ -1253,7 +1254,11 @@ class TestPipelineOutputDtype:
         )
         pipeline.set_output_dtype(output_dtype)
 
-        observation = {"left": torch.randn(batch_size, 1, 3, 32, 32)}
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((batch_size, 1, 3, 32, 32)).astype(np.float32)
+            )
+        }
         features = pipeline(observation)
         assert features["rgb_embedding"].dtype == output_dtype
 
@@ -1262,6 +1267,7 @@ class TestPipelineOutputDtype:
         self,
         encoder_mock_factory: Callable[..., MagicMock],
         default_observation_space,
+        rng: np.random.Generator,
     ):
         batch_size = 2
         mask_dtype = torch.bool
@@ -1280,7 +1286,11 @@ class TestPipelineOutputDtype:
         )
         pipeline.set_output_dtype(torch.bfloat16)
 
-        observation = {"left": torch.randn(batch_size, 1, 3, 32, 32)}
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((batch_size, 1, 3, 32, 32)).astype(np.float32)
+            )
+        }
         features = pipeline(observation)
         # Non-floating tensors (padding masks, indices) must not be cast
         assert features["rgb_padding_mask"].dtype == mask_dtype
@@ -1290,6 +1300,7 @@ class TestPipelineOutputDtype:
         self,
         encoder_mock_factory: Callable[..., MagicMock],
         default_observation_space,
+        rng: np.random.Generator,
     ):
         batch_size = 2
         source_dtype = torch.float16
@@ -1298,7 +1309,9 @@ class TestPipelineOutputDtype:
             output_dimensions={"embedding": (64,)},
             input_keys=["left"],
             forward_return={
-                "embedding": torch.randn(batch_size, 64, dtype=source_dtype)
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((batch_size, 64)).astype(np.float32)
+                ).to(source_dtype)
             },
             batch_size=batch_size,
         )
@@ -1306,7 +1319,11 @@ class TestPipelineOutputDtype:
             observation_space=default_observation_space,
             encoders={"rgb": encoder},
         )
-        observation = {"left": torch.randn(batch_size, 1, 3, 32, 32)}
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((batch_size, 1, 3, 32, 32)).astype(np.float32)
+            )
+        }
         features = pipeline(observation)
         # output_dtype unset → encoder output dtype preserved
         assert features["rgb_embedding"].dtype == source_dtype

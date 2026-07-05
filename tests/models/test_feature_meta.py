@@ -1,5 +1,6 @@
 """Tests for versatil.models.feature_meta module."""
 
+import re
 from contextlib import nullcontext as does_not_raise
 
 import pytest
@@ -54,7 +55,9 @@ class TestFeatureMetadata:
             feature_type=FeatureType.FLAT.value,
             dimension=(256,),
         )
-        with pytest.raises(AttributeError):
+        with pytest.raises(
+            AttributeError, match=re.escape("cannot assign to field 'key'")
+        ):
             meta.key = "changed"
 
     @pytest.mark.parametrize("key", ["rgb", "language"])

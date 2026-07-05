@@ -1,6 +1,7 @@
 """Tests for versatil.configs resolver registration."""
 
 import os
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -141,7 +142,12 @@ class TestEnumResolvers:
 
     def test_invalid_enum_name_raises_interpolation_error(self):
         cfg = OmegaConf.create({"invalid": "${cameras:NONEXISTENT}"})
-        with pytest.raises(InterpolationResolutionError):
+        with pytest.raises(
+            InterpolationResolutionError,
+            match=re.escape(
+                "KeyError raised while resolving interpolation: 'NONEXISTENT'"
+            ),
+        ):
             _ = cfg.invalid
 
     def test_resolver_works_inside_list(self):
@@ -343,21 +349,33 @@ class TestNumericResolvers:
         assert cfg.split == expected_epoch
 
     @pytest.mark.parametrize(
-        "num_epochs, fraction",
+        "num_epochs, fraction, error_message",
         [
-            pytest.param(0, 0.2, id="non-positive-epochs"),
-            pytest.param(10, 0.0, id="zero-fraction"),
-            pytest.param(10, 1.0, id="one-fraction"),
+            pytest.param(
+                0, 0.2, "num_epochs must be positive, got 0.", id="non-positive-epochs"
+            ),
+            pytest.param(
+                10, 0.0, "fraction must be in (0, 1), got 0.0.", id="zero-fraction"
+            ),
+            pytest.param(
+                10, 1.0, "fraction must be in (0, 1), got 1.0.", id="one-fraction"
+            ),
         ],
     )
     def test_stage_split_epoch_rejects_invalid_inputs(
         self,
         num_epochs: int,
         fraction: float,
+        error_message: str,
     ):
         cfg = OmegaConf.create(
             {"split": f"${{stage_split_epoch:{num_epochs},{fraction}}}"}
         )
 
-        with pytest.raises(InterpolationResolutionError):
+        with pytest.raises(
+            InterpolationResolutionError,
+            match=re.escape(
+                f"ValueError raised while resolving interpolation: {error_message}"
+            ),
+        ):
             _ = cfg.split

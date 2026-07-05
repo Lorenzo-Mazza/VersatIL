@@ -292,7 +292,9 @@ def _save_and_verify_inference(
     if expect_divergence:
         outputs_changed = any(
             not torch.equal(compressed, original)
-            for compressed, original in zip(compressed_outputs, float_outputs)
+            for compressed, original in zip(
+                compressed_outputs, float_outputs, strict=True
+            )
         )
         assert outputs_changed, (
             "Compressed outputs identical to float — compression may have failed"

@@ -1,6 +1,7 @@
 """Tests for versatil.data.preprocessing.codecs module."""
 
 import asyncio
+import re
 from collections.abc import Callable
 
 import cv2
@@ -135,7 +136,9 @@ class TestWebPCodecInit:
     def test_frozen_dataclass_prevents_mutation(self):
         codec = WebPCodec(level=80)
 
-        with pytest.raises(AttributeError):
+        with pytest.raises(
+            AttributeError, match=re.escape("cannot assign to field 'level'")
+        ):
             codec.level = 50
 
 
@@ -386,5 +389,10 @@ def test_compute_encoded_size_raises_not_implemented(
     codec = WebPCodec(level=99)
     spec = array_spec_factory(shape=(1, 64, 64, 3))
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(
+        NotImplementedError,
+        match=re.escape(
+            "WebP encoded size is data-dependent and cannot be precomputed."
+        ),
+    ):
         codec.compute_encoded_size(input_byte_length=1024, _chunk_spec=spec)

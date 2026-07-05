@@ -1,18 +1,25 @@
 """Tests for versatil.explainability.runner module."""
 
 import inspect
+import re
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+from tso_robotics_sockets import CompressionType
 
 import versatil.endpoints.explain as explain_endpoint
 from versatil.configs.explainability import ExplanationWriterConfig
 from versatil.configs.inference_client import InferenceClientConfig
 from versatil.data.constants import Cameras
-from versatil.explainability.constants import ExplanationSourceType, ExplanationType
+from versatil.explainability.constants import (
+    VALID_EXPLANATION_SOURCE_TYPES,
+    VALID_EXPLANATION_TYPES,
+    ExplanationSourceType,
+    ExplanationType,
+)
 from versatil.explainability.runner import ExplainabilityRunner
 from versatil.explainability.sources.typedefs import ExplanationBatch
 
@@ -368,34 +375,53 @@ class TestRunnerValidation:
         assert "explainability" in str(runner.output_directory)
 
     def test_invalid_source_raises(self, tmp_path: Path):
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"source must be one of {list(VALID_EXPLANATION_SOURCE_TYPES)}. "
+                "Got: not_a_source"
+            ),
+        ):
             self._make_runner(tmp_path, source="not_a_source")
 
     @pytest.mark.parametrize(
-        "overrides",
+        "overrides, error_message",
         [
-            {"sample_stride": 0},
-            {"max_samples": 0},
+            ({"sample_stride": 0}, "sample_stride must be positive. Got: 0"),
+            ({"max_samples": 0}, "max_samples must be positive when set. Got: 0"),
         ],
     )
-    def test_invalid_sampling_raises(self, tmp_path: Path, overrides):
-        with pytest.raises(ValueError):
+    def test_invalid_sampling_raises(self, tmp_path: Path, overrides, error_message):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
             self._make_runner(tmp_path, **overrides)
 
     @pytest.mark.parametrize(
-        "online_overrides",
+        "online_overrides, error_message",
         [
-            {"model_server_port": 0},
-            {"action_execution_horizon": 0},
-            {"update_rate_hz": 0.0},
-            {"temporal_max_timesteps": 0},
-            {"compression_type": "bogus"},
+            ({"model_server_port": 0}, "model_server_port must be positive. Got: 0"),
+            (
+                {"action_execution_horizon": 0},
+                "action_execution_horizon must be positive when set. Got: 0",
+            ),
+            (
+                {"update_rate_hz": 0.0},
+                "update_rate_hz must be positive when set. Got: 0.0",
+            ),
+            (
+                {"temporal_max_timesteps": 0},
+                "temporal_max_timesteps must be positive. Got: 0",
+            ),
+            (
+                {"compression_type": "bogus"},
+                f"compression_type must be one of "
+                f"{[member.value for member in CompressionType]}. Got: bogus",
+            ),
         ],
     )
     def test_invalid_online_configuration_raises(
-        self, tmp_path: Path, online_overrides
+        self, tmp_path: Path, online_overrides, error_message
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=re.escape(error_message)):
             self._make_runner(
                 tmp_path,
                 source=ExplanationSourceType.ONLINE_INFERENCE.value,
@@ -403,5 +429,11 @@ class TestRunnerValidation:
             )
 
     def test_invalid_explanation_type_raises(self, tmp_path: Path):
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Unsupported explanation_types ['not_a_method']. "
+                f"Use one or more of: {list(VALID_EXPLANATION_TYPES)}"
+            ),
+        ):
             self._make_runner(tmp_path, explanation_types=["not_a_method"])

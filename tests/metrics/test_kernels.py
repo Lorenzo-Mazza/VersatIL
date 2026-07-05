@@ -1,5 +1,6 @@
 """Tests for versatil.metrics.kernels module."""
 
+import re
 from collections.abc import Callable
 
 import numpy as np
@@ -447,10 +448,10 @@ class TestFixedVsAdaptiveBandwidth:
 
         assert not torch.allclose(k_adaptive, k_fixed)
 
-    def test_imq_fixed_bandwidth_with_wae_scale(self):
+    def test_imq_fixed_bandwidth_with_wae_scale(self, rng: np.random.Generator):
         latent_dim = 8
-        x = torch.randn(50, latent_dim)
-        y = torch.randn(50, latent_dim)
+        x = torch.from_numpy(rng.standard_normal((50, latent_dim)).astype(np.float32))
+        y = torch.from_numpy(rng.standard_normal((50, latent_dim)).astype(np.float32))
         kernel = IMQKernel(
             bandwidth_multipliers=[2.0 * latent_dim],
             use_median_heuristic=False,
@@ -465,5 +466,11 @@ class TestFixedVsAdaptiveBandwidth:
 @pytest.mark.unit
 class TestMMDKernelIsAbstract:
     def test_cannot_instantiate_directly(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(
+            TypeError,
+            match=re.escape(
+                "Can't instantiate abstract class MMDKernel without an "
+                "implementation for abstract method 'forward'"
+            ),
+        ):
             MMDKernel()

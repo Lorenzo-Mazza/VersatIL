@@ -1,6 +1,7 @@
 """Tests for Hydra YAML configuration composition and validation."""
 
 import glob
+import re
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -439,86 +440,128 @@ class TestHydraComposition:
         pytest.param(
             "training/default",
             ["fake_key=1"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'fake_key'."),
+            ),
             id="training_default-unknown_key-fake_key",
         ),
         pytest.param(
             "training/ema_cosine_schedule",
             ["bogus=true"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'bogus'."),
+            ),
             id="training_ema_cosine-unknown_key-bogus",
         ),
         pytest.param(
             "policy/algorithm/behavioral_cloning",
             ["nonexistent=5"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'nonexistent'."),
+            ),
             id="behavioral_cloning-unknown_key-nonexistent",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["wrong_param=10"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'wrong_param'."),
+            ),
             id="diffusion-unknown_key-wrong_param",
         ),
         pytest.param(
             "policy/algorithm/flow_matching",
             ["bad_key=0.5"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'bad_key'."),
+            ),
             id="flow_matching-unknown_key-bad_key",
         ),
         pytest.param(
             "training/optimizer/adamw",
             ["invalid_field=0.1"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'invalid_field'."),
+            ),
             id="adamw-unknown_key-invalid_field",
         ),
         pytest.param(
             "training/optimizer/sgd",
             ["unknown=true"],
-            pytest.raises(ConfigCompositionException),
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'unknown'."),
+            ),
             id="sgd-unknown_key-unknown",
         ),
         pytest.param(
             "training/default",
             ["use_ema=not_a_bool"],
-            pytest.raises(ConfigCompositionException),
-            id="training-wrong_type-use_ema_not_bool",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'use_ema'."),
+            ),
+            id="training-plain_override-use_ema_not_bool",
         ),
         pytest.param(
             "training/default",
             ["num_epochs=not_an_int"],
-            pytest.raises(ConfigCompositionException),
-            id="training-wrong_type-num_epochs_not_int",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'num_epochs'."),
+            ),
+            id="training-plain_override-num_epochs_not_int",
         ),
         pytest.param(
             "training/default",
             ["clip_max_norm=not_a_float"],
-            pytest.raises(ConfigCompositionException),
-            id="training-wrong_type-clip_max_norm_not_float",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'clip_max_norm'."),
+            ),
+            id="training-plain_override-clip_max_norm_not_float",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["num_train_timesteps=abc"],
-            pytest.raises(ConfigCompositionException),
-            id="diffusion-wrong_type-num_train_timesteps_not_int",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'num_train_timesteps'."),
+            ),
+            id="diffusion-plain_override-num_train_timesteps_not_int",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["clip_sample=maybe"],
-            pytest.raises(ConfigCompositionException),
-            id="diffusion-wrong_type-clip_sample_not_bool",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'clip_sample'."),
+            ),
+            id="diffusion-plain_override-clip_sample_not_bool",
         ),
         pytest.param(
             "policy/algorithm/diffusion",
             ["scheduler_type=nonexistent_scheduler"],
-            pytest.raises(ConfigCompositionException),
-            id="diffusion-wrong_enum-scheduler_type",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'scheduler_type'."),
+            ),
+            id="diffusion-plain_override-scheduler_type",
         ),
         pytest.param(
             "policy/algorithm/flow_matching",
             ["ode_solver=invalid_solver"],
-            pytest.raises(ConfigCompositionException),
-            id="flow_matching-wrong_enum-ode_solver",
+            pytest.raises(
+                ConfigCompositionException,
+                match=re.escape("Could not override 'ode_solver'."),
+            ),
+            id="flow_matching-plain_override-ode_solver",
         ),
     ],
 )

@@ -117,7 +117,7 @@ def _create_synthetic_zarr(
     E2E_CONFIGS,
     ids=[c.split("/")[-1] for c in E2E_CONFIGS],
 )
-def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
+def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path, rng):
     try:
         if "flow_unet" in config_name and "libero_hdf5" in config_name:
             pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
@@ -125,7 +125,6 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
             pytest.skip("pi0 requires HF_TOKEN for gated PaliGemma model")
 
         dataset_type = resolve_dataset_type(config_name)
-        rng = np.random.default_rng(42)
         zarr_path = str(tmp_path / "data.zarr")
         checkpoint_dir = str(tmp_path / "checkpoints")
 

@@ -676,7 +676,10 @@ class TestFreeTransformerInitialization:
         # Non-middle layers should reject the latent kwarg
         for index, layer in enumerate(model.decoder_layers):
             if index != mid_index:
-                with pytest.raises(TypeError):
+                with pytest.raises(
+                    TypeError,
+                    match=re.escape("got an unexpected keyword argument 'latent'"),
+                ):
                     layer(hidden_states=hidden_states, latent=latent)
 
     def test_total_decoder_layers_count(

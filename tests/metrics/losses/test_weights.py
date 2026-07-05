@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
@@ -285,11 +286,14 @@ class TestLossWeightsAPI:
         loss.update_weights(spec["partial_update"])
         assert loss.weights == spec["expected_after_partial"]
 
-    def test_action_token_loss_weight_scales_forward_output(self) -> None:
+    def test_action_token_loss_weight_scales_forward_output(
+        self, rng: np.random.Generator
+    ) -> None:
         batch_size, horizon, vocab_size = 2, 4, 5
-        torch.manual_seed(0)
-        logits = torch.randn(batch_size, horizon, vocab_size)
-        targets = torch.randint(0, vocab_size, (batch_size, horizon))
+        logits = torch.from_numpy(
+            rng.standard_normal((batch_size, horizon, vocab_size)).astype(np.float32)
+        )
+        targets = torch.from_numpy(rng.integers(0, vocab_size, (batch_size, horizon)))
         predictions = {DecoderOutputKey.ACTION_LOGITS.value: logits}
         target_dict = {SampleKey.TOKENIZED_ACTIONS.value: targets}
 

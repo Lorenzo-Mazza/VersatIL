@@ -48,7 +48,9 @@ class ConcreteSequentialFusion(SequentialFusion):
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         if self.projections is None:
             raise RuntimeError("Projections not set up")
-        projected = [proj(feat) for feat, proj in zip(features, self.projections)]
+        projected = [
+            proj(feat) for feat, proj in zip(features, self.projections, strict=True)
+        ]
         return torch.cat(projected, dim=-1)
 
     def get_output_specification(self) -> FeatureMetadata:

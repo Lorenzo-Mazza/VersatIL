@@ -1,5 +1,8 @@
 """Tests for versatil.explainability.attribution.maps helpers."""
 
+import re
+
+import numpy as np
 import pytest
 import torch
 
@@ -28,22 +31,28 @@ class TestCameraTensorShapes:
         assert get_image_size(torch.zeros(2, 3, 16, 24)) == (16, 24)
 
     def test_image_size_wrong_rank_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Camera tensor must have shape (B, T, C, H, W) or (B, C, H, W). "
+                "Got: (2, 8)"
+            ),
+        ):
             get_image_size(torch.zeros(2, 8))
 
 
 @pytest.mark.unit
 class TestEnsureChannelFirst:
-    def test_nchw_passthrough(self):
-        tensor = torch.randn(2, 4, 8, 8)
+    def test_nchw_passthrough(self, rng: np.random.Generator):
+        tensor = torch.from_numpy(rng.standard_normal((2, 4, 8, 8)).astype(np.float32))
         result = activation_to_nchw(tensor, ActivationLayout.NCHW.value)
         assert result is tensor
 
-    def test_nhwc_is_permuted(self):
-        tensor = torch.randn(2, 8, 8, 4)
+    def test_nhwc_is_permuted(self, rng: np.random.Generator):
+        tensor = torch.from_numpy(rng.standard_normal((2, 8, 8, 4)).astype(np.float32))
         result = activation_to_nchw(tensor, ActivationLayout.NHWC.value)
         assert result.shape == (2, 4, 8, 8)
 
     def test_non_spatial_layout_raises(self):
         with pytest.raises(ValueError, match="not a spatial"):
-            activation_to_nchw(torch.randn(2, 4), "tokens")
+            activation_to_nchw(torch.zeros(2, 4), "tokens")

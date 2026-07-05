@@ -355,7 +355,7 @@ class TestModeACTInitialization:
             heads = decoder.mixture_heads[action_key]
             for index in range(1, len(heads)):
                 for parameter_a, parameter_b in zip(
-                    heads[0].parameters(), heads[index].parameters()
+                    heads[0].parameters(), heads[index].parameters(), strict=True
                 ):
                     assert (
                         not torch.equal(parameter_a, parameter_b)
@@ -890,7 +890,7 @@ class TestModeACTGMMInitialization:
             prediction_horizon=PREDICTION_HORIZON,
             action_keys_to_dims={"position_action": POSITION_DIM},
         )
-        with pytest.raises(KeyError):
+        with pytest.raises(KeyError, match=re.escape(gating_key)):
             decoder(features=features, actions=actions)
 
     def test_gating_feature_key_uses_external_feature(

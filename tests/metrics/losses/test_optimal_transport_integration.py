@@ -1,4 +1,4 @@
-"""Integration tests for versatil.metrics.losses.optimal_transport module."""
+"""Tests for versatil.metrics.losses.optimal_transport integration with geomloss."""
 
 from collections.abc import Callable
 

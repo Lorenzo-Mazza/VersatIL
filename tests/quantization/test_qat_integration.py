@@ -1,4 +1,4 @@
-"""Integration tests for torchao QAT on real VersatIL policies."""
+"""Tests for versatil.quantization.workflows.eager QAT integration on real policies."""
 
 from collections.abc import Callable
 
