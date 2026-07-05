@@ -5,10 +5,10 @@ defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: libero_plus_lerobot
+  - /task/dataset_schema: libero_lerobot
   - /task/dataloader: libero_lerobot
   - /task/action_space: libero_precomputed_lerobot
-  - /task/observation_space: libero_plus_rgb_lerobot
+  - /task/observation_space: libero_rgb_lerobot
   - /training: default
   - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: action_transformer_language
@@ -31,8 +31,8 @@ experiment:
   checkpoint_every: 5
 
 training:
-  num_epochs: 200
-  early_stopping_patience: 100
+  num_epochs: 100
+  early_stopping_patience: 200
   lr_schedule: null
   clip_gradient_norm: true
   clip_max_norm: 1.0
@@ -66,9 +66,3 @@ policy:
               - ${cameras:EYE_IN_HAND}
         instruction:
           model_name: ${language_model:BERT_BASE}
-
-# Override specific parameters from defaults/command line if needed
-# For example, to use different batch size:
-# task.dataloader.batch_size: 64
-# To override specific config components from command line, you can do for example
-# ```policy/loss=mmd_l1_pos_gripper_bce``` to use MMD instead of KL in your loss

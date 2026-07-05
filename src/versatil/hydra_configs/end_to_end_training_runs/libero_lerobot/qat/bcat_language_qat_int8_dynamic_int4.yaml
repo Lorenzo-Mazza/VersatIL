@@ -1,8 +1,8 @@
 # @package _global_
 
 defaults:
-  - /end_to_end_training_runs/libero_lerobot/action_transformer_language
-  - /quantization: qat_int2_weight_only
+  - /end_to_end_training_runs/libero_lerobot/bcat_language
+  - /quantization: qat_int8_dynamic_intx_int4
   - _self_
 
 policy:

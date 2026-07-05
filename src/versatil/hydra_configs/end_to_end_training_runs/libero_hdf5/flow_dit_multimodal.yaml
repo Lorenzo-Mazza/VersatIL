@@ -1,5 +1,5 @@
 # @package _global_
-# Configuration for training a Cross-Attention Conditioning Diffusion Transformer with flow matching on Libero dataset
+# Configuration for training a Multimodal Diffusion Transformer (MMDiT) with flow matching on the LIBERO dataset
 _target_: versatil.configs.main.MainConfig
 
 defaults:
@@ -54,9 +54,3 @@ policy:
       input_keys:
         - left_rgb
         - right_rgb
-
-# Override specific parameters from defaults/command line if needed
-# For example, to use different batch size:
-# task.dataloader.batch_size: 64
-# To override specific config components from command line, you can do for example
-# ```policy/loss=mmd_l1_pos_gripper_bce``` to use MMD instead of KL in your loss

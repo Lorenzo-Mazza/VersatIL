@@ -14,7 +14,7 @@ defaults:
   - /policy/encoding_pipeline: pusht_rgb
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior
-  - /policy/loss: regression_conditional_MMD
+  - /policy/loss: regression_conditional_mmd
   - override /policy/decoder/heads@policy.decoder.action_heads: pusht_2d
   - _self_
 

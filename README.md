@@ -652,7 +652,7 @@ defaults:
   - /policy/encoding_pipeline: stereo_rgb        # Encoder + fusion config
   - /policy/decoder: act_default                 # Action decoder architecture
   - /policy/algorithm: bc_with_vae_gaussian      # Learning algorithm
-  - /policy/loss: regression_gripper_KL          # Loss composition
+  - /policy/loss: regression_gripper_kl          # Loss composition
   - _self_
 ```
 

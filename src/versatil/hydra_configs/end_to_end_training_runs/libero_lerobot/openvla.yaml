@@ -12,7 +12,7 @@ defaults:
   - /training: default
   - /policy/decoder: openvla
   - /policy/algorithm: behavioral_cloning
-  - /policy/loss: tokenCE
+  - /policy/loss: token_ce
   - _self_
 
 task:

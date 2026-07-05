@@ -25,7 +25,7 @@ defaults:
   - /policy/encoding_pipeline: stereo_rgb
   - /policy/decoder: act_default
   - /policy/algorithm: bc_with_vae_gaussian
-  - /policy/loss: regression_gripper_KL
+  - /policy/loss: regression_gripper_kl
   - _self_
 ```
 
@@ -249,7 +249,7 @@ Replace an entire config group from the command line:
 ```bash
 python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
-    policy/loss=regression_gripper_MMD \
+    policy/loss=regression_gripper_mmd \
     policy/algorithm=diffusion
 ```
 

@@ -94,8 +94,8 @@ PTQ_EAGER_XNNPACK_CONFIG_NAME = "end_to_end_ptq/eager_xnnpack"
 PTQ_PT2E_XNNPACK_CONFIG_NAME = "end_to_end_ptq/pt2e_xnnpack"
 
 PTQ_TEST_CONFIGS = [
-    "end_to_end_training_runs/libero_lerobot/action_transformer_language",
-    "end_to_end_training_runs/libero_lerobot/action_transformer",
+    "end_to_end_training_runs/libero_lerobot/bcat_language",
+    "end_to_end_training_runs/libero_lerobot/bcat",
     "end_to_end_training_runs/libero_lerobot/act",
     "end_to_end_training_runs/libero_lerobot/flow_dit_cross_attention",
 ]

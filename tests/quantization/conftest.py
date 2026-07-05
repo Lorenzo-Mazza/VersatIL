@@ -24,7 +24,7 @@ from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 
 HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
 LANGUAGE_ACTION_TRANSFORMER_TINY_CONFIG = (
-    "end_to_end_training_runs/libero_lerobot/action_transformer_language_tiny"
+    "end_to_end_training_runs/libero_lerobot/bcat_language_tiny"
 )
 
 

@@ -91,7 +91,7 @@ The loss module is decoupled from the decoder architecture. Some loss terms are 
 - **Probability measures** -- KL divergence, Maximum Mean Discrepancy with configurable kernels for variational algorithms
 - **Optimal transport** -- Sinkhorn divergence for action sequence matching
 
-Loss configs are named by composition (e.g., `regression_KL.yaml`), not by dataset or decoder.
+Loss configs are named by composition (e.g., `regression_kl.yaml`), not by dataset or decoder.
 
 ## Feature Naming Contract
 

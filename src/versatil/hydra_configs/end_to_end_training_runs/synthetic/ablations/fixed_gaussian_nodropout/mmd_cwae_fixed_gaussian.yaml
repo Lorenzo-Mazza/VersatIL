@@ -14,7 +14,7 @@ defaults:
   - /policy/encoding_pipeline: mono_rgb
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_vae_gaussian
-  - /policy/loss: regression_MMD
+  - /policy/loss: regression_mmd
   - override /policy/decoder/heads@policy.decoder.action_heads: synthetic_2d
   - _self_
 

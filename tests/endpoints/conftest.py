@@ -536,13 +536,13 @@ E2E_FULL_COVERAGE_CONFIGS = (
 E2E_REPRESENTATIVE_CONFIGS = (
     "end_to_end_training_runs/ant/act_flow_state",
     "end_to_end_training_runs/block_pushing/act_flow_state",
-    "end_to_end_training_runs/bowel_retraction/action_transformer",
+    "end_to_end_training_runs/bowel_retraction/bcat",
     "end_to_end_training_runs/kitchen/act_flow_rgb",
     "end_to_end_training_runs/libero_hdf5/action_transformer",
-    "end_to_end_training_runs/libero_lerobot/action_transformer",
+    "end_to_end_training_runs/libero_lerobot/bcat",
     "end_to_end_training_runs/libero_plus/vision_sweep/siglip2_base",
-    "end_to_end_training_runs/metaworld/action_transformer",
-    "end_to_end_training_runs/multimodal_peg_transfer/action_transformer",
+    "end_to_end_training_runs/metaworld/bcat",
+    "end_to_end_training_runs/multimodal_peg_transfer/bcat",
     "end_to_end_training_runs/synthetic/bcat",
     "end_to_end_training_runs/ur3/act_flow_state",
 )

@@ -51,7 +51,7 @@ Swap entire config groups using the `group=option` syntax:
 # Use MMD loss instead of default
 python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
-    policy/loss=regression_gripper_MMD
+    policy/loss=regression_gripper_mmd
 ```
 
 This replaces the loss config block while keeping everything else intact.

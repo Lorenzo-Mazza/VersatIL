@@ -13,7 +13,7 @@ defaults:
   - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior_smallsize
-  - /policy/loss: optimal_transport_binary_gripper_latent_MMD
+  - /policy/loss: optimal_transport_binary_gripper_latent_mmd
   - override /policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
 

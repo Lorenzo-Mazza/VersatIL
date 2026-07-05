@@ -14,7 +14,7 @@ defaults:
   - /policy/encoding_pipeline: ur3_state
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior
-  - /policy/loss: regression_KL
+  - /policy/loss: regression_kl
   - override /policy/decoder/heads@policy.decoder.action_heads: ur3_2d
   - _self_
 

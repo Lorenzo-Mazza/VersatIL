@@ -17,8 +17,6 @@ loss_modules:
             - ${proprio_key:SYNTHETIC_POSITION_ACTION}
           weight: 1.0
           learned_variance: true
-          #sigmas:
-          #  ${proprio_key:SYNTHETIC_POSITION_ACTION}: 0.1
 
         trajectory_length:
           weight: 0.0

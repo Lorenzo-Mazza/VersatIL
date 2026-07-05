@@ -60,9 +60,3 @@ policy:
         left:
             input_keys:
               - ${cameras:AGENTVIEW}
-
-# Override specific parameters from defaults/command line if needed
-# For example, to use different batch size:
-# task.dataloader.batch_size: 64
-# To override specific config components from command line, you can do for example
-# ```policy/loss=mmd_l1_pos_gripper_bce``` to use MMD instead of KL in your loss
