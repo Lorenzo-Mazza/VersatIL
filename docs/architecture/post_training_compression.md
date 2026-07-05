@@ -1,7 +1,9 @@
 # Post-Training Compression
 
-VersatIL's post-training compression (PTC) pipeline turns a trained policy
-checkpoint into a deployment artifact. It owns the end-to-end compression job:
+**What is post-training compression?**
+The post-training compression (PTC) pipeline turns a trained policy checkpoint into a deployment artifact for edge or resource-constrained hardware. A PTC run can export a floating-point model, apply pruning, quantize the policy, and save either a Torch Export `.pt2` artifact or an ExecuTorch `.pte` artifact.
+
+The pipeline owns the end-to-end compression job:
 checkpoint loading, optional model preparation, pruning, quantization workflow
 execution, deployment backend export, serialization, and reporting.
 
@@ -153,6 +155,13 @@ compressed/<timestamp>/
 `CompressedCheckpointLoader` reads the metadata, normalizer, tokenizer, and
 artifact. `CompressedPolicyRuntime` then exposes the same runtime interface used
 by the inference client for floating-point policies.
+
+!!! warning "Compressed artifacts are not standalone"
+
+    Currently, compressed models are not fully standalone: they still require
+    a complete VersatIL installation, including its dependencies. Since this
+    is not ideal for edge deployment, self-contained edge-device inference
+    runtime is currently under development.
 
 ## Hydra Configuration
 

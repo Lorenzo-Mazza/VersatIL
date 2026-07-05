@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "VersatIL"
-version = "0.4.0"
+version = "0.4.1"
 description = "Modular imitation learning framework for training, compressing, and deploying robot manipulation policies"
 readme = "README.md"
 authors = [

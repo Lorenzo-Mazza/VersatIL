@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use VersatIL in your research, please cite it as below."
+type: software
+title: "VersatIL: A Modular Imitation Learning Framework for Robot Policies"
+authors:
+  - family-names: Mazza
+    given-names: Lorenzo
+  - family-names: Rodriguez
+    given-names: Ariel
+  - family-names: Speidel
+    given-names: Stefanie
+repository-code: "https://github.com/Lorenzo-Mazza/VersatIL"
+url: "https://lorenzo-mazza.github.io/VersatIL"
+license: MIT
+version: 0.4.1
+date-released: 2026-07-05

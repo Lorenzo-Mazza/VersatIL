@@ -43,16 +43,16 @@ Ready-to-use end-to-end configs exist under `src/versatil/hydra_configs/end_to_e
 
 | Dataset                                                                  | Config Path | Data Link | Notes                                                            |
 |--------------------------------------------------------------------------|---|---|------------------------------------------------------------------|
-| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | Coming soon | Real-world UR5e surgical robotics demonstrations (stereo RGB, depth, language, phase labels). |
+| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_bowel_grasping) | Real-world UR5e surgical robotics demonstrations (stereo RGB, depth, language, phase labels). |
 | [LIBERO Original](https://libero-project.github.io/datasets) (HDF5)      | `libero_hdf5/` | [libero-project.github.io](https://libero-project.github.io/datasets) | Original HDF5 format, 128x128 images.                            |
 | [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot)       | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format, OpenVLA filtered demonstrations, 256x256 images. |
 | [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot)   | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                         |
 | [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                             |
-| PushT                                                                    | `pusht/` | Local/LeRobot-compatible data | 2D pushing benchmark configs.                                    |
-| Block Pushing                                                            | `block_pushing/` | Local/LeRobot-compatible data | Relative and absolute action-space variants.                     |
-| Kitchen                                                                  | `kitchen/` | Local/LeRobot-compatible data | Q-FAT relay kitchen configs.                                     |
-| Multimodal Ant                                                           | `ant/` | Local/LeRobot-compatible data | State-only multimodal ant benchmark configs.                     |
-| UR3 Block Push                                                           | `ur3/` | Local/LeRobot-compatible data | State-only UR3 block-push benchmark configs.                     |
+| PushT                                                                    | `pusht/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_pusht_lerobot) | 2D pushing benchmark configs.                                    |
+| Block Pushing                                                            | `block_pushing/` | [relative](https://huggingface.co/datasets/nct-tso/robotics_blockpush_relative_lerobot), [absolute](https://huggingface.co/datasets/nct-tso/robotics_blockpush_absolute_lerobot) | Relative and absolute action-space variants.                     |
+| Kitchen                                                                  | `kitchen/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_kitchen_lerobot) | Relay kitchen (Franka Kitchen) configs.                          |
+| Multimodal Ant                                                           | `ant/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_multimodal_ant_lerobot) | State-only multimodal ant benchmark configs.                     |
+| UR3 Block Push                                                           | `ur3/` | [HF Hub](https://huggingface.co/datasets/nct-tso/robotics_ur3_blockpush_lerobot) | State-only UR3 block-push benchmark configs.                     |
 | Synthetic                                                                | `synthetic/` | Generated on demand | Lightweight synthetic multimodal benchmark configs.              |
 
 ### Zarr Store Creation

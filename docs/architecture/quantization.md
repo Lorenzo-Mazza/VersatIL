@@ -1,5 +1,15 @@
 # Quantization
 
+## Background
+
+**What is post-training quantization?**
+Post-training quantization (PTQ) converts trained floating-point model weights and activations to lower-precision integer representations (e.g., INT8). This reduces memory footprint, improves cache utilization, and enables hardware-accelerated integer arithmetic — typically achieving inference speedup on x86 CPUs with minimal accuracy loss. PTQ is done after training. Static quantization uses a small calibration dataset to determine optimal activation ranges per layer; dynamic quantization computes ranges on-the-fly at inference time and needs no calibration.
+
+**What is quantization-aware-training?**
+Quantization-aware training inserts fake quantizers between layers of the neural policy to mimic the information loss that the policy will experience at deployment time after PTQ. In this way, the policy learns a mapping that is robust to PTQ-induced information loss, improving downstream performance.
+
+## Workflows
+
 VersatIL implements quantization workflows built on the popular
 [`torchao`](https://docs.pytorch.org/ao/main/) library from PyTorch. The
 workflow owns the order of operations needed to load a checkpoint, optionally

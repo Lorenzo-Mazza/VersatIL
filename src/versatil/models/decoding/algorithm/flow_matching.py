@@ -1,4 +1,4 @@
-"""Flow Matching algorithm for action generation via continuous normalizing flows."""
+"""Flow Matching algorithm for action generation via learned velocity fields."""
 
 import torch
 

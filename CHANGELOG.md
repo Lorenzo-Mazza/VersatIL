@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-05
+
+### Fixed
+- Ship the SIL OFL license text with the bundled Roboto Serif font.
+- The PyPI project page renders the logo correctly.
+
+### Added
+- `CITATION.cff` and a `CONTRIBUTING.md` contributor guide.
+
+### Changed
+- README rewritten and documentation refreshed for the public release.
+
 ## [0.4.0] - 2026-07-05
 
 ### Added
