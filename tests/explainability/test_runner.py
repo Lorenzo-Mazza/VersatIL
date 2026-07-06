@@ -357,6 +357,7 @@ class TestRunnerValidation:
     def _make_runner(self, tmp_path: Path, **overrides):
         checkpoint_loader = MagicMock()
         checkpoint_loader.config = MagicMock()
+        checkpoint_loader.config.experiment.precision = PrecisionType.FP32.value
         checkpoint_loader.policy = MagicMock()
         arguments = {
             "checkpoint_path": str(tmp_path / "checkpoint"),

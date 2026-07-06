@@ -12,6 +12,7 @@ from versatil.configs.explainability import ExplainabilityConfig
 from versatil.endpoints.explain import main
 from versatil.explainability.constants import ExplanationSourceType, ExplanationType
 from versatil.explainability.sources.typedefs import ExplanationBatch
+from versatil.training.constants import PrecisionType
 
 
 @pytest.mark.integration
@@ -31,6 +32,7 @@ def test_main_writes_real_policy_gradcam_heatmaps(
     )
     checkpoint_loader = MagicMock()
     checkpoint_loader.config = MagicMock()
+    checkpoint_loader.config.experiment.precision = PrecisionType.FP32.value
     checkpoint_loader.policy = case.policy
     batch = ExplanationBatch(
         observation=case.observation,
