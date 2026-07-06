@@ -4,9 +4,7 @@ This tutorial takes a trained checkpoint and evaluates it in a simulated
 benchmark. Evaluation uses a server-client architecture: a **simulation
 server** owns the environments and steps them, while the **policy client**
 (VersatIL) receives observations, runs inference, and sends actions back over
-ZMQ. Server and client can run on the same machine or on different ones, for
-example the simulator on a workstation with a display and the policy on a GPU
-cluster node.
+ZMQ. Server and client can run on different machines, within the same network.
 
 For how the client works internally (transports, preprocessing, temporal
 aggregation), see the [inference architecture](../architecture/inference.md).
@@ -16,7 +14,7 @@ aggregation), see the [inference architecture](../architecture/inference.md).
 - A training checkpoint directory produced by `versatil.endpoints.train`. It
   contains the checkpoint file (`last.ckpt` by default), the resolved
   `config.yaml`, and the fitted normalizer and tokenizer state. The client
-  rebuilds the policy from this directory; no extra configuration is needed.
+  rebuilds the policy from this directory.
 - A simulation server for your benchmark, installed from its own repository:
 
 | Benchmark | Server repository |
@@ -40,7 +38,7 @@ On the simulation machine, start the server for your benchmark. For LIBERO:
 ```bash
 python -m versatil_inference.run_evaluation \
     --task_suite_name libero_spatial \
-    --num_trials_per_task 20 \
+    --num_trials_per_task 10 \
     --max_parallel_envs 10 \
     --port 5556 \
     --output_folder ./results
@@ -59,8 +57,8 @@ and `--number_of_trials`); check the server repository's README.
 
 ## Step 2: Run the Policy Client
 
-On the policy machine, point the deployment endpoint at the checkpoint and
-the server:
+On the policy machine, point the deployment endpoint at the checkpoint and pass
+the server IP and port:
 
 ```bash
 python -m versatil.endpoints.deploy \
@@ -84,20 +82,40 @@ The endpoint is Hydra-based, so every setting is a `key=value` override:
 | `compile_model` | `true` | Compile the policy with `torch.compile`. The first inference call is slow while kernels compile. |
 | `client.model_server_address` | `127.0.0.1` | Simulation server address. |
 | `client.model_server_port` | `5555` | Simulation server port. |
-| `client.temporal_aggregation` | `false` | Ensemble overlapping action chunks instead of executing each chunk open-loop. |
-| `client.action_execution_horizon` | full chunk | Actions executed per predicted chunk before re-predicting. |
+| `client.temporal_aggregation` | `false` | Query the policy every step and ensemble overlapping chunk predictions with exponentially weighted averaging; one action is executed per step. |
+| `client.action_execution_horizon` | full chunk | Actions executed from each predicted chunk before re-predicting. Only used when `client.temporal_aggregation=false`. |
 | `client.compression_type` | `raw` | Wire compression for camera observations (`raw`, `jpeg`, `png`); match the server setting. |
 | `client.request_timeout_seconds` | none | Fail instead of blocking forever when the server dies. |
 
-A typical closed-loop configuration re-predicts after a few executed actions
-and smooths chunk boundaries:
+### Chunk Execution Modes
+
+The two settings select between mutually exclusive execution modes:
+
+- **Chunked execution** (`temporal_aggregation=false`, the default): the
+  policy predicts a chunk and the client executes
+  `action_execution_horizon` actions from it before re-predicting. The
+  default executes the full chunk open-loop; lowering it re-predicts more
+  often and reacts faster at the cost of more inference calls. It cannot
+  exceed the policy's prediction horizon.
+- **Temporal ensemble** (`temporal_aggregation=true`): the policy is queried
+  at every environment step and the overlapping predictions for the current
+  timestep are averaged with exponential weighting, smoothing chunk
+  boundaries. Exactly one action is executed per step, so
+  `action_execution_horizon` is ignored.
+
+!!! warning
+    With chunked execution, a policy trained with `observation_horizon > 1`
+    receives history frames spaced `action_execution_horizon` steps apart,
+    while its training windows were contiguous. The client logs a warning
+    for this combination; prefer the temporal ensemble for such policies.
+
+Re-predicting after every 8 executed actions:
 
 ```bash
 python -m versatil.endpoints.deploy \
     checkpoint_path=/path/to/checkpoint_dir \
     client.model_server_address=10.0.0.1 \
     client.model_server_port=5556 \
-    client.temporal_aggregation=true \
     client.action_execution_horizon=8
 ```
 
