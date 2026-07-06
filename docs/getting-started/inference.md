@@ -31,6 +31,7 @@ hardware, see the [inference architecture](../architecture/inference.md).
 | Meta-World | [simulation_metaworld](https://github.com/nct-tso-robotics/simulation_metaworld) |
 | PushT | [simulation_pusht](https://github.com/nct-tso-robotics/simulation_pusht) |
 | Block Pushing | [simulation_block_push](https://github.com/nct-tso-robotics/simulation_block_push) |
+| Multimodal Ant | [simulation_multimodal_ant](https://github.com/nct-tso-robotics/simulation_multimodal_ant) |
 | Franka Kitchen | [simulation_kitchen](https://github.com/nct-tso-robotics/simulation_kitchen) |
 | UR3 Block Push | [simulation_ur3_block_push](https://github.com/nct-tso-robotics/simulation_ur3_block_push) |
 
