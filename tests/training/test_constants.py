@@ -27,6 +27,32 @@ class TestPrecisionTypeIsMixed:
         assert precision.is_mixed() is expected
 
 
+class TestPrecisionTypeLightningAliases:
+    @pytest.mark.parametrize(
+        "lightning_precision, expected",
+        [
+            ("32-true", PrecisionType.FP32),
+            ("64-true", PrecisionType.FP64),
+            ("16", PrecisionType.FP16_MIXED),
+            ("bf16", PrecisionType.BF16_MIXED),
+            ("bf16-mixed", PrecisionType.BF16_MIXED),
+        ],
+    )
+    def test_trainer_precision_strings_resolve(
+        self,
+        lightning_precision: str,
+        expected: PrecisionType,
+    ):
+        assert PrecisionType(lightning_precision) is expected
+
+    def test_unknown_precision_still_raises(self):
+        with pytest.raises(
+            ValueError,
+            match="'transformer-engine' is not a valid PrecisionType",
+        ):
+            PrecisionType("transformer-engine")
+
+
 class TestPrecisionTypeAutocast:
     @pytest.mark.parametrize(
         "precision, expected_enabled",

@@ -23,6 +23,21 @@ class PrecisionType(StrEnum):
     BF16_TRUE = "bf16-true"  # Pure bfloat16 (not recommended)
     FP64 = "64"  # Double precision (rarely needed)
 
+    @classmethod
+    def _missing_(cls, value: str) -> "PrecisionType | None":
+        """Accept Lightning's canonical precision strings.
+
+        ``Trainer.precision`` normalizes ``32`` to ``"32-true"`` and ``64``
+        to ``"64-true"``; map those back onto the enum members.
+        """
+        aliases = {
+            "32-true": cls.FP32,
+            "64-true": cls.FP64,
+            "16": cls.FP16_MIXED,
+            "bf16": cls.BF16_MIXED,
+        }
+        return aliases.get(value)
+
     def get_model_dtype(self) -> torch.dtype:
         """Get the dtype to convert model parameters to for this precision type.
 
