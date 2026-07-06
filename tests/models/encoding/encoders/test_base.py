@@ -36,11 +36,15 @@ class ConcreteEncodingMixin(EncodingMixin):
             model_dtype=model_dtype,
         )
         self.linear = nn.Linear(64, 64)
+        if frozen:
+            self._freeze_weights()
         self._apply_model_dtype()
 
     def rebuild(self) -> None:
         """Simulates a deferred rebuild (e.g. set_image_size / _build_network)."""
         self.linear = nn.Linear(64, 64)
+        if self.frozen:
+            self._freeze_weights()
         self._apply_model_dtype()
 
     def get_output_specification(self) -> list[FeatureMetadata]:
@@ -300,6 +304,42 @@ class TestEncodingMixinFreezeWeights:
         assert encoder.linear.training is True
 
 
+class TestEncodingMixinProbeHelpers:
+    @pytest.mark.parametrize(
+        "model_dtype, expected_mock_input_dtype, expected_autocast_enabled",
+        [
+            (None, torch.float32, False),
+            (PrecisionType.FP32.value, torch.float32, False),
+            (PrecisionType.BF16_MIXED.value, torch.float32, True),
+            (PrecisionType.BF16_TRUE.value, torch.bfloat16, False),
+        ],
+    )
+    def test_mock_forward_runs_under_autocast_only_for_mixed_precision(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+        model_dtype: str | None,
+        expected_mock_input_dtype: torch.dtype,
+        expected_autocast_enabled: bool,
+    ):
+        encoder = concrete_encoder_factory(model_dtype=model_dtype)
+        assert encoder._mock_forward_dtype() == expected_mock_input_dtype
+        with encoder._mock_forward_autocast():
+            assert torch.is_autocast_enabled("cpu") == expected_autocast_enabled
+
+    def test_mock_forward_matches_dtypes_of_frozen_mixed_precision_encoder(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+    ):
+        encoder = concrete_encoder_factory(
+            model_dtype=PrecisionType.BF16_MIXED.value,
+            frozen=True,
+        )
+        mock_input = torch.zeros(1, 64, dtype=encoder._mock_forward_dtype())
+        with torch.no_grad(), encoder._mock_forward_autocast():
+            output = encoder.linear(mock_input)
+        assert output.shape == (1, 64)
+
+
 class TestEncodingMixinGetVocabSize:
     def test_returns_none_by_default(
         self,
@@ -356,39 +396,56 @@ class TestEncodingMixinModelDtype:
 
 class TestEncodingMixinApplyModelDtype:
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            (None, torch.float32),
-            (PrecisionType.FP32.value, torch.float32),
-            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
-            (PrecisionType.BF16_TRUE.value, torch.bfloat16),
-            (PrecisionType.FP16_MIXED.value, torch.float16),
+            (None, False, torch.float32),
+            (PrecisionType.FP32.value, False, torch.float32),
+            (PrecisionType.BF16_MIXED.value, True, torch.bfloat16),
+            (PrecisionType.BF16_TRUE.value, False, torch.bfloat16),
+            (PrecisionType.FP16_MIXED.value, True, torch.float16),
         ],
     )
-    def test_all_parameters_share_model_dtype_after_init(
+    def test_frozen_and_pure_precision_parameters_take_model_dtype(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
         model_dtype: str | None,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
-        encoder = concrete_encoder_factory(model_dtype=model_dtype)
+        encoder = concrete_encoder_factory(model_dtype=model_dtype, frozen=frozen)
         for parameter in encoder.parameters():
             assert parameter.dtype == expected_dtype
 
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
-        [
-            (PrecisionType.FP32.value, torch.float32),
-            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
-        ],
+        "model_dtype",
+        [PrecisionType.BF16_MIXED.value, PrecisionType.FP16_MIXED.value],
     )
-    def test_rebuild_preserves_model_dtype(
+    def test_trainable_parameters_stay_float32_under_mixed_precision(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
         model_dtype: str,
+    ):
+        encoder = concrete_encoder_factory(model_dtype=model_dtype, frozen=False)
+        for parameter in encoder.parameters():
+            assert parameter.requires_grad is True
+            assert parameter.dtype == torch.float32
+
+    @pytest.mark.parametrize(
+        "model_dtype, frozen, expected_dtype",
+        [
+            (PrecisionType.FP32.value, False, torch.float32),
+            (PrecisionType.BF16_MIXED.value, True, torch.bfloat16),
+            (PrecisionType.BF16_MIXED.value, False, torch.float32),
+        ],
+    )
+    def test_rebuild_preserves_parameter_dtype_contract(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+        model_dtype: str,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
-        encoder = concrete_encoder_factory(model_dtype=model_dtype)
+        encoder = concrete_encoder_factory(model_dtype=model_dtype, frozen=frozen)
         encoder.rebuild()
         for parameter in encoder.parameters():
             assert parameter.dtype == expected_dtype

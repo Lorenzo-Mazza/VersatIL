@@ -16,6 +16,7 @@ from versatil.data.synthetic.visualization import plot_trajectories_2d
 from versatil.inference.synthetic_rollout import evaluate_rollouts, run_rollouts
 from versatil.models.policy import Policy
 from versatil.training.callbacks.wandb_figure import figure_to_wandb_image
+from versatil.training.constants import PrecisionType
 
 
 class SyntheticRolloutCallback(Callback):
@@ -80,7 +81,11 @@ class SyntheticRolloutCallback(Callback):
         policy.eval()
 
         context_modes = self._resolve_context_modes(policy=policy)
-        with torch.no_grad():
+        precision_type = PrecisionType(str(trainer.precision))
+        with (
+            torch.no_grad(),
+            precision_type.autocast(device_type=pl_module.device.type),
+        ):
             per_mode_trajectories = [
                 run_rollouts(
                     policy=policy,

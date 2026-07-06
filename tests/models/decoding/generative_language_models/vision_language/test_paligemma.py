@@ -874,18 +874,20 @@ class TestPaliGemmaVLMIntegration:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "precision, expected_dtype",
+        "precision, frozen, expected_dtype",
         [
-            (PrecisionType.FP32.value, torch.float32),
-            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
+            (PrecisionType.FP32.value, True, torch.float32),
+            (PrecisionType.BF16_MIXED.value, True, torch.bfloat16),
+            (PrecisionType.BF16_MIXED.value, False, torch.float32),
         ],
     )
     def test_model_dtype_sets_vlm_parameter_dtype(
         self,
         real_paligemma_backbone: Callable[..., PaliGemmaVLM],
         precision: str,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ) -> None:
-        backbone = real_paligemma_backbone(model_dtype=precision)
+        backbone = real_paligemma_backbone(model_dtype=precision, frozen=frozen)
         param_dtype = next(backbone.vlm.parameters()).dtype
         assert param_dtype == expected_dtype

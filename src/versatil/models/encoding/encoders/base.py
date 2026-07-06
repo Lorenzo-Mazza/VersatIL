@@ -48,10 +48,10 @@ class EncodingMixin(ModuleAttrMixin, abc.ABC):
                     f"Invalid model_dtype '{model_dtype}'. "
                     f"Must be one of: {valid_values}"
                 )
-            self.model_dtype: torch.dtype | None = PrecisionType(
-                model_dtype
-            ).get_model_dtype()
+            self.precision_type: PrecisionType | None = PrecisionType(model_dtype)
+            self.model_dtype: torch.dtype | None = self.precision_type.get_model_dtype()
         else:
+            self.precision_type = None
             self.model_dtype = None
         if device is None:
             device = "cuda" if _cuda_runtime_available() else "cpu"
@@ -77,19 +77,53 @@ class EncodingMixin(ModuleAttrMixin, abc.ABC):
         return self
 
     def _apply_model_dtype(self) -> None:
-        """Cast the entire encoder module tree to a consistent dtype.
+        """Cast the entire encoder module tree to the configured model dtype.
 
-        When ``model_dtype`` is set explicitly, casts to that dtype.
-        When ``model_dtype`` is None, casts to ``torch.float32``.
+        Note:
+            When ``model_dtype`` is set explicitly, casts to that dtype; when it is
+            None, casts to ``torch.float32``.
 
-        Called by child encoders at the end of ``__init__`` and after any
-        deferred-build method (``set_image_size``, ``_build_network``, …) so
-        a rebuild cannot leak mismatched-dtype submodules back into the tree.
+            Called by child encoders at the end of ``__init__`` and after any
+            deferred-build method (``set_image_size``, ``_build_network``, …) so
+            a rebuild cannot leak mismatched-dtype submodules back into the tree.
+            Must run after ``requires_grad`` flags are final (freezing, LoRA
+            wrapping).
         """
         target_dtype = (
             self.model_dtype if self.model_dtype is not None else torch.float32
         )
         self.to(target_dtype)
+        if self.precision_type is not None and self.precision_type.is_mixed():
+            for parameter in self.parameters():
+                if parameter.requires_grad:
+                    parameter.data = parameter.data.float()
+
+    def _mock_forward_dtype(self) -> torch.dtype:
+        """Return the input dtype for mock forward passes.
+
+        Mock forward passes push a zero-filled input through the encoder at
+        setup time, only to measure output feature shapes. Mixed precisions
+        run the mock input in float32 inside ``_mock_forward_autocast()``,
+        mirroring training-time autocast over the encoder's mixed float32/
+        low-precision parameters. Other precisions run the mock input
+        directly in the parameter dtype.
+        """
+        if self.precision_type is not None and self.precision_type.is_mixed():
+            return torch.float32
+        return self.model_dtype if self.model_dtype is not None else torch.float32
+
+    def _mock_forward_autocast(self) -> torch.autocast:
+        """Return the autocast context for mock forward passes."""
+        mixed = self.precision_type is not None and self.precision_type.is_mixed()
+        first_parameter = next(self.parameters(), None)
+        device_type = (
+            first_parameter.device.type if first_parameter is not None else "cpu"
+        )
+        return torch.autocast(
+            device_type=device_type,
+            dtype=self.model_dtype if mixed else None,
+            enabled=mixed,
+        )
 
     @abstractmethod
     def get_output_specification(self) -> list[FeatureMetadata]:

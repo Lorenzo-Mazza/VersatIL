@@ -49,10 +49,10 @@ class GenerativeLanguageModel(ModuleAttrMixin, abc.ABC):
                     f"Invalid model_dtype '{model_dtype}'. "
                     f"Must be one of: {valid_values}"
                 )
-            self.model_dtype: torch.dtype | None = PrecisionType(
-                model_dtype
-            ).get_model_dtype()
+            self.precision_type: PrecisionType | None = PrecisionType(model_dtype)
+            self.model_dtype: torch.dtype | None = self.precision_type.get_model_dtype()
         else:
+            self.precision_type = None
             self.model_dtype = None
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,11 +78,25 @@ class GenerativeLanguageModel(ModuleAttrMixin, abc.ABC):
         return self
 
     def _apply_model_dtype(self) -> None:
-        """Cast the module tree to the configured model dtype."""
+        """Cast the module tree to the configured model dtype.
+
+        Note:
+            Under mixed precision, trainable parameters are
+            kept in float32 storage: autocast already runs the compute in the low
+            precision, while float32 masters prevent optimizer updates smaller
+            than the parameter's low-precision rounding step from vanishing.
+
+            The method must be called after ``requires_grad`` flags are final
+            (freezing, LoRA wrapping).
+        """
         target_dtype = (
             self.model_dtype if self.model_dtype is not None else torch.float32
         )
         self.to(target_dtype)
+        if self.precision_type is not None and self.precision_type.is_mixed():
+            for parameter in self.parameters():
+                if parameter.requires_grad:
+                    parameter.data = parameter.data.float()
 
     def get_vocab_size(self) -> int | None:
         """Get vocabulary size if applicable, else None."""

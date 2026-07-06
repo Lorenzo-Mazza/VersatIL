@@ -823,6 +823,25 @@ def _real_backbone_build_backbone(self, img_size: tuple[int, int] | None = None)
     self.backbone = backbone
 
 
+class _FeaturesOnlyConvBackbone(torch.nn.Module):
+    """Real conv backbone mimicking timm features_only list output."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(3, 16, kernel_size=3)
+        self.feature_info = MagicMock()
+        self.feature_info.channels.return_value = [16]
+        self.patch_embed = None
+
+    def forward(self, images: torch.Tensor) -> list[torch.Tensor]:
+        return [self.conv(images)]
+
+
+def _features_only_build_backbone(self, img_size: tuple[int, int] | None = None):
+    """Side-effect installing a forward-capable features_only backbone."""
+    self.backbone = _FeaturesOnlyConvBackbone()
+
+
 class TestSpatialRGBEncoderModelDtype:
     @pytest.mark.unit
     def test_apply_model_dtype_called_once_in_init(self):
@@ -856,16 +875,18 @@ class TestSpatialRGBEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            (None, torch.float32),
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            (None, False, torch.float32),
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
         ],
     )
-    def test_all_parameters_share_model_dtype_after_init(
+    def test_parameter_dtype_follows_precision_and_frozen_state(
         self,
         model_dtype: str | None,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         with patch.object(
@@ -877,6 +898,7 @@ class TestSpatialRGBEncoderModelDtype:
                 pooling_method=PoolingMethod.AVERAGE.value,
                 batch_norm_handling=BatchNormHandling.DEFAULT.value,
                 pretrained=False,
+                frozen=frozen,
                 model_dtype=model_dtype,
             )
         for parameter in encoder.parameters():
@@ -884,15 +906,17 @@ class TestSpatialRGBEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
         ],
     )
-    def test_backbone_rebuild_preserves_model_dtype(
+    def test_backbone_rebuild_preserves_parameter_dtype(
         self,
         model_dtype: str,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         with patch.object(
@@ -904,9 +928,33 @@ class TestSpatialRGBEncoderModelDtype:
                 pooling_method=PoolingMethod.AVERAGE.value,
                 batch_norm_handling=BatchNormHandling.DEFAULT.value,
                 pretrained=False,
+                frozen=frozen,
                 model_dtype=model_dtype,
             )
             encoder._build_backbone(img_size=(224, 224))
+            if frozen:
+                encoder._freeze_weights()
             encoder._apply_model_dtype()
         for parameter in encoder.parameters():
             assert parameter.dtype == expected_dtype
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("frozen", [False, True])
+    def test_set_image_size_mock_forward_runs_under_mixed_precision(
+        self,
+        frozen: bool,
+    ):
+        with patch.object(
+            SpatialRGBEncoder, "_build_backbone", _features_only_build_backbone
+        ):
+            encoder = SpatialRGBEncoder(
+                input_keys="left",
+                backbone=SpatialBackboneType.RESNET18.value,
+                pooling_method=PoolingMethod.AVERAGE.value,
+                batch_norm_handling=BatchNormHandling.DEFAULT.value,
+                pretrained=False,
+                frozen=frozen,
+                model_dtype="bf16-mixed",
+            )
+            encoder.set_image_size(image_height=224, image_width=224)
+        assert encoder.pooling_head is not None

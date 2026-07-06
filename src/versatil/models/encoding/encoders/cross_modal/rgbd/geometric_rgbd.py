@@ -201,12 +201,14 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             image_height: Target image height.
             image_width: Target image width.
         """
-        probe_dtype = (
-            self.model_dtype if self.model_dtype is not None else torch.float32
-        )
-        with torch.no_grad():
-            mock_rgb = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
-            mock_depth = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
+        mock_input_dtype = self._mock_forward_dtype()
+        with torch.no_grad(), self._mock_forward_autocast():
+            mock_rgb = torch.zeros(
+                1, 3, image_height, image_width, dtype=mock_input_dtype
+            )
+            mock_depth = torch.zeros(
+                1, 1, image_height, image_width, dtype=mock_input_dtype
+            )
             _, spatial_height, spatial_width = self.encode_features(
                 rgb_image=mock_rgb, depth_map=mock_depth
             )

@@ -406,13 +406,13 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
             image_height: Target image height.
             image_width: Target image width.
         """
-        probe_dtype = (
-            self.model_dtype if self.model_dtype is not None else torch.float32
-        )
-        with torch.no_grad():
-            mock_input = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
+        mock_input_dtype = self._mock_forward_dtype()
+        with torch.no_grad(), self._mock_forward_autocast():
+            mock_input = torch.zeros(
+                1, 3, image_height, image_width, dtype=mock_input_dtype
+            )
             mock_condition = torch.zeros(
-                1, self.conditioning_dimension, dtype=probe_dtype
+                1, self.conditioning_dimension, dtype=mock_input_dtype
             )
             features = self.backbone(mock_input, mock_condition)
             _, _, spatial_height, spatial_width = features.shape

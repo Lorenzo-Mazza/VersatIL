@@ -1063,21 +1063,24 @@ class TestLanguageEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            (None, torch.float32),
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            (None, False, torch.float32),
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
         ],
     )
-    def test_embedding_only_encoder_parameters_share_model_dtype(
+    def test_embedding_only_parameter_dtype_follows_precision_and_frozen_state(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
         model_dtype: str | None,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         encoder = language_encoder_factory(
             pretrained=False,
+            frozen=frozen,
             pooling_method=PoolingMethod.NONE.value,
             use_embeddings_only=True,
             model_dtype=model_dtype,
@@ -1094,16 +1097,18 @@ class TestLanguageEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
         ],
     )
     def test_full_encoder_pooling_head_matches_backbone_dtype(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
         model_dtype: str,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         # Build against a real nn.Module backbone (not just MagicMock) so
@@ -1111,6 +1116,7 @@ class TestLanguageEncoderModelDtype:
         mock_backbone = torch.nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE)
         encoder = language_encoder_factory(
             pretrained=True,
+            frozen=frozen,
             pooling_method=PoolingMethod.DEFAULT.value,
             use_embeddings_only=False,
             model_dtype=model_dtype,

@@ -29,7 +29,7 @@ from versatil.inference.socket_transport import (
     SocketObservationTransport,
 )
 from versatil.models.policy import Policy
-from versatil.training.constants import CheckpointFilename
+from versatil.training.constants import CheckpointFilename, PrecisionType
 
 DEFAULT_ONLINE_MAX_STEPS = 1_000_000
 
@@ -436,16 +436,18 @@ class ExplainabilityRunner:
         heatmap_function = self.explanation_heatmaps[explanation_type]
         heatmaps: dict[str, torch.Tensor] = {}
         target_cameras = self._get_target_cameras()
-        for target_camera in target_cameras:
-            current_heatmaps = heatmap_function(
-                policy=self.policy,
-                observation=observation,
-                actions=actions,
-                target_camera=target_camera,
-                target_vision_module_names=self.target_vision_module_names,
-                preprocess_observation=preprocess_observation,
-            )
-            heatmaps.update(current_heatmaps)
+        precision_type = PrecisionType(str(self.config.experiment.precision))
+        with precision_type.autocast(device_type=self.device.type):
+            for target_camera in target_cameras:
+                current_heatmaps = heatmap_function(
+                    policy=self.policy,
+                    observation=observation,
+                    actions=actions,
+                    target_camera=target_camera,
+                    target_vision_module_names=self.target_vision_module_names,
+                    preprocess_observation=preprocess_observation,
+                )
+                heatmaps.update(current_heatmaps)
         return heatmaps
 
     def _get_target_cameras(self) -> list[str | None]:

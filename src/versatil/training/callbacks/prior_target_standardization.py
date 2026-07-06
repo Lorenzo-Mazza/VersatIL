@@ -11,6 +11,7 @@ from versatil.common.tensor_ops import to_device
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.latent.prior.latent_standardizer import LatentStandardizer
 from versatil.models.policy import Policy
+from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
 
@@ -51,8 +52,7 @@ class PriorTargetStandardizationCallback(Callback):
             trainer: Active Lightning trainer.
             pl_module: Lightning module wrapping the policy.
         """
-        del trainer
-        self._fit_if_ready(pl_module=pl_module)
+        self._fit_if_ready(trainer=trainer, pl_module=pl_module)
 
     def on_train_epoch_start(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
@@ -63,8 +63,7 @@ class PriorTargetStandardizationCallback(Callback):
             trainer: Active Lightning trainer.
             pl_module: Lightning module wrapping the policy.
         """
-        del trainer
-        self._fit_if_ready(pl_module=pl_module)
+        self._fit_if_ready(trainer=trainer, pl_module=pl_module)
 
     @staticmethod
     def _require_lightning_policy(pl_module: pl.LightningModule) -> LightningPolicy:
@@ -86,10 +85,11 @@ class PriorTargetStandardizationCallback(Callback):
             )
         return pl_module
 
-    def _fit_if_ready(self, pl_module: pl.LightningModule) -> None:
+    def _fit_if_ready(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Fit standardizer stats if runtime state satisfies the fit contract.
 
         Args:
+            trainer: Active Lightning trainer providing the training precision.
             pl_module: Lightning module wrapping the policy.
 
         Raises:
@@ -124,6 +124,7 @@ class PriorTargetStandardizationCallback(Callback):
                 standardizer=standardizer,
                 train_dataloader=train_dataloader,
                 device=lightning_policy.device,
+                precision_type=PrecisionType(str(trainer.precision)),
             )
         finally:
             self._restore_training_modes(training_modes)
@@ -206,6 +207,7 @@ class PriorTargetStandardizationCallback(Callback):
         standardizer: torch.nn.Module,
         train_dataloader: Iterable,
         device: torch.device,
+        precision_type: PrecisionType,
     ) -> tuple[torch.Tensor, torch.Tensor, int]:
         """Stream posterior targets and compute latent mean/std.
 
@@ -215,6 +217,9 @@ class PriorTargetStandardizationCallback(Callback):
             standardizer: Latent standardizer receiving the fitted stats.
             train_dataloader: Dataloader yielding policy training batches.
             device: Device used for the stats pass.
+            precision_type: Trainer precision; mixed precisions run the stats
+                pass under the same autocast as training so the fitted stats
+                match the latents the prior sees.
 
         Returns:
             Tuple of mean, standard deviation, and number of observed targets.
@@ -227,7 +232,7 @@ class PriorTargetStandardizationCallback(Callback):
         sum_squared_latents = torch.zeros_like(sum_latents)
         count = torch.zeros((), device=device, dtype=torch.float64)
 
-        with torch.no_grad():
+        with torch.no_grad(), precision_type.autocast(device_type=device.type):
             for batch_index, batch in enumerate(train_dataloader):
                 if self.max_batches is not None and batch_index >= self.max_batches:
                     break
