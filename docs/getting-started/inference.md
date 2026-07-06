@@ -151,7 +151,10 @@ fixed frequency instead of as fast as inference allows.
   port, and firewalls, and set `client.request_timeout_seconds=30` to fail
   fast instead of blocking.
 - **Server crashes on rendering**: set `MUJOCO_GL=egl` (or `osmesa`) on
-  headless machines.
+  headless machines. If EGL still fails to initialize a device display
+  (common on nodes without the nvidia EGL userspace driver), enumerate the
+  EGL devices and point `MUJOCO_EGL_DEVICE_ID` at the Mesa software device;
+  rendering then runs on the CPU.
 - **Slow first prediction**: expected with `compile_model=true`; disable it
   for quick smoke tests.
 - **Observation key errors**: the checkpoint's observation space must match
