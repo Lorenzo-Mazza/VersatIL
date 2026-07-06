@@ -321,11 +321,12 @@ class TestProprioceptiveEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            (None, torch.float32),
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            (None, False, torch.float32),
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
         ],
     )
     def test_deferred_mlp_build_respects_model_dtype(
@@ -333,11 +334,13 @@ class TestProprioceptiveEncoderModelDtype:
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
         proprioceptive_input_factory: Callable[..., dict[str, torch.Tensor]],
         model_dtype: str | None,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         encoder = proprioceptive_encoder_factory(
             hidden_dimensions=[32, 16],
             output_dimension=8,
+            frozen=frozen,
             model_dtype=model_dtype,
         )
         assert encoder.network is None

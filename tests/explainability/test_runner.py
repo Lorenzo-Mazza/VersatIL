@@ -22,6 +22,7 @@ from versatil.explainability.constants import (
 )
 from versatil.explainability.runner import ExplainabilityRunner
 from versatil.explainability.sources.typedefs import ExplanationBatch
+from versatil.training.constants import PrecisionType
 
 
 @pytest.fixture
@@ -41,6 +42,7 @@ def runner_factory(tmp_path: Path) -> Callable[..., ExplainabilityRunner]:
         policy.eval = MagicMock()
         checkpoint_loader = MagicMock()
         checkpoint_loader.config = MagicMock()
+        checkpoint_loader.config.experiment.precision = PrecisionType.FP32.value
         checkpoint_loader.policy = policy
 
         with patch(

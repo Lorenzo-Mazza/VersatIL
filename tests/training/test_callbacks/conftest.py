@@ -95,6 +95,7 @@ def mock_pl_module_factory() -> Callable[..., MagicMock]:
         ).return_value = val_metrics_return
         if policy_training is not None:
             pl_module.policy.training = policy_training
+        pl_module.device = torch.device("cpu")
         return pl_module
 
     return factory

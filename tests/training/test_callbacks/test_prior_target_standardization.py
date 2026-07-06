@@ -15,9 +15,16 @@ from versatil.models.decoding.latent.prior.latent_standardizer import (
 from versatil.training.callbacks.prior_target_standardization import (
     PriorTargetStandardizationCallback,
 )
+from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
 LATENT_DIMENSION = 2
+
+
+def _mock_trainer() -> MagicMock:
+    trainer = MagicMock()
+    trainer.precision = PrecisionType.FP32.value
+    return trainer
 
 
 class _ToyEncodingPipeline(torch.nn.Module):
@@ -219,7 +226,7 @@ class TestPriorTargetStandardizationCallback:
         lightning_policy.policy.train()
         callback = PriorTargetStandardizationCallback()
 
-        callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+        callback.on_train_start(trainer=_mock_trainer(), pl_module=lightning_policy)
 
         expected_targets = torch.tensor(
             [[1.0, 2.0], [3.0, 4.0], [6.0, 7.0]],
@@ -252,7 +259,7 @@ class TestPriorTargetStandardizationCallback:
         )
         callback = PriorTargetStandardizationCallback(max_batches=1)
 
-        callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+        callback.on_train_start(trainer=_mock_trainer(), pl_module=lightning_policy)
 
         expected_targets = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
         standardizer = lightning_policy.policy.algorithm.prior.latent_standardizer
@@ -290,7 +297,7 @@ class TestPriorTargetStandardizationCallback:
             "encode",
             wraps=posterior_encoder.encode,
         ) as encode_spy:
-            callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+            callback.on_train_start(trainer=_mock_trainer(), pl_module=lightning_policy)
 
         standardizer = lightning_policy.policy.algorithm.prior.latent_standardizer
         assert standardizer.is_fitted.item() is False
@@ -336,7 +343,7 @@ class TestPriorTargetStandardizationCallback:
                 f"'{SampleKey.ACTION.value}' keys."
             ),
         ):
-            callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+            callback.on_train_start(trainer=_mock_trainer(), pl_module=lightning_policy)
 
     def test_non_lightning_policy_module_raises(self) -> None:
         callback = PriorTargetStandardizationCallback()
@@ -349,7 +356,7 @@ class TestPriorTargetStandardizationCallback:
             ),
         ):
             callback.on_train_start(
-                trainer=MagicMock(), pl_module=not_a_lightning_policy
+                trainer=_mock_trainer(), pl_module=not_a_lightning_policy
             )
 
     def test_target_latent_dimension_mismatch_raises(
@@ -376,7 +383,7 @@ class TestPriorTargetStandardizationCallback:
                 f"{LATENT_DIMENSION}, got {wrong_dimension}."
             ),
         ):
-            callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+            callback.on_train_start(trainer=_mock_trainer(), pl_module=lightning_policy)
 
     def test_empty_dataloader_raises(
         self,
@@ -396,4 +403,4 @@ class TestPriorTargetStandardizationCallback:
                 "from an empty training dataloader."
             ),
         ):
-            callback.on_train_start(trainer=MagicMock(), pl_module=lightning_policy)
+            callback.on_train_start(trainer=_mock_trainer(), pl_module=lightning_policy)

@@ -1155,16 +1155,18 @@ class TestFlatRGBEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, frozen, expected_dtype",
         [
-            (None, torch.float32),
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            (None, False, torch.float32),
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
         ],
     )
-    def test_all_parameters_share_model_dtype_after_init(
+    def test_parameter_dtype_follows_precision_and_frozen_state(
         self,
         model_dtype: str | None,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         with patch.object(FlatRGBEncoder, "_build_backbone", _real_flat_build_backbone):
@@ -1173,7 +1175,7 @@ class TestFlatRGBEncoderModelDtype:
                 backbone=FlatBackboneType.DINOV2_VITS14.value,
                 pooling_method=PoolingMethod.DEFAULT.value,
                 pretrained=False,
-                frozen=False,
+                frozen=frozen,
                 model_dtype=model_dtype,
             )
         for parameter in encoder.parameters():
@@ -1181,12 +1183,17 @@ class TestFlatRGBEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
-        [("32", torch.float32), ("bf16-mixed", torch.bfloat16)],
+        "model_dtype, frozen, expected_dtype",
+        [
+            ("32", False, torch.float32),
+            ("bf16-mixed", True, torch.bfloat16),
+            ("bf16-mixed", False, torch.float32),
+        ],
     )
-    def test_set_image_size_rebuild_preserves_model_dtype(
+    def test_set_image_size_rebuild_preserves_parameter_dtype(
         self,
         model_dtype: str,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ):
         with patch.object(FlatRGBEncoder, "_build_backbone", _real_flat_build_backbone):
@@ -1195,7 +1202,7 @@ class TestFlatRGBEncoderModelDtype:
                 backbone=FlatBackboneType.DINOV2_VITS14.value,
                 pooling_method=PoolingMethod.DEFAULT.value,
                 pretrained=False,
-                frozen=False,
+                frozen=frozen,
                 model_dtype=model_dtype,
             )
             encoder.set_image_size(image_height=224, image_width=224)

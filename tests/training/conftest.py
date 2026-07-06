@@ -20,6 +20,7 @@ from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
+from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
 
@@ -218,6 +219,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         val_dataloaders: Mock | None = None,
         accumulate_grad_batches: int = 1,
         is_last_batch: bool = False,
+        precision: str = PrecisionType.FP32.value,
     ) -> Mock:
         trainer = MagicMock(spec="pl.Trainer")
         trainer.current_epoch = current_epoch
@@ -225,6 +227,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         trainer.max_epochs = max_epochs
         trainer.estimated_stepping_batches = estimated_stepping_batches
         trainer.sanity_checking = sanity_checking
+        trainer.precision = precision
         trainer.val_dataloaders = val_dataloaders
         trainer.accumulate_grad_batches = accumulate_grad_batches
         trainer.is_last_batch = is_last_batch

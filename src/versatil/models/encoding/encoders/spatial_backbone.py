@@ -250,16 +250,18 @@ class SpatialBackboneEncoder(ImageEncoderMixin, Encoder):
             self.feature_dim = self._get_intermediate_layer_channels()
             if self.frozen:
                 self._freeze_weights()
-            # The rebuilt backbone is float32; recast before the probe below
-            # runs a model_dtype input through it.
+            # The rebuilt backbone is float32; recast before the mock
+            # forward below runs an input through it.
             self._apply_model_dtype()
 
-        probe_dtype = (
-            self.model_dtype if self.model_dtype is not None else torch.float32
-        )
-        with torch.no_grad():
+        mock_input_dtype = self._mock_forward_dtype()
+        with torch.no_grad(), self._mock_forward_autocast():
             mock_input = torch.zeros(
-                1, self._input_channels, image_height, image_width, dtype=probe_dtype
+                1,
+                self._input_channels,
+                image_height,
+                image_width,
+                dtype=mock_input_dtype,
             )
             intermediate_outputs = self.backbone(mock_input)
             layer_index = self._resolve_intermediate_layer_index(

@@ -50,6 +50,37 @@ class PrecisionType(StrEnum):
         }
         return dtype_map[self]
 
+    def is_mixed(self) -> bool:
+        """Check if this precision type autocasts compute around float32 weights.
+
+        Returns:
+            True for the mixed half-precision types, where trainable parameters
+            must stay in float32 storage so optimizer updates are not rounded
+            away by the low-precision dtype.
+        """
+        return self in (
+            PrecisionType.FP16_MIXED,
+            PrecisionType.BF16_MIXED,
+        )
+
+    def autocast(self, device_type: str) -> torch.autocast:
+        """Return an autocast context matching this precision.
+
+        Enabled only for the mixed half-precision types, where forward passes
+        outside the Lightning training loop must reproduce the training-time
+        autocast over mixed float32/low-precision parameters. For all other
+        precisions the returned context is a no-op.
+
+        Args:
+            device_type: Device type string for ``torch.autocast`` (e.g.
+                ``"cuda"`` or ``"cpu"``).
+        """
+        return torch.autocast(
+            device_type=device_type,
+            dtype=self.get_model_dtype() if self.is_mixed() else None,
+            enabled=self.is_mixed(),
+        )
+
     def should_convert_model(self) -> bool:
         """Check if model should be converted to a specific dtype for this precision.
 

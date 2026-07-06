@@ -68,7 +68,7 @@ class ExplanationWriter:
             {
                 "metadata": metadata,
                 "heatmaps": {
-                    camera: heatmap.detach().cpu()
+                    camera: heatmap.detach().float().cpu()
                     for camera, heatmap in heatmaps.items()
                 },
             },
@@ -103,7 +103,7 @@ class ExplanationWriter:
                 raise RuntimeError(
                     f"No display observation found for heatmap camera '{camera}'."
                 )
-            cpu_heatmap = heatmap.detach().cpu()
+            cpu_heatmap = heatmap.detach().float().cpu()
             for batch_index in range(cpu_heatmap.shape[0]):
                 sample_label = self.sample_label(
                     metadata=batch.metadata,

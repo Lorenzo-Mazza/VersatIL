@@ -485,35 +485,54 @@ class TestGeometricRGBDEncoderModelDtype:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
+        "model_dtype, expected_trainable_dtype, expected_non_trainable_dtype",
         [
-            (None, torch.float32),
-            ("32", torch.float32),
-            ("bf16-mixed", torch.bfloat16),
+            (None, torch.float32, torch.float32),
+            ("32", torch.float32, torch.float32),
+            ("bf16-true", torch.bfloat16, torch.bfloat16),
+            ("bf16-mixed", torch.float32, torch.bfloat16),
         ],
     )
-    def test_all_parameters_share_model_dtype_after_init(
+    def test_parameter_dtype_follows_precision_and_trainability(
         self,
         light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
         model_dtype: str | None,
-        expected_dtype: torch.dtype,
+        expected_trainable_dtype: torch.dtype,
+        expected_non_trainable_dtype: torch.dtype,
     ):
+        # GeometricRGBDEncoder rejects frozen=True, but the geometric decay
+        # table is a fixed non-trainable parameter that keeps the model dtype.
         encoder = light_geometric_encoder_factory(model_dtype=model_dtype)
         for parameter in encoder.parameters():
+            expected_dtype = (
+                expected_trainable_dtype
+                if parameter.requires_grad
+                else expected_non_trainable_dtype
+            )
             assert parameter.dtype == expected_dtype
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "model_dtype, expected_dtype",
-        [("32", torch.float32), ("bf16-mixed", torch.bfloat16)],
+        "model_dtype, expected_trainable_dtype, expected_non_trainable_dtype",
+        [
+            ("32", torch.float32, torch.float32),
+            ("bf16-true", torch.bfloat16, torch.bfloat16),
+            ("bf16-mixed", torch.float32, torch.bfloat16),
+        ],
     )
-    def test_set_image_size_preserves_model_dtype(
+    def test_set_image_size_preserves_parameter_dtype(
         self,
         light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
         model_dtype: str,
-        expected_dtype: torch.dtype,
+        expected_trainable_dtype: torch.dtype,
+        expected_non_trainable_dtype: torch.dtype,
     ):
         encoder = light_geometric_encoder_factory(model_dtype=model_dtype)
         encoder.set_image_size(image_height=224, image_width=224)
         for parameter in encoder.parameters():
+            expected_dtype = (
+                expected_trainable_dtype
+                if parameter.requires_grad
+                else expected_non_trainable_dtype
+            )
             assert parameter.dtype == expected_dtype

@@ -940,18 +940,51 @@ class TestSmolVLMIntegration:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        "precision, expected_dtype",
+        "precision, frozen, expected_dtype",
         [
-            (PrecisionType.FP32.value, torch.float32),
-            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
+            (PrecisionType.FP32.value, False, torch.float32),
+            (PrecisionType.BF16_MIXED.value, True, torch.bfloat16),
+            (PrecisionType.BF16_MIXED.value, False, torch.float32),
         ],
     )
     def test_model_dtype_sets_vlm_parameter_dtype(
         self,
         real_smolvlm_backbone: Callable[..., SmolVLM],
         precision: str,
+        frozen: bool,
         expected_dtype: torch.dtype,
     ) -> None:
-        backbone = real_smolvlm_backbone(model_dtype=precision)
+        backbone = real_smolvlm_backbone(model_dtype=precision, frozen=frozen)
         param_dtype = next(backbone.vlm.parameters()).dtype
         assert param_dtype == expected_dtype
+
+    @pytest.mark.integration
+    def test_lora_adapters_stay_float32_under_mixed_precision(
+        self,
+        real_smolvlm_backbone: Callable[..., SmolVLM],
+    ) -> None:
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=(
+                LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
+            ),
+        )
+        backbone = real_smolvlm_backbone(
+            model_dtype=PrecisionType.BF16_MIXED.value,
+            frozen=False,
+            lora_config=lora_config,
+        )
+        trainable_dtypes = {
+            parameter.dtype
+            for parameter in backbone.vlm.parameters()
+            if parameter.requires_grad
+        }
+        frozen_dtypes = {
+            parameter.dtype
+            for parameter in backbone.vlm.parameters()
+            if not parameter.requires_grad
+        }
+        assert trainable_dtypes == {torch.float32}
+        assert frozen_dtypes == {torch.bfloat16}
