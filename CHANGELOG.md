@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 
 ### Added
+- macOS (Apple Silicon) support for CPU workflows: dependency resolution covers darwin arm64 wheels and CI runs the unit suite on a macOS runner. GPU training and the `gpu` extra remain Linux-only.
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
