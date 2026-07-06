@@ -92,6 +92,7 @@ nav:
       - Installation: getting-started/installation.md
       - First Training Run: getting-started/training.md
       - Configuration: getting-started/configuration.md
+      - Evaluating in Simulation: getting-started/inference.md
   - Architecture:
       - Overview: architecture/overview.md
       - Encoding Pipeline: architecture/encoding.md
