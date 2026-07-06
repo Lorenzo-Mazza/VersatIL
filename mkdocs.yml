@@ -92,7 +92,9 @@ nav:
       - Installation: getting-started/installation.md
       - First Training Run: getting-started/training.md
       - Configuration: getting-started/configuration.md
-      - Evaluating in Simulation: getting-started/inference.md
+      - Deploying a Policy: getting-started/inference.md
+      - Quantization-Aware Training: getting-started/quantization_aware_training.md
+      - Compressing a Trained Policy: getting-started/post_training_compression.md
   - Architecture:
       - Overview: architecture/overview.md
       - Encoding Pipeline: architecture/encoding.md

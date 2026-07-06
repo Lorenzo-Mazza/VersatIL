@@ -1,13 +1,19 @@
-# Evaluating a Policy in Simulation
+# Deploying a Policy
 
-This tutorial takes a trained checkpoint and evaluates it in a simulated
-benchmark. Evaluation uses a server-client architecture: a **simulation
-server** owns the environments and steps them, while the **policy client**
-(VersatIL) receives observations, runs inference, and sends actions back over
-ZMQ. Server and client can run on different machines, within the same network.
+This tutorial takes a trained checkpoint and runs it against an environment.
+Inference uses a server-client architecture: an **environment server** owns
+the environment and steps it, while the **policy client** (VersatIL) receives
+observations, runs inference, and sends actions back over ZMQ. The
+environment behind the server is irrelevant to the client: a simulated
+benchmark, a real robot wrapping its drivers and cameras, or anything else
+that implements the transport protocol. Server and client can run on
+different machines, within the same network.
 
-For how the client works internally (transports, preprocessing, temporal
-aggregation), see the [inference architecture](../architecture/inference.md).
+This tutorial uses a simulated benchmark as the running example, but only
+Step 1 is simulation-specific; the client side is identical everywhere. For
+how the client works internally (transports, preprocessing, temporal
+aggregation) and how to implement a server or a custom transport for your own
+hardware, see the [inference architecture](../architecture/inference.md).
 
 ## Prerequisites
 
@@ -15,7 +21,8 @@ aggregation), see the [inference architecture](../architecture/inference.md).
   contains the checkpoint file (`last.ckpt` by default), the resolved
   `config.yaml`, and the fitted normalizer and tokenizer state. The client
   rebuilds the policy from this directory.
-- A simulation server for your benchmark, installed from its own repository:
+- An environment server. For the simulated benchmarks, ready-made servers
+  are installed from their own repositories:
 
 | Benchmark | Server repository |
 |-----------|-------------------|
@@ -80,12 +87,13 @@ The endpoint is Hydra-based, so every setting is a `key=value` override:
 | `checkpoint_name` | `last.ckpt` | Checkpoint file inside the directory. |
 | `device` | auto | `cuda` when available, else `cpu`; set explicitly to pin. |
 | `compile_model` | `true` | Compile the policy with `torch.compile`. The first inference call is slow while kernels compile. |
-| `client.model_server_address` | `127.0.0.1` | Simulation server address. |
-| `client.model_server_port` | `5555` | Simulation server port. |
+| `client.model_server_address` | `127.0.0.1` | Environment server address. |
+| `client.model_server_port` | `5555` | Environment server port. |
 | `client.temporal_aggregation` | `false` | Query the policy every step and ensemble overlapping chunk predictions with exponentially weighted averaging; one action is executed per step. |
 | `client.action_execution_horizon` | full chunk | Actions executed from each predicted chunk before re-predicting. Only used when `client.temporal_aggregation=false`. |
 | `client.compression_type` | `raw` | Wire compression for camera observations (`raw`, `jpeg`, `png`); match the server setting. |
 | `client.request_timeout_seconds` | none | Fail instead of blocking forever when the server dies. |
+| `client.update_rate_hz` | none | Fixed action-send rate for real-time control; leave unset for simulation, where the server paces the loop. |
 
 ### Chunk Execution Modes
 
@@ -125,6 +133,16 @@ The endpoint detects [post-training compressed](../architecture/post_training_co
 artifacts automatically: pass the `compressed/<timestamp>/` directory as
 `checkpoint_path` and the client loads the compressed runtime instead of the
 floating-point policy, typically with `device=cpu`.
+
+## Beyond Simulation
+
+Nothing above changes on real hardware. A robot-side environment server
+publishes camera and proprioception observations and executes received
+actions, speaking the same protocol the simulation servers speak (the
+`tso-robotics-sockets` package provides the ZMQ implementation). The client
+command stays exactly the same; for real-time control, set
+`client.update_rate_hz` to the robot's control rate so actions are sent at a
+fixed frequency instead of as fast as inference allows.
 
 ## Troubleshooting
 
