@@ -8,6 +8,7 @@ import os
 import pkgutil
 import typing
 from collections import defaultdict
+from collections.abc import Sequence
 
 import hydra
 import torch
@@ -107,6 +108,25 @@ def versatil_checkpoint_safe_globals() -> list[type | object]:
     return safe_classes
 
 
+def unregistered_checkpoint_safe_globals() -> list[type | object]:
+    """Return the checkpoint safe globals that torch does not already trust.
+
+    Torch keeps a single process-wide allowlist of classes that
+    ``torch.load(weights_only=True)`` may unpickle. The
+    ``torch.serialization.safe_globals`` context manager removes every class
+    it was entered with on exit, even classes the application had registered
+    on the allowlist beforehand. Checkpoint loaders must therefore enter the
+    context with only the classes that are missing from the allowlist, so
+    that loading a checkpoint leaves prior registrations intact.
+    """
+    registered = set(torch.serialization.get_safe_globals())
+    return [
+        safe_global
+        for safe_global in versatil_checkpoint_safe_globals()
+        if safe_global not in registered
+    ]
+
+
 class BaseCheckpointLoader:
     """Base class for policy checkpoint loaders.
 
@@ -186,6 +206,8 @@ class BaseCheckpointLoader:
         self,
         checkpoint_state_dict: dict[str, torch.Tensor],
         model_state_dict: dict[str, torch.Tensor],
+        missing_keys: Sequence[str] | None = None,
+        unexpected_keys: Sequence[str] | None = None,
     ) -> None:
         """Validate that critical checkpoint components were properly loaded.
 
@@ -195,6 +217,8 @@ class BaseCheckpointLoader:
         Args:
             checkpoint_state_dict: State dict from the checkpoint file.
             model_state_dict: State dict from the loaded model.
+            missing_keys: Model keys not found in the checkpoint.
+            unexpected_keys: Checkpoint keys not accepted by the model.
 
         Raises:
             RuntimeError: If critical components failed to load.
@@ -209,6 +233,33 @@ class BaseCheckpointLoader:
         ]
         errors = []
         warnings = []
+        missing_keys = list(missing_keys or [])
+        unexpected_keys = list(unexpected_keys or [])
+
+        unexpected_critical_keys = sorted(
+            key
+            for key in unexpected_keys
+            if any(key.startswith(prefix) for prefix in critical_prefixes)
+        )
+        if unexpected_critical_keys:
+            errors.append(
+                "CRITICAL: Checkpoint contains policy keys that were not loaded: "
+                f"{unexpected_critical_keys[:5]}. "
+                "This usually means the checkpoint and model config no longer "
+                "match."
+            )
+
+        missing_critical_keys = sorted(
+            key
+            for key in missing_keys
+            if any(key.startswith(prefix) for prefix in critical_prefixes)
+        )
+        if missing_critical_keys:
+            errors.append(
+                "CRITICAL: Model has policy keys missing from the checkpoint: "
+                f"{missing_critical_keys[:5]}. "
+                "Those parameters would stay randomly initialized."
+            )
 
         for prefix in critical_prefixes:
             checkpoint_count = len([k for k in checkpoint_keys if k.startswith(prefix)])

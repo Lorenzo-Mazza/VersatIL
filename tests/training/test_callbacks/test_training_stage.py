@@ -29,7 +29,7 @@ from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 from versatil.training.lightning_policy import LightningPolicy
 from versatil.training.stage import TrainingStage
 
-torch.serialization.add_safe_globals([TrainingConfig, AdamConfig, ParameterGroupConfig])
+CHECKPOINT_SAFE_GLOBALS = [TrainingConfig, AdamConfig, ParameterGroupConfig]
 
 
 def _stage(**fields: Any) -> TrainingStage:
@@ -1410,7 +1410,10 @@ class TestTrainingStageCallbackIntegration:
             num_sanity_val_steps=0,
             limit_val_batches=0,
         )
-        with patch.object(LightningPolicy, "training_step", _dummy_training_step):
+        with (
+            patch.object(LightningPolicy, "training_step", _dummy_training_step),
+            torch.serialization.safe_globals(CHECKPOINT_SAFE_GLOBALS),
+        ):
             second_trainer.fit(
                 model=second_module,
                 train_dataloaders=_dummy_dataloader(),

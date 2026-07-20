@@ -81,6 +81,8 @@ def test_float_checkpoint_loader_restores_policy(
     mock_validate.assert_called_once_with(
         checkpoint_state_dict=state_dict,
         model_state_dict=lightning_module.state_dict.return_value,
+        missing_keys=[],
+        unexpected_keys=[],
     )
     config.policy.to.assert_called_once_with(torch.device("cpu"))
     config.policy.eval.assert_called_once_with()

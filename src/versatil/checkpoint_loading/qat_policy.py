@@ -7,7 +7,7 @@ import torch
 from versatil.checkpoint_loading.base import (
     BaseCheckpointLoader,
     strip_compiled_prefixes,
-    versatil_checkpoint_safe_globals,
+    unregistered_checkpoint_safe_globals,
 )
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.export import build_example_inputs
@@ -58,7 +58,7 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
         checkpoint_file = os.path.join(self._checkpoint_path, self._checkpoint_name)
         if not os.path.exists(checkpoint_file):
             raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
-        with torch.serialization.safe_globals(versatil_checkpoint_safe_globals()):
+        with torch.serialization.safe_globals(unregistered_checkpoint_safe_globals()):
             checkpoint = torch.load(
                 checkpoint_file,
                 map_location=self._device,
@@ -70,10 +70,14 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
         )
         state_dict_key = CheckpointKey.STATE_DICT.value
         checkpoint_state = strip_compiled_prefixes(checkpoint[state_dict_key])
-        lightning_module.load_state_dict(checkpoint_state, strict=False)
+        incompatible_keys = lightning_module.load_state_dict(
+            checkpoint_state, strict=False
+        )
         self._validate_checkpoint_loading(
             checkpoint_state_dict=checkpoint_state,
             model_state_dict=lightning_module.state_dict(),
+            missing_keys=incompatible_keys.missing_keys,
+            unexpected_keys=incompatible_keys.unexpected_keys,
         )
 
     def _materialize_lazy_modules(self) -> None:

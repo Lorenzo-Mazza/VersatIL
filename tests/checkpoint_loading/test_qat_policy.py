@@ -90,6 +90,8 @@ def test_qat_checkpoint_loader_prepares_model_before_weight_loading(
     mock_validate.assert_called_once_with(
         checkpoint_state_dict=state_dict,
         model_state_dict=lightning_module.state_dict.return_value,
+        missing_keys=[],
+        unexpected_keys=[],
     )
     assert call_order == ["materialize", "prepare", "load_state_dict"]
     assert loader.policy is config.policy

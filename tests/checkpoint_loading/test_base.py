@@ -1,12 +1,17 @@
 """Tests for versatil.checkpoint_loading.base module."""
 
 import io
+from collections.abc import Iterator
 
 import pytest
 import torch
 from omegaconf import OmegaConf
 
-from versatil.checkpoint_loading.base import versatil_checkpoint_safe_globals
+from versatil.checkpoint_loading.base import (
+    BaseCheckpointLoader,
+    unregistered_checkpoint_safe_globals,
+    versatil_checkpoint_safe_globals,
+)
 from versatil.configs import TrainingConfig
 
 
@@ -46,3 +51,76 @@ class TestVersatilCheckpointSafeGlobals:
             pytest.raises(Exception, match="Weights only load failed"),
         ):
             torch.load(buffer, weights_only=True)
+
+
+@pytest.fixture
+def restore_safe_globals() -> Iterator[None]:
+    """Snapshot torch's global safe-globals list and restore it on teardown."""
+    previous = torch.serialization.get_safe_globals()
+    yield
+    torch.serialization.clear_safe_globals()
+    torch.serialization.add_safe_globals(previous)
+
+
+@pytest.mark.unit
+class TestUnregisteredCheckpointSafeGlobals:
+    def test_excludes_already_registered_classes(
+        self, restore_safe_globals: None
+    ) -> None:
+        torch.serialization.add_safe_globals([TrainingConfig])
+        unregistered = unregistered_checkpoint_safe_globals()
+        assert TrainingConfig not in unregistered
+        assert unregistered, "expected remaining unregistered safe globals"
+
+    def test_context_exit_preserves_prior_registrations(
+        self, restore_safe_globals: None
+    ) -> None:
+        torch.serialization.add_safe_globals([TrainingConfig])
+        with torch.serialization.safe_globals(unregistered_checkpoint_safe_globals()):
+            pass
+        assert TrainingConfig in torch.serialization.get_safe_globals()
+
+
+@pytest.mark.unit
+class TestCheckpointLoadValidation:
+    def test_unexpected_critical_checkpoint_key_raises(self) -> None:
+        loader = BaseCheckpointLoader(
+            device=torch.device("cpu"),
+            checkpoint_path="/tmp/checkpoint",
+        )
+        checkpoint_state_dict = {
+            "policy.decoder.old_projection.weight": torch.tensor([1.0])
+        }
+        model_state_dict = {
+            "policy.decoder.new_projection.weight": torch.tensor([1.0]),
+            "policy.decoder.extra_projection.weight": torch.tensor([1.0]),
+        }
+
+        with pytest.raises(RuntimeError, match="not loaded"):
+            loader._validate_checkpoint_loading(
+                checkpoint_state_dict=checkpoint_state_dict,
+                model_state_dict=model_state_dict,
+                missing_keys=[],
+                unexpected_keys=["policy.decoder.old_projection.weight"],
+            )
+
+    def test_missing_critical_model_key_raises(self) -> None:
+        loader = BaseCheckpointLoader(
+            device=torch.device("cpu"),
+            checkpoint_path="/tmp/checkpoint",
+        )
+        checkpoint_state_dict = {
+            "policy.encoding_pipeline.camera.weight": torch.tensor([1.0])
+        }
+        model_state_dict = {
+            "policy.encoding_pipeline.camera.weight": torch.tensor([1.0]),
+            "policy.encoding_pipeline.new_camera.weight": torch.tensor([1.0]),
+        }
+
+        with pytest.raises(RuntimeError, match="missing from the checkpoint"):
+            loader._validate_checkpoint_loading(
+                checkpoint_state_dict=checkpoint_state_dict,
+                model_state_dict=model_state_dict,
+                missing_keys=["policy.encoding_pipeline.new_camera.weight"],
+                unexpected_keys=[],
+            )

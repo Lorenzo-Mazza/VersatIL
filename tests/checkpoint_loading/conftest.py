@@ -1,6 +1,7 @@
 """Shared fixtures for checkpoint loading tests."""
 
 from collections.abc import Callable
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -50,9 +51,11 @@ def lightning_module_factory() -> Callable[..., MagicMock]:
     ) -> MagicMock:
         lightning_module = MagicMock()
         lightning_module.state_dict.return_value = state_dict
+        incompatible_keys = SimpleNamespace(missing_keys=[], unexpected_keys=[])
+        lightning_module.load_state_dict.return_value = incompatible_keys
         if call_order is not None:
             lightning_module.load_state_dict.side_effect = lambda state_dict, strict: (
-                call_order.append("load_state_dict")
+                call_order.append("load_state_dict") or incompatible_keys
             )
         return lightning_module
 

@@ -3,6 +3,7 @@
 import logging
 import re
 from collections.abc import Callable
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -268,7 +269,7 @@ class TestFloatPolicyRuntimeTokenizer:
 
     def test_set_tokenizer_runs_before_state_dict_load(
         self, tmp_path, mock_config, mock_checkpoint
-    ):
+    ) -> None:
         config_file = tmp_path / "config.yaml"
         config_file.write_text("dummy: true")
         (tmp_path / "last.ckpt").write_text("dummy")
@@ -280,8 +281,9 @@ class TestFloatPolicyRuntimeTokenizer:
         )
         mock_lightning = MagicMock()
         mock_lightning.state_dict.return_value = dict(mock_checkpoint["state_dict"])
+        incompatible_keys = SimpleNamespace(missing_keys=[], unexpected_keys=[])
         mock_lightning.load_state_dict.side_effect = lambda state_dict, strict: (
-            call_order.append("load_state_dict")
+            call_order.append("load_state_dict") or incompatible_keys
         )
 
         with (
