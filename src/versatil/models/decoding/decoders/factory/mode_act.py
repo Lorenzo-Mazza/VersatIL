@@ -5,6 +5,7 @@ multiple mixture components for each action, enabling multi-modal action distrib
 """
 
 import copy
+import math
 
 import torch
 import torch.nn.functional as F
@@ -200,7 +201,12 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
         )
 
     def _build_mixture_heads(self) -> None:
-        """Clone each action head K times for mixture components."""
+        """Clone each action head K times for mixture components.
+
+        Note:
+            Gaussian clones get a per-timestep temporal bias so a bias-only
+            initialization can hold a full trajectory per component.
+        """
         self.mixture_heads: nn.ModuleDict = nn.ModuleDict()
         for action_key, head in self.action_heads.items():
             cloned_heads = []
@@ -209,6 +215,8 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
                 for module in cloned_head.modules():
                     if hasattr(module, "reset_parameters"):
                         module.reset_parameters()
+                if isinstance(cloned_head, GaussianHead):
+                    cloned_head.enable_temporal_bias(horizon=self.prediction_horizon)
                 cloned_heads.append(cloned_head)
             self.mixture_heads[action_key] = nn.ModuleList(cloned_heads)
 
@@ -249,24 +257,243 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer and initialize GMM components from output statistics.
 
+        Note:
+            Initialization always runs in chunk space; the strategy only
+            selects how the trajectory centers are spread (k-means++ over the
+            candidate chunks or uniform envelope interpolation). Candidates
+            are the demonstrated chunk subsamples carried by the normalizer,
+            or constant trajectories sampled uniformly from the normalized
+            action range when no subsample is available.
+
         Args:
             normalizer: Normalizer with fitted statistics.
         """
         super().set_normalizer(normalizer)
         self._initialize_gating_network()
-        for action_key in self.action_keys:
-            if action_key not in normalizer.params_dict:
-                continue
-            field_normalizer = normalizer[action_key]
-            output_stats = field_normalizer.get_output_stats()
-            candidate_sample = field_normalizer.get_output_sample()
-            base_head = self.action_heads[action_key]
-            if isinstance(base_head, GaussianHead):
-                self._initialize_gaussian_mixture(
-                    action_key=action_key,
-                    output_stats=output_stats,
-                    candidate_sample=candidate_sample,
+        gaussian_keys = [
+            action_key
+            for action_key in self.action_keys
+            if action_key in normalizer.params_dict
+            and isinstance(self.action_heads[action_key], GaussianHead)
+        ]
+        if not gaussian_keys:
+            return
+        chunk_samples = self._collect_chunk_samples(
+            normalizer=normalizer, action_keys=gaussian_keys
+        )
+        if chunk_samples is None:
+            chunk_samples = self._constant_chunk_candidates(
+                normalizer=normalizer, action_keys=gaussian_keys
+            )
+        self._initialize_gaussian_mixture(
+            normalizer=normalizer,
+            action_keys=gaussian_keys,
+            chunk_samples=chunk_samples,
+        )
+
+    def _constant_chunk_candidates(
+        self,
+        normalizer: LinearNormalizer,
+        action_keys: list[str],
+    ) -> dict[str, torch.Tensor]:
+        """Fallback to constant-trajectory candidates when no chunk subsample exists.
+
+        Single actions sampled uniformly from the normalized range are
+        broadcast over the prediction horizon, so a per-step candidate is
+        simply a chunk of constant value. Covers only the bounding box of the
+        action distribution, not its modal structure.
+
+        Args:
+            normalizer: Normalizer with fitted statistics.
+            action_keys: Gaussian action keys to build candidates for.
+
+        Returns:
+            Dict of ``(N, H, D)`` constant candidate chunks per key.
+        """
+        candidates: dict[str, torch.Tensor] = {}
+        for action_key in action_keys:
+            stats = normalizer.get_output_stats(key=action_key)
+            single_actions = self._sample_uniform_candidates(
+                data_min=stats["min"],
+                data_max=stats["max"],
+                num_candidates=1000,
+                out_dim=stats["min"].shape[0],
+            )  # (N, D)
+            candidates[action_key] = single_actions.unsqueeze(1).expand(
+                -1, self.prediction_horizon, -1
+            )
+        return candidates
+
+    def _collect_chunk_samples(
+        self,
+        normalizer: LinearNormalizer,
+        action_keys: list[str],
+    ) -> dict[str, torch.Tensor] | None:
+        """Gather aligned normalized chunk subsamples for the given keys.
+
+        Args:
+            normalizer: Normalizer possibly carrying chunk subsamples.
+            action_keys: Gaussian action keys to collect chunks for.
+
+        Returns:
+            Dict of ``(N, H, D)`` normalized chunks per key, or ``None`` when
+            any key lacks a chunk subsample.
+
+        Raises:
+            ValueError: If chunk counts differ across keys or the chunk horizon
+                does not match the decoder prediction horizon.
+        """
+        chunk_samples: dict[str, torch.Tensor] = {}
+        for action_key in action_keys:
+            chunks = normalizer[action_key].get_output_sample_chunks()
+            if chunks is None or chunks.numel() == 0:
+                return None
+            chunk_samples[action_key] = chunks
+        chunk_counts = {chunks.shape[0] for chunks in chunk_samples.values()}
+        if len(chunk_counts) != 1:
+            raise ValueError(
+                f"Chunk subsamples are not aligned across action keys: "
+                f"{ {key: chunks.shape[0] for key, chunks in chunk_samples.items()} }"
+            )
+        chunk_horizons = {chunks.shape[1] for chunks in chunk_samples.values()}
+        if chunk_horizons != {self.prediction_horizon}:
+            raise ValueError(
+                f"Chunk subsample horizon {chunk_horizons} does not match "
+                f"prediction_horizon {self.prediction_horizon}."
+            )
+        return chunk_samples
+
+    def _initialize_gaussian_mixture(
+        self,
+        normalizer: LinearNormalizer,
+        action_keys: list[str],
+        chunk_samples: dict[str, torch.Tensor],
+    ) -> None:
+        """Initialize components as trajectories selected in chunk space.
+
+        Note:
+            Chunks are clamped to the normalized data range (they are stored
+            un-winsorized). With the k-means++ strategy, flattened chunks are
+            concatenated across keys so k-means++ selects joint demonstrated
+            trajectory modes. With the uniform strategy, component ``k``
+            interpolates the per-timestep envelope of the chunk sample at
+            fraction ``k / (K - 1)``, using the same fraction for every key.
+            Each selected trajectory is written in-place into the component's
+            temporal bias, giving time-varying initial means.
+
+        Args:
+            normalizer: Normalizer with fitted statistics.
+            action_keys: Gaussian action keys, ordered as concatenated.
+            chunk_samples: Aligned ``(N, H, D)`` normalized chunks per key.
+        """
+        output_stats_by_key = {
+            action_key: normalizer.get_output_stats(key=action_key)
+            for action_key in action_keys
+        }
+        clamped_chunks: dict[str, torch.Tensor] = {}
+        for action_key in action_keys:
+            stats = output_stats_by_key[action_key]
+            chunks = chunk_samples[action_key].to(
+                dtype=stats["min"].dtype, device=stats["min"].device
+            )
+            clamped_chunks[action_key] = chunks.clamp(
+                min=stats["min"], max=stats["max"]
+            )
+        if self.gmm_init_strategy == GMMInitStrategy.KMEANS_PLUS_PLUS.value:
+            centers_by_key = self._compute_chunk_kmeans_centers(
+                clamped_chunks=clamped_chunks, action_keys=action_keys
+            )
+        else:
+            centers_by_key = self._compute_chunk_uniform_centers(
+                clamped_chunks=clamped_chunks
+            )
+        for action_key in action_keys:
+            stats = output_stats_by_key[action_key]
+            expert_logvar = self._chunk_logvar(
+                data_min=stats["min"], data_max=stats["max"]
+            )
+            for k, head in enumerate(self.mixture_heads[action_key]):
+                self._initialize_single_gaussian_head(
+                    head=head,
+                    logvar=expert_logvar,
+                    temporal_mean=centers_by_key[action_key][k],
                 )
+
+    def _compute_chunk_kmeans_centers(
+        self,
+        clamped_chunks: dict[str, torch.Tensor],
+        action_keys: list[str],
+    ) -> dict[str, torch.Tensor]:
+        """Select K demonstrated chunks via joint k-means++ across keys.
+
+        Args:
+            clamped_chunks: Aligned ``(N, H, D)`` normalized chunks per key.
+            action_keys: Gaussian action keys, ordered as concatenated.
+
+        Returns:
+            Per-key ``(K, H, D)`` trajectory centers with shared component
+            indices across keys.
+        """
+        candidate_points = torch.cat(
+            [clamped_chunks[key].flatten(start_dim=1) for key in action_keys],
+            dim=1,
+        )  # (N, H * total_dim)
+        centers = self._compute_kmeans_plus_plus_centers(
+            candidate_points=candidate_points,
+            number_of_mixture_components=self.num_mixture_components,
+        )
+        centers_by_key: dict[str, torch.Tensor] = {}
+        column_offset = 0
+        for action_key in action_keys:
+            horizon, out_dim = clamped_chunks[action_key].shape[1:]
+            width = horizon * out_dim
+            centers_by_key[action_key] = centers[
+                :, column_offset : column_offset + width
+            ].view(self.num_mixture_components, horizon, out_dim)
+            column_offset += width
+        return centers_by_key
+
+    def _compute_chunk_uniform_centers(
+        self,
+        clamped_chunks: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Spread K trajectory centers across the chunk sample envelope.
+
+        Component ``k`` interpolates between the per-timestep minimum and
+        maximum of the chunk sample at fraction ``k / (K - 1)``. The fraction
+        is shared across keys, so component indices stay in correspondence.
+
+        Args:
+            clamped_chunks: Aligned ``(N, H, D)`` normalized chunks per key.
+
+        Returns:
+            Per-key ``(K, H, D)`` trajectory centers.
+        """
+        return {
+            action_key: self._compute_uniform_centers(
+                data_min=chunks.amin(dim=0),
+                data_max=chunks.amax(dim=0),
+                number_of_mixture_components=self.num_mixture_components,
+            )
+            for action_key, chunks in clamped_chunks.items()
+        }
+
+    def _chunk_logvar(
+        self,
+        data_min: torch.Tensor,
+        data_max: torch.Tensor,
+    ) -> torch.Tensor:
+        """Initial per-dimension logvar tempered by the prediction horizon.
+
+        Args:
+            data_min: Per-dimension normalized minimum.
+            data_max: Per-dimension normalized maximum.
+
+        Returns:
+            ``(D,)`` logvar tensor equal to ``2 log(range / 2) + log(horizon)``.
+        """
+        expert_sigma = ((data_max - data_min) / 2.0).clamp(min=1e-6)
+        return 2 * torch.log(expert_sigma) + math.log(self.prediction_horizon)
 
     def _initialize_gating_network(self) -> None:
         """Zero-initialize gating network for uniform initial mixture weights."""
@@ -276,61 +503,6 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
                 if isinstance(final_layer, nn.Linear):
                     nn.init.zeros_(final_layer.weight)
                     nn.init.zeros_(final_layer.bias)
-
-    def _initialize_gaussian_mixture(
-        self,
-        action_key: str,
-        output_stats: dict[str, torch.Tensor],
-        candidate_sample: torch.Tensor | None = None,
-    ) -> None:
-        """Initialize Gaussian mixture heads from output statistics.
-
-        Args:
-            action_key: Key for the action head.
-            output_stats: Dict with "min", "max", "std" tensors from normalizer.get_output_stats().
-            candidate_sample: Optional (N, out_dim) tensor of normalized action samples
-                to use as the candidate pool for k-means++. When supplied, k-means++
-                picks centers from actual action data, so centers land near true data
-                modes. When ``None``, the candidate pool is sampled uniformly from
-                ``[data_min, data_max]`` and reflects only the bounding box, not the
-                modal structure.
-        """
-        data_min = output_stats["min"]
-        data_max = output_stats["max"]
-        out_dim = data_min.shape[0]
-        if self.gmm_init_strategy == GMMInitStrategy.KMEANS_PLUS_PLUS.value:
-            if candidate_sample is not None and candidate_sample.numel() > 0:
-                candidate_points = candidate_sample.to(
-                    dtype=data_min.dtype, device=data_min.device
-                )
-            else:
-                candidate_points = self._sample_uniform_candidates(
-                    data_min=data_min,
-                    data_max=data_max,
-                    num_candidates=1000,
-                    out_dim=out_dim,
-                )
-            centers = self._compute_kmeans_plus_plus_centers(
-                candidate_points=candidate_points,
-                number_of_mixture_components=self.num_mixture_components,
-            )
-        else:
-            centers = self._compute_uniform_centers(
-                data_min=data_min,
-                data_max=data_max,
-                number_of_mixture_components=self.num_mixture_components,
-            )
-
-        data_range = data_max - data_min
-        # QFAT-style fixed variance: sigma = half-range, regardless of K.
-        # For [-1, 1] normalized data this gives sigma = 1, so every component
-        # has non-trivial responsibility for every data point at init.
-        expert_sigma = (data_range / 2.0).clamp(min=1e-6)
-        expert_logvar = 2 * torch.log(expert_sigma)
-        for k, head in enumerate(self.mixture_heads[action_key]):
-            self._initialize_single_gaussian_head(
-                head=head, mean=centers[k], logvar=expert_logvar
-            )
 
     @staticmethod
     def _compute_kmeans_plus_plus_centers(
@@ -354,6 +526,10 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
             Tensor of shape ``(K, out_dim)`` with selected centers.
         """
         num_candidates = candidate_points.shape[0]
+        if num_candidates == 0:
+            raise ValueError(
+                "Cannot initialize k-means++ centers from zero candidates."
+            )
         first_center_idx = torch.randint(0, num_candidates, (1,)).item()
         selected_centers = candidate_points[first_center_idx].unsqueeze(0)
         for _ in range(1, number_of_mixture_components):
@@ -361,10 +537,12 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
                 candidate_points, selected_centers, p=2
             ).pow(2)
             distance_to_nearest_center, _ = torch.min(squared_distances, dim=1)
-            selection_probabilities = (
-                distance_to_nearest_center / distance_to_nearest_center.sum()
-            )
-            next_center_idx = torch.multinomial(selection_probabilities, 1).item()
+            distance_sum = distance_to_nearest_center.sum()
+            if distance_sum <= 0:
+                next_center_idx = selected_centers.shape[0] % num_candidates
+            else:
+                selection_probabilities = distance_to_nearest_center / distance_sum
+                next_center_idx = torch.multinomial(selection_probabilities, 1).item()
             selected_centers = torch.cat(
                 [selected_centers, candidate_points[next_center_idx].unsqueeze(0)],
                 dim=0,
@@ -399,15 +577,17 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
         data_max: torch.Tensor,
         number_of_mixture_components: int,
     ) -> torch.Tensor:
-        """Compute K centers using uniform spread.
+        """Compute K centers interpolating uniformly between two bounds.
 
         Args:
-            data_min: Min values per dimension from output stats.
-            data_max: Max values per dimension from output stats.
+            data_min: Lower bound, ``(D,)`` per-step stats or ``(H, D)``
+                chunk envelopes.
+            data_max: Upper bound, same shape as ``data_min``.
             number_of_mixture_components: Number of mixture components.
 
         Returns:
-            Tensor of shape (K, out_dim) with uniformly spread centers.
+            Tensor of shape ``(K, *data_min.shape)`` with uniformly spread
+            centers.
         """
         centers = []
         for k in range(number_of_mixture_components):
@@ -423,20 +603,29 @@ class MixtureOfDensitiesActionTransformer(BaseParallelTransformerDecoder):
     @staticmethod
     def _initialize_single_gaussian_head(
         head: GaussianHead,
-        mean: torch.Tensor,
         logvar: torch.Tensor,
+        temporal_mean: torch.Tensor,
     ) -> None:
-        """Initialize a single Gaussian head with given mean and logvar.
+        """Bias-only initialization of a single Gaussian component head.
+
+        Projection weights and the constant bias are zeroed so the initial
+        mean equals the temporal bias trajectory. The head's ``max_logvar``
+        is raised when the requested logvar exceeds it, so horizon-tempered
+        variances are not silently clamped away.
 
         Args:
             head: GaussianHead to initialize.
-            mean: Mean tensor for output_proj bias.
-            logvar: Logvar tensor for _logvar_proj bias.
+            logvar: ``(D,)`` logvar written to the logvar projection bias.
+            temporal_mean: ``(H, D)`` trajectory written to the temporal bias.
         """
         with torch.no_grad():
             nn.init.zeros_(head.output_proj.weight)
             nn.init.zeros_(head._logvar_proj.weight)
-            head.output_proj.bias.copy_(mean)
+            head.output_proj.bias.zero_()
+            head.temporal_bias.copy_(temporal_mean)
+            max_requested_logvar = float(logvar.max().item())
+            if max_requested_logvar > head.max_logvar:
+                head.max_logvar = max_requested_logvar
             head._logvar_proj.bias.copy_(
                 logvar.clamp(min=head.min_logvar, max=head.max_logvar)
             )

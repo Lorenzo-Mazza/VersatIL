@@ -1,5 +1,7 @@
 """Tests for versatil.data.normalization.normalizer module."""
 
+import re
+
 import numpy as np
 import pytest
 import torch
@@ -77,64 +79,6 @@ class TestSingleFieldLinearNormalizerFit:
 
         for parameter in normalizer.parameters():
             assert not parameter.requires_grad
-
-    def test_fit_without_sample_size_stores_no_sample(self, rng: np.random.Generator):
-        data = torch.from_numpy(rng.standard_normal((100, 3)).astype(np.float32))
-        normalizer = SingleFieldLinearNormalizer()
-        normalizer.fit(data=data, mode=KinematicsNormalizationType.MIN_MAX.value)
-        assert "sample" not in normalizer.params_dict
-        assert normalizer.get_input_sample() is None
-        assert normalizer.get_output_sample() is None
-
-    def test_fit_with_sample_size_stores_subsample_of_raw_data(
-        self, rng: np.random.Generator
-    ):
-        n_rows = 100
-        feature_dim = 3
-        data = torch.from_numpy(
-            rng.standard_normal((n_rows, feature_dim)).astype(np.float32)
-        )
-        normalizer = SingleFieldLinearNormalizer()
-        normalizer.fit(
-            data=data,
-            mode=KinematicsNormalizationType.MIN_MAX.value,
-            sample_size=25,
-        )
-        sample = normalizer.get_input_sample()
-        assert sample is not None
-        assert sample.shape == (25, feature_dim)
-        # Every stored row must be byte-identical to some row of the input data.
-        match_counts = (data.unsqueeze(0) == sample.unsqueeze(1)).all(dim=-1).any(dim=1)
-        assert match_counts.all(), "stored sample contains rows not in the input data"
-
-    def test_fit_sample_capped_at_number_of_rows(self, rng: np.random.Generator):
-        data = torch.from_numpy(rng.standard_normal((10, 2)).astype(np.float32))
-        normalizer = SingleFieldLinearNormalizer()
-        normalizer.fit(
-            data=data,
-            mode=KinematicsNormalizationType.MIN_MAX.value,
-            sample_size=1000,
-        )
-        sample = normalizer.get_input_sample()
-        assert sample.shape == (10, 2)
-
-    def test_get_output_sample_applies_forward_normalization(self):
-        data = torch.tensor([[0.0, 0.0], [10.0, 20.0], [5.0, 10.0]])
-        normalizer = SingleFieldLinearNormalizer()
-        normalizer.fit(
-            data=data,
-            mode=KinematicsNormalizationType.MIN_MAX.value,
-            output_min=-1.0,
-            output_max=1.0,
-            sample_size=3,
-        )
-        raw_sample = normalizer.get_input_sample()
-        output_sample = normalizer.get_output_sample()
-        expected = normalizer.normalize(raw_sample)
-        torch.testing.assert_close(output_sample, expected, atol=1e-6, rtol=0)
-        # Output sample must lie within [-1, 1].
-        assert (output_sample >= -1.0 - 1e-6).all()
-        assert (output_sample <= 1.0 + 1e-6).all()
 
 
 class TestSingleFieldLinearNormalizerNormalize:
@@ -444,85 +388,107 @@ class TestLinearNormalizerDictFit:
 
         assert "_default" in normalizer.params_dict
 
-    def test_fit_scalar_sample_size_stores_sample_for_every_key(
+
+class TestLinearNormalizerSampleChunks:
+    def test_set_sample_chunks_on_unfitted_key_raises(
         self, rng: np.random.Generator
-    ):
-        data = {
-            "position": torch.from_numpy(
-                rng.standard_normal((80, 2)).astype(np.float32)
-            ),
-            "orientation": torch.from_numpy(
-                rng.standard_normal((80, 4)).astype(np.float32)
-            ),
-        }
+    ) -> None:
         normalizer = LinearNormalizer()
         normalizer.fit(
-            data=data,
+            data={
+                "position": torch.from_numpy(
+                    rng.standard_normal((50, 3)).astype(np.float32)
+                )
+            },
             mode=KinematicsNormalizationType.MIN_MAX.value,
-            sample_size=16,
         )
-        for key, expected_feature_dim in [("position", 2), ("orientation", 4)]:
-            sample = normalizer[key].get_input_sample()
-            assert sample is not None, f"missing sample for key '{key}'"
-            assert sample.shape == (16, expected_feature_dim)
+        chunks = torch.from_numpy(rng.standard_normal((8, 4, 3)).astype(np.float32))
+        expected_message = (
+            "Cannot attach sample chunks to unfitted key 'orientation'. "
+            "Fitted keys: ['position']."
+        )
+        with pytest.raises(KeyError, match=re.escape(expected_message)):
+            normalizer.set_sample_chunks(key="orientation", chunks=chunks)
 
-    def test_fit_dict_sample_size_limits_storage_to_selected_keys(
+    def test_get_input_sample_chunks_returns_stored_values(
         self, rng: np.random.Generator
-    ):
-        data = {
-            "position": torch.from_numpy(
-                rng.standard_normal((80, 2)).astype(np.float32)
-            ),
-            "orientation": torch.from_numpy(
-                rng.standard_normal((80, 4)).astype(np.float32)
-            ),
-        }
+    ) -> None:
+        data = torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))
         normalizer = LinearNormalizer()
         normalizer.fit(
-            data=data,
+            data={"position": data},
             mode=KinematicsNormalizationType.MIN_MAX.value,
-            sample_size={"position": 32},
         )
-        assert normalizer["position"].get_input_sample() is not None
-        assert normalizer["position"].get_input_sample().shape == (32, 2)
-        assert normalizer["orientation"].get_input_sample() is None
+        chunks = torch.from_numpy(rng.standard_normal((8, 4, 3)).astype(np.float32))
+        normalizer.set_sample_chunks(key="position", chunks=chunks)
+        stored = normalizer["position"].get_input_sample_chunks()
+        assert stored.shape == (8, 4, 3)
+        torch.testing.assert_close(stored, chunks, atol=0, rtol=0)
 
-    def test_fit_zero_sample_size_stores_no_sample(self, rng: np.random.Generator):
-        data = {
-            "position": torch.from_numpy(
-                rng.standard_normal((80, 2)).astype(np.float32)
-            ),
-        }
+    def test_get_sample_chunks_none_when_absent(self, rng: np.random.Generator) -> None:
+        data = torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))
         normalizer = LinearNormalizer()
         normalizer.fit(
-            data=data,
+            data={"position": data},
             mode=KinematicsNormalizationType.MIN_MAX.value,
-            sample_size=0,
         )
-        assert normalizer["position"].get_input_sample() is None
+        assert normalizer["position"].get_input_sample_chunks() is None
+        assert normalizer["position"].get_output_sample_chunks() is None
 
-    def test_state_dict_round_trip_preserves_stored_sample(
+    def test_get_output_sample_chunks_applies_forward_normalization(self) -> None:
+        data = torch.tensor([[0.0, 0.0], [10.0, 20.0], [5.0, 10.0]])
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={"position": data},
+            mode=KinematicsNormalizationType.MIN_MAX.value,
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        chunks = torch.tensor(
+            [[[0.0, 0.0], [10.0, 20.0]], [[5.0, 10.0], [0.0, 20.0]]]
+        )  # (2, 2, 2)
+        normalizer.set_sample_chunks(key="position", chunks=chunks)
+        output_chunks = normalizer["position"].get_output_sample_chunks()
+        expected = normalizer["position"].normalize(chunks)
+        torch.testing.assert_close(output_chunks, expected, atol=1e-6, rtol=0)
+        assert (output_chunks >= -1.0 - 1e-6).all()
+        assert (output_chunks <= 1.0 + 1e-6).all()
+
+    def test_set_sample_chunks_accepts_numpy_and_converts_dtype(
         self, rng: np.random.Generator
-    ):
-        data = {
-            "position": torch.from_numpy(
-                rng.standard_normal((60, 2)).astype(np.float32)
-            ),
-        }
+    ) -> None:
+        data = torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={"position": data},
+            mode=KinematicsNormalizationType.MIN_MAX.value,
+        )
+        chunks = rng.standard_normal((8, 4, 3)).astype(np.float64)
+        normalizer.set_sample_chunks(key="position", chunks=chunks)
+        stored = normalizer["position"].get_input_sample_chunks()
+        assert stored.dtype == torch.float32
+        torch.testing.assert_close(
+            stored, torch.from_numpy(chunks).to(torch.float32), atol=0, rtol=0
+        )
+
+    def test_sample_chunks_survive_state_dict_roundtrip(
+        self, rng: np.random.Generator
+    ) -> None:
+        data = torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))
         source = LinearNormalizer()
         source.fit(
-            data=data,
+            data={"position": data},
             mode=KinematicsNormalizationType.MIN_MAX.value,
-            sample_size=16,
         )
-        source_sample = source["position"].get_input_sample()
+        chunks = torch.from_numpy(rng.standard_normal((8, 4, 3)).astype(np.float32))
+        source.set_sample_chunks(key="position", chunks=chunks)
 
         target = LinearNormalizer()
         target.load_state_dict(source.state_dict())
-        target_sample = target["position"].get_input_sample()
+        target_chunks = target["position"].get_input_sample_chunks()
 
-        assert target_sample is not None
-        torch.testing.assert_close(target_sample, source_sample, atol=0, rtol=0)
+        assert target_chunks is not None
+        torch.testing.assert_close(target_chunks, chunks, atol=0, rtol=0)
 
 
 class TestLinearNormalizerNormalize:

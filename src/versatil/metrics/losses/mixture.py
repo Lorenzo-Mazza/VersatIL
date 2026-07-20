@@ -12,6 +12,8 @@ from versatil.metrics.constants import MetricKey
 from versatil.metrics.losses.gripper import resolve_gripper_metadata
 from versatil.models.decoding.constants import DecoderOutputKey
 
+DEFAULT_FIXED_SIGMA = 0.5
+
 
 def _aggregate_mixture_nll(
     log_component: torch.Tensor,
@@ -89,7 +91,7 @@ class GaussianMixtureNLLoss(ScalarWeightedLoss):
         action_keys: list[str],
         weight: float = 1.0,
         per_key_weights: dict[str, float] | None = None,
-        learned_variance: bool = True,
+        learned_variance: bool = False,
         sigmas: dict[str, float] | None = None,
         min_variance: float = 1e-4,
     ):
@@ -101,7 +103,8 @@ class GaussianMixtureNLLoss(ScalarWeightedLoss):
             per_key_weights: Optional per-key weights.
             learned_variance: If True, expects {action_key}_mean and {action_key}_logvar.
                 If False, expects {action_key} (stacked means) and uses sigmas.
-            sigmas: Fixed stddev per action key (only used when learned_variance=False).
+            sigmas: Fixed stddev per action key (only used when
+                ``learned_variance=False``). Defaults to 0.5 for every key.
             min_variance: Minimum variance for numerical stability (learned_variance=True).
         """
         super().__init__()
@@ -111,7 +114,7 @@ class GaussianMixtureNLLoss(ScalarWeightedLoss):
         self.learned_variance = learned_variance
         self.min_variance = min_variance
         if not learned_variance:
-            self.sigmas = sigmas or dict.fromkeys(action_keys, 0.5)
+            self.sigmas = sigmas or dict.fromkeys(action_keys, DEFAULT_FIXED_SIGMA)
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys."""
@@ -152,7 +155,7 @@ class GaussianMixtureNLLoss(ScalarWeightedLoss):
                     target, means, logvars
                 )
             else:
-                sigma = self.sigmas.get(action_key, 0.5)
+                sigma = self.sigmas.get(action_key, DEFAULT_FIXED_SIGMA)
                 log_component = self._compute_fixed_variance_log_pdf(
                     target, means, sigma
                 )

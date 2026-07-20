@@ -301,8 +301,9 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
-            action_sample_size: Number of action rows to stash on the normalizer per
-                action key for downstream data-aware initialization. Set to 0 to disable.
+            action_sample_size: Number of action chunk windows to stash on the
+                normalizer per action key for downstream data-aware
+                initialization. Set to 0 to disable.
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured

@@ -15,11 +15,15 @@ from versatil.data.constants import (
 from versatil.data.metadata import CameraMetadata, ObservationMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss, _merge_weights
+from versatil.metrics.losses.mixture import GaussianMixtureNLLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.constants import LatentKey
+from versatil.models.decoding.constants import LatentKey, MixtureSamplingMode
 from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.factory.mode_act import (
+    MixtureOfDensitiesActionTransformer,
+)
 from versatil.models.decoding.decoders.vlm import VLMBackboneDecoderMixin
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
@@ -98,6 +102,7 @@ class ExperimentValidator:
         self.validate_encoder_observation_consistency()
         self.validate_decoder_encoder_compatibility()
         self.validate_loss_algorithm_compatibility()
+        self.validate_mixture_sampling_compatibility()
         if validate_loss_keys:
             self.validate_loss_keys()
         if self.quantization_config is not None:
@@ -467,6 +472,28 @@ class ExperimentValidator:
                     f"action space (e.g. velocity or noise). Use a regression "
                     f"loss (MSE/L1) instead."
                 )
+
+    def validate_mixture_sampling_compatibility(self) -> None:
+        """Reject Gaussian sampling when fixed-variance training leaves logvar untrained."""
+        if not isinstance(self.decoder, MixtureOfDensitiesActionTransformer):
+            return
+        if (
+            self.decoder.inference_sampling_mode
+            != MixtureSamplingMode.STOCHASTIC_SAMPLE.value
+        ):
+            return
+        has_fixed_gaussian_loss = any(
+            isinstance(loss_module, GaussianMixtureNLLoss)
+            and not loss_module.learned_variance
+            for loss_module in self.loss.modules()
+        )
+        if has_fixed_gaussian_loss:
+            self.errors.append(
+                "MixtureOfDensitiesActionTransformer cannot use "
+                "STOCHASTIC_SAMPLE with fixed-variance GaussianMixtureNLLoss "
+                "because the decoder log-variance head is not trained. Use "
+                "STOCHASTIC_MEAN or DETERMINISTIC, or enable learned_variance."
+            )
 
     def validate_loss_keys(self) -> None:
         """Validate that loss keys reference valid action heads or auxiliary keys."""

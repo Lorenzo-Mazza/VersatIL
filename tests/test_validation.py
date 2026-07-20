@@ -21,11 +21,19 @@ from versatil.data.constants import (
 )
 from versatil.data.metadata import DepthCameraMetadata, RGBCameraMetadata
 from versatil.metrics.base import BaseLoss
+from versatil.metrics.losses.mixture import GaussianMixtureNLLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import (
+    DecoderOutputKey,
+    LatentKey,
+    MixtureSamplingMode,
+)
 from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.factory.mode_act import (
+    MixtureOfDensitiesActionTransformer,
+)
 from versatil.models.decoding.decoders.interleaved_vlm import (
     BaseInterleavedVLMDecoder,
 )
@@ -1826,6 +1834,58 @@ class TestValidateLossAlgorithmCompatibility:
         validator = validator_factory(algorithm=algorithm, loss=loss)
         validator.validate_loss_algorithm_compatibility()
         assert len(validator.errors) == 2
+
+
+@pytest.mark.unit
+class TestValidateMixtureSamplingCompatibility:
+    def test_rejects_fixed_variance_with_stochastic_gaussian_sampling(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        decoder = MagicMock(spec=MixtureOfDensitiesActionTransformer)
+        decoder.inference_sampling_mode = MixtureSamplingMode.STOCHASTIC_SAMPLE.value
+        gaussian_loss = MagicMock(spec=GaussianMixtureNLLoss)
+        gaussian_loss.learned_variance = False
+        loss = mock_loss_factory()
+        loss.modules.return_value = [gaussian_loss]
+        validator = validator_factory(decoder=decoder, loss=loss)
+
+        validator.validate_mixture_sampling_compatibility()
+
+        assert validator.errors == [
+            "MixtureOfDensitiesActionTransformer cannot use STOCHASTIC_SAMPLE "
+            "with fixed-variance GaussianMixtureNLLoss because the decoder "
+            "log-variance head is not trained. Use STOCHASTIC_MEAN or "
+            "DETERMINISTIC, or enable learned_variance."
+        ]
+
+    @pytest.mark.parametrize(
+        ("sampling_mode", "learned_variance"),
+        [
+            (MixtureSamplingMode.STOCHASTIC_SAMPLE.value, True),
+            (MixtureSamplingMode.STOCHASTIC_MEAN.value, False),
+            (MixtureSamplingMode.DETERMINISTIC.value, False),
+        ],
+    )
+    def test_accepts_compatible_sampling_and_variance_combinations(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_loss_factory: Callable[..., MagicMock],
+        sampling_mode: str,
+        learned_variance: bool,
+    ) -> None:
+        decoder = MagicMock(spec=MixtureOfDensitiesActionTransformer)
+        decoder.inference_sampling_mode = sampling_mode
+        gaussian_loss = MagicMock(spec=GaussianMixtureNLLoss)
+        gaussian_loss.learned_variance = learned_variance
+        loss = mock_loss_factory()
+        loss.modules.return_value = [gaussian_loss]
+        validator = validator_factory(decoder=decoder, loss=loss)
+
+        validator.validate_mixture_sampling_compatibility()
+
+        assert validator.errors == []
 
 
 class TestValidateExperiment:

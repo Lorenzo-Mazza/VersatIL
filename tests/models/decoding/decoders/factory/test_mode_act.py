@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.decoders.factory.mode_act module."""
 
+import math
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -199,6 +200,36 @@ def gaussian_mode_act_factory(
             gmm_init_strategy=gmm_init_strategy,
             inference_sampling_mode=inference_sampling_mode,
         )
+
+    return factory
+
+
+@pytest.fixture
+def trajectory_chunk_factory(
+    rng: np.random.Generator,
+) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
+    """Factory for clustered trajectory chunks with time-varying modes."""
+
+    def factory(
+        cluster_endpoints: torch.Tensor,
+        chunks_per_cluster: int = 32,
+        horizon: int = PREDICTION_HORIZON,
+        noise_scale: float = 0.005,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        number_of_clusters, action_dim = cluster_endpoints.shape
+        ramp = torch.linspace(1.0 / horizon, 1.0, horizon)  # (H,)
+        cluster_trajectories = (
+            cluster_endpoints[:, None, :] * ramp[None, :, None]
+        )  # (C, H, D)
+        noise = torch.from_numpy(
+            rng.standard_normal(
+                (number_of_clusters, chunks_per_cluster, horizon, action_dim)
+            ).astype(np.float32)
+        )
+        chunks = (cluster_trajectories[:, None, :, :] + noise_scale * noise).reshape(
+            number_of_clusters * chunks_per_cluster, horizon, action_dim
+        )
+        return chunks, cluster_trajectories
 
     return factory
 
@@ -845,6 +876,37 @@ class TestModeACTGMMInitialization:
             f"centers collapsed to fewer clusters: {nearest_cluster.tolist()}"
         )
 
+    def test_compute_kmeans_plus_plus_centers_duplicates_when_pool_is_smaller_than_k(
+        self,
+    ) -> None:
+        candidate_points = torch.tensor([[0.0, 0.0], [1.0, 1.0]])
+        centers = MixtureOfDensitiesActionTransformer._compute_kmeans_plus_plus_centers(
+            candidate_points=candidate_points,
+            number_of_mixture_components=5,
+        )
+        assert centers.shape == (5, 2)
+        for component_index in range(5):
+            matches = (candidate_points == centers[component_index]).all(dim=1)
+            assert matches.any(), (
+                f"center {component_index} is not present in the candidate pool"
+            )
+
+    def test_compute_kmeans_plus_plus_centers_handles_identical_candidates(
+        self,
+    ) -> None:
+        candidate_points = torch.ones(3, 2)
+        centers = MixtureOfDensitiesActionTransformer._compute_kmeans_plus_plus_centers(
+            candidate_points=candidate_points,
+            number_of_mixture_components=5,
+        )
+        assert centers.shape == (5, 2)
+        torch.testing.assert_close(
+            centers,
+            torch.ones(5, 2),
+            atol=0,
+            rtol=0,
+        )
+
     def test_sample_uniform_candidates_shape_and_range(
         self,
         rng: np.random.Generator,
@@ -947,31 +1009,38 @@ class TestModeACTGMMInitialization:
 
     @pytest.mark.parametrize(
         "num_mixture_components",
-        [2, 4, 8, 16],
+        [2, 8],
     )
-    def test_initialize_gaussian_mixture_uses_qfat_style_fixed_variance(
+    def test_set_normalizer_without_chunks_uses_horizon_tempered_variance(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        rng: np.random.Generator,
         num_mixture_components: int,
-    ):
+    ) -> None:
         decoder = gaussian_mode_act_factory(
             input_keys=["rgb_features"],
             num_mixture_components=num_mixture_components,
         )
         action_key = next(iter(decoder.action_heads.keys()))
         action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
-        data_min = -torch.ones(action_dim)
-        data_max = torch.ones(action_dim)
-        decoder._initialize_gaussian_mixture(
-            action_key=action_key,
-            output_stats={"min": data_min, "max": data_max},
+        raw_data = torch.from_numpy(
+            rng.standard_normal((200, action_dim)).astype(np.float32)
         )
-        expected_logvar = 2 * torch.log(torch.ones(action_dim))
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={action_key: raw_data},
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        decoder.set_normalizer(normalizer)
+        # Normalized range is [-1, 1], so sigma = 1 and only the horizon
+        # tempering remains.
+        expected_logvar = torch.full((action_dim,), math.log(PREDICTION_HORIZON))
         for head in decoder.mixture_heads[action_key]:
             torch.testing.assert_close(
                 head._logvar_proj.bias,
                 expected_logvar.clamp(min=head.min_logvar, max=head.max_logvar),
-                atol=1e-6,
+                atol=1e-5,
                 rtol=0,
             )
             torch.testing.assert_close(
@@ -987,170 +1056,76 @@ class TestModeACTGMMInitialization:
                 rtol=0,
             )
 
-    def test_initialize_gaussian_mixture_scales_with_data_range(
+    def test_chunk_logvar_scales_with_data_range(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
-    ):
+    ) -> None:
         decoder = gaussian_mode_act_factory(input_keys=["rgb_features"])
-        action_key = next(iter(decoder.action_heads.keys()))
-        action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
-        data_min = -2.0 * torch.ones(action_dim)
-        data_max = 2.0 * torch.ones(action_dim)
-        decoder._initialize_gaussian_mixture(
-            action_key=action_key,
-            output_stats={"min": data_min, "max": data_max},
+        action_dim = 3
+        logvar = decoder._chunk_logvar(
+            data_min=-2.0 * torch.ones(action_dim),
+            data_max=2.0 * torch.ones(action_dim),
         )
-        expected_logvar = 2 * torch.log(2.0 * torch.ones(action_dim))
-        for head in decoder.mixture_heads[action_key]:
-            torch.testing.assert_close(
-                head._logvar_proj.bias,
-                expected_logvar.clamp(min=head.min_logvar, max=head.max_logvar),
-                atol=1e-6,
-                rtol=0,
-            )
+        expected_logvar = 2 * torch.log(2.0 * torch.ones(action_dim)) + math.log(
+            PREDICTION_HORIZON
+        )
+        torch.testing.assert_close(logvar, expected_logvar, atol=1e-6, rtol=0)
 
-    def test_initialize_gaussian_mixture_uses_candidate_sample_when_provided(
+    def test_raised_logvar_cap_survives_state_dict_reload(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         rng: np.random.Generator,
     ) -> None:
-        decoder = gaussian_mode_act_factory(
-            input_keys=["rgb_features"],
-            num_mixture_components=4,
-            gmm_init_strategy=GMMInitStrategy.KMEANS_PLUS_PLUS.value,
-        )
-        action_key = next(iter(decoder.action_heads.keys()))
-        action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
-        cluster_means = torch.stack(
-            [torch.full((action_dim,), value) for value in [0.7, -0.7, 0.35, -0.35]]
-        )  # (4, action_dim) — four well-separated points on the main diagonal.
-        points_per_cluster = 64
-        candidate_sample = torch.cat(
-            [
-                cluster_means[i].unsqueeze(0)
-                + 0.005
-                * torch.from_numpy(
-                    rng.standard_normal((points_per_cluster, action_dim)).astype(
-                        np.float32
-                    )
-                )
-                for i in range(4)
-            ],
-            dim=0,
-        )
-        decoder._initialize_gaussian_mixture(
-            action_key=action_key,
-            output_stats={
-                "min": -torch.ones(action_dim),
-                "max": torch.ones(action_dim),
-            },
-            candidate_sample=candidate_sample,
-        )
-        component_biases = torch.stack(
-            [
-                decoder.mixture_heads[action_key][k].output_proj.bias.detach()
-                for k in range(4)
-            ]
-        )
-        # Each selected center must be close to one of the four cluster means;
-        # collectively the four biases must cover every cluster.
-        nearest_cluster = torch.cdist(component_biases, cluster_means).argmin(dim=1)
-        nearest_distance = (
-            torch.cdist(component_biases, cluster_means).min(dim=1).values
-        )
-        assert (nearest_distance < 0.05).all(), (
-            f"component biases drifted from candidate pool: {nearest_distance.tolist()}"
-        )
-        assert torch.unique(nearest_cluster).shape == (4,), (
-            f"components collapsed to fewer clusters: {nearest_cluster.tolist()}"
-        )
-
-    def test_initialize_gaussian_mixture_falls_back_to_uniform_without_sample(
-        self,
-        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
-    ):
-        decoder = gaussian_mode_act_factory(
-            input_keys=["rgb_features"],
-            num_mixture_components=4,
-            gmm_init_strategy=GMMInitStrategy.KMEANS_PLUS_PLUS.value,
-        )
-        action_key = next(iter(decoder.action_heads.keys()))
-        action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
-        data_min = -torch.ones(action_dim)
-        data_max = torch.ones(action_dim)
-        decoder._initialize_gaussian_mixture(
-            action_key=action_key,
-            output_stats={"min": data_min, "max": data_max},
-            candidate_sample=None,
-        )
-        for k in range(4):
-            bias = decoder.mixture_heads[action_key][k].output_proj.bias.detach()
-            assert (bias >= data_min - 1e-5).all(), (
-                f"component {k} bias {bias.tolist()} below data_min"
-            )
-            assert (bias <= data_max + 1e-5).all(), (
-                f"component {k} bias {bias.tolist()} above data_max"
-            )
-
-    def test_set_normalizer_forwards_data_sample_to_gaussian_init(
-        self,
-        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
-        rng: np.random.Generator,
-    ) -> None:
+        prediction_horizon = 60
         action_dim = 2
         decoder = gaussian_mode_act_factory(
             input_keys=["rgb_features"],
-            num_mixture_components=4,
             position_dim=action_dim,
-            gmm_init_strategy=GMMInitStrategy.KMEANS_PLUS_PLUS.value,
+            prediction_horizon=prediction_horizon,
+            num_mixture_components=2,
         )
         action_key = next(iter(decoder.action_heads.keys()))
-        cluster_centers_raw = torch.tensor(
-            [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0], [2.0, 2.0]]
-        )
-        rows_per_cluster = 100
-        raw_data = torch.cat(
-            [
-                cluster_centers_raw[i].unsqueeze(0)
-                + 0.01
-                * torch.from_numpy(
-                    rng.standard_normal((rows_per_cluster, action_dim)).astype(
-                        np.float32
-                    )
-                )
-                for i in range(4)
-            ],
-            dim=0,
+        raw_data = torch.from_numpy(
+            rng.standard_normal((200, action_dim)).astype(np.float32)
         )
         normalizer = LinearNormalizer()
         normalizer.fit(
             data={action_key: raw_data},
             output_min=-1.0,
             output_max=1.0,
-            sample_size=256,
         )
-        decoder.set_normalizer(normalizer)
-        component_biases = torch.stack(
-            [
-                decoder.mixture_heads[action_key][k].output_proj.bias.detach()
-                for k in range(4)
-            ]
+        decoder.set_normalizer(normalizer=normalizer)
+        expected_logvar = torch.full((action_dim,), math.log(prediction_horizon))
+        state_dict = decoder.state_dict()
+
+        reloaded = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=action_dim,
+            prediction_horizon=prediction_horizon,
+            num_mixture_components=2,
         )
-        expected_normalized_centers = normalizer[action_key].normalize(
-            cluster_centers_raw
+        reloaded.load_state_dict(state_dict)
+
+        head = reloaded.mixture_heads[action_key][0]
+        assert head.max_logvar == pytest.approx(math.log(prediction_horizon))
+        torch.testing.assert_close(
+            head._logvar_proj.bias,
+            expected_logvar,
+            atol=1e-6,
+            rtol=0,
         )
-        distances = torch.cdist(component_biases, expected_normalized_centers)
-        nearest_distance = distances.min(dim=1).values
-        assert (nearest_distance < 0.1).all(), (
-            f"component biases not matched to normalized cluster centers: "
-            f"{nearest_distance.tolist()}"
-        )
-        nearest_cluster = distances.argmin(dim=1)
-        assert torch.unique(nearest_cluster).shape == (4,), (
-            f"components collapsed to fewer clusters: {nearest_cluster.tolist()}"
+        action_embedding = torch.zeros(1, prediction_horizon, EMBEDDING_DIMENSION)
+        output = head(action_embedding)
+        torch.testing.assert_close(
+            output[DecoderOutputKey.LOGVAR.value],
+            expected_logvar.view(1, 1, action_dim).expand(
+                1, prediction_horizon, action_dim
+            ),
+            atol=1e-6,
+            rtol=0,
         )
 
-    def test_set_normalizer_falls_back_when_normalizer_has_no_sample(
+    def test_set_normalizer_without_chunks_uses_constant_trajectories(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         rng: np.random.Generator,
@@ -1170,15 +1145,390 @@ class TestModeACTGMMInitialization:
             data={action_key: raw_data},
             output_min=-1.0,
             output_max=1.0,
-            sample_size=0,
         )
-        assert normalizer[action_key].get_input_sample() is None
+        assert normalizer[action_key].get_input_sample_chunks() is None
         decoder.set_normalizer(normalizer)
         output_stats = normalizer[action_key].get_output_stats()
         for k in range(4):
-            bias = decoder.mixture_heads[action_key][k].output_proj.bias.detach()
-            assert (bias >= output_stats["min"] - 1e-4).all()
-            assert (bias <= output_stats["max"] + 1e-4).all()
+            head = decoder.mixture_heads[action_key][k]
+            trajectory = head.temporal_bias.detach()
+            # Candidates are single actions broadcast over the horizon, so
+            # every selected trajectory is constant in time.
+            torch.testing.assert_close(
+                trajectory,
+                trajectory[0].expand_as(trajectory),
+                atol=0,
+                rtol=0,
+            )
+            assert (trajectory >= output_stats["min"] - 1e-4).all()
+            assert (trajectory <= output_stats["max"] + 1e-4).all()
+            torch.testing.assert_close(
+                head.output_proj.bias,
+                torch.zeros(action_dim),
+                atol=0,
+                rtol=0,
+            )
+
+
+@pytest.mark.integration
+class TestInitializeSingleGaussianHead:
+    def test_raises_max_logvar_when_requested_logvar_exceeds_it(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+    ) -> None:
+        head = gaussian_head_factory(output_dim=3, max_logvar=4.0)
+        head.enable_temporal_bias(horizon=PREDICTION_HORIZON)
+        requested_logvar = torch.full((3,), 6.0)
+        MixtureOfDensitiesActionTransformer._initialize_single_gaussian_head(
+            head=head,
+            logvar=requested_logvar,
+            temporal_mean=torch.zeros(PREDICTION_HORIZON, 3),
+        )
+        assert head.max_logvar == pytest.approx(6.0)
+        torch.testing.assert_close(
+            head._logvar_proj.bias, requested_logvar, atol=1e-6, rtol=0
+        )
+
+    def test_temporal_mean_written_and_constant_bias_zeroed(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+    ) -> None:
+        head = gaussian_head_factory(output_dim=3)
+        head.enable_temporal_bias(horizon=PREDICTION_HORIZON)
+        with torch.no_grad():
+            head.output_proj.bias.fill_(0.5)
+        trajectory = torch.arange(PREDICTION_HORIZON * 3, dtype=torch.float32).view(
+            PREDICTION_HORIZON, 3
+        )
+        MixtureOfDensitiesActionTransformer._initialize_single_gaussian_head(
+            head=head,
+            logvar=torch.zeros(3),
+            temporal_mean=trajectory,
+        )
+        torch.testing.assert_close(
+            head.temporal_bias.detach(), trajectory, atol=0, rtol=0
+        )
+        torch.testing.assert_close(
+            head.output_proj.bias,
+            torch.zeros(3),
+            atol=0,
+            rtol=0,
+        )
+        torch.testing.assert_close(
+            head.output_proj.weight,
+            torch.zeros_like(head.output_proj.weight),
+            atol=0,
+            rtol=0,
+        )
+
+
+@pytest.mark.integration
+def test_gaussian_clones_created_with_zero_temporal_bias(
+    gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+) -> None:
+    decoder = gaussian_mode_act_factory()
+    for action_key, heads in decoder.mixture_heads.items():
+        action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
+        for head in heads:
+            assert head.temporal_bias.shape == (PREDICTION_HORIZON, action_dim)
+            torch.testing.assert_close(
+                head.temporal_bias.detach(),
+                torch.zeros(PREDICTION_HORIZON, action_dim),
+                atol=0,
+                rtol=0,
+            )
+
+
+@pytest.mark.integration
+class TestModeACTChunkInitialization:
+    def test_chunk_init_writes_demonstrated_chunks_into_temporal_bias(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        trajectory_chunk_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
+        action_dim = 2
+        num_components = 3
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=action_dim,
+            num_mixture_components=num_components,
+            gmm_init_strategy=GMMInitStrategy.KMEANS_PLUS_PLUS.value,
+        )
+        action_key = next(iter(decoder.action_heads.keys()))
+        cluster_endpoints = torch.tensor([[2.0, 2.0], [-2.0, 2.0], [0.0, -2.0]])
+        chunks, cluster_trajectories = trajectory_chunk_factory(
+            cluster_endpoints=cluster_endpoints
+        )
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={action_key: chunks.reshape(-1, action_dim)},
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        normalizer.set_sample_chunks(key=action_key, chunks=chunks)
+        decoder.set_normalizer(normalizer)
+        normalized_candidates = normalizer[action_key].normalize(chunks)
+        normalized_cluster_trajectories = normalizer[action_key].normalize(
+            cluster_trajectories
+        )
+        component_biases = torch.stack(
+            [
+                decoder.mixture_heads[action_key][k].temporal_bias.detach()
+                for k in range(num_components)
+            ]
+        )  # (K, H, D)
+        for k in range(num_components):
+            candidate_distances = (
+                (normalized_candidates - component_biases[k]).flatten(1).norm(dim=1)
+            )
+            assert candidate_distances.min() < 1e-4, (
+                f"component {k} temporal bias is not a demonstrated chunk "
+                f"(nearest candidate distance {candidate_distances.min()})"
+            )
+            torch.testing.assert_close(
+                decoder.mixture_heads[action_key][k].output_proj.bias,
+                torch.zeros(action_dim),
+                atol=0,
+                rtol=0,
+            )
+        cluster_distances = (
+            (component_biases[:, None] - normalized_cluster_trajectories[None])
+            .flatten(2)
+            .norm(dim=2)
+        )  # (K, C)
+        nearest_cluster = cluster_distances.argmin(dim=1)
+        assert torch.unique(nearest_cluster).shape == (num_components,), (
+            f"components collapsed to fewer trajectory modes: "
+            f"{nearest_cluster.tolist()}"
+        )
+
+    def test_chunk_init_tempers_logvar_by_horizon(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        trajectory_chunk_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
+        action_dim = 2
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=action_dim,
+            num_mixture_components=3,
+        )
+        action_key = next(iter(decoder.action_heads.keys()))
+        cluster_endpoints = torch.tensor([[2.0, 2.0], [-2.0, 2.0], [0.0, -2.0]])
+        chunks, _ = trajectory_chunk_factory(cluster_endpoints=cluster_endpoints)
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={action_key: chunks.reshape(-1, action_dim)},
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        normalizer.set_sample_chunks(key=action_key, chunks=chunks)
+        decoder.set_normalizer(normalizer)
+        stats = normalizer[action_key].get_output_stats()
+        expected_logvar = 2 * torch.log((stats["max"] - stats["min"]) / 2.0) + math.log(
+            PREDICTION_HORIZON
+        )
+        for head in decoder.mixture_heads[action_key]:
+            torch.testing.assert_close(
+                head._logvar_proj.bias,
+                expected_logvar.clamp(min=head.min_logvar, max=head.max_logvar),
+                atol=1e-5,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                head._logvar_proj.weight,
+                torch.zeros_like(head._logvar_proj.weight),
+                atol=0,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                head.output_proj.weight,
+                torch.zeros_like(head.output_proj.weight),
+                atol=0,
+                rtol=0,
+            )
+
+    def test_chunk_init_keeps_cross_key_mode_correspondence(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        trajectory_chunk_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
+        num_components = 3
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=2,
+            has_orientation=True,
+            orientation_dim=2,
+            num_mixture_components=num_components,
+        )
+        position_endpoints = torch.tensor([[2.0, 2.0], [-2.0, 2.0], [0.0, -2.0]])
+        orientation_endpoints = torch.tensor([[-3.0, 0.0], [3.0, 3.0], [0.0, 3.0]])
+        position_chunks, position_trajectories = trajectory_chunk_factory(
+            cluster_endpoints=position_endpoints
+        )
+        orientation_chunks, orientation_trajectories = trajectory_chunk_factory(
+            cluster_endpoints=orientation_endpoints
+        )
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={
+                "position_action": position_chunks.reshape(-1, 2),
+                "orientation_action": orientation_chunks.reshape(-1, 2),
+            },
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        normalizer.set_sample_chunks(key="position_action", chunks=position_chunks)
+        normalizer.set_sample_chunks(
+            key="orientation_action", chunks=orientation_chunks
+        )
+        decoder.set_normalizer(normalizer)
+        normalized_position_modes = normalizer["position_action"].normalize(
+            position_trajectories
+        )
+        normalized_orientation_modes = normalizer["orientation_action"].normalize(
+            orientation_trajectories
+        )
+        for k in range(num_components):
+            position_bias = decoder.mixture_heads["position_action"][
+                k
+            ].temporal_bias.detach()
+            orientation_bias = decoder.mixture_heads["orientation_action"][
+                k
+            ].temporal_bias.detach()
+            position_cluster = (
+                (normalized_position_modes - position_bias)
+                .flatten(1)
+                .norm(dim=1)
+                .argmin()
+            )
+            orientation_cluster = (
+                (normalized_orientation_modes - orientation_bias)
+                .flatten(1)
+                .norm(dim=1)
+                .argmin()
+            )
+            assert position_cluster == orientation_cluster, (
+                f"component {k} pairs position mode {position_cluster} with "
+                f"orientation mode {orientation_cluster}"
+            )
+
+    def test_chunk_horizon_mismatch_raises(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        trajectory_chunk_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
+        action_dim = 2
+        wrong_horizon = PREDICTION_HORIZON + 1
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=action_dim,
+        )
+        action_key = next(iter(decoder.action_heads.keys()))
+        chunks, _ = trajectory_chunk_factory(
+            cluster_endpoints=torch.tensor([[2.0, 2.0], [-2.0, 2.0]]),
+            horizon=wrong_horizon,
+        )
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={action_key: chunks.reshape(-1, action_dim)},
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        normalizer.set_sample_chunks(key=action_key, chunks=chunks)
+        expected_message = (
+            f"Chunk subsample horizon {{{wrong_horizon}}} does not match "
+            f"prediction_horizon {PREDICTION_HORIZON}."
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            decoder.set_normalizer(normalizer)
+
+    def test_misaligned_chunk_counts_raise(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        trajectory_chunk_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=2,
+            has_orientation=True,
+            orientation_dim=2,
+        )
+        position_chunks, _ = trajectory_chunk_factory(
+            cluster_endpoints=torch.tensor([[2.0, 2.0], [-2.0, 2.0]]),
+            chunks_per_cluster=8,
+        )
+        orientation_chunks, _ = trajectory_chunk_factory(
+            cluster_endpoints=torch.tensor([[1.0, 1.0], [-1.0, 1.0]]),
+            chunks_per_cluster=4,
+        )
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={
+                "position_action": position_chunks.reshape(-1, 2),
+                "orientation_action": orientation_chunks.reshape(-1, 2),
+            },
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        normalizer.set_sample_chunks(key="position_action", chunks=position_chunks)
+        normalizer.set_sample_chunks(
+            key="orientation_action", chunks=orientation_chunks
+        )
+        chunk_counts = {
+            "position_action": position_chunks.shape[0],
+            "orientation_action": orientation_chunks.shape[0],
+        }
+        expected_message = (
+            f"Chunk subsamples are not aligned across action keys: {chunk_counts}"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            decoder.set_normalizer(normalizer)
+
+    def test_uniform_strategy_interpolates_chunk_envelope(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        trajectory_chunk_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
+        action_dim = 2
+        num_components = 4
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            position_dim=action_dim,
+            num_mixture_components=num_components,
+            gmm_init_strategy=GMMInitStrategy.UNIFORM.value,
+        )
+        action_key = next(iter(decoder.action_heads.keys()))
+        chunks, _ = trajectory_chunk_factory(
+            cluster_endpoints=torch.tensor([[2.0, 2.0], [-2.0, 2.0]])
+        )
+        normalizer = LinearNormalizer()
+        normalizer.fit(
+            data={action_key: chunks.reshape(-1, action_dim)},
+            output_min=-1.0,
+            output_max=1.0,
+        )
+        normalizer.set_sample_chunks(key=action_key, chunks=chunks)
+        decoder.set_normalizer(normalizer)
+        normalized_chunks = normalizer[action_key].normalize(chunks)
+        envelope_min = normalized_chunks.amin(dim=0)  # (H, D)
+        envelope_max = normalized_chunks.amax(dim=0)  # (H, D)
+        for k in range(num_components):
+            head = decoder.mixture_heads[action_key][k]
+            alpha = k / (num_components - 1)
+            expected_trajectory = envelope_min + alpha * (envelope_max - envelope_min)
+            torch.testing.assert_close(
+                head.temporal_bias.detach(),
+                expected_trajectory,
+                atol=1e-5,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                head.output_proj.bias,
+                torch.zeros(action_dim),
+                atol=0,
+                rtol=0,
+            )
 
 
 @pytest.mark.integration

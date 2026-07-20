@@ -801,84 +801,6 @@ class TestCreateNormalizer:
         assert "position" in fit_call_data
         assert Cameras.LEFT.value not in fit_call_data
 
-    def test_passes_action_sample_size_only_for_action_keys(
-        self,
-        transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[
-            ..., PositionObservationMetadata
-        ],
-        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        rng: np.random.Generator,
-    ):
-        position_source = position_observation_metadata_factory(dimension=3)
-        position_data = rng.standard_normal((100, 3)).astype(np.float32)
-
-        builder = transform_builder_factory(
-            observations_metadata={"position": position_source},
-            replay_buffer_data={"position": position_data},
-            action_sample_size=256,
-        )
-
-        action_meta = {
-            "position_action": on_the_fly_action_metadata_factory(
-                source_metadata=position_source,
-            )
-        }
-        action_data = {
-            "position_action": rng.standard_normal((99, 3)).astype(np.float32)
-        }
-
-        mock_normalizer = MagicMock()
-        with (
-            patch(
-                "versatil.data.processing.transform_builder.LinearNormalizer",
-                return_value=mock_normalizer,
-            ),
-            patch.object(builder, "_setup_image_normalizers"),
-            patch.object(builder, "_log_normalized_proprio_stats"),
-        ):
-            builder._create_normalizer(action_data=action_data, action_meta=action_meta)
-
-        passed_sample_size = mock_normalizer.fit.call_args[1]["sample_size"]
-        assert passed_sample_size == {"position_action": 256}
-
-    def test_action_sample_size_zero_disables_sample_storage(
-        self,
-        transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[
-            ..., PositionObservationMetadata
-        ],
-        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        rng: np.random.Generator,
-    ):
-        position_source = position_observation_metadata_factory(dimension=3)
-        builder = transform_builder_factory(
-            observations_metadata={"position": position_source},
-            replay_buffer_data={
-                "position": rng.standard_normal((100, 3)).astype(np.float32)
-            },
-            action_sample_size=0,
-        )
-        action_meta = {
-            "position_action": on_the_fly_action_metadata_factory(
-                source_metadata=position_source,
-            )
-        }
-        action_data = {
-            "position_action": rng.standard_normal((99, 3)).astype(np.float32)
-        }
-        mock_normalizer = MagicMock()
-        with (
-            patch(
-                "versatil.data.processing.transform_builder.LinearNormalizer",
-                return_value=mock_normalizer,
-            ),
-            patch.object(builder, "_setup_image_normalizers"),
-            patch.object(builder, "_log_normalized_proprio_stats"),
-        ):
-            builder._create_normalizer(action_data=action_data, action_meta=action_meta)
-        assert mock_normalizer.fit.call_args[1]["sample_size"] == 0
-
     def test_raises_for_non_numerical_observation_needing_normalization(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -1093,6 +1015,269 @@ class TestCreateNormalizerAndTokenizer:
 
         stats = normalizer["position"].get_input_stats()
         assert stats["max"].item() < 900.0
+
+
+@pytest.mark.unit
+class TestActionChunkSampling:
+    def test_sample_chunk_start_indices_stay_within_episodes(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        builder = transform_builder_factory(
+            n_steps=25,
+            episode_ends=np.array([10, 25]),
+            prediction_horizon=4,
+            action_sample_size=100,
+        )
+        start_indices = builder._sample_chunk_start_indices(row_count=24)
+        # Episode rows exclude each episode's final row: [0, 9) and [10, 24).
+        # A window of 4 fits at starts 0..5 and 10..20.
+        expected_starts = set(range(0, 6)) | set(range(10, 21))
+        assert set(start_indices.tolist()) == expected_starts
+        assert len(start_indices) == len(set(start_indices.tolist()))
+
+    def test_sample_chunk_start_indices_skip_unselected_episodes(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        builder = transform_builder_factory(
+            n_steps=25,
+            episode_ends=np.array([10, 25]),
+            prediction_horizon=4,
+            action_sample_size=100,
+            episode_selection_mask=np.array([True, False]),
+        )
+        start_indices = builder._sample_chunk_start_indices(row_count=24)
+        assert set(start_indices.tolist()) == set(range(0, 6))
+
+    def test_sample_chunk_start_indices_skip_episodes_shorter_than_window(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        builder = transform_builder_factory(
+            n_steps=20,
+            episode_ends=np.array([3, 20]),
+            prediction_horizon=4,
+            action_sample_size=100,
+        )
+        start_indices = builder._sample_chunk_start_indices(row_count=19)
+        # First episode has rows [0, 2): too short for a window of 4.
+        assert set(start_indices.tolist()) == set(range(3, 16))
+
+    def test_sample_chunk_start_indices_capped_at_sample_size(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        builder = transform_builder_factory(
+            n_steps=100,
+            episode_ends=np.array([100]),
+            prediction_horizon=4,
+            action_sample_size=5,
+        )
+        start_indices = builder._sample_chunk_start_indices(row_count=99)
+        assert start_indices.shape == (5,)
+        assert len(set(start_indices.tolist())) == 5
+
+    def test_sample_chunk_start_indices_include_final_rows_for_precomputed_actions(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        builder = transform_builder_factory(
+            n_steps=10,
+            episode_ends=np.array([10]),
+            prediction_horizon=4,
+            action_sample_size=100,
+        )
+        start_indices = builder._sample_chunk_start_indices(
+            row_count=10,
+            requires_next_observation=False,
+        )
+        assert set(start_indices.tolist()) == set(range(0, 7))
+
+    def test_stash_action_chunk_samples_stores_aligned_windows(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        horizon = 4
+        builder = transform_builder_factory(
+            n_steps=50,
+            episode_ends=np.array([50]),
+            prediction_horizon=horizon,
+            action_sample_size=16,
+        )
+        row_values = np.arange(49, dtype=np.float32)
+        action_data = {
+            "position": np.tile(row_values[:, None], (1, 3)),
+            "orientation": 1000.0 + np.tile(row_values[:, None], (1, 2)),
+        }
+        normalizer = MagicMock(spec=LinearNormalizer)
+        builder._stash_action_chunk_samples(
+            normalizer=normalizer,
+            action_data=action_data,
+            action_keys=["position", "orientation"],
+        )
+        assert normalizer.set_sample_chunks.call_count == 2
+        position_call, orientation_call = normalizer.set_sample_chunks.call_args_list
+        assert position_call.kwargs["key"] == "position"
+        assert orientation_call.kwargs["key"] == "orientation"
+        position_chunks = position_call.kwargs["chunks"]
+        orientation_chunks = orientation_call.kwargs["chunks"]
+        assert position_chunks.shape == (16, horizon, 3)
+        assert orientation_chunks.shape == (16, horizon, 2)
+        # Each window holds consecutive rows and both keys share window starts.
+        for chunk_index in range(16):
+            start_row = position_chunks[chunk_index, 0, 0]
+            expected_rows = start_row + np.arange(horizon, dtype=np.float32)
+            np.testing.assert_array_equal(
+                position_chunks[chunk_index, :, 0], expected_rows
+            )
+            np.testing.assert_array_equal(
+                orientation_chunks[chunk_index, :, 0],
+                1000.0 + expected_rows,
+            )
+
+    def test_stash_action_chunk_samples_noop_when_sample_size_zero(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        builder = transform_builder_factory(
+            n_steps=50,
+            episode_ends=np.array([50]),
+            prediction_horizon=4,
+            action_sample_size=0,
+        )
+        action_data = {"position": np.zeros((49, 3), dtype=np.float32)}
+        normalizer = MagicMock(spec=LinearNormalizer)
+        builder._stash_action_chunk_samples(
+            normalizer=normalizer,
+            action_data=action_data,
+            action_keys=["position"],
+        )
+        normalizer.set_sample_chunks.assert_not_called()
+
+    def test_stash_action_chunk_samples_can_store_length_horizon_precomputed_episode(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+    ) -> None:
+        horizon = 4
+        builder = transform_builder_factory(
+            n_steps=horizon,
+            episode_ends=np.array([horizon]),
+            prediction_horizon=horizon,
+            action_sample_size=10,
+        )
+        action_data = {
+            "position": np.arange(horizon, dtype=np.float32).reshape(horizon, 1),
+        }
+        normalizer = MagicMock(spec=LinearNormalizer)
+        builder._stash_action_chunk_samples(
+            normalizer=normalizer,
+            action_data=action_data,
+            action_keys=["position"],
+            requires_next_observation=False,
+        )
+        normalizer.set_sample_chunks.assert_called_once()
+        call = normalizer.set_sample_chunks.call_args
+        assert call.kwargs["key"] == "position"
+        chunks = call.kwargs["chunks"]
+        assert chunks.shape == (1, horizon, 1)
+        np.testing.assert_array_equal(
+            chunks,
+            action_data["position"].reshape(1, horizon, 1),
+        )
+
+
+@pytest.mark.integration
+class TestActionChunkSamplingIntegration:
+    def test_create_normalizer_and_tokenizer_stashes_chunk_samples(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        rng: np.random.Generator,
+    ) -> None:
+        horizon = 4
+        position_source = position_observation_metadata_factory(dimension=3)
+        position_data = rng.standard_normal((20, 3)).astype(np.float32)
+        builder = transform_builder_factory(
+            observations_metadata={"position": position_source},
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                ),
+            },
+            replay_buffer_data={"position": position_data},
+            n_steps=20,
+            episode_ends=np.array([10, 20]),
+            prediction_horizon=horizon,
+            action_sample_size=8,
+        )
+        action_rows = rng.standard_normal((19, 3)).astype(np.float32)
+        builder.action_processor.compute_sample_actions.return_value = (
+            {"position": action_rows},
+            {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                )
+            },
+        )
+
+        normalizer, _ = builder.create_normalizer_and_tokenizer()
+
+        chunks = normalizer["position"].get_input_sample_chunks()
+        assert chunks is not None
+        assert chunks.shape == (8, horizon, 3)
+        # Every stored window must reproduce consecutive action rows from
+        # within a single episode.
+        action_rows_tensor = torch.from_numpy(action_rows)
+        valid_starts = set(range(0, 6)) | set(range(10, 16))
+        for chunk_index in range(8):
+            matched_start = None
+            for start_row in valid_starts:
+                window = action_rows_tensor[start_row : start_row + horizon]
+                if torch.equal(chunks[chunk_index], window):
+                    matched_start = start_row
+                    break
+            assert matched_start is not None, (
+                f"chunk {chunk_index} is not a within-episode window of the action rows"
+            )
+
+    def test_create_normalizer_and_tokenizer_uses_full_rows_for_precomputed_chunks(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+    ) -> None:
+        horizon = 4
+        action_metadata = precomputed_action_metadata_factory(
+            storage_dimension=1,
+            prediction_dimension=1,
+        )
+        precomputed_actions = np.arange(horizon, dtype=np.float32).reshape(horizon, 1)
+        builder = transform_builder_factory(
+            actions_metadata={"action": action_metadata},
+            replay_buffer_data={"action": precomputed_actions},
+            n_steps=horizon,
+            episode_ends=np.array([horizon]),
+            prediction_horizon=horizon,
+            action_sample_size=10,
+        )
+        builder.action_processor.compute_sample_actions.return_value = (
+            {"action": precomputed_actions[:-1]},
+            {"action": action_metadata},
+        )
+
+        normalizer, _ = builder.create_normalizer_and_tokenizer()
+
+        chunks = normalizer["action"].get_input_sample_chunks()
+        assert chunks.shape == (1, horizon, 1)
+        torch.testing.assert_close(
+            chunks,
+            torch.from_numpy(precomputed_actions).view(1, horizon, 1),
+            atol=0,
+            rtol=0,
+        )
 
 
 class TestCreateTokenizer:

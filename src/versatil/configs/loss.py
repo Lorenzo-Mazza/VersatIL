@@ -394,8 +394,10 @@ class GaussianMixtureNLLossConfig(BaseLossConfig):
         weight: Overall loss weight.
         per_key_weights: Optional per-key weights.
         learned_variance: If True, expects {action_key}_mean and {action_key}_logvar. If
-            False, expects {action_key} (stacked means) and uses sigmas.
+            False, expects {action_key} (stacked means) and uses sigmas. Defaults to
+            False.
         sigmas: Fixed stddev per action key (only used when learned_variance=False).
+            The loss defaults missing keys to 0.5.
         min_variance: Minimum variance for numerical stability (learned_variance=True).
     """
 
@@ -403,7 +405,7 @@ class GaussianMixtureNLLossConfig(BaseLossConfig):
     action_keys: list[str] = MISSING
     weight: float = 1.0
     per_key_weights: dict[str, float] | None = None
-    learned_variance: bool = True
+    learned_variance: bool = False
     sigmas: dict[str, float] | None = None
     min_variance: float = 1e-4
 
