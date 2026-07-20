@@ -18,7 +18,7 @@ from versatil.data.constants import (
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.tokenization import Tokenizer
+from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.losses.gripper import GripperLoss
@@ -283,20 +283,29 @@ class TestSetTokenizer:
         tokenizer = MagicMock(spec=Tokenizer)
         policy = policy_factory()
         policy.set_tokenizer(tokenizer=tokenizer)
-        policy.encoding_pipeline.set_tokenizer.assert_called_once_with(tokenizer)
+        policy.encoding_pipeline.set_tokenizer.assert_called_once_with(
+            tokenizer=tokenizer
+        )
 
     def test_propagates_to_decoder(self, policy_factory: Callable[..., Policy]):
         tokenizer = MagicMock(spec=Tokenizer)
         policy = policy_factory()
         policy.set_tokenizer(tokenizer=tokenizer)
-        policy.decoder.set_tokenizer.assert_called_once_with(tokenizer)
+        policy.decoder.set_tokenizer.assert_called_once_with(tokenizer=tokenizer)
+
+    def test_propagates_to_loss(self, policy_factory: Callable[..., Policy]) -> None:
+        tokenizer = MagicMock(spec=Tokenizer)
+        policy = policy_factory()
+        policy.set_tokenizer(tokenizer=tokenizer)
+        policy.loss_module.set_tokenizer.assert_called_once_with(tokenizer=tokenizer)
 
     def test_accepts_none_tokenizer(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory()
         policy.set_tokenizer(tokenizer=None)
         assert policy.tokenizer is None
-        policy.encoding_pipeline.set_tokenizer.assert_called_once_with(None)
-        policy.decoder.set_tokenizer.assert_called_once_with(None)
+        policy.encoding_pipeline.set_tokenizer.assert_called_once_with(tokenizer=None)
+        policy.decoder.set_tokenizer.assert_called_once_with(tokenizer=None)
+        policy.loss_module.set_tokenizer.assert_called_once_with(tokenizer=None)
 
 
 class TestSetDenoisingThresholds:

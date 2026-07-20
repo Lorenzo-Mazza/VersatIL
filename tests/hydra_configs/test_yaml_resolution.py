@@ -262,6 +262,10 @@ class TestHydraComposition:
             == tokenization.observation_tokenizer.tokenizer_model
         )
         assert config.policy.loss.loss_modules.token_loss.label_smoothing == 0.0
+        assert (
+            config.policy.loss.loss_modules.token_loss.restrict_to_action_tokens is True
+        )
+        assert config.policy.loss.loss_modules.token_loss.soft_target_std == 1.0
         assert action_tokenizer.token_id_mapping.num_special_tokens_to_skip == 0
         lora_config = config.policy.decoder.vlm_backbone.lora_config
         assert lora_config.rank == 32

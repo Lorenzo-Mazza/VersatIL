@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from versatil.data.constants import SampleKey
+from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.metrics.base import (
     BaseLoss,
     LossOutput,
@@ -141,16 +142,53 @@ class ActionTokenLoss(ScalarWeightedLoss):
         self,
         weight: float = 1.0,
         label_smoothing: float = 0.2,
-    ):
+        restrict_to_action_tokens: bool = False,
+        soft_target_std: float = 0.0,
+    ) -> None:
         """Initialize action token loss.
 
         Args:
             weight: Scalar multiplier applied to the cross-entropy term.
             label_smoothing: Label smoothing factor [0, 1]
+            restrict_to_action_tokens: Restrict the softmax and supervised
+                sequence positions to mapped action-token IDs.
+            soft_target_std: Gaussian target standard deviation in action-bin
+                units. Zero uses hard targets.
         """
         super().__init__()
+        if soft_target_std < 0.0:
+            raise ValueError("soft_target_std must be non-negative.")
+        if soft_target_std > 0.0 and not restrict_to_action_tokens:
+            raise ValueError("soft_target_std requires restrict_to_action_tokens=True.")
+        if soft_target_std > 0.0 and label_smoothing > 0.0:
+            raise ValueError(
+                "soft_target_std and label_smoothing cannot both be positive."
+            )
         self.weight = weight
         self.label_smoothing = label_smoothing
+        self.restrict_to_action_tokens = restrict_to_action_tokens
+        self.soft_target_std = soft_target_std
+        self._action_token_ids: tuple[int, ...] | None = None
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
+        """Cache model-vocabulary IDs ordered by their local action-bin IDs."""
+        self._action_token_ids = None
+        if tokenizer is None or tokenizer.action_tokenizer is None:
+            return
+
+        action_tokenizer = tokenizer.action_tokenizer
+        token_count = int(action_tokenizer.action_discretizer.token_count)
+        if token_count <= 0:
+            raise ValueError("Action tokenizer must define at least one action token.")
+        mapped_ids = action_tokenizer.token_id_mapping.encode(list(range(token_count)))
+        action_token_ids = torch.as_tensor(mapped_ids, dtype=torch.long)
+        if action_token_ids.shape != (token_count,):
+            raise ValueError(
+                "Action token-ID mapping must return one ID per local action token."
+            )
+        if torch.unique(action_token_ids).numel() != token_count:
+            raise ValueError("Action token-ID mapping must return unique IDs.")
+        self._action_token_ids = tuple(int(token_id) for token_id in action_token_ids)
 
     def get_required_keys(self) -> set[str]:
         """Get required keys from predictions.
@@ -187,6 +225,13 @@ class ActionTokenLoss(ScalarWeightedLoss):
             DecoderOutputKey.ACTION_LOGITS.value
         ]  # (B, num_tokens, vocab_size)
         target_tokens = targets[SampleKey.TOKENIZED_ACTIONS.value]  # (B, num_tokens)
+        if self.restrict_to_action_tokens:
+            return self._forward_action_only(
+                pred_logits=pred_logits,
+                target_tokens=target_tokens,
+                is_pad=is_pad,
+            )
+
         token_sequence_dim = 1
         vocabulary_size_dim = 2
         logits = pred_logits.transpose(
@@ -210,6 +255,83 @@ class ActionTokenLoss(ScalarWeightedLoss):
         weighted_loss = ce_loss * self.weight
         return LossOutput(
             total_loss=weighted_loss,
+            component_losses={
+                MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss,
+                MetricKey.PERPLEXITY.value: perplexity,
+                MetricKey.TOKEN_ACCURACY.value: accuracy,
+            },
+        )
+
+    def _forward_action_only(
+        self,
+        pred_logits: torch.Tensor,
+        target_tokens: torch.Tensor,
+        is_pad: torch.Tensor | None,
+    ) -> LossOutput:
+        """Compute loss over mapped action classes and action payload positions."""
+        if self._action_token_ids is None:
+            raise RuntimeError(
+                "ActionTokenLoss with restrict_to_action_tokens=True requires "
+                "set_tokenizer() before forward()."
+            )
+
+        action_token_ids = torch.tensor(
+            self._action_token_ids,
+            dtype=torch.long,
+            device=pred_logits.device,
+        )
+        vocabulary_size = pred_logits.shape[-1]
+        if action_token_ids.min() < 0 or action_token_ids.max() >= vocabulary_size:
+            raise ValueError(
+                "Mapped action-token IDs must lie inside the logits vocabulary "
+                f"[0, {vocabulary_size})."
+            )
+
+        action_logits = pred_logits.index_select(-1, action_token_ids)
+        target_matches = target_tokens.unsqueeze(-1) == action_token_ids
+        action_position_mask = target_matches.any(dim=-1)
+        local_targets = target_matches.long().argmax(dim=-1)
+        effective_is_pad = ~action_position_mask
+        if is_pad is not None:
+            effective_is_pad = effective_is_pad | is_pad.bool()
+
+        if self.soft_target_std > 0.0:
+            local_bin_ids = torch.arange(
+                action_token_ids.numel(),
+                device=pred_logits.device,
+                dtype=torch.float32,
+            )
+            distances = local_bin_ids - local_targets.unsqueeze(-1).float()
+            soft_targets = F.softmax(
+                -0.5 * (distances / self.soft_target_std).square(),
+                dim=-1,
+            )
+            token_losses = -(
+                soft_targets * F.log_softmax(action_logits.float(), dim=-1)
+            ).sum(dim=-1)
+        else:
+            token_losses = F.cross_entropy(
+                action_logits.transpose(1, 2),
+                local_targets,
+                label_smoothing=self.label_smoothing,
+                reduction="none",
+            )
+
+        ce_loss = reduce_loss_with_padding(
+            loss_tensor=token_losses,
+            is_pad=effective_is_pad,
+            reduction="mean",
+        )
+        predicted_local_tokens = action_logits.argmax(dim=-1)
+        correct = (predicted_local_tokens == local_targets).float()
+        accuracy = reduce_loss_with_padding(
+            loss_tensor=correct,
+            is_pad=effective_is_pad,
+            reduction="mean",
+        )
+        perplexity = torch.exp(ce_loss)
+        return LossOutput(
+            total_loss=ce_loss * self.weight,
             component_losses={
                 MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss,
                 MetricKey.PERPLEXITY.value: perplexity,

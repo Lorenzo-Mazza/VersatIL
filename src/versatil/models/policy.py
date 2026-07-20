@@ -156,10 +156,11 @@ class Policy(nn.Module):
         self.decoder.set_normalizer(self.normalizer)
 
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
-        """Set tokenizer and pass it to the decoder."""
+        """Set tokenizer and pass it to token-aware policy components."""
         self.tokenizer = tokenizer
-        self.encoding_pipeline.set_tokenizer(tokenizer)
-        self.decoder.set_tokenizer(tokenizer)
+        self.encoding_pipeline.set_tokenizer(tokenizer=tokenizer)
+        self.decoder.set_tokenizer(tokenizer=tokenizer)
+        self.loss_module.set_tokenizer(tokenizer=tokenizer)
 
     def set_denoising_thresholds(self, thresholds: dict[str, float]) -> None:
         """Set the denoising thresholds from training data.

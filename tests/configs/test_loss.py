@@ -443,6 +443,19 @@ class TestActionTokenLossConfig:
         config = ActionTokenLossConfig()
         assert config.weight == 1.0
 
+    def test_action_only_and_soft_target_defaults_preserve_legacy_loss(self) -> None:
+        config = ActionTokenLossConfig()
+        assert config.restrict_to_action_tokens is False
+        assert config.soft_target_std == 0.0
+
+    def test_stores_action_only_and_soft_target_configuration(self) -> None:
+        config = ActionTokenLossConfig(
+            restrict_to_action_tokens=True,
+            soft_target_std=1.5,
+        )
+        assert config.restrict_to_action_tokens is True
+        assert config.soft_target_std == 1.5
+
     def test_inherits_from_base_loss_config(self):
         config = ActionTokenLossConfig()
         assert isinstance(config, BaseLossConfig)
@@ -490,7 +503,13 @@ class TestLossInstantiation:
         instance = instantiate(config)
         assert instance.key == "phase_label"
 
-    def test_action_token_loss_instantiates(self):
-        config = ActionTokenLossConfig(label_smoothing=0.1)
+    def test_action_token_loss_instantiates(self) -> None:
+        config = ActionTokenLossConfig(
+            label_smoothing=0.0,
+            restrict_to_action_tokens=True,
+            soft_target_std=1.0,
+        )
         instance = instantiate(config)
-        assert instance.label_smoothing == 0.1
+        assert instance.label_smoothing == 0.0
+        assert instance.restrict_to_action_tokens is True
+        assert instance.soft_target_std == 1.0

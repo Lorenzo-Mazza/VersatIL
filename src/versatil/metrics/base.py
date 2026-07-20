@@ -9,6 +9,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.metrics.constants import MetricKey
 
 type WeightsDictionary = dict[str, float | WeightsDictionary]
@@ -110,6 +111,10 @@ class BaseLoss(nn.Module, ABC):
                 existing_weights=self.weights, override_weights=override_weights
             )
         )
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
+        """Provide tokenizer metadata to losses that need token semantics."""
+        del tokenizer
 
     @property
     def requires_action_space_targets(self) -> bool:

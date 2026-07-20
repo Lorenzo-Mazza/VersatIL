@@ -277,11 +277,15 @@ class ActionTokenLossConfig(BaseLossConfig):
         _target_: Import path instantiated by Hydra.
         weight: Scalar multiplier applied to the cross-entropy term.
         label_smoothing: Label smoothing factor [0, 1].
+        restrict_to_action_tokens: Restrict classes and positions to action tokens.
+        soft_target_std: Gaussian soft-target standard deviation in action-bin units.
     """
 
     _target_: str = "versatil.metrics.losses.classification.ActionTokenLoss"
     weight: float = 1.0
     label_smoothing: float = 0.2
+    restrict_to_action_tokens: bool = False
+    soft_target_std: float = 0.0
 
 
 @dataclass

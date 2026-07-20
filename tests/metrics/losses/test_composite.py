@@ -188,6 +188,23 @@ class TestCompositeLossGetRequiredKeys:
 
 
 @pytest.mark.unit
+class TestCompositeLossSetTokenizer:
+    def test_propagates_tokenizer_to_every_child(
+        self,
+        mock_loss_factory: Callable[..., MagicMock],
+    ) -> None:
+        child_a = mock_loss_factory()
+        child_b = mock_loss_factory()
+        composite = CompositeLoss(loss_modules={"a": child_a, "b": child_b})
+        tokenizer = MagicMock()
+
+        composite.set_tokenizer(tokenizer=tokenizer)
+
+        child_a.set_tokenizer.assert_called_once_with(tokenizer=tokenizer)
+        child_b.set_tokenizer.assert_called_once_with(tokenizer=tokenizer)
+
+
+@pytest.mark.unit
 class TestCompositeLossForward:
     def test_total_loss_is_plain_sum_of_sub_losses(
         self,

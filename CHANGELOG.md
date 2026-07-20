@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gaussian mixture NLL training defaults to fixed variance with sigma 0.5.
   MoDE-ACT rejects stochastic Gaussian sampling in that mode because its
   predicted log-variance is not trained.
+- OpenVLA action-token training supports Gaussian soft labels over neighboring
+  action bins and can restrict both supervision and the softmax to action tokens.
 
 ## [0.4.1] - 2026-07-05
 

@@ -6,6 +6,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput, WeightsDictionary
 
 
@@ -44,6 +45,11 @@ class CompositeLoss(BaseLoss):
         self._validate_weights(new_weights)
         for name, child in self.loss_modules.items():
             child.set_weights(new_weights[name])
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
+        """Pass tokenizer metadata to every child loss."""
+        for child in self.loss_modules.values():
+            child.set_tokenizer(tokenizer=tokenizer)
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys by recursively collecting from all sub-modules.
