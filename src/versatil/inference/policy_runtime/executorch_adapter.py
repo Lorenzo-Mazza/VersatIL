@@ -23,7 +23,10 @@ class ExecuTorchModuleAdapter(nn.Module):
         observation_tensors: tuple[torch.Tensor, ...],
     ) -> tuple[torch.Tensor, ...]:
         """Run the ExecuTorch forward method."""
-        outputs = self._module.forward(observation_tensors)
+        contiguous_tensors = tuple(
+            tensor.contiguous() for tensor in observation_tensors
+        )
+        outputs = self._module.forward(contiguous_tensors)
         if isinstance(outputs, torch.Tensor):
             return (outputs,)
         return tuple(outputs)

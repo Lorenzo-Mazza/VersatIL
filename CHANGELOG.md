@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
   per-timestep component biases and horizon-tempered log-variance, preserving
   temporal structure and cross-action mode correspondence.
+- ExecuTorch deployment accepts non-contiguous camera batches produced by the
+  inference preprocessing pipeline.
 
 ### Added
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
