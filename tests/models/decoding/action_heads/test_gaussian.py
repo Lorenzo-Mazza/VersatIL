@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -148,4 +149,136 @@ class TestGaussianHeadForward:
         assert not torch.allclose(
             mutated[DecoderOutputKey.LOGVAR.value],
             head.output_proj(embedding),
+        )
+
+
+class TestGaussianHeadTemporalBias:
+    @pytest.mark.unit
+    def test_enable_before_set_output_dim_raises(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+    ) -> None:
+        head = gaussian_head_factory(input_dimension=64)
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("output_dim not set. Call set_output_dim() first."),
+        ):
+            head.enable_temporal_bias(horizon=8)
+
+    @pytest.mark.parametrize("horizon", [1, 8])
+    @pytest.mark.parametrize("output_dim", [3, 7])
+    @pytest.mark.unit
+    def test_creates_zero_bias_with_horizon_shape(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+        horizon: int,
+        output_dim: int,
+    ) -> None:
+        head = gaussian_head_factory(input_dimension=64, output_dim=output_dim)
+        head.enable_temporal_bias(horizon=horizon)
+        assert head.temporal_bias.shape == (horizon, output_dim)
+        torch.testing.assert_close(
+            head.temporal_bias,
+            torch.zeros(horizon, output_dim),
+            atol=0,
+            rtol=0,
+        )
+        assert head.temporal_bias.requires_grad is True
+
+    @pytest.mark.unit
+    def test_forward_adds_temporal_bias_after_mean_projection(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        horizon = 8
+        output_dimension = 3
+        head = gaussian_head_factory(input_dimension=64, output_dim=output_dimension)
+        head.enable_temporal_bias(horizon=horizon)
+        embedding = embedding_tensor_factory(
+            embedding_dimension=64,
+            prediction_horizon=horizon,
+        )
+        projected_mean = torch.zeros(2, horizon, output_dimension)
+        projected_logvar = torch.zeros_like(projected_mean)
+        temporal_bias = torch.arange(
+            horizon * output_dimension,
+            dtype=torch.float32,
+        ).view(horizon, output_dimension)
+        with (
+            torch.no_grad(),
+            patch.object(head, "_apply_blocks", return_value=embedding) as apply_blocks,
+            patch.object(
+                head.output_proj,
+                "forward",
+                return_value=projected_mean,
+            ) as mean_projection,
+            patch.object(
+                head._logvar_proj,
+                "forward",
+                return_value=projected_logvar,
+            ) as logvar_projection,
+        ):
+            head.temporal_bias.copy_(temporal_bias)
+            result = head(embedding)
+
+        apply_blocks.assert_called_once_with(embedding)
+        mean_projection.assert_called_once_with(embedding)
+        logvar_projection.assert_called_once_with(embedding)
+        torch.testing.assert_close(
+            result[DecoderOutputKey.MEAN.value],
+            projected_mean + temporal_bias,
+            atol=0,
+            rtol=0,
+        )
+        torch.testing.assert_close(
+            result[DecoderOutputKey.LOGVAR.value],
+            projected_logvar,
+            atol=0,
+            rtol=0,
+        )
+
+    @pytest.mark.integration
+    def test_zero_bias_keeps_mean_unchanged(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        head = gaussian_head_factory(input_dimension=64, output_dim=3)
+        head.eval()
+        embedding = embedding_tensor_factory(
+            embedding_dimension=64, prediction_horizon=8
+        )
+        baseline = head(embedding)[DecoderOutputKey.MEAN.value].clone()
+        head.enable_temporal_bias(horizon=8)
+        result = head(embedding)
+        torch.testing.assert_close(result[DecoderOutputKey.MEAN.value], baseline)
+
+    @pytest.mark.integration
+    def test_bias_shifts_mean_per_timestep(
+        self,
+        gaussian_head_factory: Callable[..., GaussianHead],
+        embedding_tensor_factory: Callable[..., torch.Tensor],
+    ) -> None:
+        horizon = 8
+        output_dim = 3
+        head = gaussian_head_factory(input_dimension=64, output_dim=output_dim)
+        head.eval()
+        embedding = embedding_tensor_factory(
+            embedding_dimension=64, prediction_horizon=horizon
+        )
+        baseline = head(embedding)[DecoderOutputKey.MEAN.value].clone()
+        baseline_logvar = head(embedding)[DecoderOutputKey.LOGVAR.value].clone()
+        head.enable_temporal_bias(horizon=horizon)
+        trajectory = torch.arange(horizon * output_dim, dtype=torch.float32).view(
+            horizon, output_dim
+        )
+        with torch.no_grad():
+            head.temporal_bias.copy_(trajectory)
+        result = head(embedding)
+        torch.testing.assert_close(
+            result[DecoderOutputKey.MEAN.value], baseline + trajectory
+        )
+        torch.testing.assert_close(
+            result[DecoderOutputKey.LOGVAR.value], baseline_logvar
         )

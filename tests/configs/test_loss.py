@@ -278,6 +278,10 @@ class TestGaussianMixtureNLLossConfig:
             config._target_ == "versatil.metrics.losses.mixture.GaussianMixtureNLLoss"
         )
 
+    def test_defaults_to_fixed_variance(self) -> None:
+        config = GaussianMixtureNLLossConfig(action_keys=["position"])
+        assert config.learned_variance is False
+
     @pytest.mark.parametrize("learned_variance", [True, False])
     def test_stores_learned_variance(self, learned_variance):
         config = GaussianMixtureNLLossConfig(

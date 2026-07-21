@@ -27,9 +27,34 @@ class GaussianHead(BaseActionHead):
             max_logvar: Maximum value for logvar clamping.
         """
         super().__init__(input_dimension=input_dimension, blocks=blocks)
-        self.min_logvar = min_logvar
-        self.max_logvar = max_logvar
+        self.register_buffer(
+            "_min_logvar",
+            torch.tensor(min_logvar, dtype=torch.float32),
+        )
+        self.register_buffer(
+            "_max_logvar",
+            torch.tensor(max_logvar, dtype=torch.float32),
+        )
         self._logvar_proj: nn.Linear | None = None
+        self.temporal_bias: nn.Parameter | None = None
+
+    @property
+    def min_logvar(self) -> float:
+        """Return the lower log-variance clamp."""
+        return float(self._min_logvar.item())
+
+    @min_logvar.setter
+    def min_logvar(self, value: float) -> None:
+        self._min_logvar.fill_(value)
+
+    @property
+    def max_logvar(self) -> float:
+        """Return the upper log-variance clamp."""
+        return float(self._max_logvar.item())
+
+    @max_logvar.setter
+    def max_logvar(self, value: float) -> None:
+        self._max_logvar.fill_(value)
 
     def set_output_dim(self, dim: int) -> None:
         """Create both mean and logvar projections.
@@ -40,6 +65,22 @@ class GaussianHead(BaseActionHead):
         super().set_output_dim(dim)
         hidden_dimension = self._get_hidden_dim()
         self._logvar_proj = nn.Linear(hidden_dimension, dim)
+
+    def enable_temporal_bias(self, horizon: int) -> None:
+        """Create a zero-initialized per-timestep bias added to the mean.
+
+        Gives each timestep an independent mean offset, so a bias-only
+        initialization can hold a full trajectory instead of a constant.
+
+        Args:
+            horizon: Number of timesteps the head is applied to per forward.
+
+        Raises:
+            RuntimeError: If set_output_dim() has not been called yet.
+        """
+        if self._output_dim is None:
+            raise RuntimeError("output_dim not set. Call set_output_dim() first.")
+        self.temporal_bias = nn.Parameter(torch.zeros(horizon, self._output_dim))
 
     def forward(self, action_embedding: torch.Tensor) -> dict[str, torch.Tensor]:
         """Forward pass returning mean and clamped logvar.
@@ -54,8 +95,11 @@ class GaussianHead(BaseActionHead):
             raise RuntimeError("output_dim not set. Call set_output_dim() first.")
         action_embedding = self._apply_blocks(action_embedding)
         mean = self.output_proj(action_embedding)
+        if self.temporal_bias is not None:
+            mean = mean + self.temporal_bias
         logvar = self._logvar_proj(action_embedding)
-        logvar = logvar.clamp(min=self.min_logvar, max=self.max_logvar)
+        logvar = torch.maximum(logvar, self._min_logvar.to(logvar))
+        logvar = torch.minimum(logvar, self._max_logvar.to(logvar))
         return {
             DecoderOutputKey.MEAN.value: mean,
             DecoderOutputKey.LOGVAR.value: logvar,

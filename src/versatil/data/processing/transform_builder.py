@@ -134,11 +134,13 @@ class TransformBuilder:
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
-            action_sample_size: Number of action rows to stash alongside each action
-                key's normalizer for downstream data-aware initialization (e.g.
-                mixture-density head k-means++). Set to 0 to disable. Memory cost
-                per action key is ``action_sample_size * action_dim * bytes_per_element``
-                (four bytes for float32, eight for float64).
+            action_sample_size: Number of action chunk windows (length
+                ``prediction_horizon``, aligned across keys) to stash on the
+                normalizer per action key for downstream data-aware
+                initialization (e.g. chunk-space mixture-density).
+                Set to 0 to disable. Memory cost per action key is
+                ``action_sample_size * prediction_horizon * action_dim *
+                bytes_per_element``.
             episode_selection_mask: Optional boolean mask over episodes.
                 Statistics, tokenizers, and denoising thresholds are fitted
                 only on selected episodes (the training split), keeping
@@ -253,6 +255,22 @@ class TransformBuilder:
             action_meta=action_meta,
             device=device,
         )
+        chunk_action_keys = [
+            key for key, meta in action_meta.items() if meta.needs_normalization
+        ]
+        chunk_action_data = (
+            action_source_data
+            if self.action_processor.action_space.has_only_precomputed_actions
+            else action_data
+        )
+        self._stash_action_chunk_samples(
+            normalizer=normalizer,
+            action_data=chunk_action_data,
+            action_keys=chunk_action_keys,
+            requires_next_observation=(
+                not self.action_processor.action_space.has_only_precomputed_actions
+            ),
+        )
         tokenizer = None
         if self.tokenization_config and (
             self.tokenization_config.tokenize_observations
@@ -273,6 +291,78 @@ class TransformBuilder:
                 device=device,
             )
         return normalizer, tokenizer
+
+    def _sample_chunk_start_indices(
+        self,
+        row_count: int,
+        requires_next_observation: bool = True,
+    ) -> np.ndarray:
+        """Sample window start rows for action-chunk subsampling.
+
+        Windows have length ``prediction_horizon`` and must lie fully inside a
+        single selected episode. On-the-fly actions exclude each episode's
+        final row because they require the next observation.
+
+        Args:
+            row_count: Number of rows in the step-aligned action arrays.
+            requires_next_observation: Whether each action row uses the next
+                observation and therefore cannot start from episode-final rows.
+
+        Returns:
+            ``(N,)`` array of start rows, ``N <= action_sample_size``.
+        """
+        horizon = self.prediction_horizon
+        terminal_offset = 1 if requires_next_observation else 0
+        valid_starts = []
+        episode_start = 0
+        for episode_index, episode_end in enumerate(self.episode_ends):
+            episode_end = min(int(episode_end), row_count + terminal_offset)
+            if self._is_episode_selected(episode_index=episode_index):
+                last_start = episode_end - terminal_offset - horizon
+                if last_start >= episode_start:
+                    valid_starts.append(np.arange(episode_start, last_start + 1))
+            episode_start = int(episode_end)
+        if not valid_starts:
+            return np.empty(0, dtype=np.int64)
+        all_starts = np.concatenate(valid_starts)
+        take = min(self.action_sample_size, all_starts.shape[0])
+        return self._random_generator.choice(all_starts, size=take, replace=False)
+
+    def _stash_action_chunk_samples(
+        self,
+        normalizer: LinearNormalizer,
+        action_data: dict[str, np.ndarray],
+        action_keys: list[str],
+        requires_next_observation: bool = True,
+    ) -> None:
+        """Store aligned ``(N, H, D)`` chunk subsamples on the fitted normalizer.
+
+        The same window starts are used for every action key, so component
+        indices stay in correspondence across keys during downstream joint
+        chunk-space initialization.
+
+        Args:
+            normalizer: Fitted normalizer to attach the subsamples to.
+            action_data: Step-aligned per-key action arrays covering all rows.
+            action_keys: Normalized action keys to stash chunks for.
+            requires_next_observation: Whether action windows must exclude the
+                episode-final rows used only as next observations.
+        """
+        if self.action_sample_size <= 0 or not action_keys:
+            return
+        row_count = min(action_data[key].shape[0] for key in action_keys)
+        start_indices = self._sample_chunk_start_indices(
+            row_count=row_count,
+            requires_next_observation=requires_next_observation,
+        )
+        if start_indices.shape[0] == 0:
+            return
+        window_indices = start_indices[:, None] + np.arange(
+            self.prediction_horizon
+        )  # (N, H)
+        for key in action_keys:
+            chunks = action_data[key][window_indices]  # (N, H, D)
+            normalizer.set_sample_chunks(key=key, chunks=chunks)
 
     def compute_proprioceptive_denoising_thresholds(
         self,
@@ -328,20 +418,13 @@ class TransformBuilder:
                     array=self.replay_buffer[key][:]
                 )
 
-        action_normalization_keys: set[str] = set()
         for key, meta in action_meta.items():
             if meta.needs_normalization:
                 data_to_normalize[key] = action_data[key]
-                action_normalization_keys.add(key)
         if self.kinematics_winsorize_quantiles:
             data_to_normalize = self._apply_winsorization(
                 data_to_normalize, self.kinematics_winsorize_quantiles
             )
-        sample_sizes = (
-            dict.fromkeys(action_normalization_keys, self.action_sample_size)
-            if self.action_sample_size > 0
-            else 0
-        )
         normalizer.fit(
             data=data_to_normalize,
             last_n_dims=1,
@@ -351,7 +434,6 @@ class TransformBuilder:
             clamp_range=self.clamp_kinematics_range,
             min_std=self.min_kinematics_std,
             min_range=self.min_kinematics_range,
-            sample_size=sample_sizes,
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
         self._log_normalized_proprio_stats(normalizer, data_to_normalize)

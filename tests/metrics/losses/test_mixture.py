@@ -22,6 +22,11 @@ class TestGaussianMixtureNLLossGetRequiredKeys:
         loss = GaussianMixtureNLLoss(action_keys=["position", "orientation"])
         assert loss.get_required_keys() == {"position", "orientation"}
 
+    def test_defaults_to_fixed_sigma_point_five(self) -> None:
+        loss = GaussianMixtureNLLoss(action_keys=["position", "orientation"])
+        assert loss.learned_variance is False
+        assert loss.sigmas == {"position": 0.5, "orientation": 0.5}
+
 
 @pytest.mark.unit
 class TestGaussianMixtureNLLossForward:
