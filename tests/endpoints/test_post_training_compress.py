@@ -269,6 +269,11 @@ def _save_and_verify_inference(
             overrides=[f"checkpoint_path={str(output_dir)}"],
         )
 
+    pt2e_backend_config = (
+        PostTrainingCompressor._pt2e_backend_config(hydra_config=ptq_config)
+        if quantization_workflow == QuantizationWorkflow.PT2E.value
+        else None
+    )
     save_compressed_model(
         converted_model=compressed_model,
         example_inputs=example_inputs,
@@ -279,6 +284,7 @@ def _save_and_verify_inference(
         training_checkpoint_path=str(output_dir),
         quantization_config=ptq_config,
         quantization_workflow=quantization_workflow,
+        pt2e_backend_config=pt2e_backend_config,
     )
 
     assert (Path(compressed_dir) / "compressed_policy.pt2").exists()
