@@ -90,6 +90,24 @@ _QAT_MODULE_PATCHES: dict[str, list[SourcePatch]] = {
 }
 
 
+# torch's darwin arm64 build ships no mkldnn ops; torchao's x86 inductor
+# passes call torch.ops.mkldnn._is_mkldnn_acl_supported() at import time,
+# which raises AttributeError on macOS. The guard keeps upstream's intent:
+# the fusion registrations are skipped wherever mkldnn is unavailable.
+_INDUCTOR_MODULE_PATCHES: dict[str, list[SourcePatch]] = {
+    "torchao.quantization.pt2e.inductor_passes.x86": [
+        SourcePatch(
+            original="if not torch.ops.mkldnn._is_mkldnn_acl_supported():",
+            replacement=(
+                'if hasattr(torch.ops.mkldnn, "_is_mkldnn_acl_supported") '
+                "and not torch.ops.mkldnn._is_mkldnn_acl_supported():"
+            ),
+            required=False,
+        ),
+    ],
+}
+
+
 class PatchingSourceLoader(importlib.machinery.SourceFileLoader):
     """Source loader applying string replacements before compilation."""
 
@@ -197,6 +215,8 @@ def register_torchao_patches() -> None:
     module_patches = dict(_QAT_MODULE_PATCHES)
     if sys.version_info >= (3, 14):
         module_patches.update(_PT2E_MODULE_PATCHES)
+    if sys.platform == "darwin":
+        module_patches.update(_INDUCTOR_MODULE_PATCHES)
     already_imported = [name for name in module_patches if name in sys.modules]
     if already_imported:
         logging.warning(

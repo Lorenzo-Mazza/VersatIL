@@ -4,8 +4,9 @@
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
+| OS | Linux (x86_64/aarch64) or macOS (Apple Silicon) | macOS runs CPU-only; GPU training requires Linux. |
 | Python | 3.13 or 3.14 | Supported by `pyproject.toml` (`requires-python = ">=3.13,<3.15"`). |
-| CUDA driver | Supports CUDA 13.0 runtime | Required only when installing the `gpu` extra |
+| CUDA driver | Supports CUDA 13.0 runtime | Required only when installing the `gpu` extra on Linux |
 | Git | Latest | Credentials for private repositories if applicable |
 
 ## Setup
@@ -102,6 +103,10 @@ uv sync --python "$PYTHON_VERSION" --extra gpu
 # For CPU-only environments:
 # uv sync --python "$PYTHON_VERSION" --extra cpu
 ```
+
+On macOS use `--extra cpu`; the `gpu` extra is Linux-only and installs
+nothing on other platforms. macOS installs receive the MPS-enabled PyTorch
+build from PyPI, but VersatIL runs on the CPU device.
 
 Both source setup paths install:
 
