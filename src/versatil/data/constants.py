@@ -9,6 +9,7 @@ Note:
 import enum
 
 from versatil_constants.blockpush import BlockPushProprioKey
+from versatil_constants.endoscope import EndoscopeProprioKey
 from versatil_constants.kitchen import KitchenProprioKey
 from versatil_constants.libero import LiberoCamera, LiberoProprioKey
 from versatil_constants.multimodal_ant import MultimodalAntProprioKey
@@ -69,6 +70,9 @@ class RawCameraKey(enum.StrEnum):
     IMAGE_PUSHT = "observation.image"
     # Kitchen LeRobot
     IMAGE_KITCHEN = "observation.image"
+    # Endoscope guidance LeRobot
+    ENDOSCOPE_LEFT = "observation.images.left"
+    ENDOSCOPE_RIGHT = "observation.images.right"
 
 
 class CameraModality(enum.StrEnum):
@@ -95,6 +99,8 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     RawCameraKey.IMAGE_METAWORLD.value: Cameras.AGENTVIEW.value,
     RawCameraKey.IMAGE_PUSHT.value: Cameras.AGENTVIEW.value,
     RawCameraKey.IMAGE_KITCHEN.value: Cameras.AGENTVIEW.value,
+    RawCameraKey.ENDOSCOPE_LEFT.value: Cameras.LEFT.value,
+    RawCameraKey.ENDOSCOPE_RIGHT.value: Cameras.RIGHT.value,
 }
 
 
@@ -160,6 +166,9 @@ class ProprioKey(enum.StrEnum):
     BLOCK_PUSH_TARGET1_ANGLE = BlockPushProprioKey.TARGET1_ANGLE.value
     BLOCK_PUSH_TARGET2_POS = BlockPushProprioKey.TARGET2_POS.value
     BLOCK_PUSH_TARGET2_ANGLE = BlockPushProprioKey.TARGET2_ANGLE.value
+
+    # Endoscope guidance phantom data
+    ENDOSCOPE_ROLL_ACTION = EndoscopeProprioKey.ROLL_ACTION.value
 
 
 class SyntheticObsKey(enum.StrEnum):
@@ -249,6 +258,7 @@ class DatasetType(enum.StrEnum):
     KITCHEN = "kitchen"
     ANT = "ant"
     UR3 = "ur3"
+    ENDOSCOPE_GUIDANCE = "endoscope_guidance"
 
 
 class LeRobotPathsV30(enum.StrEnum):

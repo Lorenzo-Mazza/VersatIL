@@ -1,0 +1,51 @@
+defaults:
+  - base
+
+_target_: versatil.data.raw.zarr_meta.DatasetMetadata
+
+observations:
+  ${cameras:LEFT}:
+    _target_: versatil.data.metadata.RGBCameraMetadata
+    camera_key: ${raw_camera:ENDOSCOPE_LEFT}
+    dtype: uint8
+    image_width: 480
+    image_height: 270
+
+  ${cameras:RIGHT}:
+    _target_: versatil.data.metadata.RGBCameraMetadata
+    camera_key: ${raw_camera:ENDOSCOPE_RIGHT}
+    dtype: uint8
+    image_width: 480
+    image_height: 270
+
+  ${obs_key:LANGUAGE}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [task]
+    dtype: str
+    dimension: 1
+    is_numerical: false
+    needs_normalization: false
+
+precomputed_actions:
+  ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+    _target_: versatil.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:CAMERA}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 4
+    prediction_dimension: 3
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 3
+
+  ${proprio_key:ENDOSCOPE_ROLL_ACTION}:
+    _target_: versatil.data.metadata.OrientationActionMetadata
+    frame: ${coordinate_system:CAMERA}
+    orientation_representation: ${orientation:ROLL}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 4
+    prediction_dimension: 1
+    needs_normalization: true
+    slice_start: 3
+    slice_end: 4
