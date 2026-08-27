@@ -10,7 +10,7 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_plus_rgb_lerobot
   - /training: default
-  - /policy/encoding_pipeline: mono_rgb_language_encoder_tiny
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder_tiny
   - /policy/decoder: action_transformer_language
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_gripper
@@ -59,6 +59,10 @@ policy:
       left:
         input_keys:
           - ${cameras:AGENTVIEW}
+        backbone: ${rgb_backbone:EFFICIENTNET_B0}
+        frozen: false
+      right:
+        input_keys:
           - ${cameras:EYE_IN_HAND}
         backbone: ${rgb_backbone:EFFICIENTNET_B0}
         frozen: false
@@ -68,6 +72,6 @@ policy:
         use_embeddings_only: false
   decoder:
     input_keys:
-      - 'left_rgb:agentview_rgb'
-      - 'left_rgb:eye_in_hand_rgb'
+      - left_rgb
+      - right_rgb
       - instruction_language
