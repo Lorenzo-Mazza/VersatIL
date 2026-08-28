@@ -17,18 +17,22 @@ class TestDeploymentConfig:
 
     @pytest.mark.parametrize("temporal_aggregation", [True, False])
     @pytest.mark.parametrize("request_timeout_seconds", [None, 2.5])
+    @pytest.mark.parametrize("seed", [None, 123])
     def test_stores_configuration(
         self,
         temporal_aggregation: bool,
         request_timeout_seconds: float | None,
+        seed: int | None,
     ):
         config = DeploymentConfig(
             checkpoint_path="/ckpt",
+            seed=seed,
             client=InferenceClientConfig(
                 temporal_aggregation=temporal_aggregation,
                 request_timeout_seconds=request_timeout_seconds,
             ),
         )
+        assert config.seed == seed
         assert config.client.temporal_aggregation == temporal_aggregation
         assert config.client.request_timeout_seconds == request_timeout_seconds
 
@@ -38,6 +42,7 @@ class TestDeploymentConfig:
             "checkpoint_path",
             "checkpoint_name",
             "device",
+            "seed",
             "max_steps",
             "compile_model",
             "client",

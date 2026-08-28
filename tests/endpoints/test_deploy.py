@@ -11,6 +11,7 @@ from versatil.endpoints.deploy import main
 
 def _deployment_config(
     device: str | None = "cpu",
+    seed: int | None = 123,
     temporal_aggregation: bool = True,
     update_rate_hz: float | None = 10.0,
     request_timeout_seconds: float | None = 2.5,
@@ -21,6 +22,7 @@ def _deployment_config(
             "checkpoint_path": "/tmp/ckpt",
             "checkpoint_name": "best.ckpt",
             "device": device,
+            "seed": seed,
             "max_steps": 100,
             "compile_model": False,
             "client": {
@@ -58,6 +60,7 @@ def test_main_wires_client_from_config(
         checkpoint_path="/tmp/ckpt",
         device=torch.device("cpu"),
         checkpoint_name="best.ckpt",
+        seed=123,
         compile_model=False,
     )
     mock_obs_transport_class.assert_called_once_with(

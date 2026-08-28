@@ -66,7 +66,7 @@ def policy_runtime_factory(
         device: torch.device = torch.device("cpu"),
         checkpoint_name: str = "last.ckpt",
         precision: str = PrecisionType.BF16_MIXED.value,
-        seed: int = 42,
+        seed: int | None = 42,
         config: MagicMock | None = None,
         checkpoint: dict | None = None,
         create_tokenizer_dir: bool = False,
@@ -178,9 +178,17 @@ class TestFloatPolicyRuntimeInitialization:
 
 @pytest.mark.unit
 class TestFloatPolicyRuntimeSeedBehavior:
-    def test_set_seed_uses_default_rng_not_global_seed(self, policy_runtime_factory):
-        loader = policy_runtime_factory(seed=99)
-        assert loader._rng.random() >= 0
+    @pytest.mark.parametrize("seed", [None, 99])
+    def test_initializes_configured_seed(self, policy_runtime_factory, seed):
+        resolved_seed = 7_654_321
+        with patch(
+            f"{FLOAT_RUNTIME_MODULE}.initialize_inference_seed",
+            return_value=resolved_seed,
+        ) as mock_initialize_seed:
+            loader = policy_runtime_factory(seed=seed)
+
+        mock_initialize_seed.assert_called_once_with(seed=seed)
+        assert loader.seed == resolved_seed
 
     @pytest.mark.parametrize("seed", [0, 42, 999])
     def test_torch_manual_seed_produces_deterministic_values(

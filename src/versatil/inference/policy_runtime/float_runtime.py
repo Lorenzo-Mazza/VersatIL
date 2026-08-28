@@ -3,11 +3,13 @@
 import logging
 from pathlib import Path
 
-import numpy as np
 import torch
 
 from versatil.checkpoint_loading.float_policy import FloatCheckpointLoader
-from versatil.inference.policy_runtime.base import PolicyRuntime
+from versatil.inference.policy_runtime.base import (
+    PolicyRuntime,
+    initialize_inference_seed,
+)
 from versatil.training.constants import (
     CheckpointFilename,
     PrecisionType,
@@ -22,7 +24,7 @@ class FloatPolicyRuntime(PolicyRuntime):
         device: torch.device,
         checkpoint_path: str,
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
-        seed: int = 42,
+        seed: int | None = None,
         compile_model: bool = True,
     ) -> None:
         """Initialize the float policy runtime.
@@ -31,12 +33,12 @@ class FloatPolicyRuntime(PolicyRuntime):
             device: Device to load the model onto.
             checkpoint_path: Path to the checkpoint directory.
             checkpoint_name: Name of the checkpoint file.
-            seed: Random seed for reproducibility.
+            seed: Explicit inference seed. ``None`` draws a fresh seed from
+                operating-system entropy.
             compile_model: Whether to compile the policy with
                 torch.compile for optimized inference.
         """
         self._compile_model = compile_model
-        self._set_seed(seed)
         checkpoint_loader = FloatCheckpointLoader(
             device=device,
             checkpoint_path=checkpoint_path,
@@ -47,14 +49,7 @@ class FloatPolicyRuntime(PolicyRuntime):
             client_identifier=str(Path(checkpoint_path) / Path(checkpoint_name).stem),
         )
         self._prepare_inference_model()
-
-    def _set_seed(self, seed: int) -> None:
-        """Set random seeds for reproducibility."""
-        torch.manual_seed(seed)
-        rng = np.random.default_rng(seed)
-        self._rng = rng
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        self._seed = initialize_inference_seed(seed=seed)
 
     def _prepare_inference_model(self) -> None:
         """Apply inference-only model preparation."""

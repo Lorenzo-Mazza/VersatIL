@@ -29,6 +29,7 @@ def load_policy(
     checkpoint_path: str,
     device: torch.device,
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
+    seed: int | None = None,
     compile_model: bool = True,
 ) -> PolicyRuntime:
     """Load a policy for inference, auto-detecting compressed checkpoints.
@@ -41,6 +42,8 @@ def load_policy(
         checkpoint_path: Path to the checkpoint directory.
         device: Device to load the model onto.
         checkpoint_name: Name of the checkpoint file (for float policies).
+        seed: Explicit inference seed. ``None`` draws a fresh seed from
+            operating-system entropy.
         compile_model: Whether to compile the model with torch.compile.
 
     Returns:
@@ -53,6 +56,7 @@ def load_policy(
         return CompressedPolicyRuntime(
             device=device,
             checkpoint_path=checkpoint_path,
+            seed=seed,
             compile_model=compile_model,
         )
     else:
@@ -60,6 +64,7 @@ def load_policy(
             device=device,
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
+            seed=seed,
             compile_model=compile_model,
         )
 
@@ -90,6 +95,7 @@ def main(config: DictConfig) -> None:
         checkpoint_path=config.checkpoint_path,
         device=device,
         checkpoint_name=config.checkpoint_name,
+        seed=config.seed,
         compile_model=config.compile_model,
     )
 

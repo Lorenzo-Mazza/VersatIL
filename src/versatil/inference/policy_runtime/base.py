@@ -1,5 +1,7 @@
 """Base runtime wrapper for policy inference."""
 
+import logging
+import secrets
 from abc import ABC, abstractmethod
 
 import torch
@@ -9,6 +11,24 @@ from versatil.configs import MainConfig
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.policy import Policy
+
+
+def initialize_inference_seed(seed: int | None) -> int:
+    """Initialize PyTorch's global RNG for an inference runtime.
+
+    Args:
+        seed: Explicit seed for reproducible inference. ``None`` draws a fresh
+            seed from operating-system entropy.
+
+    Returns:
+        The seed applied to the PyTorch RNG.
+    """
+    resolved_seed = secrets.randbits(63) if seed is None else seed
+    torch.manual_seed(seed=resolved_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed=resolved_seed)
+    logging.info(f"Inference random seed: {resolved_seed}")
+    return resolved_seed
 
 
 class PolicyRuntime(ABC):
@@ -23,6 +43,7 @@ class PolicyRuntime(ABC):
         self.checkpoint_loader = checkpoint_loader
         self._client_identifier = client_identifier
         self._policy = checkpoint_loader.policy
+        self._seed: int | None = None
 
     @abstractmethod
     def run_inference(
@@ -50,6 +71,11 @@ class PolicyRuntime(ABC):
     def client_identifier(self) -> str:
         """Stable identifier used when registering with a server."""
         return self._client_identifier
+
+    @property
+    def seed(self) -> int | None:
+        """Resolved inference seed, if this runtime initializes one."""
+        return self._seed
 
     @property
     def config(self) -> MainConfig:

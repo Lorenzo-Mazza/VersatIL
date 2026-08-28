@@ -167,6 +167,7 @@ def loaded_loader_factory(
         input_keys: list[str] | None = None,
         output_keys: list[str] | None = None,
         device: str = "cpu",
+        seed: int | None = 42,
         checkpoint_kwargs: dict | None = None,
     ) -> CompressedPolicyRuntime:
         if checkpoint_kwargs is None:
@@ -201,6 +202,7 @@ def loaded_loader_factory(
             return CompressedPolicyRuntime(
                 device=torch.device(device),
                 checkpoint_path=checkpoint_path,
+                seed=seed,
             )
 
     return factory
@@ -367,6 +369,18 @@ class TestCompressedPolicyRuntimeMetadata:
     def test_stores_device(self, loaded_loader_factory):
         loader = loaded_loader_factory()
         assert loader.device == torch.device("cpu")
+
+    @pytest.mark.parametrize("seed", [None, 99])
+    def test_initializes_configured_seed(self, loaded_loader_factory, seed):
+        resolved_seed = 7_654_321
+        with patch(
+            f"{COMPRESSED_RUNTIME_MODULE}.initialize_inference_seed",
+            return_value=resolved_seed,
+        ) as mock_initialize_seed:
+            loader = loaded_loader_factory(seed=seed)
+
+        mock_initialize_seed.assert_called_once_with(seed=seed)
+        assert loader.seed == resolved_seed
 
     @pytest.mark.parametrize(
         "property_name",

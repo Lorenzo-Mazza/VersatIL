@@ -19,6 +19,8 @@ class DeploymentConfig:
         checkpoint_path: Directory containing the checkpoint and its config.
         checkpoint_name: Checkpoint filename inside checkpoint_path.
         device: None selects cuda when available, else cpu.
+        seed: Explicit inference seed. None draws a fresh seed on every process
+            start.
         max_steps: Maximum environment steps before the client stops.
         compile_model: Whether the policy is compiled with torch.compile.
         client: Socket inference client settings.
@@ -27,6 +29,7 @@ class DeploymentConfig:
     checkpoint_path: str = MISSING
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value
     device: str | None = None  # None selects cuda when available, else cpu.
+    seed: int | None = None
     max_steps: int = 1_000_000
     compile_model: bool = True
     client: InferenceClientConfig = field(default_factory=InferenceClientConfig)

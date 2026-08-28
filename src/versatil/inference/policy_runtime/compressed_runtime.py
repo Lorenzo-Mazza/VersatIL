@@ -13,7 +13,10 @@ from versatil.data.processing.transform import (
     tokenize_observation,
     unnormalize_actions,
 )
-from versatil.inference.policy_runtime.base import PolicyRuntime
+from versatil.inference.policy_runtime.base import (
+    PolicyRuntime,
+    initialize_inference_seed,
+)
 from versatil.inference.policy_runtime.executorch_adapter import ExecuTorchModuleAdapter
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
@@ -30,6 +33,7 @@ class CompressedPolicyRuntime(PolicyRuntime):
         self,
         device: torch.device,
         checkpoint_path: str,
+        seed: int | None = None,
         compile_model: bool = True,
     ) -> None:
         """Initialize the compressed policy runtime.
@@ -40,6 +44,8 @@ class CompressedPolicyRuntime(PolicyRuntime):
                 containing compression_metadata.json, the model artifact
                 (Torch Export ``.pt2`` or ExecuTorch ``.pte``), and
                 normalizer.pt.
+            seed: Explicit inference seed. ``None`` draws a fresh seed from
+                operating-system entropy.
             compile_model: Whether to compile the model with
                 torch.compile before inference. For PT2E models on
                 CPU this enables inductor int8 kernel fusion and is
@@ -60,6 +66,7 @@ class CompressedPolicyRuntime(PolicyRuntime):
             model_path=checkpoint_loader.model_path,
             workflow=checkpoint_loader.workflow,
         )
+        self._seed = initialize_inference_seed(seed=seed)
 
     def _load_artifact_model(
         self,
