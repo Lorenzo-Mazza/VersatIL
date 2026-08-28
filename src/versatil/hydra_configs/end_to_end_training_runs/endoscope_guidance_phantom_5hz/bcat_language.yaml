@@ -7,7 +7,7 @@ defaults:
   - /experiment: default
   - /task/dataset_schema: endoscope_guidance_phantom_5hz
   - /task/dataloader: endoscope_guidance
-  - /task/action_space: camera_frame_position_and_roll_precomputed
+  - /task/action_space: camera_frame_position_and_roll
   - /task/observation_space: stereo_rgb_language
   - /training: default
   - /policy/encoding_pipeline: stereo_rgb_language_encoder_tiny

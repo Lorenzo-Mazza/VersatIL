@@ -19,7 +19,7 @@ actions_metadata:
 
   ${proprio_key:RELATIVE_PIVOT_ROLL}:
     _target_: versatil.data.metadata.OrientationActionMetadata
-    frame: ${coordinate_system:CAMERA}
+    frame: ${coordinate_system:UNKNOWN}
     orientation_representation: ${orientation:ROLL}
     raw_data_column_keys: [action]
     dtype: float32

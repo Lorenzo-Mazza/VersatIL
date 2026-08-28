@@ -70,9 +70,12 @@ def observation_space_integration_factory(
             ObsKey.LANGUAGE.value: MagicMock(),
         }
         if include_orientation:
-            metadata[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value] = (
+            metadata[ProprioKey.RELATIVE_PIVOT_ROLL.value] = (
                 orientation_observation_metadata_factory(
-                    dimension=ORIENTATION_DIMENSION
+                    dimension=ORIENTATION_DIMENSION,
+                    frame=CoordinateSystem.UNKNOWN.value,
+                    orientation_representation=OrientationRepresentation.ROLL.value,
+                    raw_data_column_keys=[ProprioKey.RELATIVE_PIVOT_ROLL.value],
                 )
             )
         if include_gripper:
@@ -103,13 +106,14 @@ def action_space_integration_factory(
             ),
         }
         if include_orientation:
-            actions[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value] = (
-                OnTheFlyActionMetadata(
-                    source_metadata=orientation_observation_metadata_factory(
-                        dimension=ORIENTATION_DIMENSION,
-                    ),
-                    computation_method=ActionComputationMethod.DELTA.value,
-                )
+            actions[ProprioKey.RELATIVE_PIVOT_ROLL.value] = OnTheFlyActionMetadata(
+                source_metadata=orientation_observation_metadata_factory(
+                    dimension=ORIENTATION_DIMENSION,
+                    frame=CoordinateSystem.UNKNOWN.value,
+                    orientation_representation=OrientationRepresentation.ROLL.value,
+                    raw_data_column_keys=[ProprioKey.RELATIVE_PIVOT_ROLL.value],
+                ),
+                computation_method=ActionComputationMethod.DELTA.value,
             )
         if include_gripper:
             actions[ProprioKey.GRIPPER_STATE.value] = OnTheFlyActionMetadata(
@@ -233,7 +237,7 @@ def observation_server() -> SocketServer:
     camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
     proprio_dims = {
         ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: POSITION_DIMENSION,
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value: ORIENTATION_DIMENSION,
+        ProprioKey.RELATIVE_PIVOT_ROLL.value: ORIENTATION_DIMENSION,
         ProprioKey.GRIPPER_STATE.value: GRIPPER_DIMENSION,
     }
 

@@ -112,9 +112,7 @@ class ProprioKey(enum.StrEnum):
 
     # TSO datasets proprioceptive keys
     ROBOT_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
-    ROBOT_FRAME_CARTESIAN_TIP_ORI = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value
     CAMERA_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
-    CAMERA_FRAME_CARTESIAN_TIP_ORI = TSOProprioKey.CAMERA_FRAME_CARTESIAN_TIP_ORI.value
     RELATIVE_PIVOT_ROLL = TSOProprioKey.RELATIVE_PIVOT_ROLL.value
     # LIBERO/Metaworld proprioceptive keys
     EE_POS = LiberoProprioKey.EE_POS.value

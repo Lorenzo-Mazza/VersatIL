@@ -10,6 +10,22 @@ from versatil.data.preprocessing.create_zarr_arrays import create_zarr_replay_bu
 from versatil.data.raw.schemas import CsvDatasetSchema
 
 
+def _episode_path_sort_key(dataset_path: str) -> tuple[int, int, str]:
+    """Build a deterministic sort key from an episode directory name.
+
+    Args:
+        dataset_path: Path to an episode CSV file.
+
+    Returns:
+        A key that sorts legacy numeric directories numerically and named
+        directories lexicographically.
+    """
+    directory_name = Path(dataset_path).parent.name
+    if directory_name.isdecimal():
+        return (0, int(directory_name), directory_name)
+    return (1, 0, directory_name)
+
+
 def _iter_csv_episodes(
     schema: CsvDatasetSchema,
     sorted_paths: list[str],
@@ -27,7 +43,7 @@ def create_replay_buffer(schema: CsvDatasetSchema, datasets_paths: list[str]) ->
         schema: CsvDatasetSchema instance (instantiated by Hydra)
         datasets_paths: List of paths to episode CSV files
     """
-    sorted_paths = sorted(datasets_paths, key=lambda x: int(Path(x).parent.name))
+    sorted_paths = sorted(datasets_paths, key=_episode_path_sort_key)
     episodes = _iter_csv_episodes(
         schema=schema,
         sorted_paths=sorted_paths,

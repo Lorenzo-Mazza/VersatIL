@@ -26,22 +26,19 @@ observations:
     is_numerical: false
     needs_normalization: false
 
-precomputed_actions:
   ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
-    _target_: versatil.data.metadata.PositionActionMetadata
+    _target_: versatil.data.metadata.PositionObservationMetadata
     frame: ${coordinate_system:CAMERA}
-    raw_data_column_keys: [relative_tip_position_x, relative_tip_position_y, relative_tip_position_z]
+    raw_data_column_keys: [camera_frame_tip_position_x, camera_frame_tip_position_y, camera_frame_tip_position_z]
     dtype: float32
-    storage_dimension: 3
-    prediction_dimension: 3
+    dimension: 3
     needs_normalization: true
 
   ${proprio_key:RELATIVE_PIVOT_ROLL}:
-    _target_: versatil.data.metadata.OrientationActionMetadata
-    frame: ${coordinate_system:CAMERA}
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    frame: ${coordinate_system:UNKNOWN}
     orientation_representation: ${orientation:ROLL}
     raw_data_column_keys: [relative_pivot_roll]
     dtype: float32
-    storage_dimension: 1
-    prediction_dimension: 1
+    dimension: 1
     needs_normalization: true
