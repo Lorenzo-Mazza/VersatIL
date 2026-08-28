@@ -44,6 +44,10 @@ policy:
   prediction_horizon: ${task.prediction_horizon}
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
+  decoder:
+    embedding_dimension: 256
+    feedforward_dimension: 1024
+    number_of_layers: 4
   loss:
     loss_modules:
       regression_loss:
