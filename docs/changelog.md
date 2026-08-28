@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
+- The policy runtime can now draw a random seed to test multimodal behavior during roll-outs. The seed is drawn from operating-system entropy, to ensure randomness across runs. 
 
 ### Changed
 - OpenVLA and OpenVLA-OFT presets train LoRA with the recipe learning rate of 5e-4.
