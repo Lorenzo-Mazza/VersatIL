@@ -10,7 +10,7 @@ defaults:
   - /task/action_space: camera_frame_position_and_roll
   - /task/observation_space: stereo_rgb_language
   - /training: default
-  - /policy/encoding_pipeline: stereo_rgb_language_encoder_tiny
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: action_transformer_language
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_camera_frame_position_and_roll
