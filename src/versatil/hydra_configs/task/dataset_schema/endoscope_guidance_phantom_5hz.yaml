@@ -1,8 +1,10 @@
 defaults:
-  - lerobot
+  - csv
   - zarr_meta/endoscope_guidance_phantom_5hz@metadata
+  - _self_
 
-_target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
-dataset_type: ${dataset_type:ENDOSCOPE_GUIDANCE}
-dataset_path: ${dataset_dir:VERSATIL_ENDOSCOPE_GUIDANCE_PHANTOM_5HZ_DIR}
+_target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
+dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:endoscope_guidance_phantom_5hz.zarr}
+dataset_folders:
+  - ${dataset_dir:VERSATIL_ENDOSCOPE_GUIDANCE_PHANTOM_5HZ_DIR}

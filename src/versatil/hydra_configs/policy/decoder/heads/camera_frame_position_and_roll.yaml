@@ -11,7 +11,7 @@ ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
       activation: ${activation_function:SILU}
       dropout: ${policy.decoder.dropout_rate}
 
-${proprio_key:ENDOSCOPE_ROLL_ACTION}:
+${proprio_key:RELATIVE_PIVOT_ROLL}:
   _target_: versatil.models.decoding.action_heads.ActionHead
   input_dimension: ${policy.decoder.embedding_dimension}
   blocks:

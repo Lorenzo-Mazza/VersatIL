@@ -17,7 +17,7 @@ actions_metadata:
     slice_start: 0
     slice_end: 3
 
-  ${proprio_key:ENDOSCOPE_ROLL_ACTION}:
+  ${proprio_key:RELATIVE_PIVOT_ROLL}:
     _target_: versatil.data.metadata.OrientationActionMetadata
     frame: ${coordinate_system:CAMERA}
     orientation_representation: ${orientation:ROLL}

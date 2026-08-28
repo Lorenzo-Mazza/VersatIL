@@ -1,32 +1,11 @@
 defaults:
   - base
 
-_target_: versatil.data.raw.zarr_meta.DatasetMetadata
+_target_: versatil.data.task.ActionSpace
+use_gripper_class_weights: false
+denoise_actions: false
 
-observations:
-  ${cameras:LEFT}:
-    _target_: versatil.data.metadata.RGBCameraMetadata
-    camera_key: ${raw_camera:LEFT}
-    dtype: uint8
-    image_width: 480
-    image_height: 270
-
-  ${cameras:RIGHT}:
-    _target_: versatil.data.metadata.RGBCameraMetadata
-    camera_key: ${raw_camera:RIGHT}
-    dtype: uint8
-    image_width: 480
-    image_height: 270
-
-  ${obs_key:LANGUAGE}:
-    _target_: versatil.data.metadata.ObservationMetadata
-    raw_data_column_keys: [language]
-    dtype: str
-    dimension: 1
-    is_numerical: false
-    needs_normalization: false
-
-precomputed_actions:
+actions_metadata:
   ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
     _target_: versatil.data.metadata.PositionActionMetadata
     frame: ${coordinate_system:CAMERA}
