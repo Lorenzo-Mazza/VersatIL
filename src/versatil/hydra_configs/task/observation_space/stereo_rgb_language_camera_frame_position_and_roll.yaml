@@ -1,0 +1,21 @@
+defaults:
+  - stereo_rgb_language
+  - _self_
+
+observations_metadata:
+  ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [camera_frame_tip_position_x, camera_frame_tip_position_y, camera_frame_tip_position_z]
+    dtype: float32
+    dimension: 3
+    needs_normalization: true
+    frame: ${coordinate_system:CAMERA}
+
+  ${proprio_key:RELATIVE_PIVOT_ROLL}:
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    raw_data_column_keys: [relative_pivot_roll]
+    dtype: float32
+    dimension: 1
+    needs_normalization: true
+    frame: ${coordinate_system:UNKNOWN}
+    orientation_representation: ${orientation:ROLL}

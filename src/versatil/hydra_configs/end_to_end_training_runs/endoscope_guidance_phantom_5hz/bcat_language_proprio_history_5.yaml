@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/bcat_language
+  - override /task/observation_space: stereo_rgb_language_camera_frame_position_and_roll
+  - override /policy/encoding_pipeline: stereo_rgb_language_camera_frame_position_and_roll
+  - _self_
+
+task:
+  observation_horizon: 5
+  dataloader:
+    batch_size: 8
+
+training:
+  gradient_accumulate_every: 8
+
+policy:
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - instruction_language
+      - camera_frame_proprio

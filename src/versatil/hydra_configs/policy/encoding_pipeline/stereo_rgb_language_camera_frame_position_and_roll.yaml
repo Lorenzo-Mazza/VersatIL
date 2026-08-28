@@ -1,0 +1,11 @@
+defaults:
+  - stereo_rgb_language_encoder
+  - encoder/proprio@encoders.camera_frame
+  - _self_
+
+encoders:
+  camera_frame:
+    input_keys:
+      - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+      - ${proprio_key:RELATIVE_PIVOT_ROLL}
+    output_dim: 64
