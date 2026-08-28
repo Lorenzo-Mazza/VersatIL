@@ -1,7 +1,7 @@
 defaults:
   - base
   - image_augmentations@color_augmentation: color
-  - image_augmentations@spatial_augmentation: spatial
+  - image_augmentations@spatial_augmentation: spatial_endoscope_guidance
   - tokenization@tokenization: obs_language
 
 batch_size: 64
@@ -20,5 +20,5 @@ skip_initial_episode_steps: 0
 downsample_factor: 1
 action_backward_shift: 0
 
-val_ratio: 0.01
+val_ratio: 0.1
 total_ratio: 1.0
