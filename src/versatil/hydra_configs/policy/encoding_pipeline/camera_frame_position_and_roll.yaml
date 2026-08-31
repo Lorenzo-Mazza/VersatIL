@@ -1,0 +1,12 @@
+defaults:
+  - encoder/proprio@encoders.camera_frame
+  - _self_
+
+encoders:
+  camera_frame:
+    input_keys:
+      - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+      - ${proprio_key:RELATIVE_PIVOT_ROLL}
+    output_dim: 64
+
+fusion_stages: []

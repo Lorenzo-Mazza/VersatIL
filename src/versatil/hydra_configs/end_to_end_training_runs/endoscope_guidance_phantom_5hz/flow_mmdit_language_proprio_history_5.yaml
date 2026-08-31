@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/bcat_language_proprio_history_5
+  - override /policy/decoder: dit_multimodal
+  - override /policy/decoder/heads@policy.decoder.action_heads: dit_joint
+  - override /policy/algorithm: flow_matching
+  - _self_
+
+training:
+  early_stopping_patience: null
+
+policy:
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - instruction_language
+      - camera_frame_proprio
+    max_sequence_length: 2048
+  loss:
+    loss_modules:
+      regression_loss:
+        mse_weight: 1.0
+        l1_weight: 0.0

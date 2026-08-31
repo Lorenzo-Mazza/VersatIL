@@ -1,0 +1,63 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: endoscope_guidance_phantom_5hz
+  - /task/dataloader: endoscope_guidance
+  - /task/action_space: camera_frame_position_and_roll
+  - /task/observation_space: stereo_rgb_camera_frame_position_and_roll
+  - /training: default
+  - /policy/encoding_pipeline: stereo_rgb_camera_frame_position_and_roll
+  - /policy/decoder: act_default
+  - /policy/algorithm: bc_with_vae_gaussian
+  - /policy/loss: regression_kl
+  - override /task/dataloader/tokenization: base
+  - override /policy/decoder/heads@policy.decoder.action_heads: camera_frame_position_and_roll
+  - _self_
+
+task:
+  observation_horizon: 5
+  prediction_horizon: 10
+  dataloader:
+    batch_size: 8
+
+experiment:
+  precision: ${precision:FP32}
+  checkpoint_folder: ${checkpoint_dir:endoscope_guidance_phantom_5hz}
+  checkpoint_every: 5
+
+training:
+  num_epochs: 100
+  gradient_accumulate_every: 8
+  early_stopping_patience: null
+  lr_schedule: null
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - camera_frame_proprio
+    embedding_dimension: 256
+    feedforward_dimension: 1024
+    number_of_encoder_layers: 4
+    number_of_decoder_layers: 4
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+          - ${proprio_key:RELATIVE_PIVOT_ROLL}
+      trajectory_length:
+        action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

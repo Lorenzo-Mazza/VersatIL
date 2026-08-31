@@ -12,6 +12,7 @@ task:
 
 training:
   gradient_accumulate_every: 8
+  early_stopping_patience: null
 
 policy:
   decoder:
