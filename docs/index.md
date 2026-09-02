@@ -47,7 +47,7 @@ The key features are:
 
     ---
 
-    Set up Python, CUDA, and VersatIL with conda + uv.
+    Set up Python, CUDA, and VersatIL with Micromamba or uv.
 
     [:octicons-arrow-right-24: Install](getting-started/installation.md)
 

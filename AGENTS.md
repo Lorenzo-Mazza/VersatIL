@@ -28,16 +28,17 @@ VersatIL: Imitation Learning framework for robotic manipulation. The codebase pr
 ## Environment Setup
 
 ```bash
-# Option A: Create a conda environment (Mamba recommended for faster installation)
-mamba env create -f environment.yml
-mamba activate versatil
+# Option A: Create a Micromamba environment
+micromamba env create -f environment.yml
+micromamba activate versatil
 PYTHON_VERSION=3.14
-UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra gpu
+environment_prefix="$(python -c 'import sys; print(sys.prefix)')"
+UV_PROJECT_ENVIRONMENT="$environment_prefix" uv sync --python "$PYTHON_VERSION" --extra gpu
 # For CPU-only environments:
-# UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra cpu
+# UV_PROJECT_ENVIRONMENT="$environment_prefix" uv sync --python "$PYTHON_VERSION" --extra cpu
 # For Python 3.13, set PYTHON_VERSION=3.13.
 
-# Option B: Create a uv-managed .venv without conda/mamba
+# Option B: Create a uv-managed .venv without Micromamba
 PYTHON_VERSION=3.14
 uv python install "$PYTHON_VERSION"
 uv venv --python "$PYTHON_VERSION"
