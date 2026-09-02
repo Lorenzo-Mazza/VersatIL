@@ -64,10 +64,10 @@ uv venv --python 3.14
 source .venv/bin/activate
 uv pip install versatil --prerelease=allow
 
-# Or with mamba/conda
-mamba create -n versatil python=3.14 pip
-mamba activate versatil
-pip install versatil
+# Or with Micromamba (after initializing its shell hook)
+micromamba create -n versatil -c conda-forge python=3.14 pip
+micromamba activate versatil
+python -m pip install versatil
 ```
 
 The default PyPI PyTorch wheel runs on both CPU-only and CUDA machines. For

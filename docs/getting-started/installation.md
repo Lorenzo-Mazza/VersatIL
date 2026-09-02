@@ -21,10 +21,10 @@ uv venv --python 3.14
 source .venv/bin/activate
 uv pip install versatil --prerelease=allow
 
-# Or with mamba/conda
-mamba create -n versatil python=3.14 pip
-mamba activate versatil
-pip install versatil
+# Or with Micromamba (after initializing its shell hook)
+micromamba create -n versatil -c conda-forge python=3.14 pip
+micromamba activate versatil
+python -m pip install versatil
 ```
 
 The `--prerelease=allow` flag is required with uv: Python 3.13/3.14 support
@@ -36,14 +36,29 @@ The default PyPI PyTorch wheel runs on both CPU-only and CUDA machines. The
 dedicated CPU-only or CUDA 13.0 wheel sets are selected through the
 `--extra cpu` / `--extra gpu` flags of the source installs below.
 
-### Option B: Source Install into a Miniforge/Mamba Environment
+### Option B: Source Install into a Micromamba Environment
 
 Use a source install when you want to develop VersatIL itself or run the test
 suite.
 
-#### 1. Install Conda/Mamba
+#### 1. Install Micromamba
 
-Install [Miniforge](https://github.com/conda-forge/miniforge) to get `conda` and `mamba`. Mamba is recommended over conda for significantly faster dependency resolution.
+Install the standalone [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html)
+executable using its official installer:
+
+```bash
+"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
+```
+
+If the installer did not initialize Bash, initialize its shell hook once:
+
+```bash
+micromamba shell init -s bash -r "$HOME/.local/share/micromamba"
+source ~/.bashrc
+```
+
+On systems with a small home quota, replace the root prefix with a project or
+scratch path.
 
 #### 2. Clone and Create Environment
 
@@ -51,18 +66,17 @@ Install [Miniforge](https://github.com/conda-forge/miniforge) to get `conda` and
 git clone https://github.com/Lorenzo-Mazza/VersatIL.git
 cd VersatIL
 
-# Create environment (use mamba for faster installation)
-mamba env create -f environment.yml
-mamba activate versatil
+micromamba env create -f environment.yml
+micromamba activate versatil
 ```
 
-The `environment.yml` creates a minimal conda environment with a supported
+The `environment.yml` creates a minimal environment with a supported
 Python version and uv. To force Python 3.13 instead of the default solver
 choice, create the environment manually:
 
 ```bash
-mamba create -n versatil python=3.13 pip
-mamba activate versatil
+micromamba create -n versatil -c conda-forge python=3.13 pip
+micromamba activate versatil
 python -m pip install uv
 ```
 
@@ -72,18 +86,18 @@ VersatIL uses [uv](https://github.com/astral-sh/uv) for fast, reproducible depen
 
 ```bash
 PYTHON_VERSION=3.14
-UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra gpu
+environment_prefix="$(python -c 'import sys; print(sys.prefix)')"
+UV_PROJECT_ENVIRONMENT="$environment_prefix" uv sync --python "$PYTHON_VERSION" --extra gpu
 # For CPU-only environments:
-# UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --python "$PYTHON_VERSION" --extra cpu
+# UV_PROJECT_ENVIRONMENT="$environment_prefix" uv sync --python "$PYTHON_VERSION" --extra cpu
 # For Python 3.13, set PYTHON_VERSION=3.13.
 ```
 
-This installs all packages into the active conda environment.
+This installs all packages into the active Micromamba environment.
 
 ### Option C: Source Install with uv
 
-Use this path when you want a project-local `.venv` without conda, mamba, or
-Miniforge.
+Use this path when you want a project-local `.venv` without Micromamba.
 
 ```bash
 # Install uv if it is not already available
@@ -232,7 +246,7 @@ Activate the environment and run the default local test selection. This excludes
 slow, integration, GPU-only, and ExecuTorch-dependent tests via `pyproject.toml`:
 
 ```bash
-mamba activate versatil
+micromamba activate versatil
 pytest
 ```
 

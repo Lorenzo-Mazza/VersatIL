@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   temporal structure and cross-action mode correspondence.
 - ExecuTorch deployment accepts non-contiguous camera batches produced by the
   inference preprocessing pipeline.
+- Installation documentation now recommends standalone Micromamba instead of
+  Miniforge/Mamba.
 
 ### Added
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
