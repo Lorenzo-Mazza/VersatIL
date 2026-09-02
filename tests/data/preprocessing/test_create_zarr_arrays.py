@@ -11,38 +11,7 @@ from versatil.data.preprocessing.codecs import WebPCodec
 from versatil.data.preprocessing.create_zarr_arrays import (
     create_zarr_arrays,
     create_zarr_replay_buffer,
-    is_uint8_image_spec,
 )
-
-
-class TestIsUint8ImageSpec:
-    @pytest.mark.parametrize(
-        "shape, dtype, expected",
-        [
-            ((0, 64, 64, 3), "uint8", True),
-            ((0, 7), "float32", False),
-            ((0, 64, 64, 3), "float32", False),
-            ((0,), "str", False),
-            ((0, 7), "uint8", False),
-        ],
-        ids=[
-            "4d_uint8_image",
-            "2d_float32_numerical",
-            "4d_float32_not_uint8",
-            "1d_string",
-            "2d_uint8_not_image",
-        ],
-    )
-    def test_returns_expected_for_various_specs(
-        self,
-        spec_factory: Callable[..., dict],
-        shape: tuple,
-        dtype: str,
-        expected: bool,
-    ):
-        spec = spec_factory(shape=shape, dtype=dtype)
-
-        assert is_uint8_image_spec(spec) is expected
 
 
 class TestCreateZarrArrays:
@@ -66,12 +35,46 @@ class TestCreateZarrArrays:
             schema=schema,
             image_codec=image_codec,
             numeric_compressor=numeric_compressor,
+            image_frames_per_shard=64,
         )
 
         data_group.create_array.assert_called_once_with(
             name="left",
             shape=(0, 64, 64, 3),
             chunks=(1, 64, 64, 3),
+            shards=(64, 64, 64, 3),
+            dtype=np.uint8,
+            serializer=image_codec,
+            compressors=None,
+        )
+
+    def test_image_array_can_disable_sharding(
+        self,
+        mock_schema_factory: Callable[..., MagicMock],
+        spec_factory: Callable[..., dict],
+    ):
+        image_spec = spec_factory(
+            shape=(0, 64, 64, 3),
+            chunks=(16, 64, 64, 3),
+            dtype="uint8",
+        )
+        schema = mock_schema_factory(specs={"left": image_spec})
+        data_group = MagicMock()
+        image_codec = WebPCodec(level=99)
+
+        create_zarr_arrays(
+            data_group=data_group,
+            schema=schema,
+            image_codec=image_codec,
+            numeric_compressor=MagicMock(),
+            image_frames_per_shard=None,
+        )
+
+        data_group.create_array.assert_called_once_with(
+            name="left",
+            shape=(0, 64, 64, 3),
+            chunks=(1, 64, 64, 3),
+            shards=None,
             dtype=np.uint8,
             serializer=image_codec,
             compressors=None,
@@ -276,6 +279,47 @@ class TestCreateZarrReplayBuffer:
 
         root = zarr.open_group(zarr_path, mode="r")
         np.testing.assert_array_almost_equal(root["data"]["position"][:], episode_data)
+
+    @pytest.mark.integration
+    def test_sharded_images_support_reads_across_shard_boundaries(
+        self,
+        tmp_path,
+        mock_schema_factory: Callable[..., MagicMock],
+        spec_factory: Callable[..., dict],
+    ):
+        image_size = 16
+        image_spec = spec_factory(
+            shape=(0, image_size, image_size, 3),
+            chunks=(16, image_size, image_size, 3),
+            dtype="uint8",
+        )
+        schema = mock_schema_factory(
+            specs={"left": image_spec},
+            zarr_path=str(tmp_path / "sharded.zarr"),
+        )
+        frame_values = (16, 48, 80, 112, 144, 176)
+        frames = np.stack(
+            [
+                np.full(
+                    (image_size, image_size, 3),
+                    fill_value=value,
+                    dtype=np.uint8,
+                )
+                for value in frame_values
+            ]
+        )
+
+        create_zarr_replay_buffer(
+            schema=schema,
+            episodes=[{"left": frames[:3]}, {"left": frames[3:]}],
+            total_episodes=2,
+            image_frames_per_shard=4,
+        )
+
+        image_array = zarr.open_group(schema.zarr_path, mode="r")["data"]["left"]
+        assert image_array.chunks == (1, image_size, image_size, 3)
+        assert image_array.shards == (4, image_size, image_size, 3)
+        np.testing.assert_allclose(image_array[3:5], frames[3:5], atol=2)
 
     def test_progress_logged_at_multiples_of_fifty(
         self,

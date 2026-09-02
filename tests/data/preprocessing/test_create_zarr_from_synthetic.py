@@ -11,9 +11,11 @@ import zarr
 from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.preprocessing.create_zarr_from_synthetic import (
     GENERATOR_KEY_TO_ZARR_KEY,
+    _create_zarr_arrays,
     _save_training_visualization,
     create_replay_buffer_from_synthetic,
 )
+from versatil.data.preprocessing.sharding import DEFAULT_IMAGE_FRAMES_PER_SHARD
 from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
 from versatil.data.synthetic.constants import SyntheticTaskName
 
@@ -129,6 +131,7 @@ def _run_with_patched_generators(
     schema: MagicMock,
     episodes: list[dict[str, np.ndarray]],
     extra_patches: dict[str, object] | None = None,
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
 ) -> MagicMock | None:
     generator_patch = patch(
         "versatil.data.preprocessing.create_zarr_from_synthetic.generate_task_episodes",
@@ -142,8 +145,68 @@ def _run_with_patched_generators(
             for target, value in extra_patches.items():
                 patcher = patch(target, value)
                 patcher.start()
-        create_replay_buffer_from_synthetic(schema=schema)
+        create_replay_buffer_from_synthetic(
+            schema=schema,
+            image_frames_per_shard=image_frames_per_shard,
+        )
     return mock_plot
+
+
+@pytest.mark.unit
+def test_create_zarr_arrays_shards_only_images(
+    mock_schema_factory: Callable[..., MagicMock],
+):
+    image_size = 16
+    schema = mock_schema_factory(image_size=image_size)
+    data_group = MagicMock()
+    compressor = MagicMock()
+
+    _create_zarr_arrays(
+        data_group=data_group,
+        schema=schema,
+        compressor=compressor,
+        image_frames_per_shard=64,
+    )
+
+    calls_by_name = {
+        call.kwargs["name"]: call.kwargs
+        for call in data_group.create_array.call_args_list
+    }
+    assert calls_by_name[Cameras.AGENTVIEW.value]["chunks"] == (
+        16,
+        image_size,
+        image_size,
+        3,
+    )
+    assert calls_by_name[Cameras.AGENTVIEW.value]["shards"] == (
+        64,
+        image_size,
+        image_size,
+        3,
+    )
+    assert calls_by_name[ProprioKey.SYNTHETIC_POSITION.value]["shards"] is None
+
+
+@pytest.mark.integration
+def test_custom_image_shard_size_is_used_when_materializing_synthetic_data(
+    mock_schema_factory: Callable[..., MagicMock],
+    fake_episode_factory: Callable[..., list[dict[str, np.ndarray]]],
+):
+    image_size = 16
+    schema = mock_schema_factory(image_size=image_size)
+    episodes = fake_episode_factory(image_size=image_size)
+
+    _run_with_patched_generators(
+        schema=schema,
+        episodes=episodes,
+        image_frames_per_shard=32,
+    )
+
+    image_array = zarr.open_group(schema.zarr_path, mode="r")["data"][
+        Cameras.AGENTVIEW.value
+    ]
+    assert image_array.chunks == (16, image_size, image_size, 3)
+    assert image_array.shards == (32, image_size, image_size, 3)
 
 
 @pytest.mark.unit

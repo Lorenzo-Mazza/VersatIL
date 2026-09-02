@@ -10,6 +10,11 @@ import zarr.storage
 from zarr.codecs import BloscCodec, BloscShuffle
 
 from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
+from versatil.data.preprocessing.sharding import (
+    DEFAULT_IMAGE_FRAMES_PER_SHARD,
+    get_image_shard_shape,
+    is_uint8_image_spec,
+)
 from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
 from versatil.data.synthetic.generators import generate_task_episodes
 from versatil.data.synthetic.visualization import plot_trajectories_2d
@@ -23,11 +28,21 @@ GENERATOR_KEY_TO_ZARR_KEY = {
 }
 
 
-def create_replay_buffer_from_synthetic(schema: SyntheticSchema) -> None:
+def create_replay_buffer_from_synthetic(
+    schema: SyntheticSchema,
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
+) -> None:
     """Create a Zarr-based replay buffer from procedurally generated synthetic episodes.
 
     Args:
         schema: SyntheticSchema instance with generation parameters and zarr path.
+        image_frames_per_shard: Number of image frames stored in each shard, or
+            None to disable sharding.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If image_frames_per_shard is not a positive multiple of the
+            image chunk length.
     """
     logging.info(
         f"Creating synthetic Zarr at {schema.zarr_path} "
@@ -39,7 +54,12 @@ def create_replay_buffer_from_synthetic(schema: SyntheticSchema) -> None:
     data_group = root.create_group("data")
     meta_group = root.create_group("meta")
     compressor = BloscCodec(cname="lz4", clevel=5, shuffle=BloscShuffle.noshuffle)
-    _create_zarr_arrays(data_group=data_group, schema=schema, compressor=compressor)
+    _create_zarr_arrays(
+        data_group=data_group,
+        schema=schema,
+        compressor=compressor,
+        image_frames_per_shard=image_frames_per_shard,
+    )
     episodes = generate_task_episodes(
         task_name=schema.task_name,
         num_episodes=schema.num_episodes,
@@ -123,15 +143,36 @@ def _create_zarr_arrays(
     data_group: zarr.Group,
     schema: SyntheticSchema,
     compressor: BloscCodec,
+    image_frames_per_shard: int | None,
 ) -> None:
-    """Create zarr arrays based on schema configuration."""
+    """Create synthetic arrays with optional image storage sharding.
+
+    Args:
+        data_group: Zarr group receiving the arrays.
+        schema: Synthetic dataset schema providing array specifications.
+        compressor: Codec used for compressed synthetic arrays.
+        image_frames_per_shard: Number of image frames stored in each shard, or
+            None to disable sharding.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If image_frames_per_shard is not a positive multiple of the
+            image chunk length.
+    """
     specs = schema.get_zarr_array_specs()
     for key, spec in specs.items():
         dtype = str if spec["dtype"] == "str" else getattr(np, spec["dtype"])
+        shards = None
+        if is_uint8_image_spec(spec):
+            shards = get_image_shard_shape(
+                image_chunks=spec["chunks"],
+                image_frames_per_shard=image_frames_per_shard,
+            )
         data_group.create_array(
-            key,
+            name=key,
             shape=spec["shape"],
             chunks=spec["chunks"],
+            shards=shards,
             dtype=dtype,
             compressors=[compressor] if spec["needs_compressor"] else None,
         )

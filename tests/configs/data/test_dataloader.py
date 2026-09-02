@@ -11,6 +11,7 @@ from versatil.data.constants import ImageNormalizationType, KinematicsNormalizat
 @pytest.mark.unit
 class TestDataLoaderConfig:
     @pytest.mark.parametrize("preload_data_in_memory", [True])
+    @pytest.mark.parametrize("image_frames_per_shard", [32])
     @pytest.mark.parametrize("batch_size", [32])
     @pytest.mark.parametrize("num_workers", [4])
     @pytest.mark.parametrize("shuffle", [True])
@@ -51,6 +52,7 @@ class TestDataLoaderConfig:
     def test_stores_configuration(
         self,
         preload_data_in_memory: bool,
+        image_frames_per_shard: int | None,
         batch_size: int,
         num_workers: int,
         shuffle: bool,
@@ -70,6 +72,7 @@ class TestDataLoaderConfig:
     ):
         config = DataLoaderConfig(
             preload_data_in_memory=preload_data_in_memory,
+            image_frames_per_shard=image_frames_per_shard,
             batch_size=batch_size,
             num_workers=num_workers,
             shuffle=shuffle,
@@ -88,6 +91,7 @@ class TestDataLoaderConfig:
             action_sample_size=action_sample_size,
         )
         assert config.preload_data_in_memory == preload_data_in_memory
+        assert config.image_frames_per_shard == image_frames_per_shard
         assert config.batch_size == batch_size
         assert config.num_workers == num_workers
         assert config.shuffle == shuffle
@@ -108,6 +112,7 @@ class TestDataLoaderConfig:
     def test_defaults(self):
         config = DataLoaderConfig()
         assert config.preload_data_in_memory is False
+        assert config.image_frames_per_shard == 256
         assert config.batch_size == 64
         assert config.num_workers == 16
         assert config.shuffle is True
