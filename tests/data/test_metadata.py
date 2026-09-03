@@ -1104,27 +1104,6 @@ class TestPositionActionMetadata:
         )
         assert delta != next_timestep
 
-    def test_equality_treats_missing_computation_method_as_none(self):
-        current = PositionActionMetadata(
-            frame=CoordinateSystem.ROBOT_BASE.value,
-            raw_data_column_keys=["x", "y"],
-            storage_dimension=2,
-            prediction_dimension=2,
-            needs_normalization=True,
-            dtype="float32",
-        )
-        legacy = PositionActionMetadata(
-            frame=CoordinateSystem.ROBOT_BASE.value,
-            raw_data_column_keys=["x", "y"],
-            storage_dimension=2,
-            prediction_dimension=2,
-            needs_normalization=True,
-            dtype="float32",
-        )
-        del legacy.computation_method
-        assert current == legacy
-
-
 class TestOrientationActionMetadata:
     def test_invalid_frame_raises(self):
         with pytest.raises(ValueError, match="frame must be one of"):
@@ -1163,6 +1142,53 @@ class TestOrientationActionMetadata:
             dtype="float32",
         )
         assert metadata.action_type == ProprioceptiveType.ORIENTATION.value
+
+    @pytest.mark.parametrize(
+        "method, expectation",
+        [(member.value, does_not_raise()) for member in ActionComputationMethod]
+        + [
+            (
+                "velocity",
+                pytest.raises(ValueError, match="computation_method must be one of"),
+            ),
+            (None, does_not_raise()),
+        ],
+    )
+    def test_computation_method_validation(self, method, expectation):
+        with expectation:
+            OrientationActionMetadata(
+                frame=CoordinateSystem.ROBOT_BASE.value,
+                orientation_representation=OrientationRepresentation.ROLL.value,
+                raw_data_column_keys=["roll"],
+                storage_dimension=1,
+                prediction_dimension=1,
+                needs_normalization=True,
+                dtype="float32",
+                computation_method=method,
+            )
+
+    def test_equality_includes_computation_method(self):
+        delta = OrientationActionMetadata(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+            orientation_representation=OrientationRepresentation.ROLL.value,
+            raw_data_column_keys=["roll"],
+            storage_dimension=1,
+            prediction_dimension=1,
+            needs_normalization=True,
+            dtype="float32",
+            computation_method=ActionComputationMethod.DELTA.value,
+        )
+        next_timestep = OrientationActionMetadata(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+            orientation_representation=OrientationRepresentation.ROLL.value,
+            raw_data_column_keys=["roll"],
+            storage_dimension=1,
+            prediction_dimension=1,
+            needs_normalization=True,
+            dtype="float32",
+            computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+        )
+        assert delta != next_timestep
 
     def test_equality_includes_frame_and_representation(self):
         roll = OrientationActionMetadata(

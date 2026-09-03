@@ -5,16 +5,16 @@ defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: endoscope_guidance_phantom_5hz
+  - /task/dataset_schema: endoscope_guidance_phantom_5hz_lerobot
   - /task/dataloader: endoscope_guidance
-  - /task/action_space: camera_frame_position_and_roll
-  - /task/observation_space: stereo_rgb_language
+  - /task/action_space: camera_frame_position_and_roll_precomputed_lerobot
+  - /task/observation_space: stereo_rgb_language_tso_lerobot
   - /training: default
   - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: action_transformer_language
   - /policy/algorithm: behavioral_cloning
-  - /policy/loss: regression_camera_frame_position_and_roll
-  - override /policy/decoder/heads@policy.decoder.action_heads: camera_frame_position_and_roll
+  - /policy/loss: regression_camera_frame_position_and_roll_precomputed_lerobot
+  - override /policy/decoder/heads@policy.decoder.action_heads: camera_frame_position_and_roll_precomputed_lerobot
   - _self_
 
 task:
@@ -52,10 +52,10 @@ policy:
     loss_modules:
       regression_loss:
         action_keys:
-          - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
-          - ${proprio_key:RELATIVE_PIVOT_ROLL}
+          - ${action_component:POSITION}
+          - ${action_component:ORIENTATION}
       trajectory_length:
-        action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+        action_key: ${action_component:POSITION}
   encoding_pipeline:
     encoders:
       instruction:

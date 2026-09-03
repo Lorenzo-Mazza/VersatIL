@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/pi0_fast_language_proprio_history_5
+  - _self_
+
+task:
+  observation_horizon: 1
+
+policy:
+  decoder:
+    max_seq_len: 1024

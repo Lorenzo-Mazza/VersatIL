@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/bcat_language
-  - override /task/observation_space: stereo_rgb_language_camera_frame_position_and_roll
+  - override /task/observation_space: stereo_rgb_language_camera_frame_position_and_roll_lerobot
   - override /policy/encoding_pipeline: stereo_rgb_language_camera_frame_position_and_roll
   - _self_
 

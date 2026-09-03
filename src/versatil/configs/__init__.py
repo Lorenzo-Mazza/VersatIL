@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
+from versatil_constants.shared import ActionComponent
 from versatil_constants.tso import TSOObsKey
 
 from versatil.common.set_cache_dir import resolve_cache_directory
@@ -436,6 +437,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("action_computation"):
         OmegaConf.register_resolver(
             "action_computation", lambda name: ActionComputationMethod[name].value
+        )
+    if not OmegaConf.has_resolver("action_component"):
+        OmegaConf.register_resolver(
+            "action_component", lambda name: ActionComponent[name].value
         )
     if not OmegaConf.has_resolver("rgb_backbone"):
         OmegaConf.register_resolver(

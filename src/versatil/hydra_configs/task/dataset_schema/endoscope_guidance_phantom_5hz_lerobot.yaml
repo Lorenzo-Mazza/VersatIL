@@ -6,4 +6,4 @@ defaults:
 _target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
 dataset_type: ${dataset_type:ENDOSCOPE_GUIDANCE}
 dataset_path: ${dataset_dir:VERSATIL_ENDOSCOPE_GUIDANCE_PHANTOM_5HZ_LEROBOT_DIR}
-zarr_path: ${zarr_dir:endoscope_guidance_phantom_5hz_lerobot.zarr}
+zarr_path: ${zarr_dir:endoscope_guidance_phantom_5hz_lerobot_precomputed_delta.zarr}

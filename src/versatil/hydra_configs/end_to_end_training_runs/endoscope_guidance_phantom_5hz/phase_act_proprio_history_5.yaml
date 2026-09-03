@@ -5,17 +5,17 @@ defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: endoscope_guidance_phantom_5hz_phase
+  - /task/dataset_schema: endoscope_guidance_phantom_5hz_lerobot
   - /task/dataloader: endoscope_guidance
-  - /task/action_space: camera_frame_position_and_roll_phase
-  - /task/observation_space: stereo_rgb_camera_frame_position_and_roll
+  - /task/action_space: camera_frame_position_and_roll_phase_precomputed_lerobot
+  - /task/observation_space: stereo_rgb_camera_frame_position_and_roll_lerobot
   - /training: default
   - /policy/encoding_pipeline: stereo_rgb_camera_frame_position_and_roll
   - /policy/decoder: phase_act_default
   - /policy/algorithm: bc_with_vae_gaussian
-  - /policy/loss: regression_camera_frame_position_and_roll_kl_phase_ce
+  - /policy/loss: regression_camera_frame_position_and_roll_kl_phase_ce_precomputed_lerobot
   - override /task/dataloader/tokenization: base
-  - override /policy/decoder/heads@policy.decoder.action_heads: camera_frame_position_and_roll_phase
+  - override /policy/decoder/heads@policy.decoder.action_heads: camera_frame_position_and_roll_phase_precomputed_lerobot
   - _self_
 
 task:

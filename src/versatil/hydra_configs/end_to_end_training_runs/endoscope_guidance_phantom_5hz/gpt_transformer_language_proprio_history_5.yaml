@@ -1,0 +1,21 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/bcat_language_proprio_history_5
+  - override /task/dataloader/tokenization: obs_language_action_fast
+  - override /policy/decoder: gpt_action_transformer
+  - override /policy/decoder/heads@policy.decoder.action_heads: tokenized
+  - override /policy/loss: token_ce
+  - _self_
+
+policy:
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - instruction_language
+      - camera_frame_proprio
+    max_seq_len: 2048
+  loss:
+    loss_modules:
+      token_loss:
+        label_smoothing: 0.0

@@ -26,8 +26,29 @@ observations:
     is_numerical: false
     needs_normalization: false
 
-precomputed_actions:
   ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+    _target_: versatil.data.metadata.PositionObservationMetadata
+    frame: ${coordinate_system:CAMERA}
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 3
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 3
+
+  ${proprio_key:RELATIVE_PIVOT_ROLL}:
+    _target_: versatil.data.metadata.OrientationObservationMetadata
+    frame: ${coordinate_system:UNKNOWN}
+    orientation_representation: ${orientation:ROLL}
+    raw_data_column_keys: [observation.state]
+    dtype: float32
+    dimension: 1
+    needs_normalization: true
+    slice_start: 3
+    slice_end: 4
+
+precomputed_actions:
+  ${action_component:POSITION}:
     _target_: versatil.data.metadata.PositionActionMetadata
     frame: ${coordinate_system:CAMERA}
     raw_data_column_keys: [action]
@@ -37,8 +58,9 @@ precomputed_actions:
     needs_normalization: true
     slice_start: 0
     slice_end: 3
+    computation_method: ${action_computation:DELTA}
 
-  ${proprio_key:RELATIVE_PIVOT_ROLL}:
+  ${action_component:ORIENTATION}:
     _target_: versatil.data.metadata.OrientationActionMetadata
     frame: ${coordinate_system:UNKNOWN}
     orientation_representation: ${orientation:ROLL}
@@ -49,3 +71,13 @@ precomputed_actions:
     needs_normalization: true
     slice_start: 3
     slice_end: 4
+    computation_method: ${action_computation:DELTA}
+
+  ${tso_obs_key:PHASE_LABEL}:
+    _target_: versatil.data.metadata.PrecomputedActionMetadata
+    raw_data_column_keys: [task_phase]
+    dtype: int64
+    storage_dimension: 1
+    prediction_dimension: 6
+    is_numerical: false
+    needs_normalization: false

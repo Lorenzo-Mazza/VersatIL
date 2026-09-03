@@ -146,7 +146,7 @@ class ActionPostprocessor:
     ) -> None:
         """Add action computation method (delta or next_timestep) to metadata."""
         if isinstance(action_meta, OnTheFlyActionMetadata) or (
-            isinstance(action_meta, PositionActionMetadata)
+            isinstance(action_meta, (PositionActionMetadata, OrientationActionMetadata))
             and action_meta.computation_method is not None
         ):
             entry[ActionMetadataField.ACTION_TYPE.value] = (

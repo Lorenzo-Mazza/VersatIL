@@ -6,7 +6,7 @@ use_gripper_class_weights: false
 denoise_actions: false
 
 actions_metadata:
-  ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+  ${action_component:POSITION}:
     _target_: versatil.data.metadata.PositionActionMetadata
     frame: ${coordinate_system:CAMERA}
     raw_data_column_keys: [action]
@@ -16,8 +16,9 @@ actions_metadata:
     needs_normalization: true
     slice_start: 0
     slice_end: 3
+    computation_method: ${action_computation:DELTA}
 
-  ${proprio_key:RELATIVE_PIVOT_ROLL}:
+  ${action_component:ORIENTATION}:
     _target_: versatil.data.metadata.OrientationActionMetadata
     frame: ${coordinate_system:UNKNOWN}
     orientation_representation: ${orientation:ROLL}
@@ -28,3 +29,4 @@ actions_metadata:
     needs_normalization: true
     slice_start: 3
     slice_end: 4
+    computation_method: ${action_computation:DELTA}
