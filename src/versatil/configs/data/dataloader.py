@@ -6,6 +6,7 @@ from versatil.data.constants import (
     ImageNormalizationType,
     KinematicsNormalizationType,
 )
+from versatil.data.preprocessing.sharding import DEFAULT_IMAGE_FRAMES_PER_SHARD
 
 
 @dataclass
@@ -18,6 +19,8 @@ class DataLoaderConfig:
         recreate_zarr_on_missing_keys: Whether a zarr store lacking keys required by
             this task may be deleted and rebuilt from the raw sources. Off by default so
             a wrong task configuration cannot destroy an expensive store.
+        image_frames_per_shard: Number of image frames stored in each Zarr shard when
+            materializing a dataset, or None to store chunks separately.
         batch_size: Batching.
         num_workers: Dataloader worker process count.
         shuffle: Whether training samples are shuffled each epoch.
@@ -67,6 +70,7 @@ class DataLoaderConfig:
     # and rebuilt from the raw sources. Off by default so a wrong task
     # configuration cannot destroy an expensive store.
     recreate_zarr_on_missing_keys: bool = False
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD
     # Batching
     batch_size: int = 64
     num_workers: int = 16

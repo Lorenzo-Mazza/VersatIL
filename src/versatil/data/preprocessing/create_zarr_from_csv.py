@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from versatil.data.preprocessing.create_zarr_arrays import create_zarr_replay_buffer
+from versatil.data.preprocessing.sharding import DEFAULT_IMAGE_FRAMES_PER_SHARD
 from versatil.data.raw.schemas import CsvDatasetSchema
 
 
@@ -20,12 +21,23 @@ def _iter_csv_episodes(
         yield schema.extract_episode(episode=episode_df)
 
 
-def create_replay_buffer(schema: CsvDatasetSchema, datasets_paths: list[str]) -> None:
+def create_replay_buffer(
+    schema: CsvDatasetSchema,
+    datasets_paths: list[str],
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
+) -> None:
     """Creates a Zarr-based replay buffer using a Hydra-instantiated dataset schema.
 
     Args:
         schema: CsvDatasetSchema instance (instantiated by Hydra)
         datasets_paths: List of paths to episode CSV files
+        image_frames_per_shard: Number of image frames stored in each shard, or
+            None to disable sharding.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If image_frames_per_shard is not a positive multiple of the
+            image chunk length.
     """
     sorted_paths = sorted(datasets_paths, key=lambda x: int(Path(x).parent.name))
     episodes = _iter_csv_episodes(
@@ -37,4 +49,5 @@ def create_replay_buffer(schema: CsvDatasetSchema, datasets_paths: list[str]) ->
         schema=schema,
         episodes=episodes,
         total_episodes=len(datasets_paths),
+        image_frames_per_shard=image_frames_per_shard,
     )

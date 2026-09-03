@@ -26,6 +26,10 @@ from versatil.data.preprocessing.create_zarr_from_synthetic import (
     create_replay_buffer_from_synthetic,
 )
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
+from versatil.data.preprocessing.sharding import (
+    DEFAULT_IMAGE_FRAMES_PER_SHARD,
+    validate_image_frames_per_shard,
+)
 from versatil.data.raw.schemas import CsvDatasetSchema
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
@@ -69,6 +73,7 @@ def get_dataloaders(
     _ensure_zarr_exists(
         schema=schema,
         recreate_on_missing_keys=dataloader_config.recreate_zarr_on_missing_keys,
+        image_frames_per_shard=dataloader_config.image_frames_per_shard,
     )
     skip_validation = dataloader_config.val_ratio == 0
 
@@ -170,11 +175,22 @@ def get_dataloaders(
 
 
 def validate_dataloader_config(config: DataLoaderConfig) -> None:
-    """Validate Dataloader configuration."""
+    """Validate dataloader configuration.
+
+    Args:
+        config: Dataloader settings to validate.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If any numeric setting is outside its supported range.
+    """
     if config.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {config.batch_size}")
     if config.num_workers < 0:
         raise ValueError(f"num_workers cannot be negative, got {config.num_workers}")
+    validate_image_frames_per_shard(
+        image_frames_per_shard=config.image_frames_per_shard,
+    )
     if not 0 <= config.val_ratio < 1:
         raise ValueError(f"val_ratio must be in range [0, 1), got {config.val_ratio}")
     if not 0 < config.total_ratio <= 1:
@@ -255,6 +271,7 @@ def _collect_dataset_paths(
 def _ensure_zarr_exists(
     schema: DatasetSchema,
     recreate_on_missing_keys: bool = False,
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
 ) -> None:
     """Create the zarr replay buffer if missing, recreating only corrupt stores.
 
@@ -265,9 +282,16 @@ def _ensure_zarr_exists(
     - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
 
+    Args:
+        schema: Dataset schema describing the source data and destination store.
+        recreate_on_missing_keys: Whether a store missing required keys may be rebuilt.
+        image_frames_per_shard: Number of image frames stored in each shard when a
+            new store is materialized, or None to disable sharding.
+
     Raises:
+        TypeError: If image_frames_per_shard is not an integer.
         ValueError: If the existing store lacks keys required by this task
-            and ``recreate_on_missing_keys`` is off.
+            and ``recreate_on_missing_keys`` is off, or if image sharding is invalid.
     """
     zarr_path = schema.zarr_path
     need_create = True
@@ -309,7 +333,10 @@ def _ensure_zarr_exists(
         logging.info(f"Creating zarr replay buffer at: {zarr_path}")
         if isinstance(schema, Hdf5DatasetSchema):
             logging.info(f"Processing {len(schema.hdf5_paths)} HDF5 files")
-            create_replay_buffer_from_hdf5(schema=schema)
+            create_replay_buffer_from_hdf5(
+                schema=schema,
+                image_frames_per_shard=image_frames_per_shard,
+            )
         elif isinstance(schema, CsvDatasetSchema):
             datasets_paths = _collect_dataset_paths(
                 dataset_folders=schema.dataset_folders,
@@ -318,11 +345,21 @@ def _ensure_zarr_exists(
             logging.info(
                 f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders"
             )
-            create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
+            create_replay_buffer(
+                schema=schema,
+                datasets_paths=datasets_paths,
+                image_frames_per_shard=image_frames_per_shard,
+            )
         elif isinstance(schema, LeRobotDatasetSchemaV30):
-            create_replay_buffer_from_lerobot(schema=schema)
+            create_replay_buffer_from_lerobot(
+                schema=schema,
+                image_frames_per_shard=image_frames_per_shard,
+            )
         elif isinstance(schema, SyntheticSchema):
-            create_replay_buffer_from_synthetic(schema=schema)
+            create_replay_buffer_from_synthetic(
+                schema=schema,
+                image_frames_per_shard=image_frames_per_shard,
+            )
         else:
             raise NotImplementedError(
                 f"Zarr creation not implemented for schema type: {type(schema)}"
