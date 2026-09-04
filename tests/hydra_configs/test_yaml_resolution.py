@@ -22,7 +22,7 @@ from versatil.data.constants import (
     ObsKey,
     ProprioKey,
 )
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.decoding.constants import LatentKey, TimeConditioning
 
 HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
@@ -267,7 +267,7 @@ class TestHydraComposition:
         assert lora_config.rank == 32
         assert lora_config.alpha == 16
         assert lora_config.dropout == 0.0
-        assert lora_config.target_modules == LoRATargetModulePreset.ALL_LINEAR.value
+        assert lora_config.target_modules == PEFTTargetModulePreset.ALL_LINEAR.value
         assert lora_config.bias == "none"
         assert lora_config.init_lora_weights == "gaussian"
 

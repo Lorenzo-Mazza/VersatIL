@@ -256,7 +256,7 @@ class TestExplainabilityRunner:
             max_samples=3,
         )
 
-    def test_compute_heatmaps_filters_target_camera_and_visual_module_names(
+    def test_compute_heatmaps_filters_target_camera_and_vision_module_names(
         self,
         runner_factory: Callable[..., ExplainabilityRunner],
     ):

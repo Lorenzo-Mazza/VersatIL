@@ -125,6 +125,17 @@ class GenerativeVLM(LanguageEncoderMixin, GenerativeLanguageModel, abc.ABC):
             "Subclasses must return the language model submodule."
         )
 
+    @abc.abstractmethod
+    def _get_vision_modules(self) -> list[nn.Module]:
+        """Return the modules that process vision inputs.
+
+        Returns:
+            Vision backbones and any projector or connector that prepares their
+            features for the language model. This explicit scope lets callers
+            target those modules when needed, for example when applying LoRA.
+        """
+        raise NotImplementedError("Subclasses must return their vision modules.")
+
     def _embed_language(self, token_ids: torch.Tensor) -> torch.Tensor:
         """Map token IDs to dense embeddings with the language-model embedding table."""
         return self._get_language_model().get_input_embeddings()(token_ids)

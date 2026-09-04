@@ -14,6 +14,8 @@ from transformers import (
 )
 
 from versatil.data.constants import Cameras, SampleKey
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import (
     AlgorithmContextKey,
@@ -79,24 +81,36 @@ def _make_tiny_paligemma_config() -> PaliGemmaConfig:
 
 
 @pytest.fixture(scope="session")
-def real_paligemma_backbone() -> PaliGemmaVLM:
+def paligemma_backbone_factory() -> Callable[..., PaliGemmaVLM]:
     tiny_config = _make_tiny_paligemma_config()
-    with patch(
-        "versatil.models.decoding.generative_language_models.vision_language"
-        ".huggingface.AutoConfig.from_pretrained",
-        return_value=tiny_config,
-    ):
-        backbone = PaliGemmaVLM(
-            input_keys=[
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ],
-            pretrained=False,
-            frozen=False,
-            model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
-        )
-    backbone.vlm = backbone.vlm.float()
-    return backbone
+
+    def factory(lora_config: LoRAAdaptation | None = None) -> PaliGemmaVLM:
+        with patch(
+            "versatil.models.decoding.generative_language_models.vision_language"
+            ".huggingface.AutoConfig.from_pretrained",
+            return_value=tiny_config,
+        ):
+            backbone = PaliGemmaVLM(
+                input_keys=[
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                ],
+                pretrained=False,
+                frozen=False,
+                model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
+                lora_config=lora_config,
+            )
+        backbone.vlm = backbone.vlm.float()
+        return backbone
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def real_paligemma_backbone(
+    paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+) -> PaliGemmaVLM:
+    return paligemma_backbone_factory(lora_config=None)
 
 
 @pytest.fixture
@@ -657,6 +671,49 @@ class TestPi0DecoderBehavior:
         assert not vlm_has_grad
         for parameter, grad_flag in original_requires_grad.items():
             parameter.requires_grad = grad_flag
+
+    def test_vision_lora_receives_gradients_through_frozen_language_layers(
+        self,
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+        paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+        raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        backbone = paligemma_backbone_factory(lora_config=lora_config)
+        decoder = pi0_decoder_factory(
+            input_keys=[],
+            vlm_backbone=backbone,
+        )
+        features = raw_vlm_features_factory()
+        actions = noisy_actions_factory()
+
+        outputs = decoder(features=features, actions=actions)
+        sum(tensor.square().mean() for tensor in outputs.values()).backward()
+
+        trainable_vision_parameters = [
+            (name, parameter)
+            for name, parameter in backbone.named_parameters()
+            if parameter.requires_grad
+        ]
+        assert trainable_vision_parameters
+        assert all(
+            (".vision_tower." in name or ".multi_modal_projector." in name)
+            and "lora_" in name
+            for name, _ in trainable_vision_parameters
+        )
+        assert any(
+            parameter.grad is not None and parameter.grad.abs().sum() > 0
+            for _, parameter in trainable_vision_parameters
+        )
+        assert not any(
+            parameter.requires_grad for parameter in decoder.vlm_layers.parameters()
+        )
 
     def test_concat_mlp_timestep_sensitivity(
         self,

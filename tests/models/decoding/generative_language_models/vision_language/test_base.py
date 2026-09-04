@@ -89,6 +89,9 @@ class ConcreteGenerativeVLM(GenerativeVLM):
     def _get_language_model(self) -> torch.nn.Module:
         return GenerativeVLM._get_language_model(self)
 
+    def _get_vision_modules(self) -> list[torch.nn.Module]:
+        return GenerativeVLM._get_vision_modules(self)
+
 
 @pytest.fixture(
     params=["llama", "gemma2"],
@@ -752,6 +755,10 @@ class TestGenerativeVLMStaticMethodsUnit:
             (
                 "_get_language_model",
                 "Subclasses must return the language model submodule.",
+            ),
+            (
+                "_get_vision_modules",
+                "Subclasses must return their vision modules.",
             ),
         ],
     )

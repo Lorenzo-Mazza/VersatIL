@@ -176,12 +176,14 @@ PEFT in [`apply_lora_config`][versatil.models.adaptation.lora.apply_lora_config]
 | `rank` | `8` | LoRA rank |
 | `alpha` | `16` | LoRA scaling |
 | `dropout` | `0.0` | Adapter dropout |
-| `target_modules` | `auto` | Preset from [`LoRATargetModulePreset`][versatil.models.adaptation.constants.LoRATargetModulePreset] |
+| `target_modules` | `auto` | Preset from [`PEFTTargetModulePreset`][versatil.models.adaptation.constants.PEFTTargetModulePreset] |
 | `init_lora_weights` | `gaussian` | PEFT adapter init strategy |
 
 `target_modules` presets: `auto` (PEFT infers), `all-linear`,
 `llama-attention-and-feedforward`, `llama-query-value-projections`,
 `vlm-text-model-attention-and-feedforward`, `vlm-text-model-query-value-projections`.
+`vlm-vision-modules` targets linear layers in the vision backbone and vision
+projector or connector while leaving the text model frozen.
 Ready-made presets ship under `src/versatil/hydra_configs/policy/adaptation/lora/`. Compose
 one into a decoder's `vlm_backbone`/encoder via the `adaptation/lora` config
 group; the VLA presets default to LoRA-enabled backbones.

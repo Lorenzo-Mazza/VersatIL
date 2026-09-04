@@ -29,13 +29,13 @@ def get_policy_encoders(policy: Policy) -> dict[str, EncodingMixin]:
 
 
 def get_vision_explainable_modules(policy: Policy) -> list[VisionExplainableModule]:
-    """Return visual modules that can produce camera heatmaps.
+    """Return vision modules that can produce camera heatmaps.
 
     Args:
         policy: Policy whose encoding pipeline and decoder should be inspected.
 
     Returns:
-        Visual modules from the encoding pipeline and decoder-owned VLM vision
+        Vision modules from the encoding pipeline and decoder-owned VLM vision
         towers. Each entry includes the camera keys that can be attributed
         through that module and the hook routing mode needed to isolate a
         camera when the same module is reused.
@@ -51,7 +51,7 @@ def get_vision_explainable_modules(policy: Policy) -> list[VisionExplainableModu
         return modules
     raise RuntimeError(
         "No compatible vision explainability modules found. "
-        "Explainability requires visual modules that expose target metadata "
+        "Explainability requires vision modules that expose target metadata "
         "through get_explainability_targets()."
     )
 
@@ -59,7 +59,7 @@ def get_vision_explainable_modules(policy: Policy) -> list[VisionExplainableModu
 def get_encoding_pipeline_vision_modules(
     policy: Policy,
 ) -> list[VisionExplainableModule]:
-    """Return explainable visual modules from the encoding pipeline."""
+    """Return explainable vision modules from the encoding pipeline."""
     modules = []
     for encoder_name, encoder in get_policy_encoders(policy=policy).items():
         camera_keys = _camera_keys_for_module(policy=policy, module=encoder)
@@ -87,7 +87,7 @@ def get_encoding_pipeline_vision_modules(
 
 
 def get_decoder_vision_modules(policy: Policy) -> list[VisionExplainableModule]:
-    """Return explainable visual modules owned by decoder VLM backbones."""
+    """Return explainable vision modules owned by decoder VLM backbones."""
     vlm_backbone = _decoder_vlm_backbone(policy=policy)
     if vlm_backbone is None:
         return []
@@ -145,9 +145,9 @@ def resolve_camera_explanation_targets(
     """Resolve runner filters into concrete camera-level targets.
 
     Args:
-        policy: Policy whose visual modules should be explained.
+        policy: Policy whose vision modules should be explained.
         target_camera: Optional camera key selected by the runner.
-        target_vision_module_names: Optional visual module allowlist. Names are
+        target_vision_module_names: Optional vision module allowlist. Names are
             the values returned by ``get_vision_explainable_modules()``.
 
     Returns:
@@ -167,7 +167,7 @@ def resolve_camera_explanation_targets(
             ]
             raise ValueError(
                 f"target_vision_module_names={target_vision_module_names} did not "
-                f"match visual modules: {available_names}"
+                f"match vision modules: {available_names}"
             )
 
     targets = []
@@ -199,7 +199,7 @@ def resolve_camera_explanation_targets(
                     ),
                 )
             )
-    # TODO: Multiple visual modules can explain the same camera. Attribution
+    # TODO: Multiple vision modules can explain the same camera. Attribution
     #  methods aggregate those maps today; expose per-module output names later.
     if targets:
         return targets
@@ -208,7 +208,7 @@ def resolve_camera_explanation_targets(
         {camera_key for module in modules for camera_key in module.camera_keys}
     )
     raise ValueError(
-        f"target_camera={target_camera!r} did not match visual module cameras: "
+        f"target_camera={target_camera!r} did not match vision module cameras: "
         f"{available_cameras}"
     )
 
@@ -217,10 +217,10 @@ def select_explainability_target(
     targets: list[VisionExplanationTarget],
     module_name: str,
 ) -> VisionExplanationTarget | None:
-    """Select the single image-map target exposed by a visual module.
+    """Select the single image-map target exposed by a vision module.
 
     Args:
-        targets: Target metadata exposed by a visual module.
+        targets: Target metadata exposed by a vision module.
         module_name: Name used in error messages when target metadata is
             malformed.
 
@@ -232,7 +232,7 @@ def select_explainability_target(
             heatmap computation.
         RuntimeError: If more than one compatible target is exposed. The runner
             currently has no config field to disambiguate multiple target layers
-            inside the same visual module.
+            inside the same vision module.
     """
     if not targets:
         return None
@@ -246,12 +246,12 @@ def select_explainability_target(
     if len(compatible_targets) > 1:
         target_kinds = [target.target_kind for target in compatible_targets]
         raise RuntimeError(
-            f"Visual module '{module_name}' exposes multiple compatible "
+            f"Vision module '{module_name}' exposes multiple compatible "
             f"explainability targets {target_kinds}. Configure the module to "
             "expose exactly one target until per-target selection is supported."
         )
     raise RuntimeError(
-        f"Visual module '{module_name}' does not expose a compatible "
+        f"Vision module '{module_name}' does not expose a compatible "
         "explainability target."
     )
 

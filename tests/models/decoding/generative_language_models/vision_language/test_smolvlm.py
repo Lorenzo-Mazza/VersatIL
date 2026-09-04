@@ -18,7 +18,7 @@ from transformers.models.llama.modeling_llama import LlamaModel
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.generative_language_models.constants import (
     SmolVLMModelType,
@@ -47,6 +47,7 @@ def _return_model(
     model: MagicMock,
     lora_config: LoRAAdaptation | None,
     frozen: bool,
+    scoped_modules: list[nn.Module] | None = None,
 ) -> MagicMock:
     return model
 
@@ -79,6 +80,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         text_model.rotary_emb = MagicMock(spec=nn.Module)
         mock_vlm.model = MagicMock(spec=nn.Module)
         mock_vlm.model.text_model = text_model
+        mock_vlm.model.vision_model = nn.Identity()
         mock_vlm.model.connector = nn.Identity()
 
         mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
@@ -246,7 +248,7 @@ class TestSmolVLMInitialization:
     ) -> None:
         lora_config = LoRAAdaptation(
             enabled=True,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
 
         with patch(
@@ -258,6 +260,10 @@ class TestSmolVLMInitialization:
         mock_apply_lora.assert_called_once()
         assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
         assert mock_apply_lora.call_args.kwargs["frozen"] is False
+        assert mock_apply_lora.call_args.kwargs["scoped_modules"] == [
+            backbone.vlm.model.vision_model,
+            backbone.vlm.model.connector,
+        ]
         assert backbone.lora_config is lora_config
 
     @pytest.mark.parametrize(
@@ -837,11 +843,11 @@ class TestSmolVLMIntegration:
         [
             (None, None),
             (
-                LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
                 (".text_model.",),
             ),
             (
-                LoRATargetModulePreset.VLM_VISION_PATHWAY.value,
+                PEFTTargetModulePreset.VLM_VISION_MODULES.value,
                 (".vision_model.", ".connector."),
             ),
         ],
@@ -912,7 +918,7 @@ class TestSmolVLMIntegration:
             rank=3,
             alpha=6,
             target_modules=(
-                LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
             ),
         )
         backbone = real_smolvlm_backbone(
@@ -987,7 +993,7 @@ class TestSmolVLMIntegration:
             rank=2,
             alpha=4,
             target_modules=(
-                LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
             ),
         )
         backbone = real_smolvlm_backbone(

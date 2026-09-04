@@ -5,7 +5,7 @@ import enum
 DEFAULT_LORA_INIT_WEIGHTS = "gaussian"
 
 
-class LoRATargetModulePreset(enum.StrEnum):
+class PEFTTargetModulePreset(enum.StrEnum):
     """PEFT target-module presets exposed by VersatIL."""
 
     AUTO = "auto"
@@ -16,4 +16,4 @@ class LoRATargetModulePreset(enum.StrEnum):
         "vlm-text-model-attention-and-feedforward"
     )
     VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS = "vlm-text-model-query-value-projections"
-    VLM_VISION_PATHWAY = "vlm-vision-pathway"
+    VLM_VISION_MODULES = "vlm-vision-modules"

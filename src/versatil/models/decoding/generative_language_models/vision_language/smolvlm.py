@@ -82,6 +82,10 @@ class SmolVLM(HuggingFaceGenerativeVLM):
             return self.vlm.model.model.text_model
         return self.vlm.model.text_model
 
+    def _get_vision_modules(self) -> list[nn.Module]:
+        """Return the SmolVLM vision backbone and modality connector."""
+        return [self.vlm.model.vision_model, self.vlm.model.connector]
+
     def _scale_language_embeddings(
         self, language_embeddings: torch.Tensor
     ) -> torch.Tensor:

@@ -10,7 +10,7 @@ import torch
 from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 from versatil.data.constants import Cameras, SampleKey
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import AlgorithmContextKey
@@ -633,7 +633,7 @@ class TestSmolVLADecoderBehavior:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.VLM_VISION_PATHWAY.value,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
         )
         with patch(
             "versatil.models.decoding.generative_language_models.vision_language"

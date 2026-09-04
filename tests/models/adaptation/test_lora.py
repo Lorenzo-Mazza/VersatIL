@@ -9,10 +9,9 @@ import torch
 import torch.nn as nn
 from transformers import GPT2Config, GPT2LMHeadModel
 
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import (
     LoRAAdaptation,
-    _to_peft_target_modules,
     apply_lora_config,
     to_peft_lora_config,
 )
@@ -30,6 +29,18 @@ class TinyAdaptedModule(nn.Module):
         self.projection = nn.Linear(4, 4)
 
 
+class TinyVisionLanguageModule(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.vision_tower = nn.Sequential(
+            nn.Linear(4, 4),
+            nn.LayerNorm(4),
+            nn.Sequential(nn.Linear(4, 4)),
+        )
+        self.projector = nn.Linear(4, 4)
+        self.language_model = nn.Linear(4, 4)
+
+
 @pytest.mark.unit
 class TestLoRAAdaptation:
     def test_converts_auto_target_modules_to_peft_default(self) -> None:
@@ -38,7 +49,7 @@ class TestLoRAAdaptation:
             rank=4,
             alpha=8,
             dropout=0.25,
-            target_modules=LoRATargetModulePreset.AUTO.value,
+            target_modules=PEFTTargetModulePreset.AUTO.value,
             exclude_modules=["head"],
             bias="none",
         )
@@ -59,12 +70,12 @@ class TestLoRAAdaptation:
             rank=4,
             alpha=8,
             dropout=0.0,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
 
         peft_config = to_peft_lora_config(lora_config=config)
 
-        assert peft_config.target_modules == LoRATargetModulePreset.ALL_LINEAR.value
+        assert peft_config.target_modules == PEFTTargetModulePreset.ALL_LINEAR.value
 
     @pytest.mark.parametrize("init_lora_weights", ["gaussian", "pissa", "olora"])
     def test_forwards_init_lora_weights_to_peft(
@@ -75,7 +86,7 @@ class TestLoRAAdaptation:
             enabled=True,
             rank=4,
             alpha=8,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
             init_lora_weights=init_lora_weights,
         )
 
@@ -83,22 +94,11 @@ class TestLoRAAdaptation:
 
         assert peft_config.init_lora_weights == init_lora_weights
 
-    def test_to_peft_target_modules_rejects_unknown_preset(self) -> None:
-        unknown_preset = "manual"
-        valid_targets = [preset.value for preset in LoRATargetModulePreset]
-        expected_message = (
-            f"Invalid LoRA target_modules '{unknown_preset}'. "
-            f"Must be one of: {valid_targets}."
-        )
-
-        with pytest.raises(ValueError, match=re.escape(expected_message)):
-            _to_peft_target_modules(target_modules=unknown_preset)
-
     @pytest.mark.parametrize(
         "target_modules, expected_target_modules",
         [
             (
-                LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value,
+                PEFTTargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value,
                 {
                     "q_proj",
                     "k_proj",
@@ -110,23 +110,17 @@ class TestLoRAAdaptation:
                 },
             ),
             (
-                LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
+                PEFTTargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
                 {"q_proj", "v_proj"},
             ),
             (
-                LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
                 r".*(language_model|text_model)\..*\."
                 r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
             ),
             (
-                LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value,
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value,
                 r".*(language_model|text_model)\..*\.self_attn\.(q_proj|v_proj)$",
-            ),
-            (
-                LoRATargetModulePreset.VLM_VISION_PATHWAY.value,
-                r".*(vision_model\..*\."
-                r"(q_proj|k_proj|v_proj|out_proj|fc1|fc2)"
-                r"|connector\..*\.proj)$",
             ),
         ],
     )
@@ -144,6 +138,33 @@ class TestLoRAAdaptation:
 
         assert peft_config.target_modules == expected_target_modules
 
+    def test_converts_resolved_vision_modules_to_peft_targets(self) -> None:
+        config = LoRAAdaptation(
+            enabled=True,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        target_module_names = ["vision_tower.0", "projector"]
+
+        peft_config = to_peft_lora_config(
+            lora_config=config,
+            scoped_target_modules=target_module_names,
+        )
+
+        assert peft_config.target_modules == set(target_module_names)
+
+    def test_vision_modules_preset_requires_resolved_modules(self) -> None:
+        config = LoRAAdaptation(
+            enabled=True,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        expected_message = (
+            "PEFT target preset 'vlm-vision-modules' requires at least one "
+            "resolved scoped module."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            to_peft_lora_config(lora_config=config)
+
     @pytest.mark.parametrize(
         "rank, alpha, dropout, target_modules, expected_message",
         [
@@ -151,21 +172,21 @@ class TestLoRAAdaptation:
                 0,
                 8,
                 0.0,
-                LoRATargetModulePreset.AUTO.value,
+                PEFTTargetModulePreset.AUTO.value,
                 "LoRA rank must be positive, got 0.",
             ),
             (
                 4,
                 0,
                 0.0,
-                LoRATargetModulePreset.AUTO.value,
+                PEFTTargetModulePreset.AUTO.value,
                 "LoRA alpha must be positive, got 0.",
             ),
             (
                 4,
                 8,
                 1.0,
-                LoRATargetModulePreset.AUTO.value,
+                PEFTTargetModulePreset.AUTO.value,
                 "LoRA dropout must be in [0, 1), got 1.0.",
             ),
             (
@@ -179,7 +200,7 @@ class TestLoRAAdaptation:
                 "'llama-query-value-projections', "
                 "'vlm-text-model-attention-and-feedforward', "
                 "'vlm-text-model-query-value-projections', "
-                "'vlm-vision-pathway'].",
+                "'vlm-vision-modules'].",
             ),
         ],
     )
@@ -266,7 +287,7 @@ class TestApplyLoRAAdaptation:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
 
         with patch(
@@ -284,7 +305,7 @@ class TestApplyLoRAAdaptation:
         assert call_model is model
         assert call_config.r == 2
         assert call_config.lora_alpha == 4
-        assert call_config.target_modules == LoRATargetModulePreset.ALL_LINEAR.value
+        assert call_config.target_modules == PEFTTargetModulePreset.ALL_LINEAR.value
         assert call_config.exclude_modules is None
 
     def test_wraps_model_with_excluded_modules(self) -> None:
@@ -292,7 +313,7 @@ class TestApplyLoRAAdaptation:
         adapted_model = TinyModule()
         config = LoRAAdaptation(
             enabled=True,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
             exclude_modules=["projection"],
         )
 
@@ -308,6 +329,73 @@ class TestApplyLoRAAdaptation:
 
         _, call_config = mock_get_peft_model.call_args.args
         assert call_config.exclude_modules == {"projection"}
+
+    def test_vision_modules_targets_all_scoped_linear_modules(self) -> None:
+        model = TinyVisionLanguageModule()
+        adapted_model = TinyVisionLanguageModule()
+        config = LoRAAdaptation(
+            enabled=True,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+
+        with patch(
+            "versatil.models.adaptation.lora.get_peft_model",
+            return_value=adapted_model,
+        ) as mock_get_peft_model:
+            result = apply_lora_config(
+                model=model,
+                lora_config=config,
+                frozen=False,
+                scoped_modules=[model.vision_tower, model.projector],
+            )
+
+        _, peft_config = mock_get_peft_model.call_args.args
+        assert result is adapted_model
+        assert peft_config.target_modules == {
+            "vision_tower.0",
+            "vision_tower.2.0",
+            "projector",
+        }
+        assert "language_model" not in peft_config.target_modules
+
+    def test_vision_modules_rejects_module_outside_adapted_model(self) -> None:
+        model = TinyVisionLanguageModule()
+        outside_module = nn.Linear(4, 4)
+        config = LoRAAdaptation(
+            enabled=True,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        expected_message = (
+            "Scoped module 'Linear' is not registered under model "
+            "'TinyVisionLanguageModule'."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            apply_lora_config(
+                model=model,
+                lora_config=config,
+                frozen=False,
+                scoped_modules=[outside_module],
+            )
+
+    def test_vision_modules_rejects_scope_without_linear_modules(self) -> None:
+        model = TinyVisionLanguageModule()
+        normalization = model.vision_tower[1]
+        config = LoRAAdaptation(
+            enabled=True,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        expected_message = (
+            "No modules of the requested types were found in the provided scope."
+        )
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            apply_lora_config(
+                model=model,
+                lora_config=config,
+                frozen=False,
+                scoped_modules=[normalization],
+            )
 
 
 @pytest.mark.integration
@@ -327,7 +415,7 @@ def test_lora_wraps_tiny_gpt2_and_keeps_only_adapter_weights_trainable(
         enabled=True,
         rank=2,
         alpha=4,
-        target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+        target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         exclude_modules=["c_fc"],
     )
 

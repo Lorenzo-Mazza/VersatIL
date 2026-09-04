@@ -8,33 +8,11 @@ from peft import PeftModel, get_peft_model
 
 from versatil.models.adaptation.constants import (
     DEFAULT_LORA_INIT_WEIGHTS,
-    LoRATargetModulePreset,
+    PEFTTargetModulePreset,
 )
-
-LLAMA_ATTENTION_AND_FEEDFORWARD_MODULES = [
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "o_proj",
-    "gate_proj",
-    "up_proj",
-    "down_proj",
-]
-LLAMA_QUERY_VALUE_MODULES = [
-    "q_proj",
-    "v_proj",
-]
-VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD_PATTERN = (
-    r".*(language_model|text_model)\..*\."
-    r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
-)
-VLM_TEXT_MODEL_QUERY_VALUE_PATTERN = (
-    r".*(language_model|text_model)\..*\.self_attn\.(q_proj|v_proj)$"
-)
-VLM_VISION_PATHWAY_PATTERN = (
-    r".*(vision_model\..*\."
-    r"(q_proj|k_proj|v_proj|out_proj|fc1|fc2)"
-    r"|connector\..*\.proj)$"
+from versatil.models.adaptation.target_resolution import (
+    resolve_peft_target_modules,
+    resolve_scoped_module_names,
 )
 
 
@@ -67,7 +45,7 @@ class LoRAAdaptation:
     rank: int = 8
     alpha: int = 16
     dropout: float = 0.0
-    target_modules: str = LoRATargetModulePreset.AUTO.value
+    target_modules: str = PEFTTargetModulePreset.AUTO.value
     exclude_modules: list[str] | None = None
     bias: str = "none"
     init_lora_weights: str = DEFAULT_LORA_INIT_WEIGHTS
@@ -80,7 +58,7 @@ class LoRAAdaptation:
             raise ValueError(f"LoRA alpha must be positive, got {self.alpha}.")
         if not 0.0 <= self.dropout < 1.0:
             raise ValueError(f"LoRA dropout must be in [0, 1), got {self.dropout}.")
-        valid_targets = [preset.value for preset in LoRATargetModulePreset]
+        valid_targets = [preset.value for preset in PEFTTargetModulePreset]
         if self.target_modules not in valid_targets:
             raise ValueError(
                 f"Invalid LoRA target_modules '{self.target_modules}'. "
@@ -93,47 +71,15 @@ def is_lora_enabled(lora_config: LoRAAdaptation | None) -> bool:
     return lora_config is not None and lora_config.enabled
 
 
-def _to_peft_target_modules(target_modules: str) -> str | list[str] | None:
-    """Map VersatIL target-module presets to PEFT values.
-
-    Args:
-        target_modules: VersatIL LoRA target-module preset.
-
-    Returns:
-        PEFT target_modules value.
-    """
-    if target_modules == LoRATargetModulePreset.AUTO.value:
-        return None
-    if target_modules == LoRATargetModulePreset.ALL_LINEAR.value:
-        return LoRATargetModulePreset.ALL_LINEAR.value
-    if target_modules == LoRATargetModulePreset.LLAMA_ATTENTION_AND_FEEDFORWARD.value:
-        return LLAMA_ATTENTION_AND_FEEDFORWARD_MODULES
-    if target_modules == LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value:
-        return LLAMA_QUERY_VALUE_MODULES
-    if (
-        target_modules
-        == LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
-    ):
-        return VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD_PATTERN
-    if (
-        target_modules
-        == LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
-    ):
-        return VLM_TEXT_MODEL_QUERY_VALUE_PATTERN
-    if target_modules == LoRATargetModulePreset.VLM_VISION_PATHWAY.value:
-        return VLM_VISION_PATHWAY_PATTERN
-    valid_targets = [preset.value for preset in LoRATargetModulePreset]
-    raise ValueError(
-        f"Invalid LoRA target_modules '{target_modules}'. "
-        f"Must be one of: {valid_targets}."
-    )
-
-
-def to_peft_lora_config(lora_config: LoRAAdaptation) -> PeftLoRAConfig:
+def to_peft_lora_config(
+    lora_config: LoRAAdaptation,
+    scoped_target_modules: list[str] | None = None,
+) -> PeftLoRAConfig:
     """Convert a VersatIL LoRA config to PEFT's LoRA configuration.
 
     Args:
         lora_config: VersatIL LoRA configuration.
+        scoped_target_modules: Resolved module names for a scope-based preset.
 
     Returns:
         PEFT LoRA configuration.
@@ -142,7 +88,10 @@ def to_peft_lora_config(lora_config: LoRAAdaptation) -> PeftLoRAConfig:
         r=lora_config.rank,
         lora_alpha=lora_config.alpha,
         lora_dropout=lora_config.dropout,
-        target_modules=_to_peft_target_modules(lora_config.target_modules),
+        target_modules=resolve_peft_target_modules(
+            target_modules=lora_config.target_modules,
+            scoped_target_modules=scoped_target_modules,
+        ),
         exclude_modules=lora_config.exclude_modules,
         bias=lora_config.bias,
         init_lora_weights=lora_config.init_lora_weights,
@@ -153,6 +102,7 @@ def apply_lora_config(
     model: nn.Module,
     lora_config: LoRAAdaptation | None,
     frozen: bool,
+    scoped_modules: list[nn.Module] | None = None,
 ) -> nn.Module:
     """Wrap a HuggingFace module with LoRA adapters when configured.
 
@@ -160,6 +110,8 @@ def apply_lora_config(
         model: HuggingFace module to adapt.
         lora_config: Optional LoRA configuration.
         frozen: Whether the owning wrapper requests a fully frozen model.
+        scoped_modules: Optional submodules that constrain a scope-based target
+            preset.
 
     Returns:
         The original model when LoRA is disabled, otherwise a PEFT-wrapped model.
@@ -178,4 +130,15 @@ def apply_lora_config(
             "LoRA would add another adapter; instantiate a fresh base model "
             "or unload the existing adapter first."
         )
-    return get_peft_model(model, to_peft_lora_config(lora_config=lora_config))
+    scoped_target_modules = None
+    if lora_config.target_modules == PEFTTargetModulePreset.VLM_VISION_MODULES.value:
+        scoped_target_modules = resolve_scoped_module_names(
+            model=model,
+            scoped_modules=scoped_modules,
+            module_types=(nn.Linear,),
+        )
+    peft_config = to_peft_lora_config(
+        lora_config=lora_config,
+        scoped_target_modules=scoped_target_modules,
+    )
+    return get_peft_model(model, peft_config)

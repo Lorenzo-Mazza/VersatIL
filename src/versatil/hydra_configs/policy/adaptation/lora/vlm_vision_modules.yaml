@@ -4,6 +4,6 @@ enabled: true
 rank: 16
 alpha: 16
 dropout: 0.0
-target_modules: ${lora_target_modules:VLM_VISION_PATHWAY}
+target_modules: ${lora_target_modules:VLM_VISION_MODULES}
 exclude_modules: null
 bias: none

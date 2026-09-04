@@ -96,6 +96,7 @@ class VLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
             model=self.encoder,
             lora_config=lora_config,
             frozen=frozen,
+            scoped_modules=[self.encoder.vision_model],
         )
         self.image_processor = AutoImageProcessor.from_pretrained(
             model_name,

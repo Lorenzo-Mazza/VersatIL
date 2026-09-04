@@ -14,7 +14,7 @@ from timm.models.vision_transformer import VisionTransformer
 
 from versatil.data.constants import CameraModality
 from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
@@ -647,7 +647,7 @@ class TestFlatRGBEncoderBuildBackbone:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
 
         with patch(
@@ -1011,7 +1011,7 @@ class TestFlatRGBEncoderIntegration:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         encoder = FlatRGBEncoder(
             input_keys="left",

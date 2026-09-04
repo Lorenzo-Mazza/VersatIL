@@ -142,7 +142,12 @@ class PrismaticVLM(GenerativeVLM):
         if lora_config is not None and lora_config.enabled:
             # PEFT mutates custom modules in place; assigning the returned wrapper
             # here would recursively register this module as its own child.
-            apply_lora_config(model=self, lora_config=lora_config, frozen=frozen)
+            apply_lora_config(
+                model=self,
+                lora_config=lora_config,
+                frozen=frozen,
+                scoped_modules=self._get_vision_modules(),
+            )
         if gradient_checkpointing:
             self.language_model.gradient_checkpointing_enable()
             self.language_model.config.use_cache = False
@@ -444,6 +449,10 @@ class PrismaticVLM(GenerativeVLM):
     def _get_language_model(self) -> nn.Module:
         """Return the decoder-only language model submodule."""
         return self.language_model.model
+
+    def _get_vision_modules(self) -> list[nn.Module]:
+        """Return the Prismatic vision backbones and multimodal projector."""
+        return [self.vision_encoders, self.projector]
 
     def _compute_num_image_tokens(self, config: PretrainedConfig) -> int:
         """Return Prismatic image-token count per camera."""

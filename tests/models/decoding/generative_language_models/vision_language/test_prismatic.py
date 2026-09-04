@@ -30,7 +30,7 @@ from versatil.data.constants import (
     Cameras,
     SampleKey,
 )
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.generative_language_models.constants import (
     PRISMATIC_CHECKPOINT_FILENAME,
@@ -890,7 +890,7 @@ class TestPrismaticVLMCompositeLoRAIntegration:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
+            target_modules=PEFTTargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
         )
         backbone = tiny_prismatic_backbone_factory(lora_config=lora_config)
         vocabulary_size = int(backbone.language_model.config.vocab_size) + 4
@@ -999,7 +999,7 @@ def test_forward_pass_with_real_tiny_modules(
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
+            target_modules=PEFTTargetModulePreset.LLAMA_QUERY_VALUE_PROJECTIONS.value,
         )
         if lora_enabled
         else None
@@ -1061,6 +1061,60 @@ def test_forward_pass_with_real_tiny_modules(
         assert trainable_parameter_names
         assert all("lora_" in name for name in trainable_parameter_names)
         assert 0 < trainable_parameters < total_parameters
+
+
+@pytest.mark.integration
+def test_vision_lora_receives_gradients_from_real_tiny_modules(
+    tiny_prismatic_backbone_factory: Callable[..., PrismaticVLM],
+) -> None:
+    batch_size = 2
+    lora_config = LoRAAdaptation(
+        enabled=True,
+        rank=2,
+        alpha=4,
+        target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+    )
+    backbone = tiny_prismatic_backbone_factory(lora_config=lora_config)
+    inputs = {
+        Cameras.LEFT.value: torch.ones(
+            batch_size,
+            3,
+            backbone.image_size,
+            backbone.image_size,
+        ),
+        SampleKey.TOKENIZED_OBSERVATIONS.value: torch.zeros(
+            batch_size,
+            4,
+            dtype=torch.long,
+        ),
+    }
+
+    output = backbone(inputs=inputs)
+    output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value].square().mean().backward()
+
+    trainable_parameters = [
+        (name, parameter)
+        for name, parameter in backbone.named_parameters()
+        if parameter.requires_grad
+    ]
+    assert trainable_parameters
+    assert all("lora_" in name for name, _ in trainable_parameters)
+    assert all(
+        name.startswith("vision_encoders.") or name.startswith("projector.")
+        for name, _ in trainable_parameters
+    )
+    assert all(
+        any(
+            name.startswith(scope)
+            and parameter.grad is not None
+            and parameter.grad.abs().sum() > 0
+            for name, parameter in trainable_parameters
+        )
+        for scope in ("vision_encoders.", "projector.")
+    )
+    assert not any(
+        name.startswith("language_model.") for name, _ in trainable_parameters
+    )
 
 
 @pytest.mark.integration

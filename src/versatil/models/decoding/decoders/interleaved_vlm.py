@@ -226,9 +226,12 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
         """
         raise NotImplementedError
 
-    def _vlm_stream_requires_grad(self) -> bool:
+    def _vlm_stream_requires_grad(
+        self,
+        prefix_embeddings: torch.Tensor,
+    ) -> bool:
         """Return whether training must retain the VLM stream autograd graph."""
-        return any(
+        return prefix_embeddings.requires_grad or any(
             parameter.requires_grad for parameter in self.vlm_layers.parameters()
         )
 
@@ -834,7 +837,8 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
             prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
         )
         vlm_gradients_enabled = (
-            torch.is_grad_enabled() and self._vlm_stream_requires_grad()
+            torch.is_grad_enabled()
+            and self._vlm_stream_requires_grad(prefix_embeddings=prefix_embeddings)
         )
         vlm_layer_index = 0
         expert_layer_index = 0

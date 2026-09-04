@@ -29,7 +29,7 @@ from versatil.data.constants import (
 )
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     DiTType,
@@ -93,7 +93,7 @@ ENUM_RESOLVER_CASES = [
     (
         "lora_target_modules",
         "ALL_LINEAR",
-        LoRATargetModulePreset.ALL_LINEAR.value,
+        PEFTTargetModulePreset.ALL_LINEAR.value,
     ),
     (
         "prismatic_model",

@@ -11,7 +11,7 @@ import torch
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
@@ -245,7 +245,7 @@ class TestLanguageEncoderInitialization:
     ) -> None:
         lora_config = LoRAAdaptation(
             enabled=True,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
 
         with pytest.raises(
@@ -714,7 +714,7 @@ class TestLanguageEncoderBuildEncoder:
     ) -> None:
         lora_config = LoRAAdaptation(
             enabled=True,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         mock_model = MagicMock()
 
@@ -973,7 +973,7 @@ class TestLanguageEncoderIntegration:
                 enabled=True,
                 rank=2,
                 alpha=4,
-                target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+                target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
             )
             if lora_enabled
             else None
