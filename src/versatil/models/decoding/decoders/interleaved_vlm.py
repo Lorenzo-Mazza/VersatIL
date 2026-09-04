@@ -226,6 +226,12 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
         """
         raise NotImplementedError
 
+    def _vlm_stream_requires_grad(self) -> bool:
+        """Return whether training must retain the VLM stream autograd graph."""
+        return any(
+            parameter.requires_grad for parameter in self.vlm_layers.parameters()
+        )
+
     def _set_action_suffix_modules(
         self,
         expert_hidden_dimension: int,
@@ -827,11 +833,8 @@ class BaseInterleavedVLMDecoder(VLMBackboneDecoderMixin, ActionDecoder, abc.ABC)
         vlm_position_embeddings = self.vlm_rotary_embedding(
             prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
         )
-        # Detach the VLM stream only when no VLM layer parameter trains
-        # (frozen backbone without LoRA). A trainable stream also lets
-        # gradients reach the vision tower and projector through the prefix.
-        vlm_gradients_enabled = torch.is_grad_enabled() and any(
-            parameter.requires_grad for parameter in self.vlm_layers.parameters()
+        vlm_gradients_enabled = (
+            torch.is_grad_enabled() and self._vlm_stream_requires_grad()
         )
         vlm_layer_index = 0
         expert_layer_index = 0

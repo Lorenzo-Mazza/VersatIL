@@ -10,6 +10,8 @@ import torch
 from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 from versatil.data.constants import Cameras, SampleKey
+from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import AlgorithmContextKey
 from versatil.models.decoding.decoders import interleaved_vlm as interleaved_vlm_module
@@ -619,6 +621,67 @@ class TestSmolVLADecoderBehavior:
             parameter.grad is not None for parameter in decoder.vlm_layers.parameters()
         )
         assert not vlm_has_grad
+
+    def test_vision_lora_receives_gradients_while_text_model_stays_frozen(
+        self,
+        smolvla_decoder_factory: Callable[..., SmolVLADecoder],
+        raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        tiny_config = _make_tiny_smolvlm_config()
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=LoRATargetModulePreset.VLM_VISION_PATHWAY.value,
+        )
+        with patch(
+            "versatil.models.decoding.generative_language_models.vision_language"
+            ".huggingface.AutoConfig.from_pretrained",
+            return_value=tiny_config,
+        ):
+            vision_adapted_backbone = SmolVLM(
+                input_keys=[
+                    Cameras.LEFT.value,
+                    SampleKey.TOKENIZED_OBSERVATIONS.value,
+                ],
+                pretrained=False,
+                frozen=False,
+                model_name=SmolVLMModelType.SMOLVLM_256M.value,
+                lora_config=lora_config,
+            )
+        vision_adapted_backbone.vlm = vision_adapted_backbone.vlm.float()
+        decoder = smolvla_decoder_factory(
+            input_keys=[],
+            freeze_vlm=False,
+            vlm_backbone=vision_adapted_backbone,
+        )
+        features = raw_vlm_features_factory()
+        actions = noisy_actions_factory()
+
+        outputs = decoder(features=features, actions=actions)
+        loss = sum(tensor.square().mean() for tensor in outputs.values())
+        loss.backward()
+
+        trainable_vlm_parameters = [
+            (name, parameter)
+            for name, parameter in vision_adapted_backbone.vlm.named_parameters()
+            if parameter.requires_grad
+        ]
+        assert trainable_vlm_parameters
+        assert all(
+            (".vision_model." in name or ".connector." in name) and "lora_" in name
+            for name, _ in trainable_vlm_parameters
+        )
+        assert all(
+            any(
+                scope in name
+                and parameter.grad is not None
+                and parameter.grad.abs().sum() > 0
+                for name, parameter in trainable_vlm_parameters
+            )
+            for scope in (".vision_model.", ".connector.")
+        )
 
     def test_different_timesteps_produce_different_outputs(
         self,

@@ -48,14 +48,6 @@ policy:
     embedding_dimension: 256
     feedforward_dimension: 1024
     number_of_layers: 4
-  loss:
-    loss_modules:
-      regression_loss:
-        action_keys:
-          - ${action_component:POSITION}
-          - ${action_component:ORIENTATION}
-      trajectory_length:
-        action_key: ${action_component:POSITION}
   encoding_pipeline:
     encoders:
       instruction:

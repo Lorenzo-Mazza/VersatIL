@@ -832,12 +832,26 @@ class TestSmolVLMIntegration:
         assert targets[0].patch_grid == backbone._get_image_token_grid()
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("lora_enabled", [False, True])
+    @pytest.mark.parametrize(
+        "target_modules, expected_trainable_scope",
+        [
+            (None, None),
+            (
+                LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
+                (".text_model.",),
+            ),
+            (
+                LoRATargetModulePreset.VLM_VISION_PATHWAY.value,
+                (".vision_model.", ".connector."),
+            ),
+        ],
+    )
     def test_forward_pass_with_real_model(
         self,
         real_smolvlm_backbone: Callable[..., SmolVLM],
         smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
-        lora_enabled: bool,
+        target_modules: str | None,
+        expected_trainable_scope: tuple[str, ...] | None,
         parameter_count: Callable[[torch.nn.Module], int],
         trainable_parameter_count: Callable[[torch.nn.Module], int],
     ) -> None:
@@ -847,11 +861,9 @@ class TestSmolVLMIntegration:
                 enabled=True,
                 rank=2,
                 alpha=4,
-                target_modules=(
-                    LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
-                ),
+                target_modules=target_modules,
             )
-            if lora_enabled
+            if target_modules is not None
             else None
         )
         backbone = real_smolvlm_backbone(
@@ -870,7 +882,7 @@ class TestSmolVLMIntegration:
         fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
         assert fused.shape[0] == batch_size
         assert fused.shape[-1] == backbone.hidden_dimension
-        if lora_enabled:
+        if expected_trainable_scope is not None:
             trainable_parameter_names = [
                 name
                 for name, parameter in backbone.vlm.named_parameters()
@@ -880,7 +892,14 @@ class TestSmolVLMIntegration:
             total_parameters = parameter_count(backbone.vlm)
             assert trainable_parameter_names
             assert all("lora_" in name for name in trainable_parameter_names)
-            assert all(".text_model." in name for name in trainable_parameter_names)
+            assert all(
+                any(scope in name for scope in expected_trainable_scope)
+                for name in trainable_parameter_names
+            )
+            assert all(
+                any(scope in name for name in trainable_parameter_names)
+                for scope in expected_trainable_scope
+            )
             assert 0 < trainable_parameters < total_parameters
 
     @pytest.mark.integration

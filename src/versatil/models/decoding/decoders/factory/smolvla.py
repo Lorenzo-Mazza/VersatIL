@@ -125,6 +125,14 @@ class SmolVLADecoder(BaseInterleavedVLMDecoder):
         intermediate = feedforward_multiplier * int(2 * hidden_dimension / 3)
         return multiple_of * ((intermediate + multiple_of - 1) // multiple_of)
 
+    def _vlm_stream_requires_grad(self) -> bool:
+        """Return whether SmolVLA trains any VLM backbone parameter."""
+        if self.freeze_vlm:
+            return False
+        return any(
+            parameter.requires_grad for parameter in self.vlm_backbone.parameters()
+        )
+
     def build_action_expert(
         self,
         vlm_layers: nn.ModuleList,

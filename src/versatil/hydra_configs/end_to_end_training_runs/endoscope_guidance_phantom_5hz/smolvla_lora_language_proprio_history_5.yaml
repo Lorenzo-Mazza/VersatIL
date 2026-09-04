@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/smolvla_language_proprio_history_5
+  - _self_
+
+policy:
+  decoder:
+    freeze_vlm: false
+    vlm_backbone:
+      lora_config:
+        _target_: versatil.models.adaptation.lora.LoRAAdaptation
+        enabled: true
+        rank: 16
+        alpha: 16
+        dropout: 0.0
+        target_modules: ${lora_target_modules:VLM_VISION_PATHWAY}
+        exclude_modules: null
+        bias: none
+        init_lora_weights: gaussian

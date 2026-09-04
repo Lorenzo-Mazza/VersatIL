@@ -122,9 +122,15 @@ class TestLoRAAdaptation:
                 LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value,
                 r".*(language_model|text_model)\..*\.self_attn\.(q_proj|v_proj)$",
             ),
+            (
+                LoRATargetModulePreset.VLM_VISION_PATHWAY.value,
+                r".*(vision_model\..*\."
+                r"(q_proj|k_proj|v_proj|out_proj|fc1|fc2)"
+                r"|connector\..*\.proj)$",
+            ),
         ],
     )
-    def test_converts_language_model_target_presets_to_peft_values(
+    def test_converts_structured_target_presets_to_peft_values(
         self,
         target_modules: str,
         expected_target_modules: str | set[str],
@@ -172,7 +178,8 @@ class TestLoRAAdaptation:
                 "'llama-attention-and-feedforward', "
                 "'llama-query-value-projections', "
                 "'vlm-text-model-attention-and-feedforward', "
-                "'vlm-text-model-query-value-projections'].",
+                "'vlm-text-model-query-value-projections', "
+                "'vlm-vision-pathway'].",
             ),
         ],
     )

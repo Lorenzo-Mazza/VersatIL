@@ -31,6 +31,11 @@ VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD_PATTERN = (
 VLM_TEXT_MODEL_QUERY_VALUE_PATTERN = (
     r".*(language_model|text_model)\..*\.self_attn\.(q_proj|v_proj)$"
 )
+VLM_VISION_PATHWAY_PATTERN = (
+    r".*(vision_model\..*\."
+    r"(q_proj|k_proj|v_proj|out_proj|fc1|fc2)"
+    r"|connector\..*\.proj)$"
+)
 
 
 @dataclass
@@ -49,8 +54,8 @@ class LoRAAdaptation:
             regularization before the low-rank update.
         target_modules: PEFT target-module preset. ``auto`` lets PEFT infer
             supported module names from the model type, ``all-linear`` adapts
-            linear layers, and the language-model presets restrict LoRA to
-            text-model projections inside VLM wrappers.
+            linear layers, and the VLM presets restrict LoRA to text- or
+            vision-model projections inside VLM wrappers.
         exclude_modules: Optional module names to leave unwrapped even if they
             match the selected target preset.
         bias: PEFT bias handling mode.
@@ -115,6 +120,8 @@ def _to_peft_target_modules(target_modules: str) -> str | list[str] | None:
         == LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
     ):
         return VLM_TEXT_MODEL_QUERY_VALUE_PATTERN
+    if target_modules == LoRATargetModulePreset.VLM_VISION_PATHWAY.value:
+        return VLM_VISION_PATHWAY_PATTERN
     valid_targets = [preset.value for preset in LoRATargetModulePreset]
     raise ValueError(
         f"Invalid LoRA target_modules '{target_modules}'. "

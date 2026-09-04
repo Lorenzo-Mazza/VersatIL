@@ -16,3 +16,4 @@ class LoRATargetModulePreset(enum.StrEnum):
         "vlm-text-model-attention-and-feedforward"
     )
     VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS = "vlm-text-model-query-value-projections"
+    VLM_VISION_PATHWAY = "vlm-vision-pathway"
