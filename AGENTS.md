@@ -47,9 +47,9 @@ uv sync --python "$PYTHON_VERSION" --extra gpu
 # For CPU-only environments:
 # uv sync --python "$PYTHON_VERSION" --extra cpu
 
-# Optional ExecuTorch support through PyPI, available on Python 3.13.
-PYTHON_VERSION=3.13
-uv sync --python "$PYTHON_VERSION" --extra cpu --extra executorch
+# Optional ExecuTorch 1.4.1 wheel, available on Python 3.13 and 3.14.
+PYTHON_VERSION=3.14
+uv sync --frozen --python "$PYTHON_VERSION" --extra cpu --extra executorch
 
 # Install pre-commit hooks (required for all contributors)
 pre-commit install
@@ -57,6 +57,12 @@ pre-commit install
 
 Requirements: Python 3.13 or 3.14. CUDA is optional; the `gpu` extra installs
 the CUDA 13.0 PyTorch wheel set.
+
+The supported release combination is PyTorch 2.13, TorchVision 0.28,
+TorchAO 0.18 and optional ExecuTorch 1.4.1. Standard ExecuTorch installation uses
+the published wheel on both supported Python versions. A CUDA-enabled native
+ExecuTorch runtime requires a separate build from the matching release source.
+The `gpu` extra selects CUDA-enabled PyTorch wheels.
 
 `uv sync` installs the `dev` dependency group (pytest, pytest-cov, ruff,
 pre-commit) by default. Pass `--no-dev` for a runtime-only install.

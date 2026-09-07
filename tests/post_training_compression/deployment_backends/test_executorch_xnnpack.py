@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -11,6 +12,7 @@ import torch.nn as nn
 from torchao.quantization import Int8DynamicActivationIntxWeightConfig, quantize_
 from torchao.quantization.granularity import PerGroup
 
+from versatil.inference.policy_runtime.executorch_adapter import ExecuTorchModuleAdapter
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
     CompressionFilename,
@@ -119,10 +121,13 @@ class TestExecutorchXNNPACKBackend:
 @pytest.mark.integration
 @pytest.mark.requires_executorch
 class TestExecutorchXNNPACKBackendIntegration:
-    def test_unbounded_dynamic_batch_reproduces_executorch_lowering_error(
+    @pytest.mark.parametrize("batch_size", [1, 2, 8])
+    def test_unbounded_dynamic_batch_uses_example_size_as_runtime_limit(
         self,
         eager_xnnpack_model_factory: Callable[[], nn.Module],
         xnnpack_example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+        batch_size: int,
     ) -> None:
         model = eager_xnnpack_model_factory()
         example_inputs = xnnpack_example_inputs_factory(batch_size=2)
@@ -131,16 +136,39 @@ class TestExecutorchXNNPACKBackendIntegration:
             example_inputs=example_inputs,
         )
 
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape(
-                "Cannot evaluate the shape upper bound of a dynamic-shaped "
-                "tensor to a concrete bounded integer."
-            ),
-        ):
-            ExecutorchXNNPACKBackend._lower_to_pte_buffer(
-                exported_program=exported_program,
-            )
+        model_bytes = ExecutorchXNNPACKBackend._lower_to_pte_buffer(
+            exported_program=exported_program,
+        )
+        model_path = tmp_path / CompressionFilename.EXECUTORCH_MODEL.value
+        model_path.write_bytes(model_bytes)
+        runtime = ExecuTorchModuleAdapter(model_path=str(model_path))
+        bounded_artifact = ExecutorchXNNPACKBackend(max_batch_size=8).export(
+            model=model, example_inputs=example_inputs
+        )
+        bounded_path = tmp_path / "bounded.pte"
+        bounded_path.write_bytes(bounded_artifact.model_bytes)
+        bounded_runtime = ExecuTorchModuleAdapter(model_path=str(bounded_path))
+
+        # Use matching XNNPACK kernels to isolate dynamic-shape handling.
+        inputs = xnnpack_example_inputs_factory(batch_size=batch_size)
+        with torch.no_grad():
+            expected = bounded_runtime(observation_tensors=inputs)[
+                0
+            ]  # (batch_size, 64) -> (batch_size, 16)
+            assert expected.shape == (batch_size, 16)
+            if batch_size <= example_inputs[0].shape[0]:
+                actual = runtime(observation_tensors=inputs)[
+                    0
+                ]  # (batch_size, 64) -> (batch_size, 16)
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            else:
+                with pytest.raises(
+                    RuntimeError,
+                    match=re.escape("Failed to execute method forward, error: 0x10"),
+                ):
+                    runtime(
+                        observation_tensors=inputs
+                    )  # (batch_size, 64) -> runtime capacity error
 
     def test_export_lowers_eager_quantized_model_with_bounded_dynamic_batch(
         self,

@@ -25,10 +25,6 @@ logging.getLogger("torch.utils._pytree").setLevel(logging.ERROR)
 
 import transformers
 
-from versatil.quantization.torch_patches import register_torchao_patches
-
-register_torchao_patches()
-
 logging.getLogger("timm").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
