@@ -2,7 +2,8 @@
 
 import importlib.util
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -85,6 +86,10 @@ from versatil.models.encoding.encoders.rgb.flat import FlatRGBEncoder
 from versatil.models.encoding.encoders.rgb.spatial import SpatialRGBEncoder
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
+from versatil.quantization.metadata import (
+    QuantizationTargetMetadata,
+    QuantizedLayerMetadata,
+)
 
 MINIMUM_VRAM_GB = 8.0
 MINIMUM_FREE_VRAM_GB = 2.0
@@ -106,6 +111,167 @@ SMOLVLA_VOCAB_SIZE = 1000
 SMOLVLA_TEXT_LENGTH = 4
 PRISMATIC_TINY_VOCAB_SIZE = 128
 VLM_TOKEN_ID_UPPER_BOUND = 128
+
+
+@pytest.fixture
+def quantized_layer_metadata_factory() -> Callable[..., QuantizedLayerMetadata]:
+    def factory(
+        name: str,
+        in_features: int,
+        out_features: int,
+        device: str,
+        dtype: str,
+    ) -> QuantizedLayerMetadata:
+        return QuantizedLayerMetadata(
+            name=name,
+            in_features=in_features,
+            out_features=out_features,
+            device=device,
+            dtype=dtype,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def quantization_target_metadata_factory() -> Callable[..., QuantizationTargetMetadata]:
+    def factory(
+        module_path: str,
+        selected: list[QuantizedLayerMetadata],
+        skipped: dict[str, str] | None = None,
+        weight_representations: dict[str, str] | None = None,
+        base_config: str = "torchao.quantization.Int8WeightOnlyConfig",
+        base_config_parameters: dict[str, str] | None = None,
+        schema: str = "versatil.quantization.schemas.direct.DirectQuantizationSchema",
+        schema_parameters: dict[str, str] | None = None,
+        requires_calibration: bool = False,
+        group_size: int | None = None,
+    ) -> QuantizationTargetMetadata:
+        return QuantizationTargetMetadata(
+            module_path=module_path,
+            base_config=base_config,
+            base_config_parameters=base_config_parameters or {},
+            schema=schema,
+            schema_parameters=schema_parameters or {},
+            requires_calibration=requires_calibration,
+            group_size=group_size,
+            selected=selected,
+            skipped=skipped or {},
+            weight_representations=weight_representations or {},
+        )
+
+    return factory
+
+
+@pytest.fixture
+def tiny_prismatic_configuration_factory(
+    tmp_path: Path,
+) -> Generator[Callable[..., Path]]:
+    """Configure local Prismatic constructors throughout model training and reload.
+
+    Note:
+        The fixture selects two 32-pixel DeiT-tiny vision towers and a one-layer
+        Llama language model. Configuration patches remain active until teardown.
+    """
+    vision_backbones = patch.dict(
+        PRISMATIC_VISION_BACKBONES,
+        {
+            PrismaticVisionBackboneType.DINOSIGLIP_VIT_SO_224PX: (
+                FlatBackboneType.DEIT_TINY,
+                FlatBackboneType.DEIT_TINY,
+            )
+        },
+    )
+    vision_sizes = patch.dict(
+        PRISMATIC_VISION_IMAGE_SIZES,
+        {PrismaticVisionBackboneType.DINOSIGLIP_VIT_SO_224PX: 32},
+    )
+    language_configuration = patch(
+        "versatil.models.decoding.generative_language_models.vision_language"
+        ".prismatic.AutoConfig",
+        autospec=True,
+    )
+    vision_backbones.start()
+    vision_sizes.start()
+    auto_config = language_configuration.start()
+
+    def factory(
+        hidden_dimension: int = 16,
+        vocabulary_size: int = 32,
+        max_text_length: int = 5,
+    ) -> Path:
+        model_directory = tmp_path / "prismatic_decoder_tiny"
+        model_directory.mkdir(exist_ok=True)
+        (model_directory / PRISMATIC_CONFIG_FILENAME).write_text(
+            json.dumps(
+                {
+                    "model": {
+                        "model_id": PrismaticModelType.PRISM_DINOSIGLIP_224PX_7B.value,
+                        "vision_backbone_id": (
+                            PrismaticVisionBackboneType.DINOSIGLIP_VIT_SO_224PX.value
+                        ),
+                        "llm_backbone_id": PrismaticLLMBackboneType.LLAMA2_7B_PURE.value,
+                        "arch_specifier": "linear",
+                        "image_resize_strategy": "resize-naive",
+                        "llm_max_length": max_text_length,
+                    }
+                }
+            )
+        )
+        text_configuration = LlamaConfig(
+            vocab_size=vocabulary_size,
+            hidden_size=hidden_dimension,
+            intermediate_size=hidden_dimension * 2,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            max_position_embeddings=64,
+        )
+
+        def load_configuration(model_name: str) -> LlamaConfig:
+            del model_name
+            return deepcopy(text_configuration)
+
+        auto_config.from_pretrained.side_effect = load_configuration
+        return model_directory
+
+    yield factory
+    language_configuration.stop()
+    vision_sizes.stop()
+    vision_backbones.stop()
+
+
+@pytest.fixture
+def tiny_prismatic_vlm_factory(
+    tiny_prismatic_configuration_factory: Callable[..., Path],
+) -> Callable[..., PrismaticVLM]:
+    """Create local tiny Prismatic models with real vision and language modules."""
+
+    def factory(
+        hidden_dimension: int = 16,
+        vocabulary_size: int = 32,
+        max_text_length: int = 5,
+    ) -> PrismaticVLM:
+        model_directory = tiny_prismatic_configuration_factory(
+            hidden_dimension=hidden_dimension,
+            vocabulary_size=vocabulary_size,
+            max_text_length=max_text_length,
+        )
+        backbone = PrismaticVLM(
+            input_keys=[Cameras.LEFT.value],
+            pretrained=False,
+            frozen=False,
+            model_name=str(model_directory),
+            repository_id="test/prismatic",
+            attention_type=AttentionImplementation.SDPA.value,
+            model_dtype=None,
+            max_text_length=max_text_length,
+            lora_config=None,
+            gradient_checkpointing=False,
+        )
+        return backbone.eval()
+
+    return factory
 
 
 @dataclass(frozen=True)

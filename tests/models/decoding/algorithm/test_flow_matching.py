@@ -496,6 +496,56 @@ class TestFlowMatchingGetTargets:
 
 
 class TestFlowMatchingPredict:
+    @pytest.mark.unit
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_samples_noise_and_delegates_integration(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        dtype: torch.dtype,
+    ) -> None:
+        algorithm = flow_matching_factory(num_inference_steps=2)
+        network = mock_action_decoder_factory(
+            action_keys=["position_action", "unused_action"], prediction_horizon=8
+        )
+        network.action_space.actions_metadata[
+            "unused_action"
+        ].requires_prediction_head = False
+        features = feature_dictionary_factory(batch_size=2)
+        initial_noise = action_dictionary_factory(
+            batch_size=2,
+            prediction_horizon=8,
+            action_dimension=3,
+            action_keys=["position_action"],
+            include_padding_mask=False,
+        )
+        noise = initial_noise["position_action"].to(dtype=dtype)  # (B, H, D)
+        initial_noise["position_action"] = noise
+        with (
+            patch(
+                "versatil.models.decoding.algorithm.flow_matching.resolve_feature_reference",
+                return_value=(2, torch.device("cpu"), dtype),
+            ) as resolve_reference,
+            patch(
+                "versatil.models.decoding.algorithm.flow_matching.torch.randn",
+                return_value=noise,
+            ) as sample_noise,
+            patch.object(
+                algorithm, "predict_from_noise", return_value=initial_noise
+            ) as integrate,
+        ):
+            actual = algorithm.predict(network=network, features=features)
+        resolve_reference.assert_called_once_with(features=features)
+        sample_noise.assert_called_once_with(
+            2, 8, 3, device=torch.device("cpu"), dtype=dtype
+        )
+        integrate.assert_called_once_with(
+            network=network, features=features, initial_noise=initial_noise
+        )
+        torch.testing.assert_close(actual, initial_noise)
+
     def test_predict_returns_exact_action_keys(
         self,
         flow_matching_factory: Callable[..., FlowMatching],
@@ -611,6 +661,80 @@ class TestFlowMatchingPredict:
         assert set(result.keys()) == set(action_keys)
         for key in action_keys:
             assert result[key].shape == (2, 8, 3)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("integration_fails", [False, True])
+def test_predict_from_noise_owns_encoder_cache_during_integration(
+    flow_matching_factory: Callable[..., FlowMatching],
+    mock_action_decoder_factory: Callable[..., MagicMock],
+    feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    integration_fails: bool,
+) -> None:
+    algorithm = flow_matching_factory(
+        num_inference_steps=2,
+        ode_solver=ODESolver.HEUN.value,
+        reverse_flow_convention=False,
+    )
+    network = mock_action_decoder_factory(
+        action_keys=["position_action"], prediction_horizon=8, prediction_dimension=3
+    )
+    features = feature_dictionary_factory(batch_size=2)
+    initial_noise = action_dictionary_factory(
+        batch_size=2,
+        prediction_horizon=8,
+        action_dimension=3,
+        action_keys=["position_action"],
+        include_padding_mask=False,
+    )
+    flattened_noise = initial_noise["position_action"].flatten(1)  # (B, H * D)
+    expected = (
+        pytest.raises(RuntimeError, match=re.escape("Velocity evaluation failed."))
+        if integration_fails
+        else does_not_raise()
+    )
+    with (
+        patch(
+            "versatil.models.decoding.algorithm.flow_matching.VelocityWrapper"
+        ) as wrap_velocity,
+        patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+            return_value=flattened_noise,
+            side_effect=RuntimeError("Velocity evaluation failed.")
+            if integration_fails
+            else None,
+        ) as integrate,
+    ):
+        network.attach_mock(integrate, "integrate")
+        with expected:
+            actual = algorithm.predict_from_noise(
+                network=network, features=features, initial_noise=initial_noise
+            )
+            torch.testing.assert_close(actual, initial_noise)
+    wrap_velocity.assert_called_once_with(
+        network=network,
+        features=features,
+        action_keys=["position_action"],
+        flat_dimensions={"position_action": 24},
+        tensor_shapes={"position_action": torch.Size([2, 8, 3])},
+        reverse_convention=False,
+    )
+    assert [invocation[0] for invocation in network.mock_calls] == [
+        "enable_encoder_cache",
+        "integrate",
+        "disable_encoder_cache",
+    ]
+    network.enable_encoder_cache.assert_called_once_with()
+    network.disable_encoder_cache.assert_called_once_with()
+    integrate.assert_called_once()
+    arguments = integrate.call_args.kwargs.copy()
+    torch.testing.assert_close(arguments.pop("z_init"), flattened_noise)
+    assert arguments == {
+        "velocity_fn": wrap_velocity.return_value,
+        "num_steps": 2,
+        "solver": ODESolver.HEUN.value,
+    }
 
 
 class TestVelocityWrapper:

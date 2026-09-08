@@ -1,4 +1,4 @@
-"""Wrapper making VersatIL Policy compatible with torch.export.export()."""
+"""Tensor input and output adapter for continuous-action policy export."""
 
 import torch
 import torch.nn as nn
@@ -6,16 +6,12 @@ import torch.nn as nn
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.exportable.metadata import PolicyExportMetadata
 from versatil.models.policy import Policy, build_algorithm_features
 
 
 class ExportablePolicy(nn.Module):
-    """Wraps Policy components for torch.export with positional tensor I/O.
-
-    torch.export requires positional tensor args and tuple returns.
-    This wrapper converts between Policy's dict-based interface and
-    the positional interface needed for quantization export.
-    """
+    """Expose ordered tensor inputs and outputs for policy export."""
 
     def __init__(
         self,
@@ -24,6 +20,7 @@ class ExportablePolicy(nn.Module):
         decoder: ActionDecoder,
         observation_keys: list[str],
         action_keys: list[str],
+        export_metadata: PolicyExportMetadata | None = None,
     ) -> None:
         """Initialize with policy components and key orderings.
 
@@ -32,7 +29,9 @@ class ExportablePolicy(nn.Module):
             algorithm: The policy's decoding algorithm.
             decoder: The policy's action decoder.
             observation_keys: Sorted list of observation dict keys.
-            action_keys: Action output keys in action-space metadata order.
+            action_keys: Graph output keys in their returned tensor order.
+            export_metadata: Output meaning and additional graph inputs saved
+                with the artifact. Defaults to normalized continuous actions.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline
@@ -40,6 +39,7 @@ class ExportablePolicy(nn.Module):
         self.decoder = decoder
         self._observation_keys = observation_keys
         self._action_keys = action_keys
+        self.export_metadata = export_metadata or PolicyExportMetadata()
 
     @property
     def observation_keys(self) -> list[str]:
@@ -52,56 +52,80 @@ class ExportablePolicy(nn.Module):
         return list(self._action_keys)
 
     def forward(self, *observation_tensors: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Forward pass with positional tensor I/O.
+        """Encode observations and produce outputs in the saved key order.
 
         Args:
-            *observation_tensors: Tensors in the same order as observation_keys.
+            *observation_tensors: Observations in ``observation_keys`` order,
+                followed by the noise tensors listed in the export metadata.
 
         Returns:
-            Tuple of action tensors in the same order as action_keys.
+            Action tensors or token IDs in ``action_keys`` order.
+
+        Raises:
+            ValueError: If the input count differs from the export metadata.
         """
-        if len(observation_tensors) != len(self._observation_keys):
+        observation_count = len(self._observation_keys)
+        noise_count = len(self.export_metadata.noise_inputs)
+        if len(observation_tensors) != observation_count + noise_count:
             raise ValueError(
-                f"Expected {len(self._observation_keys)} observation tensors "
-                f"matching keys {self._observation_keys}, "
+                f"Expected {observation_count + noise_count} policy input tensors "
+                f"({observation_count} observations and {noise_count} noise inputs), "
                 f"got {len(observation_tensors)}"
             )
         observation_dict = dict(
-            zip(self._observation_keys, observation_tensors, strict=True)
+            zip(
+                self._observation_keys,
+                observation_tensors[:observation_count],
+                strict=True,
+            )
         )
         features = build_algorithm_features(
             observation=observation_dict,
             encoding_pipeline=self.encoding_pipeline,
             decoder=self.decoder,
             algorithm_injected_keys=self.algorithm.injected_feature_keys(),
-        )
-        predictions = self.algorithm.predict(features=features, network=self.decoder)
-        return tuple(predictions[key] for key in self._action_keys)
+        )  # (batch, ...)
+        predictions = self._predict(
+            features=features, sampling_inputs=observation_tensors[observation_count:]
+        )  # (batch, ...)
+        return tuple(predictions[key] for key in self._action_keys)  # (batch, ...)
+
+    def _predict(
+        self,
+        features: dict[str, torch.Tensor],
+        sampling_inputs: tuple[torch.Tensor, ...],
+    ) -> dict[str, torch.Tensor]:
+        """Run the policy algorithm on encoded observation features.
+
+        Args:
+            features: Observation features selected for the action decoder.
+            sampling_inputs: Additional noise tensors required by the adapter.
+
+        Returns:
+            Normalized action tensors keyed by action component.
+
+        Raises:
+            ValueError: If noise inputs require a denoising adapter.
+        """
+        if sampling_inputs:
+            raise ValueError("Noise inputs require a denoising export adapter.")
+        return self.algorithm.predict(
+            features=features, network=self.decoder
+        )  # (batch, horizon, action_dimension)
 
     @classmethod
     def from_policy(cls, policy: Policy) -> "ExportablePolicy":
-        """Create ExportablePolicy from a loaded Policy.
+        """Create the continuous-action adapter from a loaded policy.
 
-        Delegates key derivation to Policy.input_keys and
-        Policy.output_keys, keeping the single source of truth.
+        Note:
+            Input and output ordering follows the policy's key properties.
 
         Args:
-            policy: A loaded, initialized Policy instance.
+            policy: Initialized policy whose algorithm returns continuous actions.
 
         Returns:
             ExportablePolicy wrapping the policy's components.
-
-        Raises:
-            ValueError: If the policy predicts action tokens; exported
-                forward passes return raw tensors and never detokenize, so
-                the exported outputs would not match the action space.
         """
-        if policy.decoder.requires_tokenized_actions:
-            raise ValueError(
-                "Policies with tokenized-action decoders cannot be exported: "
-                "the exported forward returns raw action tokens without "
-                "detokenization."
-            )
         return cls(
             encoding_pipeline=policy.encoding_pipeline,
             algorithm=policy.algorithm,
@@ -126,7 +150,10 @@ class ExportablePolicy(nn.Module):
                 torch dtype. Defaults to torch.float32 for all keys.
 
         Returns:
-            Tuple of tensors matching observation_keys order.
+            Observation tensors in key order, followed by required noise inputs.
+
+        Raises:
+            ValueError: If a required observation key has no shape description.
         """
         if observation_dtypes is None:
             observation_dtypes = {}
@@ -141,6 +168,10 @@ class ExportablePolicy(nn.Module):
                 )
             shape = (batch_size, *observation_shapes[key])
             dtype = observation_dtypes.get(key, torch.float32)
-            example_tensors.append(torch.zeros(shape, dtype=dtype))
+            example_tensors.append(
+                torch.zeros(shape, dtype=dtype)
+            )  # (batch, *observation_shape)
 
-        return tuple(example_tensors)
+        return self.export_metadata.prepare_inputs(
+            observations=tuple(example_tensors)
+        )  # (batch, ...)

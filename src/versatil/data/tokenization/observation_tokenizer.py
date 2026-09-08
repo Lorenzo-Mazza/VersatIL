@@ -427,6 +427,10 @@ class ObservationTokenizer:
 
         Returns:
             Loaded ObservationTokenizer instance
+
+        Note:
+            Language-tokenizer construction uses the saved local vocabulary.
+            Restored metadata retains the original vocabulary source identifier.
         """
         path = Path(path)
         if not path.exists():
@@ -437,7 +441,7 @@ class ObservationTokenizer:
             weights_only=False,
         )
         tokenizer = cls(
-            tokenizer_model=state_dict["tokenizer_model"],
+            tokenizer_model=str(path / "language_tokenizer"),
             observation_keys=state_dict["observation_keys"],
             bin_continuous_data=state_dict["bin_continuous_data"],
             num_bins=state_dict["num_bins"],
@@ -451,9 +455,5 @@ class ObservationTokenizer:
             trust_remote_code=state_dict.get("trust_remote_code", False),
         )
         tokenizer.load_state_dict(state_dict)
-        tokenizer.language_tokenizer = load_huggingface_tokenizer(
-            tokenizer_model=path / "language_tokenizer",
-            trust_remote_code=tokenizer.trust_remote_code,
-        )
         logging.info(f"Loaded observation tokenizer from {path}")
         return tokenizer

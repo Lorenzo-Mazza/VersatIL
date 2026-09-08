@@ -44,6 +44,7 @@ def mock_config() -> MagicMock:
     mock_policy.decoder.observation_horizon = 2
     mock_policy.to.return_value = mock_policy
     mock_policy.eval.return_value = mock_policy
+    mock_policy.get_denoising_thresholds.return_value = {}
     config.policy = mock_policy
     return config
 
@@ -719,81 +720,6 @@ class TestFloatPolicyRuntimeRunInference:
             }
         )
         assert not result["action"].requires_grad
-
-
-@pytest.mark.unit
-class TestDenoisingThresholds:
-    def test_empty_params_dict_returns_empty(self, policy_runtime_factory):
-        loader = policy_runtime_factory()
-        loader._policy.denoising_thresholds.params_dict = nn.ParameterDict()
-        loader._policy.action_space.actions_metadata = {
-            "position": MagicMock(),
-        }
-        assert loader.denoising_thresholds == {}
-
-    def test_all_keys_match_action_space(self, policy_runtime_factory, rng):
-        loader = policy_runtime_factory()
-        position_value = float(rng.standard_normal(1).astype(np.float32).item())
-        orientation_value = float(rng.standard_normal(1).astype(np.float32).item())
-        loader._policy.denoising_thresholds.params_dict = nn.ParameterDict(
-            {
-                "position": nn.Parameter(
-                    torch.tensor(position_value), requires_grad=False
-                ),
-                "orientation": nn.Parameter(
-                    torch.tensor(orientation_value), requires_grad=False
-                ),
-            }
-        )
-        loader._policy.action_space.actions_metadata = {
-            "position": MagicMock(),
-            "orientation": MagicMock(),
-        }
-        result = loader.denoising_thresholds
-        assert result == {
-            "position": pytest.approx(position_value),
-            "orientation": pytest.approx(orientation_value),
-        }
-
-    def test_keys_not_in_action_space_are_filtered_out(
-        self, policy_runtime_factory, rng
-    ):
-        loader = policy_runtime_factory()
-        threshold_value = float(rng.standard_normal(1).astype(np.float32).item())
-        loader._policy.denoising_thresholds.params_dict = nn.ParameterDict(
-            {
-                "unknown_key": nn.Parameter(
-                    torch.tensor(threshold_value), requires_grad=False
-                ),
-            }
-        )
-        loader._policy.action_space.actions_metadata = {
-            "position": MagicMock(),
-        }
-        assert loader.denoising_thresholds == {}
-
-    def test_mixed_keys_returns_only_matching(self, policy_runtime_factory, rng):
-        loader = policy_runtime_factory()
-        position_value = float(rng.standard_normal(1).astype(np.float32).item())
-        extra_value = float(rng.standard_normal(1).astype(np.float32).item())
-        loader._policy.denoising_thresholds.params_dict = nn.ParameterDict(
-            {
-                "position": nn.Parameter(
-                    torch.tensor(position_value), requires_grad=False
-                ),
-                "nonexistent": nn.Parameter(
-                    torch.tensor(extra_value), requires_grad=False
-                ),
-            }
-        )
-        loader._policy.action_space.actions_metadata = {
-            "position": MagicMock(),
-            "gripper": MagicMock(),
-        }
-        result = loader.denoising_thresholds
-        assert result == {"position": pytest.approx(position_value)}
-        assert "nonexistent" not in result
-        assert "gripper" not in result
 
 
 @pytest.mark.unit

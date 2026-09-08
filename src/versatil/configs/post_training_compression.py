@@ -136,7 +136,8 @@ class PostTrainingCompressorConfig:
         checkpoint_name: Checkpoint filename inside the directory.
         output_directory: Where to save compressed output. Defaults to
             checkpoint_path/compressed/<timestamp>.
-        calibration_steps: Number of calibration batches for static quantization.
+        calibration_steps: Maximum observation batches for methods requiring
+            calibration, including static PT2E and SmoothQuant.
         generate_report: Whether to generate a quantization report after saving.
             Disabled by default since it runs additional forward passes for
             benchmarking.

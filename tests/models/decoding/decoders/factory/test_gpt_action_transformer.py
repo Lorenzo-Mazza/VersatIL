@@ -5,17 +5,24 @@ import unittest.mock
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
+from versatil.data.tokenization.action_discretizer import BinnedActionDiscretizer
+from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import (
     AlgorithmContextKey,
     DecoderOutputKey,
     LatentKey,
+)
+from versatil.models.decoding.decoders.autoregressive_mixin import (
+    AutoregressivePrefix,
+    CachedAutoregressiveGenerationState,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.gpt_action_transformer import (
@@ -40,6 +47,43 @@ SPATIAL_HEIGHT = 4
 SPATIAL_WIDTH = 4
 VOCAB_SIZE = 32
 ACTION_TOKEN_LENGTH = 8
+GENERATION_FEATURE_KEY = "rgb_features"
+
+
+class _FixedLengthGPTGeneration(nn.Module):
+    """Generate a bounded token sequence from padded observation features.
+
+    Note:
+        ``B`` is batch size, ``P`` is prefix width, ``D`` is feature dimension and
+        ``L`` is the configured maximum action-token count.
+    """
+
+    def __init__(self, decoder: GPTActionTransformer) -> None:
+        super().__init__()
+        self.decoder = decoder
+
+    def forward(
+        self, features: torch.Tensor, padding_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Return token IDs from features and their padding mask.
+
+        Args:
+            features: Encoded observation tokens with shape ``(B, 1, P, D)``.
+            padding_mask: Boolean padding indicators with shape ``(B, 1, P)``.
+
+        Returns:
+            Generated token IDs with shape ``(B, L)``.
+        """
+        predictions = self.decoder(
+            features={
+                GENERATION_FEATURE_KEY: features,
+                f"{GENERATION_FEATURE_KEY}_{EncoderOutputKeys.PADDING_MASK.value}": (
+                    padding_mask
+                ),
+            },
+            fixed_length=True,
+        )  # tokens: (B, L)
+        return predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
 
 
 @pytest.fixture
@@ -107,6 +151,272 @@ def gpt_transformer_factory(
         )
 
     return factory
+
+
+@pytest.fixture
+def fixed_length_gpt_factory(
+    gpt_transformer_factory: Callable[..., GPTActionTransformer],
+    rng: np.random.Generator,
+) -> Callable[..., _FixedLengthGPTGeneration]:
+    def factory(
+        max_token_len: int,
+        max_seq_len: int,
+        positional_encoding_type: str | None = PositionalEncodingType.ROPE.value,
+    ) -> _FixedLengthGPTGeneration:
+        decoder = gpt_transformer_factory(
+            input_keys=[GENERATION_FEATURE_KEY],
+            max_seq_len=max_seq_len,
+            dropout_rate=0.0,
+            attention_dropout=0.0,
+            deterministic=True,
+            positional_encoding_type=positional_encoding_type,
+        )
+        tokenizer = ActionTokenizer(
+            action_discretizer=BinnedActionDiscretizer(num_bins=16),
+            max_token_len=max_token_len,
+            pad_token_id=16,
+        )
+        tokenizer.fit(
+            action_chunks=rng.uniform(low=-1.0, high=1.0, size=(8, 1, 3)).astype(
+                np.float32
+            )
+        )
+        decoder.set_tokenizer(tokenizer=Tokenizer(action_tokenizer=tokenizer))
+        return _FixedLengthGPTGeneration(decoder=decoder).eval()
+
+    return factory
+
+
+@pytest.fixture
+def generation_prefix_factory(
+    rng: np.random.Generator,
+) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
+    def factory(
+        batch_size: int, prefix_length: int, pad_last_token: bool
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        features = torch.from_numpy(
+            rng.standard_normal(
+                size=(batch_size, 1, prefix_length, EMBEDDING_DIMENSION)
+            ).astype(np.float32)
+        )  # (batch, 1, prefix, embedding)
+        padding_mask = torch.zeros(
+            batch_size, 1, prefix_length, dtype=torch.bool
+        )  # (batch, 1, prefix)
+        if pad_last_token:
+            padding_mask[:, :, -1] = True  # (batch, 1)
+        return features, padding_mask
+
+    return factory
+
+
+@pytest.fixture
+def gpt_forward_mock_factory(
+    generation_prefix_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+) -> Callable[[], MagicMock]:
+    def factory() -> MagicMock:
+        features, padding_mask = generation_prefix_factory(
+            batch_size=2, prefix_length=3, pad_last_token=True
+        )  # (batch, 1, prefix, embedding), (batch, 1, prefix)
+        decoder = MagicMock(spec=GPTActionTransformer)
+        decoder.input_sequence_builder = MagicMock(
+            spec=TransformerInputBuilder,
+            return_value=(
+                features.squeeze(
+                    1
+                ),  # (batch, 1, prefix, embedding) -> (batch, prefix, embedding)
+                None,
+                padding_mask.squeeze(1),  # (batch, 1, prefix) -> (batch, prefix)
+            ),
+        )
+        predictions = {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(
+                2, 4, dtype=torch.long
+            )  # (batch, token_length)
+        }
+        decoder._forward_inference.return_value = predictions
+        decoder._run_cached_autoregressive_generation.return_value = predictions
+        prefix = MagicMock(spec=AutoregressivePrefix)
+        prefix.state = MagicMock(spec=CachedAutoregressiveGenerationState)
+        prefix.max_generation_steps = 4
+        decoder._prefill_tokens.return_value = prefix
+        return decoder
+
+    return factory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fixed_length", [False, True])
+def test_forward_preserves_generation_length_mode(
+    gpt_forward_mock_factory: Callable[[], MagicMock],
+    fixed_length: bool,
+) -> None:
+    decoder = gpt_forward_mock_factory()
+    feature_tokens, _, padding_mask = decoder.input_sequence_builder.return_value
+    features = {GENERATION_FEATURE_KEY: feature_tokens}
+
+    actual = GPTActionTransformer.forward(
+        decoder, features=features, actions=None, fixed_length=fixed_length
+    )  # tokens: (batch, token_length)
+
+    decoder._validate_action_tokenizer_is_set.assert_called_once_with()
+    decoder.input_sequence_builder.assert_called_once_with(features)
+    decoder._forward_inference.assert_called_once_with(
+        feature_tokens=feature_tokens,
+        feature_token_mask=padding_mask,
+        fixed_length=fixed_length,
+    )
+    torch.testing.assert_close(actual, decoder._forward_inference.return_value)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fixed_length", [False, True])
+def test_inference_passes_generation_length_mode_to_cached_loop(
+    gpt_forward_mock_factory: Callable[[], MagicMock],
+    fixed_length: bool,
+) -> None:
+    decoder = gpt_forward_mock_factory()
+    feature_tokens, _, padding_mask = decoder.input_sequence_builder.return_value
+
+    actual = GPTActionTransformer._forward_inference(
+        decoder,
+        feature_tokens=feature_tokens,
+        feature_token_mask=padding_mask,
+        fixed_length=fixed_length,
+    )  # tokens: (batch, token_length)
+
+    decoder._prefill_tokens.assert_called_once_with(
+        feature_tokens=feature_tokens, feature_token_mask=padding_mask
+    )
+    prefix = decoder._prefill_tokens.return_value
+    decoder._run_cached_autoregressive_generation.assert_called_once_with(
+        initial_state=prefix.state,
+        max_generation_steps=prefix.max_generation_steps,
+        fixed_length=fixed_length,
+    )
+    torch.testing.assert_close(
+        actual, decoder._run_cached_autoregressive_generation.return_value
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "max_token_len, max_seq_len, expected_steps", [(4, 12, 4), (8, 6, 2)]
+)
+def test_fixed_length_generation_obeys_tokenizer_and_context_limits(
+    fixed_length_gpt_factory: Callable[..., _FixedLengthGPTGeneration],
+    generation_prefix_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    max_token_len: int,
+    max_seq_len: int,
+    expected_steps: int,
+) -> None:
+    model = fixed_length_gpt_factory(
+        max_token_len=max_token_len, max_seq_len=max_seq_len
+    )
+    features, padding_mask = generation_prefix_factory(
+        batch_size=2, prefix_length=3, pad_last_token=True
+    )  # (batch, 1, prefix, embedding), (batch, 1, prefix)
+    with (
+        torch.no_grad(),
+        unittest.mock.patch.object(
+            model.decoder.gpt_decoder,
+            "forward",
+            wraps=model.decoder.gpt_decoder.forward,
+        ) as decoder_forward,
+    ):
+        generated = model(
+            features=features, padding_mask=padding_mask
+        )  # (batch, generated_length)
+
+    assert generated.shape == (2, expected_steps)
+    assert decoder_forward.call_count == expected_steps + 1
+    first_generation_call = decoder_forward.call_args_list[1].kwargs
+    expected_bos = model.decoder.action_bos_embedding.expand(
+        2, -1, -1
+    )  # (1, 1, embedding) -> (batch, 1, embedding)
+    torch.testing.assert_close(first_generation_call["hidden_states"], expected_bos)
+    assert first_generation_call["generation_cache"].get_length() == 3
+
+
+@pytest.mark.integration
+def test_fixed_length_generation_initializes_new_cache_for_each_observation(
+    fixed_length_gpt_factory: Callable[..., _FixedLengthGPTGeneration],
+    generation_prefix_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+) -> None:
+    model = fixed_length_gpt_factory(max_token_len=4, max_seq_len=12)
+    first_features, first_padding = generation_prefix_factory(
+        batch_size=2, prefix_length=3, pad_last_token=True
+    )  # (batch, 1, prefix, embedding), (batch, 1, prefix)
+    second_features, second_padding = generation_prefix_factory(
+        batch_size=2, prefix_length=3, pad_last_token=False
+    )  # (batch, 1, prefix, embedding), (batch, 1, prefix)
+    with (
+        torch.no_grad(),
+        unittest.mock.patch.object(
+            model.decoder.gpt_decoder,
+            "forward",
+            wraps=model.decoder.gpt_decoder.forward,
+        ) as decoder_forward,
+    ):
+        first = model(
+            features=first_features, padding_mask=first_padding
+        )  # (batch, generated_length)
+        model(
+            features=second_features, padding_mask=second_padding
+        )  # (batch, generated_length)
+        repeated = model(
+            features=first_features, padding_mask=first_padding
+        )  # (batch, generated_length)
+
+    torch.testing.assert_close(first, repeated)
+    assert decoder_forward.call_count == 15
+    for call_index in (0, 5, 10):
+        prefix_call = decoder_forward.call_args_list[call_index].kwargs
+        assert prefix_call["generation_cache"].get_length() == 0
+        assert prefix_call["hidden_states"].shape == (2, 3, EMBEDDING_DIMENSION)
+    torch.testing.assert_close(
+        decoder_forward.call_args_list[0].kwargs["key_padding_mask"],
+        decoder_forward.call_args_list[10].kwargs["key_padding_mask"],
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "positional_encoding_type",
+    [None, PositionalEncodingType.ROPE.value, PositionalEncodingType.SINUSOIDAL.value],
+)
+def test_fixed_length_generation_export_matches_new_batch_sizes_and_padding_masks(
+    fixed_length_gpt_factory: Callable[..., _FixedLengthGPTGeneration],
+    generation_prefix_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    positional_encoding_type: str | None,
+) -> None:
+    model = fixed_length_gpt_factory(
+        max_token_len=4,
+        max_seq_len=12,
+        positional_encoding_type=positional_encoding_type,
+    )
+    features, padding_mask = generation_prefix_factory(
+        batch_size=2, prefix_length=3, pad_last_token=True
+    )  # (batch, 1, prefix, embedding), (batch, 1, prefix)
+    batch_dimension = torch.export.Dim(name="batch", min=1, max=4)
+    with torch.no_grad():
+        model(features=features, padding_mask=padding_mask)  # (batch, generated_length)
+        exported = torch.export.export(
+            mod=model,
+            args=(features, padding_mask),
+            dynamic_shapes=({0: batch_dimension}, {0: batch_dimension}),
+            strict=True,
+        ).module()
+        for batch_size, pad_last_token in ((1, False), (3, True), (2, False)):
+            next_features, next_padding = generation_prefix_factory(
+                batch_size=batch_size,
+                prefix_length=3,
+                pad_last_token=pad_last_token,
+            )  # (batch, 1, prefix, embedding), (batch, 1, prefix)
+            expected = model(
+                features=next_features, padding_mask=next_padding
+            )  # (batch, generated_length)
+            actual = exported(next_features, next_padding)  # (batch, generated_length)
+            torch.testing.assert_close(actual, expected)
 
 
 class TestGPTActionTransformerInitialization:

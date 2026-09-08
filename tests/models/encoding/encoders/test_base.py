@@ -3,7 +3,7 @@
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 import torch
@@ -226,10 +226,13 @@ class TestEncodingMixinInitialization:
         encoder_input_factory: Callable[..., EncoderInput],
         cuda_available: bool,
     ):
-        input_specification = encoder_input_factory()
-        with patch(
-            "versatil.models.encoding.encoders.base.torch.cuda.is_available",
-            return_value=cuda_available,
+        input_specification = encoder_input_factory(keys=["left"])
+        with (
+            patch(
+                "versatil.models.encoding.encoders.base.torch.cuda.is_available",
+                return_value=cuda_available,
+            ),
+            patch.object(ConcreteEncodingMixin, "to", autospec=True) as move_encoder,
         ):
             encoder = ConcreteEncodingMixin(
                 input_specification=input_specification,
@@ -238,7 +241,10 @@ class TestEncodingMixinInitialization:
         expected_device_type = (
             "cuda" if cuda_available and torch.version.cuda is not None else "cpu"
         )
-        assert encoder.device.type == expected_device_type
+        assert move_encoder.call_args_list == [
+            call(encoder, device=torch.device(expected_device_type)),
+            call(encoder, torch.float32),
+        ]
 
     def test_defaults_to_no_explainability_targets(
         self,

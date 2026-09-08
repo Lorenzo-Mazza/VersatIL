@@ -2,8 +2,13 @@
 
 import torch.nn as nn
 
-from versatil.models.exportable_policy import ExportablePolicy
-from versatil.post_training_compression.constants import QuantizationWorkflow
+from versatil.models.exportable.base import ExportablePolicy
+from versatil.post_training_compression.constants import (
+    QuantizationWorkflow,
+)
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentBackend,
+)
 from versatil.post_training_compression.export import (
     build_example_inputs,
     export_policy,
@@ -62,6 +67,7 @@ class NoQuantizationWorkflow(BaseQuantizationWorkflow):
         context: PolicyContext,
         exportable: ExportablePolicy,
         calibration_steps: int,
+        deployment_backend: DeploymentBackend | None = None,
     ) -> QuantizedContext:
         """Export the policy without modifying weights or graph quantization.
 
@@ -70,6 +76,7 @@ class NoQuantizationWorkflow(BaseQuantizationWorkflow):
             exportable: Policy wrapper exposing positional tensor inputs for
                 ``torch.export``.
             calibration_steps: Unused for unquantized export.
+            deployment_backend: Destination selected for the floating-point artifact.
 
         Returns:
             Quantized context whose float and deployment models are the same

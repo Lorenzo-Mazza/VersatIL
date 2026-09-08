@@ -2,7 +2,7 @@
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,6 +17,13 @@ from versatil.checkpoint_loading.compressed_policy import CompressedCheckpointLo
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.inference.policy_runtime.compressed_runtime import CompressedPolicyRuntime
+from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.exportable.metadata import (
+    NoiseInput,
+    PolicyExportMetadata,
+    PredictionOutput,
+    SamplingInput,
+)
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
     CompressionFilename,
@@ -46,6 +53,8 @@ def metadata_factory() -> Callable[..., dict]:
         quantization_workflow: str | None = None,
         exclude_keys: list[str] | None = None,
         pt2e_backend: dict | None = None,
+        export_metadata: dict | None = None,
+        export_metadata_key: CompressionMetadataKey = CompressionMetadataKey.POLICY_EXPORT_METADATA,
     ) -> dict:
         if input_keys is None:
             input_keys = ["depth", "left"]
@@ -67,6 +76,8 @@ def metadata_factory() -> Callable[..., dict]:
             metadata[CompressionMetadataKey.QUANTIZATION_WORKFLOW.value] = (
                 quantization_workflow
             )
+        if export_metadata is not None:
+            metadata[export_metadata_key.value] = export_metadata
         if include_training_path:
             metadata[CompressionMetadataKey.TRAINING_CHECKPOINT_PATH.value] = (
                 training_checkpoint_path
@@ -101,6 +112,8 @@ def checkpoint_directory_factory(
         exclude_metadata_keys: list[str] | None = None,
         quantization_config: dict | None = None,
         pt2e_backend: dict | None = None,
+        export_metadata: dict | None = None,
+        export_metadata_key: CompressionMetadataKey = CompressionMetadataKey.POLICY_EXPORT_METADATA,
     ) -> str:
         checkpoint_dir = tmp_path / f"checkpoint_{rng.integers(0, 99999)}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -116,6 +129,8 @@ def checkpoint_directory_factory(
                 quantization_workflow=quantization_workflow,
                 exclude_keys=exclude_metadata_keys,
                 pt2e_backend=pt2e_backend,
+                export_metadata=export_metadata,
+                export_metadata_key=export_metadata_key,
             )
             with open(
                 checkpoint_dir / CompressionFilename.COMPRESSION_METADATA.value,
@@ -219,6 +234,7 @@ def inference_loader_factory(
         model_outputs: tuple[torch.Tensor, ...] | torch.Tensor | None = None,
         tokenizer: MagicMock | None = None,
         artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
+        export_metadata: MagicMock | None = None,
     ) -> CompressedPolicyRuntime:
         if input_keys is None:
             input_keys = ["left"]
@@ -243,7 +259,6 @@ def inference_loader_factory(
         checkpoint_loader.checkpoint_path = "/tmp/compressed"
         checkpoint_loader.config = MagicMock()
         checkpoint_loader.tokenizer = tokenizer
-        checkpoint_loader.policy = mock_policy
         checkpoint_loader.observation_space = mock_policy.observation_space
         checkpoint_loader.action_space = mock_policy.action_space
         checkpoint_loader.prediction_horizon = mock_policy.prediction_horizon
@@ -253,10 +268,16 @@ def inference_loader_factory(
         checkpoint_loader.input_keys = input_keys
         checkpoint_loader.output_keys = output_keys
         checkpoint_loader.artifact_format = artifact_format
+        if export_metadata is None:
+            export_metadata = MagicMock(spec=PolicyExportMetadata)
+            export_metadata.output = PredictionOutput.ACTIONS
+            export_metadata.prepare_inputs.side_effect = lambda observations: (
+                observations
+            )
+        checkpoint_loader.export_metadata = export_metadata
         checkpoint_loader.normalizer = LinearNormalizer()
         loader.checkpoint_loader = checkpoint_loader
         loader._client_identifier = checkpoint_loader.checkpoint_path
-        loader._policy = mock_policy
         loader._compressed_model = mock_compressed_model
         return loader
 
@@ -282,6 +303,84 @@ def observation_dict_factory(
         }
 
     return factory
+
+
+@pytest.fixture
+def prediction_pipeline_factory(
+    inference_loader_factory: Callable[..., CompressedPolicyRuntime],
+    observation_dict_factory: Callable[..., dict[str, torch.Tensor]],
+) -> Iterator[Callable[..., tuple[CompressedPolicyRuntime, MagicMock]]]:
+    """Build runtime collaborators with controlled prediction and action values.
+
+    Note:
+        B denotes batch size, L token length, H action horizon and D action dimension.
+    """
+    patchers = []
+
+    def factory(
+        output: PredictionOutput,
+        tensor_count: int = 1,
+        has_tokenizer: bool = True,
+        has_action_tokenizer: bool = True,
+        include_noise: bool = False,
+        token_dtype: torch.dtype = torch.int64,
+        token_shape: tuple[int, ...] = (1, 3),
+    ) -> tuple[CompressedPolicyRuntime, MagicMock]:
+        pipeline = MagicMock()
+        pipeline.observations = observation_dict_factory(keys=["left"])
+        pipeline.tokens = torch.full(
+            token_shape, fill_value=1, dtype=token_dtype
+        )  # token_shape
+        pipeline.normalized_actions = {
+            "position": torch.zeros(1, 2, 3)  # (B=1, H=2, D=3)
+        }
+        pipeline.actions = {
+            "position": torch.ones(1, 2, 3)  # (B=1, H=2, D=3)
+        }
+        tokenizer = MagicMock() if has_tokenizer else None
+        if tokenizer is not None:
+            tokenizer.observation_tokenizer = None
+            if not has_action_tokenizer:
+                tokenizer.action_tokenizer = None
+        export_metadata = MagicMock(spec=PolicyExportMetadata)
+        export_metadata.output = output
+        model_inputs = tuple(pipeline.observations.values())
+        if include_noise:
+            noise = torch.zeros(1, 2, 3)  # (B=1, H=2, D=3)
+            model_inputs += (noise,)
+        export_metadata.prepare_inputs.return_value = model_inputs
+        runtime = inference_loader_factory(
+            input_keys=["left"],
+            output_keys=(
+                [DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+                if output == PredictionOutput.ACTION_TOKENS
+                else ["position"]
+            ),
+            model_outputs=(pipeline.tokens,) * tensor_count,
+            tokenizer=tokenizer,
+            export_metadata=export_metadata,
+        )
+        for name, return_value in (
+            ("normalize_observation", pipeline.observations),
+            ("detokenize_actions", pipeline.normalized_actions),
+            ("unnormalize_actions", pipeline.actions),
+        ):
+            patcher = patch(
+                f"{COMPRESSED_RUNTIME_MODULE}.{name}", return_value=return_value
+            )
+            pipeline.attach_mock(patcher.start(), name)
+            patchers.append(patcher)
+        patcher = patch(
+            f"{COMPRESSED_RUNTIME_MODULE}.to_device",
+            side_effect=lambda value, device: value,
+        )
+        pipeline.attach_mock(patcher.start(), "to_device")
+        patchers.append(patcher)
+        return runtime, pipeline
+
+    yield factory
+    for patcher in reversed(patchers):
+        patcher.stop()
 
 
 @pytest.mark.unit
@@ -380,6 +479,225 @@ class TestCompressedPolicyRuntimeMetadata:
         returned.append("mutated")
 
         assert getattr(loader, property_name) == original
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "metadata_key,has_metadata",
+    [
+        (CompressionMetadataKey.POLICY_EXPORT_METADATA, False),
+        (CompressionMetadataKey.POLICY_EXPORT_METADATA, True),
+        (CompressionMetadataKey.LEGACY_INFERENCE_CONTRACT, True),
+    ],
+)
+def test_loads_export_metadata_and_defaults_legacy_action_artifacts(
+    loaded_loader_factory: Callable[..., CompressedPolicyRuntime],
+    metadata_key: CompressionMetadataKey,
+    has_metadata: bool,
+) -> None:
+    expected_metadata = PolicyExportMetadata(
+        output=PredictionOutput.ACTIONS,
+        noise_inputs=(NoiseInput(name=SamplingInput.INITIAL_NOISE, shape=(2, 3)),)
+        if has_metadata
+        else (),
+    )
+    runtime = loaded_loader_factory(
+        checkpoint_kwargs={
+            "export_metadata": expected_metadata.to_dict() if has_metadata else None,
+            "export_metadata_key": metadata_key,
+        },
+    )
+
+    assert runtime.checkpoint_loader.export_metadata == expected_metadata
+
+
+@pytest.mark.unit
+class TestCompressedPolicyRuntimeExportMetadata:
+    @pytest.mark.parametrize("include_noise", [False, True])
+    def test_prepares_model_inputs_through_export_metadata(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+        include_noise: bool,
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTIONS,
+            has_tokenizer=False,
+            include_noise=include_noise,
+        )
+        export_metadata = runtime.checkpoint_loader.export_metadata
+
+        runtime.run_inference(obs_dict=pipeline.observations)
+
+        export_metadata.prepare_inputs.assert_called_once_with(
+            observations=tuple(pipeline.observations.values())
+        )
+        runtime._compressed_model.assert_called_once_with(
+            *export_metadata.prepare_inputs.return_value
+        )
+        assert len(runtime._compressed_model.call_args.args) == 1 + include_noise
+        pipeline.detokenize_actions.assert_not_called()
+
+    @pytest.mark.parametrize("token_dtype", [torch.int32, torch.int64])
+    def test_reconstructs_tokens_before_unnormalizing_actions(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+        token_dtype: torch.dtype,
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTION_TOKENS,
+            has_tokenizer=True,
+            has_action_tokenizer=True,
+            token_dtype=token_dtype,
+        )
+
+        actions = runtime.run_inference(obs_dict=pipeline.observations)
+
+        pipeline.detokenize_actions.assert_called_once_with(
+            action_tokens=pipeline.tokens,
+            action_tokenizer=runtime.tokenizer.action_tokenizer,
+            action_space=runtime.action_space,
+        )
+        pipeline.to_device.assert_called_with(
+            pipeline.normalized_actions,
+            device=runtime.device,
+        )
+        pipeline.unnormalize_actions.assert_called_once_with(
+            normalized_actions=pipeline.normalized_actions,
+            normalizer=runtime.checkpoint_loader.normalizer,
+            action_space=runtime.action_space,
+        )
+        assert [call[0] for call in pipeline.mock_calls] == [
+            "to_device",
+            "normalize_observation",
+            "detokenize_actions",
+            "to_device",
+            "unnormalize_actions",
+        ]
+        torch.testing.assert_close(actions["position"], pipeline.actions["position"])
+
+    @pytest.mark.parametrize("token_dtype", [torch.float32, torch.bool])
+    def test_rejects_token_outputs_with_incompatible_dtype(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+        token_dtype: torch.dtype,
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTION_TOKENS, token_dtype=token_dtype
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Action-token artifacts require torch.int32 or torch.int64 token "
+                f"outputs, got {token_dtype}."
+            ),
+        ):
+            runtime.run_inference(obs_dict=pipeline.observations)
+
+        pipeline.detokenize_actions.assert_not_called()
+        pipeline.unnormalize_actions.assert_not_called()
+
+    @pytest.mark.parametrize("token_shape", [(3,), (1, 3, 1)])
+    def test_rejects_token_outputs_with_incompatible_rank(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+        token_shape: tuple[int, ...],
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTION_TOKENS, token_shape=token_shape
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Action-token outputs require shape (batch, token_length), "
+                f"got {token_shape}."
+            ),
+        ):
+            runtime.run_inference(obs_dict=pipeline.observations)
+
+        pipeline.detokenize_actions.assert_not_called()
+        pipeline.unnormalize_actions.assert_not_called()
+
+    def test_rejects_token_outputs_with_incompatible_batch_size(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTION_TOKENS, token_shape=(2, 3)
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Action-token output batch size 2 must match observation batch size 1."
+            ),
+        ):
+            runtime.run_inference(obs_dict=pipeline.observations)
+
+        pipeline.detokenize_actions.assert_not_called()
+        pipeline.unnormalize_actions.assert_not_called()
+
+    @pytest.mark.parametrize("tensor_count", [0, 2])
+    def test_rejects_token_output_count(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+        tensor_count: int,
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTION_TOKENS,
+            tensor_count=tensor_count,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Action-token artifacts must return one token tensor; "
+                f"received {tensor_count} tensors."
+            ),
+        ):
+            runtime.run_inference(obs_dict=pipeline.observations)
+
+        pipeline.detokenize_actions.assert_not_called()
+        pipeline.unnormalize_actions.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "has_tokenizer,has_action_tokenizer", [(False, False), (True, False)]
+    )
+    def test_requires_action_tokenizer_for_token_outputs(
+        self,
+        prediction_pipeline_factory: Callable[
+            ..., tuple[CompressedPolicyRuntime, MagicMock]
+        ],
+        has_tokenizer: bool,
+        has_action_tokenizer: bool,
+    ) -> None:
+        runtime, pipeline = prediction_pipeline_factory(
+            output=PredictionOutput.ACTION_TOKENS,
+            has_tokenizer=has_tokenizer,
+            has_action_tokenizer=has_action_tokenizer,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Action-token artifacts require a saved action tokenizer."),
+        ):
+            runtime.run_inference(obs_dict=pipeline.observations)
+
+        pipeline.detokenize_actions.assert_not_called()
+        pipeline.unnormalize_actions.assert_not_called()
 
 
 @pytest.mark.unit
@@ -482,15 +800,13 @@ class TestCompressedPolicyRuntimeArtifacts:
 
 @pytest.mark.unit
 class TestCompressedPolicyRuntimeProperties:
-    def test_delegates_properties_to_policy(
+    def test_delegates_properties_to_checkpoint_metadata(
         self,
         inference_loader_factory,
     ):
         loader = inference_loader_factory()
-        mock_policy = loader._policy
-
-        assert loader.observation_space == mock_policy.observation_space
-        assert loader.action_space == mock_policy.action_space
+        assert loader.observation_space == loader.checkpoint_loader.observation_space
+        assert loader.action_space == loader.checkpoint_loader.action_space
         assert loader.prediction_horizon == 16
         assert loader.observation_horizon == 2
         assert loader.denoising_thresholds == {}

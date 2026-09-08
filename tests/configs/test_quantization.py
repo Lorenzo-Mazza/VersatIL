@@ -6,11 +6,14 @@ from hydra.errors import InstantiationException
 from omegaconf import OmegaConf
 
 from versatil.configs.quantization import (
+    DirectQuantizationSchemaConfig,
     EagerQuantizationModuleTargetConfig,
     EagerQuantizationWorkflowConfig,
     Int4WeightOnlyQuantizeConfig,
+    Int8DynamicQuantizeConfig,
     PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
+    SmoothQuantSchemaConfig,
     X86InductorBackendConfig,
     XNNPACKPT2EBackendConfig,
 )
@@ -143,6 +146,66 @@ class TestPT2EQuantizationWorkflowConfig:
 
 @pytest.mark.unit
 class TestEagerQuantizationWorkflowConfig:
+    @pytest.mark.integration
+    @pytest.mark.parametrize("is_qat", [False, True])
+    def test_hydra_resolves_explicit_direct_schema_for_ptq_and_qat(
+        self, is_qat: bool
+    ) -> None:
+        config = OmegaConf.structured(
+            EagerQuantizationWorkflowConfig(
+                targets=[
+                    EagerQuantizationModuleTargetConfig(
+                        module_path="decoder",
+                        schema=DirectQuantizationSchemaConfig(
+                            base_config=Int4WeightOnlyQuantizeConfig(group_size=64)
+                        ),
+                    )
+                ],
+                is_qat=is_qat,
+            )
+        )
+
+        workflow = hydra.utils.instantiate(config)
+
+        target = workflow.targets[0]
+        assert workflow.is_qat is is_qat
+        assert target.quantize_config.group_size == 64
+        assert target.schema.parameters == {}
+        assert target.schema.needs_calibration is False
+        conversion = target.schema.conversion_config(is_qat=is_qat)
+        if is_qat:
+            assert conversion.base_config is target.quantize_config
+            assert conversion.step == "convert"
+        else:
+            assert conversion is target.quantize_config
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("alpha", [0.25, 0.75])
+    def test_hydra_preserves_smoothquant_schema_and_base_config(
+        self, alpha: float
+    ) -> None:
+        config = OmegaConf.structured(
+            EagerQuantizationWorkflowConfig(
+                targets=[
+                    EagerQuantizationModuleTargetConfig(
+                        module_path="decoder",
+                        schema=SmoothQuantSchemaConfig(
+                            base_config=Int8DynamicQuantizeConfig(),
+                            alpha=alpha,
+                        ),
+                    )
+                ],
+                is_qat=False,
+            )
+        )
+        workflow = hydra.utils.instantiate(config)
+        target = workflow.targets[0]
+        assert target.module_path == "decoder"
+        assert target.schema.parameters == {"alpha": str(alpha)}
+        assert target.schema.needs_calibration is True
+        assert target.quantize_config.version == 2
+        assert target.quantize_config.weight_only_decode is False
+
     def test_hydra_instantiates_with_int4_config(self):
         config = OmegaConf.structured(
             EagerQuantizationWorkflowConfig(

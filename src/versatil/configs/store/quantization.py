@@ -4,6 +4,7 @@ from hydra.core.config_store import ConfigStore
 
 from versatil.configs import (
     CompressionTargetConfig,
+    DirectQuantizationSchemaConfig,
     EagerQuantizationModuleTargetConfig,
     EagerQuantizationWorkflowConfig,
     ExecutorchXNNPACKBackendConfig,
@@ -11,6 +12,7 @@ from versatil.configs import (
     Int8DynamicQuantizeConfig,
     PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
+    SmoothQuantSchemaConfig,
     StructuredPrunerConfig,
     TorchInductorBackendConfig,
     UnstructuredPrunerConfig,
@@ -89,4 +91,14 @@ def register(cs: ConfigStore) -> None:
         group="quantization/quantize_config",
         name="int4_weight_only",
         node=Int4WeightOnlyQuantizeConfig,
+    )
+    cs.store(
+        group="quantization/schema",
+        name="direct",
+        node=DirectQuantizationSchemaConfig,
+    )
+    cs.store(
+        group="quantization/schema",
+        name="smoothquant",
+        node=SmoothQuantSchemaConfig,
     )

@@ -161,12 +161,15 @@ from versatil.configs.post_training_compression import (
 )
 from versatil.configs.quantization import (
     BasePT2EBackendConfig,
+    DirectQuantizationSchemaConfig,
     EagerQuantizationModuleTargetConfig,
     EagerQuantizationWorkflowConfig,
     Int4WeightOnlyQuantizeConfig,
     Int8DynamicQuantizeConfig,
     PT2EQuantizationModuleTargetConfig,
     PT2EQuantizationWorkflowConfig,
+    QuantizationSchemaConfig,
+    SmoothQuantSchemaConfig,
     X86InductorBackendConfig,
     XNNPACKPT2EBackendConfig,
 )
@@ -321,6 +324,9 @@ __all__ = [
     "EagerQuantizationModuleTargetConfig",
     "Int4WeightOnlyQuantizeConfig",
     "Int8DynamicQuantizeConfig",
+    "QuantizationSchemaConfig",
+    "DirectQuantizationSchemaConfig",
+    "SmoothQuantSchemaConfig",
     "PT2EQuantizationModuleTargetConfig",
     "CompressionTargetConfig",
     "EagerQuantizationWorkflowConfig",

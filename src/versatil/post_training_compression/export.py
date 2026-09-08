@@ -9,7 +9,7 @@ import torch.nn as nn
 from versatil.data.constants import SampleKey
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.models.exportable_policy import ExportablePolicy
+from versatil.models.exportable.base import ExportablePolicy
 
 
 def _export_with_dynamic_batch(

@@ -236,11 +236,11 @@ class TestPT2EQuantizationPipeline:
 class TestPT2EQuantizationWorkflowIntegration:
     def test_composable_quantizer_calibrates_multiple_targets(
         self,
-        two_part_model_factory,
-        example_inputs_factory,
-        counting_calibration_factory,
-        x86_inductor_backend_factory,
-    ):
+        two_part_model_factory: Callable[..., nn.Module],
+        example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+        counting_calibration_factory: Callable,
+        x86_inductor_backend_factory: Callable,
+    ) -> None:
         model = two_part_model_factory(
             hidden_channels=16,
             output_dimension=4,
@@ -253,12 +253,14 @@ class TestPT2EQuantizationWorkflowIntegration:
         exported = _prepare_and_export(model=model, example_inputs=example_inputs)
         calibration = counting_calibration_factory(
             batches=[
-                example_inputs,
-                example_inputs_factory(
-                    batch_size=2,
-                    channels=3,
-                    image_size=16,
-                ),
+                {"image": example_inputs[0]},
+                {
+                    "image": example_inputs_factory(
+                        batch_size=2,
+                        channels=3,
+                        image_size=16,
+                    )[0]
+                },
             ]
         )
         targets = [
@@ -276,13 +278,15 @@ class TestPT2EQuantizationWorkflowIntegration:
             exported=exported,
             targets=targets,
             calibration=calibration,
+            example_inputs=example_inputs,
+            observation_keys=["image"],
         )
 
         with torch.no_grad():
-            output = converted(*example_inputs)
+            output = converted(*example_inputs)  # (batch_size, output_dimension)
 
         assert calibration.consumed_batches == 2
-        _assert_has_quantize_ops(converted)
+        _assert_has_quantize_ops(quantized_model=converted)
         assert output[0].shape == (2, 4)
         assert torch.isfinite(output[0]).all()
 

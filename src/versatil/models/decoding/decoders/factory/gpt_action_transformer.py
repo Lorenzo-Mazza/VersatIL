@@ -11,6 +11,7 @@ from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
 from versatil.models.decoding.decoders.autoregressive_mixin import (
     AutoregressiveDecoderMixin,
+    AutoregressivePrefix,
     CachedAutoregressiveGenerationState,
     PastKeyValues,
 )
@@ -258,28 +259,41 @@ class GPTActionTransformer(
         self,
         features: dict[str, torch.Tensor],
         actions: dict[str, torch.Tensor] | None = None,
+        fixed_length: bool = False,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass.
-
-        Training: Teacher forcing with ground truth tokens
-        Inference: Autoregressive generation with KV caching
+        """Compute teacher-forced logits or generate action-token sequences.
 
         Args:
-            features: Encoded features from pipeline
-            actions: Ground truth tokenized actions (training) or None (inference)
+            features: Encoded observations consumed by the input sequence builder.
+            actions: Ground-truth tokenized actions for teacher forcing, or None
+                to generate action tokens.
+            fixed_length: Whether inference executes the maximum token count and
+                repeats EOS for completed sequences. False enables early stopping
+                when every sequence reaches EOS.
 
         Returns:
-            Dict with DecoderOutputKey.ACTION_LOGITS.value (training) or DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (inference)
+            Training logits with shape ``(B, L, V)`` under ``ACTION_LOGITS``, or
+            generated IDs with shape ``(B, L)`` under ``PREDICTED_ACTION_TOKENS``.
+
+        Raises:
+            ValueError: If the action tokenizer is unavailable or the sequence
+                exceeds the transformer's configured context length.
+
+        Note:
+            B denotes batch size, P the observation-prefix length, D the embedding
+            dimension, L the action-token count and V the vocabulary size.
+            ``fixed_length`` controls inference generation; training consumes the
+            provided action tokens.
         """
         self._validate_action_tokenizer_is_set()
         feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
             features
-        )  # (B, token_len, embedding_dimension)
+        )  # (B, P, D), (B, P, D) or None, (B, P) or None
         feature_tokens = (
             feature_tokens + pos_encodings
             if pos_encodings is not None
             else feature_tokens
-        )
+        )  # (B, P, D)
         if actions is not None:
             predictions = self._forward_training(
                 feature_tokens=feature_tokens,
@@ -288,8 +302,10 @@ class GPTActionTransformer(
             )
         else:
             predictions = self._forward_inference(
-                feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
-            )
+                feature_tokens=feature_tokens,
+                feature_token_mask=feature_token_mask,
+                fixed_length=fixed_length,
+            )  # tokens: (B, L)
 
         return predictions
 
@@ -358,15 +374,71 @@ class GPTActionTransformer(
         self,
         feature_tokens: torch.Tensor,
         feature_token_mask: torch.Tensor | None = None,
+        fixed_length: bool = False,
     ) -> dict[str, torch.Tensor]:
-        """Inference with autoregressive generation and KV caching.
+        """Generate action tokens using the observation-prefix cache.
 
         Args:
-            feature_tokens: Feature token embeddings (B, num_features, D) or None
-            feature_token_mask: Feature token mask (B, num_features) or None
+            feature_tokens: Observation embeddings with shape ``(B, P, D)``.
+            feature_token_mask: Padding indicators with shape ``(B, P)``, or None.
+            fixed_length: Whether to execute the maximum token count and repeat
+                EOS for completed sequences.
 
         Returns:
-            Dict with tokenized action predictions
+            Generated IDs with shape ``(B, L)`` under ``PREDICTED_ACTION_TOKENS``.
+
+        Note:
+            B denotes batch size, P the prefix length, D the embedding dimension
+            and L the number of generated action tokens.
+        """
+        prefix = self._prefill_tokens(
+            feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
+        )
+        return self._run_cached_autoregressive_generation(
+            initial_state=prefix.state,
+            max_generation_steps=prefix.max_generation_steps,
+            fixed_length=fixed_length,
+        )  # tokens: (B, L)
+
+    def prefill(
+        self,
+        features: dict[str, torch.Tensor],
+        fixed_length: bool = False,
+    ) -> AutoregressivePrefix:
+        """Encode the feature prefix and create the cache for action-token generation.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``P`` for prefix length and ``D``
+            for embedding dimension.
+
+        Args:
+            features: Observation features selected by this decoder's input keys.
+            fixed_length: Accepted by the shared generation interface. GPT prefixes
+                retain their input width in both generation modes.
+
+        Returns:
+            Prefix cache, beginning-of-sequence embedding and generation limit.
+        """
+        self._validate_action_tokenizer_is_set()
+        tokens, positions, padding_mask = self.input_sequence_builder(
+            features
+        )  # (B, P, D), (B, P, D) or None, (B, P) or None
+        if positions is not None:
+            tokens = tokens + positions  # (B, P, D)
+        return self._prefill_tokens(
+            feature_tokens=tokens, feature_token_mask=padding_mask
+        )
+
+    def _prefill_tokens(
+        self,
+        feature_tokens: torch.Tensor,
+        feature_token_mask: torch.Tensor | None,
+    ) -> AutoregressivePrefix:
+        """Process prefix embeddings and prepare the first action-token input.
+
+        Note:
+            Embeddings have shape ``(B, P, D)``: batch size, prefix length and embedding
+            dimension. The padding mask has shape ``(B, P)`` or is ``None``.
         """
         prefix_len = feature_tokens.shape[1]
         if prefix_len + 1 >= self.max_seq_len:
@@ -386,7 +458,7 @@ class GPTActionTransformer(
             self_attention_mask=self._build_prefix_self_attention_mask(
                 prefix_tokens=feature_tokens,
                 causal_prefix_suffix_length=0,
-            ),
+            ),  # (B, 1, P, P)
             key_padding_mask=feature_token_mask,
             cross_attention_mask=None,
             generation_cache=generation_cache,
@@ -395,15 +467,15 @@ class GPTActionTransformer(
             batch_size=feature_tokens.shape[0],
             device=feature_tokens.device,
             dtype=feature_tokens.dtype,
-        )
+        )  # (B, 1, D)
         initial_state = CachedAutoregressiveGenerationState(
             step_index=0,
             sequence_length=prefix_len,
             past_key_values=generation_cache,
             next_inputs=next_inputs,
         )
-        return self._run_cached_autoregressive_generation(
-            initial_state=initial_state,
+        return AutoregressivePrefix(
+            state=initial_state,
             max_generation_steps=self._get_max_generation_steps(
                 available_context_steps=self.max_seq_len - prefix_len - 1,
             ),

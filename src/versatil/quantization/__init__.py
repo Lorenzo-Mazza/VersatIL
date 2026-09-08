@@ -1,1 +1,1 @@
-"""TorchAO quantization recipes, calibration and export workflows."""
+"""TorchAO quantization schemas, calibration and export workflows."""

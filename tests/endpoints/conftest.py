@@ -424,6 +424,10 @@ def synthetic_zarr_factory(rng: np.random.Generator) -> Callable[..., str]:
 
     Returns:
         Callable that creates and populates a zarr store, returning its path.
+
+    Note:
+        The factory's ``action_values`` maps action keys to a fixed value for
+        each component, repeated at every dataset timestep.
     """
 
     def factory(
@@ -433,6 +437,7 @@ def synthetic_zarr_factory(rng: np.random.Generator) -> Callable[..., str]:
         image_width: int = 32,
         num_episodes: int = 3,
         timesteps_per_episode: int = 15,
+        action_values: dict[str, list[float]] | None = None,
     ) -> str:
         if dataset_type not in DATASET_SPECS:
             raise ValueError(
@@ -456,6 +461,10 @@ def synthetic_zarr_factory(rng: np.random.Generator) -> Callable[..., str]:
                 image_height=image_height,
                 image_width=image_width,
             )
+            if action_values is not None and key in action_values:
+                array_data[:] = action_values[
+                    key
+                ]  # (action_dim,) -> (steps, action_dim)
             if key_spec["kind"] == "language":
                 language_array = data_group.create_array(
                     key,

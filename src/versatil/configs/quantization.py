@@ -60,11 +60,58 @@ class Int4WeightOnlyQuantizeConfig:
 
     Attributes:
         _target_: Import path instantiated by Hydra.
-        group_size: Rows sharing one quantization scale.
+        group_size: Adjacent input-channel weights sharing a scale within each
+            output row of a linear weight matrix.
     """
 
     _target_: str = "torchao.quantization.Int4WeightOnlyConfig"
     group_size: int = 128
+
+
+@dataclass
+class QuantizationSchemaConfig:
+    """Shared settings for TorchAO preparation and conversion configurations.
+
+    Attributes:
+        base_config: TorchAO weight and activation quantization configuration.
+    """
+
+    base_config: Any = MISSING
+
+
+@dataclass
+class DirectQuantizationSchemaConfig(QuantizationSchemaConfig):
+    """Configure direct PTQ or matching QAT preparation and conversion settings.
+
+    Note:
+        The schema returns the base configuration for PTQ conversion and wraps it
+        in ``QATConfig`` for preparation before training and conversion after
+        training. The workflow applies these configurations through ``quantize_()``.
+
+    Attributes:
+        _target_: Quantization schema class instantiated by Hydra.
+    """
+
+    _target_: str = "versatil.quantization.schemas.direct.DirectQuantizationSchema"
+
+
+@dataclass
+class SmoothQuantSchemaConfig(QuantizationSchemaConfig):
+    """Configure SmoothQuant preparation, conversion and its smoothing exponent.
+
+    Note:
+        The eager workflow executes preparation, calibration and conversion.
+
+    Attributes:
+        _target_: Quantization schema class instantiated by Hydra.
+        base_config: TorchAO configuration for INT8 weights and dynamic INT8
+            activations.
+        alpha: Smoothing exponent between zero and one.
+    """
+
+    _target_: str = "versatil.quantization.schemas.smoothquant.SmoothQuantSchema"
+    base_config: Any = field(default_factory=Int8DynamicQuantizeConfig)
+    alpha: float = 0.5
 
 
 @dataclass
@@ -74,12 +121,16 @@ class EagerQuantizationModuleTargetConfig:
     Attributes:
         _target_: Import path instantiated by Hydra.
         module_path: Dotted path to the target module, or ``""`` for root.
-        quantize_config: torchao eager quantization config applied to this target.
+        quantize_config: TorchAO base config for direct PTQ or QAT.
+        schema: Supplies preparation and conversion configurations and checks
+            numerical, device, dtype and calibration requirements. Specify this
+            or quantize_config.
     """
 
     _target_: str = "versatil.quantization.module_target.EagerQuantizationModuleTarget"
     module_path: str = ""
-    quantize_config: Any = MISSING
+    quantize_config: Any = None
+    schema: Any = None
 
 
 @dataclass

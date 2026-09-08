@@ -7,6 +7,10 @@ import torch
 import torch._inductor.config as inductor_config
 import torch.nn as nn
 
+from versatil.models.exportable.metadata import (
+    PolicyExportMetadata,
+    PredictionOutput,
+)
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.quantization.constants import (
     FXNodeOp,
@@ -26,6 +30,7 @@ class QuantizationReport:
         example_inputs: tuple[torch.Tensor, ...],
         action_keys: list[str],
         quantization_workflow: str = QuantizationWorkflow.PT2E.value,
+        export_metadata: PolicyExportMetadata | None = None,
     ) -> None:
         """Initialize with float and quantized models for comparison.
 
@@ -33,16 +38,20 @@ class QuantizationReport:
             float_model: Original float32 model.
             quantized_model: Quantized model to compare against.
             example_inputs: Example inputs for running inference.
-            action_keys: Ordered list of action output keys.
+            action_keys: Graph output names in tensor order: action keys or the
+                action-token key.
             quantization_workflow: QuantizationWorkflow value. PT2E
                 benchmarks with inductor compilation, eager PTQ
                 benchmarks eager execution.
+            export_metadata: Graph output format used to select comparison
+                metrics. Defaults to continuous action outputs.
         """
         self._float_model = float_model
         self._quantized_model = quantized_model
         self._example_inputs = example_inputs
         self._action_keys = action_keys
         self._quantization_workflow = quantization_workflow
+        self._export_metadata = export_metadata or PolicyExportMetadata()
 
     def compute_operator_coverage(self) -> dict[str, dict[str, int]]:
         """Count quantized vs total operators in the quantized model's FX graph.
@@ -96,15 +105,28 @@ class QuantizationReport:
         return coverage
 
     def compute_output_divergence(self) -> dict[str, dict[str, float]]:
-        """Compare float and quantized model outputs.
+        """Compare predictions using metrics for the graph's output format.
 
         Returns:
-            Dict keyed by action_key, each mapping to
-            {"max_difference": float, "mean_difference": float}.
+            A dictionary keyed by graph output name. Continuous actions have
+            ``max_difference`` and ``mean_difference`` absolute-error metrics.
+            Action-token outputs have ``token_disagreement_fraction``, the
+            fraction of token positions whose IDs differ across both models.
+
+        Note:
+            Both models receive the same example inputs, including explicit
+            noise tensors when required. B denotes batch size, H action horizon,
+            D action dimension and L generated token sequence length. Token
+            comparisons include every generated position, including EOS and
+            padding positions present in the graph outputs.
         """
         with torch.no_grad():
-            float_outputs = self._float_model(*self._example_inputs)
-            quantized_outputs = self._quantized_model(*self._example_inputs)
+            float_outputs = self._float_model(
+                *self._example_inputs
+            )  # actions: each (B, H, D); tokens: (B, L)
+            quantized_outputs = self._quantized_model(
+                *self._example_inputs
+            )  # actions: each (B, H, D); tokens: (B, L)
 
         if not isinstance(float_outputs, tuple):
             float_outputs = (float_outputs,)
@@ -115,11 +137,19 @@ class QuantizationReport:
         for index, key in enumerate(self._action_keys):
             float_tensor = float_outputs[index]
             quantized_tensor = quantized_outputs[index]
-            difference = (float_tensor - quantized_tensor).abs()
-            divergence[key] = {
-                ReportMetricKey.MAX_DIFFERENCE.value: difference.max().item(),
-                ReportMetricKey.MEAN_DIFFERENCE.value: difference.mean().item(),
-            }
+            if self._export_metadata.output == PredictionOutput.ACTION_TOKENS:
+                disagreement = (float_tensor != quantized_tensor).float()  # (B, L)
+                divergence[key] = {
+                    ReportMetricKey.TOKEN_DISAGREEMENT_FRACTION.value: (
+                        disagreement.mean().item()
+                    )
+                }
+            else:
+                difference = (float_tensor - quantized_tensor).abs()  # (B, H, D)
+                divergence[key] = {
+                    ReportMetricKey.MAX_DIFFERENCE.value: difference.max().item(),
+                    ReportMetricKey.MEAN_DIFFERENCE.value: difference.mean().item(),
+                }
         return divergence
 
     def compute_size_reduction(self) -> dict[str, float]:
@@ -227,11 +257,15 @@ class QuantizationReport:
         lines.append("\nOutput Divergence:")
         divergence = self.compute_output_divergence()
         for key, metrics in divergence.items():
-            lines.append(
-                f"  {key}: "
-                f"max={metrics[ReportMetricKey.MAX_DIFFERENCE.value]:.6f}, "
-                f"mean={metrics[ReportMetricKey.MEAN_DIFFERENCE.value]:.6f}"
-            )
+            if self._export_metadata.output == PredictionOutput.ACTION_TOKENS:
+                fraction = metrics[ReportMetricKey.TOKEN_DISAGREEMENT_FRACTION.value]
+                lines.append(f"  {key}: token disagreement={fraction:.2%}")
+            else:
+                lines.append(
+                    f"  {key}: "
+                    f"max={metrics[ReportMetricKey.MAX_DIFFERENCE.value]:.6f}, "
+                    f"mean={metrics[ReportMetricKey.MEAN_DIFFERENCE.value]:.6f}"
+                )
         lines.append("\nSize Reduction:")
         size = self.compute_size_reduction()
         lines.append(

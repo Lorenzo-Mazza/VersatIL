@@ -14,8 +14,34 @@ from hydra import compose, initialize_config_dir
 import versatil.configs  # noqa: F401
 from versatil.configs.paths import get_hydra_configs_dir
 from versatil.data.constants import ProprioKey, SampleKey
+from versatil.data.metadata import PositionActionMetadata, PositionObservationMetadata
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization.action_discretizer import BinnedActionDiscretizer
+from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.metrics.base import BaseLoss
+from versatil.models.decoding.action_heads.conditional import ConditionalActionHead
+from versatil.models.decoding.action_heads.single_output import ActionHead
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.algorithm.diffusion import Diffusion
+from versatil.models.decoding.algorithm.flow_matching import FlowMatching
+from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.decoders.factory.conditional_action_unet import (
+    ConditionalActionUNet,
+)
+from versatil.models.decoding.decoders.factory.diffusion_action_transformer import (
+    DiffusionActionTransformer,
+)
+from versatil.models.decoding.decoders.factory.gpt_action_transformer import (
+    GPTActionTransformer,
+)
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.exportable.base import ExportablePolicy
+from versatil.models.exportable.metadata import PolicyExportMetadata
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.policy import Policy
+from versatil.post_training_compression.policy_context import PolicyContext
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.constants import PT2EBackendName
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
@@ -26,6 +52,198 @@ HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
 LANGUAGE_ACTION_TRANSFORMER_TINY_CONFIG = (
     "end_to_end_training_runs/libero_lerobot/bcat_language_tiny"
 )
+
+
+@pytest.fixture
+def calibration_context_factory(
+    mock_policy_factory: Callable[..., MagicMock],
+) -> Callable[..., MagicMock]:
+    def factory(batch_size: int, observation_horizon: int) -> MagicMock:
+        context = MagicMock(spec=PolicyContext)
+        context.policy = mock_policy_factory(observation_horizon=observation_horizon)
+        context.policy.normalizer = MagicMock()
+        context.tokenizer = MagicMock()
+        context.observation_space = context.policy.observation_space
+        context.observation_horizon = observation_horizon
+        context.config = MagicMock()
+        context.config.task.dataloader.batch_size = batch_size
+        context.config.task.dataset_schema.zarr_path = "/dataset.zarr"
+        context.config.task.prediction_horizon = 4
+        context.config.experiment.seed = 42
+        return context
+
+    return factory
+
+
+@pytest.fixture
+def export_mocks_factory() -> Callable[[], dict[str, MagicMock | tuple[MagicMock]]]:
+    def factory() -> dict[str, MagicMock | tuple[MagicMock]]:
+        exportable = MagicMock(spec=ExportablePolicy)
+        exportable.export_metadata = MagicMock(spec=PolicyExportMetadata)
+        return {
+            "exportable": exportable,
+            "example_inputs": (MagicMock(spec=torch.Tensor),),
+            "exported": MagicMock(spec=nn.Module),
+            "float_copy": MagicMock(spec=nn.Module),
+            "quantized": MagicMock(spec=nn.Module),
+        }
+
+    return factory
+
+
+@pytest.fixture
+def quantization_policy_factory(
+    rng: np.random.Generator,
+    position_action_metadata_factory: Callable[..., PositionActionMetadata],
+    position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    action_space_factory: Callable[..., ActionSpace],
+    observation_space_factory: Callable[..., ObservationSpace],
+) -> Callable[..., tuple[Policy, dict[str, torch.Tensor]]]:
+    def factory(
+        family: str,
+        device: torch.device,
+        dtype: torch.dtype = torch.float32,
+        batch_size: int = 2,
+        scheduler_type: str = SchedulerType.DDIM.value,
+        decoder_architecture: str = "transformer",
+    ) -> tuple[Policy, dict[str, torch.Tensor]]:
+        key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        prediction_horizon = 4 if decoder_architecture == "unet" else 2
+        action_space = action_space_factory(
+            actions_metadata={
+                key: position_action_metadata_factory(
+                    prediction_dimension=3, needs_normalization=False
+                )
+            }
+        )
+        observation_space = observation_space_factory(
+            observations_metadata={
+                key: position_observation_metadata_factory(
+                    dimension=3, needs_normalization=False
+                )
+            }
+        )
+        if family == "tokens":
+            algorithm = BehavioralCloning()
+            decoder = GPTActionTransformer(
+                input_keys=[key],
+                action_space=action_space,
+                observation_space=observation_space,
+                action_heads={
+                    DecoderOutputKey.ACTION_LOGITS.value: ActionHead(input_dimension=32)
+                },
+                observation_horizon=1,
+                prediction_horizon=2,
+                device=str(device),
+                embedding_dimension=32,
+                number_of_heads=2,
+                number_of_layers=1,
+                feedforward_dimension=64,
+                max_seq_len=32,
+                dropout_rate=0.0,
+                attention_dropout=0.0,
+                deterministic=True,
+            )
+        else:
+            algorithm = (
+                FlowMatching(num_inference_steps=3)
+                if family == "flow"
+                else Diffusion(
+                    scheduler_type=scheduler_type,
+                    num_train_timesteps=12,
+                    num_inference_steps=3,
+                )
+            )
+            if decoder_architecture == "unet":
+                decoder = ConditionalActionUNet(
+                    input_keys=[key],
+                    action_space=action_space,
+                    action_heads={},
+                    observation_space=observation_space,
+                    observation_horizon=1,
+                    prediction_horizon=prediction_horizon,
+                    device=str(device),
+                    embedding_dimension=32,
+                    down_dimensions=[16, 32],
+                    kernel_size=3,
+                    num_groups=4,
+                    condition_predict_scale=False,
+                )
+            else:
+                decoder = DiffusionActionTransformer(
+                    input_keys=[key],
+                    action_space=action_space,
+                    observation_space=observation_space,
+                    action_heads={
+                        key: ConditionalActionHead(
+                            input_dimension=32, conditioning_dimension=32
+                        )
+                    },
+                    observation_horizon=1,
+                    prediction_horizon=prediction_horizon,
+                    device=str(device),
+                    embedding_dimension=32,
+                    timestep_embedding_dimension=32,
+                    number_of_heads=2,
+                    number_of_layers=1,
+                    feedforward_dimension=64,
+                    max_sequence_length=32,
+                    dropout_rate=0.0,
+                    attention_dropout=0.0,
+                )
+        policy = (
+            Policy(
+                encoding_pipeline=EncodingPipeline(
+                    encoders={}, observation_space=observation_space
+                ),
+                algorithm=algorithm,
+                decoder=decoder,
+                observation_space=observation_space,
+                action_space=action_space,
+                prediction_horizon=prediction_horizon,
+                observation_horizon=1,
+                loss=MagicMock(spec=BaseLoss),
+                device=str(device),
+            )
+            .to(device=device, dtype=dtype)
+            .eval()
+        )
+        if family == "tokens":
+            tokenizer = ActionTokenizer(
+                action_discretizer=BinnedActionDiscretizer(num_bins=16),
+                max_token_len=7,
+                pad_token_id=16,
+            )
+            tokenizer.fit(
+                action_chunks=rng.uniform(low=-1.0, high=1.0, size=(8, 2, 3)).astype(
+                    np.float32
+                )
+            )
+            policy.set_tokenizer(tokenizer=Tokenizer(action_tokenizer=tokenizer))
+            policy.to(device=device, dtype=dtype)
+            # Exercise every configured decoding step during observer calibration.
+            token_head = policy.decoder.action_heads[
+                DecoderOutputKey.ACTION_LOGITS.value
+            ]
+            with torch.no_grad():
+                token_head.output_proj.weight[
+                    tokenizer.eos_token_id
+                ].zero_()  # (vocabulary_size, embedding_dimension) -> (embedding_dimension,)
+                token_bias = torch.zeros(
+                    tokenizer.vocab_size, device=device, dtype=dtype
+                )  # (vocabulary_size,)
+                token_bias[tokenizer.eos_token_id] = -10_000.0
+                token_head.output_proj.bias = nn.Parameter(
+                    token_bias, requires_grad=False
+                )  # (vocabulary_size,)
+        observation = {
+            key: torch.from_numpy(
+                rng.standard_normal(size=(batch_size, 1, 3)).astype(np.float32)
+            ).to(device=device, dtype=dtype)  # (batch_size, observation_horizon=1, 3)
+        }
+        return policy, observation
+
+    return factory
 
 
 class _ScopedLinearModel(nn.Module):
@@ -112,11 +330,11 @@ class _TwoPartConvModel(nn.Module):
 class _CountingCalibration:
     """Calibration iterable that records consumed batches."""
 
-    def __init__(self, batches: list[tuple[torch.Tensor, ...]]) -> None:
+    def __init__(self, batches: list[dict[str, torch.Tensor]]) -> None:
         self._batches = batches
         self.consumed_batches = 0
 
-    def __iter__(self) -> Iterator[tuple[torch.Tensor, ...]]:
+    def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
         """Yield calibration batches and count consumption."""
         for batch in self._batches:
             self.consumed_batches += 1
@@ -371,11 +589,11 @@ def two_part_model_factory(
 
 @pytest.fixture
 def counting_calibration_factory() -> Callable[
-    [list[tuple[torch.Tensor, ...]]], _CountingCalibration
+    [list[dict[str, torch.Tensor]]], _CountingCalibration
 ]:
     """Factory for calibration iterables that record consumption."""
 
-    def factory(batches: list[tuple[torch.Tensor, ...]]) -> _CountingCalibration:
+    def factory(batches: list[dict[str, torch.Tensor]]) -> _CountingCalibration:
         return _CountingCalibration(batches=batches)
 
     return factory
@@ -388,6 +606,7 @@ def mock_calibration_provider_factory(
     """Factory for mock CalibrationDataProvider with deterministic batches."""
 
     def factory(
+        observation_keys: list[str],
         batch_size: int = 2,
         input_dimension: int = 4,
         num_batches: int = 3,
@@ -395,13 +614,16 @@ def mock_calibration_provider_factory(
         provider = MagicMock(spec=CalibrationDataProvider)
         batches = []
         for _ in range(num_batches):
-            data = rng.standard_normal((batch_size, input_dimension)).astype(np.float32)
-            batches.append((torch.from_numpy(data),))
-        provider.__iter__ = MagicMock(return_value=iter(batches))
-        single_data = rng.standard_normal((batch_size, input_dimension)).astype(
-            np.float32
-        )
-        provider.get_single_batch.return_value = (torch.from_numpy(single_data),)
+            observation = {}
+            for key in reversed(observation_keys):
+                data = rng.standard_normal((batch_size, input_dimension)).astype(
+                    np.float32
+                )
+                observation[key] = torch.from_numpy(
+                    data
+                )  # (batch_size, input_dimension)
+            batches.append(observation)
+        provider.__iter__.side_effect = lambda: iter(batches)
         return provider
 
     return factory

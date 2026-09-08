@@ -1,112 +1,9 @@
-"""Tests for versatil.models.exportable_policy module."""
+"""Tests for versatil.models.exportable.base module."""
 
 import re
-from collections.abc import Callable
-from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 import torch
-from torch import nn
-
-from versatil.models.exportable_policy import ExportablePolicy
-from versatil.models.policy import Policy
-
-
-@pytest.fixture
-def exportable_factory(
-    encoding_pipeline_factory: Callable[..., MagicMock],
-) -> Callable[..., ExportablePolicy]:
-    """Factory for ExportablePolicy with configurable keys."""
-
-    def factory(
-        observation_keys: list[str] | None = None,
-        action_keys: list[str] | None = None,
-        pipeline: MagicMock | None = None,
-    ) -> ExportablePolicy:
-        if observation_keys is None:
-            observation_keys = ["depth", "left"]
-        if action_keys is None:
-            action_keys = ["orientation", "position"]
-        return ExportablePolicy(
-            encoding_pipeline=pipeline or encoding_pipeline_factory(),
-            algorithm=MagicMock(),
-            decoder=MagicMock(),
-            observation_keys=observation_keys,
-            action_keys=action_keys,
-        )
-
-    return factory
-
-
-@pytest.fixture
-def from_policy_factory(
-    policy_factory: Callable[..., Policy],
-    vision_encoder_factory: Callable[..., MagicMock],
-    encoding_pipeline_factory: Callable[..., MagicMock],
-) -> Callable[..., Policy]:
-    """Factory for Policy instances configured for from_policy tests."""
-
-    def factory(
-        encoder_keys: dict[str, list[str]] | None = None,
-        conditional_encoder_keys: dict[str, list[str]] | None = None,
-        action_keys: list[str] | None = None,
-    ) -> Policy:
-        if encoder_keys is None:
-            encoder_keys = {"rgb": ["left", "right"]}
-        if conditional_encoder_keys is None:
-            conditional_encoder_keys = {}
-        if action_keys is None:
-            action_keys = ["position"]
-        encoders = nn.ModuleDict(
-            {
-                name: vision_encoder_factory(input_keys=keys)
-                for name, keys in encoder_keys.items()
-            }
-        )
-        conditional_encoders = nn.ModuleDict(
-            {
-                name: vision_encoder_factory(input_keys=keys)
-                for name, keys in conditional_encoder_keys.items()
-            }
-        )
-        pipeline = encoding_pipeline_factory(
-            encoders=encoders,
-            conditional_encoders=conditional_encoders,
-        )
-        decoder = MagicMock()
-        decoder.decoder_input.needs_raw_observations = False
-        decoder.requires_tokenized_actions = False
-        decoder.action_heads = nn.ModuleDict(
-            {key: nn.Identity() for key in action_keys}
-        )
-        return policy_factory(
-            encoding_pipeline=pipeline,
-            decoder=decoder,
-        )
-
-    return factory
-
-
-@pytest.fixture
-def observation_tensor_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for observation tensors with configurable shape."""
-
-    def factory(
-        batch_size: int = 2,
-        channels: int = 3,
-        height: int = 64,
-        width: int = 64,
-    ) -> torch.Tensor:
-        return torch.from_numpy(
-            rng.standard_normal((batch_size, channels, height, width)).astype(
-                np.float32
-            )
-        )
-
-    return factory
 
 
 @pytest.mark.unit
@@ -250,66 +147,11 @@ class TestExportablePolicyForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Expected 2 observation tensors matching keys "
-                f"['depth', 'left'], got {tensor_count}"
+                f"Expected 2 policy input tensors "
+                f"(2 observations and 0 noise inputs), got {tensor_count}"
             ),
         ):
             exportable(*tensors)
-
-
-@pytest.mark.unit
-class TestFromPolicy:
-    @pytest.mark.parametrize(
-        "encoder_keys, conditional_keys, expected",
-        [
-            ({"rgb": ["left", "right"]}, {}, {"left", "right"}),
-            ({"rgb": ["left"]}, {"depth": ["depth"]}, {"left", "depth"}),
-        ],
-    )
-    def test_derives_observation_keys_from_all_encoders(
-        self,
-        from_policy_factory,
-        encoder_keys,
-        conditional_keys,
-        expected,
-    ):
-        policy = from_policy_factory(
-            encoder_keys=encoder_keys,
-            conditional_encoder_keys=conditional_keys,
-            action_keys=["position"],
-        )
-
-        exportable = ExportablePolicy.from_policy(policy=policy)
-
-        assert set(exportable.observation_keys) == expected
-
-    def test_tokenized_action_policy_raises(self, from_policy_factory):
-        policy = from_policy_factory(action_keys=["position"])
-        policy.decoder.requires_tokenized_actions = True
-
-        with pytest.raises(ValueError, match="tokenized-action decoders"):
-            ExportablePolicy.from_policy(policy=policy)
-
-    def test_keys_are_sorted(self, from_policy_factory):
-        policy = from_policy_factory(
-            encoder_keys={"rgb": ["right", "left"]},
-            action_keys=["position", "gripper", "orientation"],
-        )
-
-        exportable = ExportablePolicy.from_policy(policy=policy)
-
-        assert exportable.observation_keys == sorted(exportable.observation_keys)
-        assert exportable.action_keys == sorted(exportable.action_keys)
-
-    def test_shares_policy_components(self, from_policy_factory):
-        policy = from_policy_factory()
-
-        exportable = ExportablePolicy.from_policy(policy=policy)
-
-        # Verify shared reference via mutation
-        param = nn.Parameter(torch.tensor(42.0))
-        policy.encoding_pipeline.test_param = param
-        assert exportable.encoding_pipeline.test_param is param
 
 
 @pytest.mark.unit

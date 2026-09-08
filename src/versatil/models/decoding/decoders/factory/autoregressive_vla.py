@@ -16,6 +16,7 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import ActionHeadLayout, DecoderOutputKey
 from versatil.models.decoding.decoders.autoregressive_mixin import (
     AutoregressiveDecoderMixin,
+    AutoregressivePrefix,
     CachedAutoregressiveGenerationState,
     PastKeyValues,
 )
@@ -818,6 +819,7 @@ class AutoregressiveVLADecoder(
         self,
         prefix_tokens: torch.Tensor,
         prefix_token_mask: torch.Tensor | None = None,
+        fixed_length: bool = False,
     ) -> dict[str, torch.Tensor]:
         """Generate action tokens from a right-aligned VLA prefix.
 
@@ -825,9 +827,67 @@ class AutoregressiveVLADecoder(
             prefix_tokens: VLA prefix embeddings with shape ``(B, P, D)``.
             prefix_token_mask: Optional prefix padding mask with shape ``(B, P)``,
                 where ``True`` marks padding.
+            fixed_length: Whether to preserve prefix width and execute the maximum
+                generation length, repeating EOS for completed sequences.
 
         Returns:
             Dict containing generated token IDs with shape ``(B, T_generated)``.
+
+        Note:
+            ``B`` is batch size, ``P`` is prefix width, ``D`` is embedding dimension
+            and ``T_generated`` is the number of generated tokens.
+        """
+        prefix = self._prefill_tokens(
+            prefix_tokens=prefix_tokens,
+            prefix_token_mask=prefix_token_mask,
+            fixed_length=fixed_length,
+        )
+        return self._run_cached_autoregressive_generation(
+            initial_state=prefix.state,
+            max_generation_steps=prefix.max_generation_steps,
+            initial_step_output=prefix.first_output,
+            fixed_length=fixed_length,
+        )  # tokens: (B, T_generated)
+
+    def prefill(
+        self,
+        features: dict[str, torch.Tensor],
+        fixed_length: bool = False,
+    ) -> AutoregressivePrefix:
+        """Encode the observation prefix and initialize language-model generation.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``P`` for prefix length and ``D``
+            for embedding dimension.
+
+        Args:
+            features: Image, language and state inputs expected by the VLM.
+            fixed_length: Whether to keep the padded prefix width for graph export.
+                Every batch row must contain at least one non-padding prefix token.
+
+        Returns:
+            Language-model cache, first-token logits and generation limit.
+        """
+        self._validate_action_tokenizer_is_set()
+        tokens, mask = self._build_projected_prefix(
+            features=features
+        )  # (B, P, D), (B, P) or None
+        return self._prefill_tokens(
+            prefix_tokens=tokens, prefix_token_mask=mask, fixed_length=fixed_length
+        )
+
+    def _prefill_tokens(
+        self,
+        prefix_tokens: torch.Tensor,
+        prefix_token_mask: torch.Tensor | None,
+        fixed_length: bool,
+    ) -> AutoregressivePrefix:
+        """Run the language model on prefix embeddings and return its cache.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``P`` for prefix length and ``D``
+            for embedding dimension. Prefix alignment keeps width ``P`` when
+            ``fixed_length=True``; otherwise ``P`` is reduced to the longest valid row.
         """
         prefix_len = prefix_tokens.shape[1]
         if prefix_len == 0:
@@ -838,9 +898,14 @@ class AutoregressiveVLADecoder(
             right_aligned_prefix_tokens,
             right_aligned_prefix_padding_mask,
             prefix_lengths,
-        ) = self._build_prefill_inputs(
-            prefix_tokens=prefix_tokens,
-            prefix_token_mask=prefix_token_mask,
+        ) = (
+            self._align_fixed_prefix(
+                prefix_tokens=prefix_tokens, prefix_token_mask=prefix_token_mask
+            )
+            if fixed_length
+            else self._build_prefill_inputs(
+                prefix_tokens=prefix_tokens, prefix_token_mask=prefix_token_mask
+            )
         )
         max_valid_prefix_length = right_aligned_prefix_tokens.shape[1]
         if max_valid_prefix_length >= self.max_seq_len:
@@ -854,10 +919,10 @@ class AutoregressiveVLADecoder(
             tokens=right_aligned_prefix_tokens,
             prefix_length=max_valid_prefix_length,
             causal_suffix=True,
-        )
+        )  # (B, P) for causal attention, (B, 1, P, P) for bidirectional prefixes
         prefill_position_ids = self._build_position_ids_from_padding_mask(
             padding_mask=right_aligned_prefix_padding_mask,
-        )
+        )  # (B, P)
         prefill_output = self.vlm_backbone.forward_language_model(
             inputs_embeds=right_aligned_prefix_tokens,
             attention_mask=prefill_attention_mask,
@@ -878,39 +943,108 @@ class AutoregressiveVLADecoder(
                 0,
                 dtype=torch.long,
                 device=right_aligned_prefix_tokens.device,
-            ),
-            attention_mask=self._build_cached_generation_attention_mask(
-                prefix_token_mask=right_aligned_prefix_padding_mask,
-                prefix_tokens=right_aligned_prefix_tokens,
+            ),  # (B, 0)
+            attention_mask=(
+                (~right_aligned_prefix_padding_mask).long()  # (B, P)
+                if fixed_length
+                else self._build_cached_generation_attention_mask(
+                    prefix_token_mask=right_aligned_prefix_padding_mask,
+                    prefix_tokens=right_aligned_prefix_tokens,
+                )
             ),
             position_ids=prefix_lengths.unsqueeze(1) - 1,  # (B, 1)
         )
-        return self._run_cached_autoregressive_generation(
-            initial_state=initial_state,
+        return AutoregressivePrefix(
+            state=initial_state,
             max_generation_steps=self._get_max_generation_steps(
                 available_context_steps=self.max_seq_len - max_valid_prefix_length,
             ),
-            initial_step_output=prefill_output,
+            first_output=prefill_output,
         )
+
+    def _align_fixed_prefix(
+        self,
+        prefix_tokens: torch.Tensor,
+        prefix_token_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Move padding to the left while preserving prefix width and token order.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``P`` for prefix width and ``D``
+            for embedding dimension.
+
+        Args:
+            prefix_tokens: Embeddings shaped ``(B, P, D)``.
+            prefix_token_mask: Boolean tensor shaped ``(B, P)`` with ``True`` for
+                padding. If omitted, every prefix position contains a valid token.
+
+        Returns:
+            Right-aligned embeddings ``(B, P, D)``, padding mask ``(B, P)`` and
+            the number of valid tokens in each batch row ``(B,)``.
+        """
+        valid_token_mask = self._get_prefix_valid_mask(
+            prefix_tokens=prefix_tokens, prefix_token_mask=prefix_token_mask
+        )  # (B, P)
+        prefix_lengths = valid_token_mask.sum(dim=1)  # (B, P) -> (B,)
+        prefix_width = prefix_tokens.shape[1]
+        valid_positions = valid_token_mask.long().cumsum(dim=1) - 1  # (B, P)
+        padding_positions = (~valid_token_mask).long().cumsum(dim=1) - 1  # (B, P)
+        first_valid_position = (prefix_width - prefix_lengths).unsqueeze(
+            1
+        )  # (B,) -> (B, 1)
+        destinations = torch.where(
+            valid_token_mask,
+            first_valid_position + valid_positions,  # (B, 1) + (B, P) -> (B, P)
+            padding_positions,
+        )  # (B, P)
+        aligned = torch.zeros_like(prefix_tokens).scatter(
+            dim=1,
+            index=destinations.unsqueeze(-1).expand_as(
+                prefix_tokens
+            ),  # (B, P) -> (B, P, D)
+            src=prefix_tokens * valid_token_mask.unsqueeze(-1),  # (B, P, D)
+        )  # (B, P, D)
+        positions = torch.arange(prefix_width, device=prefix_tokens.device).unsqueeze(
+            0
+        )  # (P,) -> (1, P)
+        padding = positions < first_valid_position  # (1, P) < (B, 1) -> (B, P)
+        return aligned, padding, prefix_lengths
 
     def forward(
         self,
         features: dict[str, torch.Tensor],
         actions: dict[str, torch.Tensor] | None = None,
+        fixed_length: bool = False,
     ) -> dict[str, torch.Tensor]:
-        """Run VLM-conditioned action-token prediction."""
+        """Run VLM-conditioned action-token prediction.
+
+        Args:
+            features: Image, language and state inputs expected by the VLM.
+            actions: Tokenized training targets. Inference runs when this is ``None``.
+            fixed_length: Whether inference preserves prefix width and executes the
+                maximum token count, repeating EOS for completed sequences.
+
+        Returns:
+            Training token logits or generated action-token IDs.
+
+        Note:
+            ``B`` is batch size, ``P`` is prefix width, ``D`` is embedding dimension,
+            ``A`` is action-token length and ``V`` is vocabulary size.
+            ``fixed_length`` controls inference; training consumes the supplied targets.
+        """
         self._validate_action_tokenizer_is_set()
         prefix_tokens, prefix_token_mask = self._build_projected_prefix(
             features=features
-        )
+        )  # (B, P, D), (B, P) or None
         if actions is not None:
             return self._forward_action_token_training(
                 actions=actions,
                 prefix_tokens=prefix_tokens,
                 prefix_token_mask=prefix_token_mask,
-            )
+            )  # logits: (B, A, V)
         else:
             return self._forward_action_token_inference(
                 prefix_tokens=prefix_tokens,
                 prefix_token_mask=prefix_token_mask,
-            )
+                fixed_length=fixed_length,
+            )  # tokens: (B, A)

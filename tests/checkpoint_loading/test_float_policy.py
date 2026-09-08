@@ -90,3 +90,9 @@ def test_float_checkpoint_loader_restores_policy(
     else:
         config.policy.set_tokenizer.assert_not_called()
     assert loader.policy is config.policy
+    assert loader.observation_space == config.policy.observation_space
+    assert loader.action_space == config.policy.action_space
+    assert loader.prediction_horizon == 4
+    assert loader.observation_horizon == 2
+    assert loader.denoising_thresholds == {"position": 0.05}
+    config.policy.get_denoising_thresholds.assert_called_once_with()

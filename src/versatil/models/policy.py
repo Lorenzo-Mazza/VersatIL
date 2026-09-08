@@ -365,6 +365,33 @@ class Policy(nn.Module):
             algorithm_injected_keys=self.algorithm.injected_feature_keys(),
         )
 
+    def predict_from_processed_observation(
+        self,
+        observation: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Encode processed observations and run the decoding algorithm.
+
+        Args:
+            observation: Batched model inputs, already normalized and tokenized
+                according to the policy configuration, on the policy's device.
+
+        Returns:
+            Normalized continuous actions, or generated token IDs under
+            ``DecoderOutputKey.PREDICTED_ACTION_TOKENS`` for tokenized decoders.
+
+        Note:
+            The algorithm runs its full prediction procedure, including denoising
+            or autoregressive generation. Action detokenization and unnormalization
+            are performed by ``predict_action``. B denotes batch size, H the action
+            horizon, D each action's dimension and L the generated token length.
+        """
+        features = self._build_algorithm_features(
+            observation=observation
+        )  # each feature: (B, ...)
+        return self.algorithm.predict(
+            features=features, network=self.decoder
+        )  # actions: (B, H, D); tokens: (B, L)
+
     def predict_action(
         self,
         obs_dict: dict[str, torch.Tensor],
@@ -376,6 +403,10 @@ class Policy(nn.Module):
 
         Returns:
             Predicted actions (on same device as policy)
+
+        Note:
+            B denotes batch size, H the action horizon, D each action's dimension
+            and L the generated token length.
         """
         obs_dict = to_device(obs_dict, device=self.device)
         normalized_observation = normalize_observation(
@@ -395,8 +426,9 @@ class Policy(nn.Module):
                 obs_tokenizer=self.tokenizer.observation_tokenizer,
                 batched=True,
             )
-        features = self._build_algorithm_features(observation=normalized_observation)
-        predictions = self.algorithm.predict(features=features, network=self.decoder)
+        predictions = self.predict_from_processed_observation(
+            observation=normalized_observation
+        )  # actions: (B, H, D); tokens: (B, L)
         if DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions:
             action_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
             if self.tokenizer is None or self.tokenizer.action_tokenizer is None:

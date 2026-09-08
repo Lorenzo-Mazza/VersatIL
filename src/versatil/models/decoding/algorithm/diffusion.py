@@ -1,19 +1,4 @@
-"""Diffusion algorithm for action generation via iterative denoising.
-
-This module implements diffusion-based action generation using shared diffusion
-process components from diffusion_process.py. The algorithm trains a network
-to denoise actions at various noise levels and uses iterative denoising for
-action prediction during inference.
-
-Shared Components Used:
-    - DiffusionSchedulerConfig: Unified configuration for DDPM/DDIM schedulers
-    - create_noise_scheduler(): Factory for creating noise schedulers
-    - add_noise_to_tensor(): Forward diffusion process (adding noise to clean actions)
-    - sample_random_timesteps(): Uniform timestep sampling for training
-    - setup_inference_timesteps(): Configure scheduler for reverse diffusion
-
-See diffusion_process.py for detailed documentation of these components.
-"""
+"""Train diffusion action decoders and sample actions with DDIM or DDPM."""
 
 import torch
 
@@ -36,8 +21,8 @@ from versatil.models.layers.denoising.diffusion_process import (
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
-    setup_inference_timesteps,
 )
+from versatil.models.layers.denoising.diffusion_schedule import DiffusionSchedule
 
 
 class Diffusion(DecodingAlgorithm):
@@ -47,9 +32,10 @@ class Diffusion(DecodingAlgorithm):
     noise levels. During inference, starts from random noise and iteratively denoises
     to generate actions.
 
-    The diffusion process follows:
-    - Training: x_t = sqrt(alpha_t) * x_0 + sqrt(1 - alpha_t) * epsilon
-    - Inference: Iteratively denoise from x_T to x_0 using learned denoising model
+    Note:
+        The training scheduler adds noise to target actions. ``inference_schedule``
+        stores the timesteps and coefficients for denoising, computed when the
+        algorithm is constructed or ``num_inference_steps`` is changed.
 
     Args:
         scheduler_type: Type of diffusion scheduler ("ddpm" or "ddim")
@@ -58,8 +44,10 @@ class Diffusion(DecodingAlgorithm):
         beta_start: Starting value of noise schedule
         beta_end: Ending value of noise schedule
         beta_schedule: Noise schedule type ("linear", "squaredcos_cap_v2", etc.)
-        prediction_type: What the network predicts ("epsilon" for noise, "sample" for clean actions)
-        scheduler_variance_type: Variance type for DDPM scheduler
+        prediction_type: ``epsilon`` for noise, ``sample`` for clean actions or
+            ``velocity`` for the diffusion velocity target.
+        scheduler_variance_type: DDPM variance rule: ``fixed_small``,
+            ``fixed_small_log`` or ``fixed_large``.
         clip_sample: Whether to clip samples to [-1, 1] during inference
         set_alpha_to_one: Whether to set final alpha to 1
         steps_offset: Offset for timestep calculation
@@ -78,7 +66,7 @@ class Diffusion(DecodingAlgorithm):
         clip_sample: bool = True,
         set_alpha_to_one: bool = True,
         steps_offset: int = 0,
-    ):
+    ) -> None:
         """Initialize Diffusion algorithm."""
         super().__init__()
 
@@ -95,11 +83,29 @@ class Diffusion(DecodingAlgorithm):
             set_alpha_to_one=set_alpha_to_one,
             steps_offset=steps_offset,
         )
-        self.noise_scheduler = create_noise_scheduler(scheduler_config)
-
+        self.noise_scheduler = create_noise_scheduler(config=scheduler_config)
         self.num_train_timesteps = num_train_timesteps
         self.num_inference_steps = num_inference_steps
         self.prediction_type = prediction_type
+
+    @property
+    def num_inference_steps(self) -> int:
+        """Return the number of denoising updates in the inference schedule."""
+        return len(self.inference_schedule.timesteps)
+
+    @num_inference_steps.setter
+    def num_inference_steps(self, value: int) -> None:
+        """Recompute inference timesteps and coefficients for the given step count.
+
+        Args:
+            value: Number of updates, between one and ``num_train_timesteps``.
+
+        Raises:
+            ValueError: If the step count or scheduler settings are unsupported.
+        """
+        self.inference_schedule = DiffusionSchedule(
+            scheduler=self.noise_scheduler, num_inference_steps=value
+        )
 
     def injected_feature_keys(self) -> set[str]:
         """The conditioning timestep is provided by the algorithm."""
@@ -211,51 +217,137 @@ class Diffusion(DecodingAlgorithm):
         network: ActionDecoder,
         features: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Inference/prediction pass.
+        """Sample Gaussian noise and denoise it into an action chunk.
 
-        Generates actions by starting from random noise and iteratively denoising.
+        Note:
+            ``B`` is batch size, ``S`` is the number of inference steps, ``H`` is
+            the prediction horizon and ``D_k`` is the dimension of action component k.
 
         Args:
-            network: The action decoder network module
-            features: Dict of encoded features from encoding pipeline
+            network: Decoder with timestep conditioning and action-space metadata.
+            features: Encoded observation features. The first floating feature
+                determines the noise device, dtype and batch size.
 
         Returns:
-            Decoder output dictionary containing denoised action predictions.
+            Normalized action chunks, keyed by action name, shaped ``(B, H, D_k)``.
         """
         batch_size, device, dtype = resolve_feature_reference(features=features)
 
-        # Initialize actions with random noise
-        noisy_actions = {}
+        initial_noise = {}
         for key, meta in network.action_space.actions_metadata.items():
             if not meta.requires_prediction_head:
                 continue
-            noisy_actions[key] = torch.randn(
+            initial_noise[key] = torch.randn(
                 batch_size,
                 network.prediction_horizon,
                 meta.prediction_dimension,
                 device=device,
                 dtype=dtype,
+            )  # (B, H, D_k)
+        step_noise = None
+        if self.inference_schedule.stochastic:
+            step_noise = {
+                key: torch.randn(
+                    batch_size,
+                    len(self.inference_schedule.timesteps),
+                    *noise.shape[1:],
+                    device=device,
+                    dtype=dtype,
+                )  # (B, S, H, D_k)
+                for key, noise in initial_noise.items()
+            }
+        return self.predict_from_noise(
+            network=network,
+            features=features,
+            initial_noise=initial_noise,
+            step_noise=step_noise,
+        )
+
+    def predict_from_noise(
+        self,
+        network: ActionDecoder,
+        features: dict[str, torch.Tensor],
+        initial_noise: dict[str, torch.Tensor],
+        step_noise: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Generate an action chunk from the given initial and per-step noise.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``S`` for inference steps, ``H``
+            for prediction horizon and ``D_k`` for the dimension of action component k.
+            The decoder's encoded observations are cached for this call and the
+            cache is cleared when sampling returns or raises an exception.
+            DDPM noise at timestep zero is unused; that update is deterministic.
+
+        Args:
+            network: Decoder that predicts noise, clean actions or velocity according
+                to the schedule's prediction type.
+            features: Encoded observation features used at every denoising step.
+            initial_noise: Standard-normal starting values, keyed by action name.
+                Each tensor has shape ``(batch, prediction_horizon, action_dimension)``.
+            step_noise: Standard-normal noise added during DDPM updates, keyed by
+                action name. Each tensor has shape
+                ``(batch, inference_steps, prediction_horizon, action_dimension)``.
+                The second dimension follows ``inference_schedule.timesteps``.
+                Omit for DDIM.
+
+        Returns:
+            Normalized action chunks after the last denoising step. Keys and tensor
+            shapes match ``initial_noise``.
+
+        Raises:
+            ValueError: If initial noise is empty, or DDPM step noise is missing
+                or has different keys or dimensions from the initial noise.
+        """
+        if not initial_noise:
+            raise ValueError(
+                "Diffusion inference requires at least one action component."
             )
-        setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
+        if self.inference_schedule.stochastic:
+            if step_noise is None or step_noise.keys() != initial_noise.keys():
+                raise ValueError(
+                    "DDPM inference requires step noise for every initial-noise "
+                    "action component."
+                )
+            for key, noise in initial_noise.items():
+                expected_shape = (
+                    noise.shape[0],
+                    len(self.inference_schedule.timesteps),
+                    *noise.shape[1:],
+                )
+                if step_noise[key].shape != expected_shape:
+                    raise ValueError(
+                        f"DDPM step noise for {key!r} must have shape {expected_shape}, "
+                        f"got {tuple(step_noise[key].shape)}."
+                    )
+        noisy_actions = dict(initial_noise)
+        reference = next(iter(noisy_actions.values()))  # (B, H, D_k)
         network.enable_encoder_cache()
         try:
-            # Iteratively denoise
-            for t in self.noise_scheduler.timesteps:
-                # Expand timestep to batch dimension
-                timestep = t.unsqueeze(0).expand(batch_size).to(device)
+            for step_index, timestep in enumerate(self.inference_schedule.timesteps):
                 features_with_time = {
                     **features,
-                    AlgorithmContextKey.TIMESTEP.value: timestep,
+                    AlgorithmContextKey.TIMESTEP.value: torch.full(
+                        (reference.shape[0],),
+                        timestep,
+                        device=reference.device,
+                        dtype=torch.long,
+                    ),  # (B,)
                 }
                 model_output = network(
                     features=features_with_time, actions=noisy_actions
-                )
-                for key in noisy_actions:
-                    if key in model_output:
-                        noisy_actions[key] = self.noise_scheduler.step(
-                            model_output[key], t, noisy_actions[key]
-                        ).prev_sample
+                )  # each action: (B, H, D_k)
+                noisy_actions = {
+                    key: self.inference_schedule(
+                        model_output=model_output[key],
+                        sample=sample,
+                        step_index=step_index,
+                        noise=step_noise[key][:, step_index]
+                        if step_noise is not None
+                        else None,  # (B, S, H, D_k) -> (B, H, D_k), or None
+                    )  # (B, H, D_k)
+                    for key, sample in noisy_actions.items()
+                }
         finally:
             network.disable_encoder_cache()
-
         return noisy_actions

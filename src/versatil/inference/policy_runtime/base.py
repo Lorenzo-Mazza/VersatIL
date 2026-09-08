@@ -3,12 +3,12 @@
 from abc import ABC, abstractmethod
 
 import torch
+from omegaconf import DictConfig
 
 from versatil.checkpoint_loading.base import BaseCheckpointLoader
 from versatil.configs import MainConfig
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.models.policy import Policy
 
 
 class PolicyRuntime(ABC):
@@ -22,7 +22,6 @@ class PolicyRuntime(ABC):
         """Initialize runtime metadata delegation."""
         self.checkpoint_loader = checkpoint_loader
         self._client_identifier = client_identifier
-        self._policy = checkpoint_loader.policy
 
     @abstractmethod
     def run_inference(
@@ -30,11 +29,6 @@ class PolicyRuntime(ABC):
         obs_dict: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Run inference on preprocessed observations."""
-
-    @property
-    def policy(self) -> Policy:
-        """Get the runtime policy module."""
-        return self._policy
 
     @property
     def device(self) -> torch.device:
@@ -52,7 +46,7 @@ class PolicyRuntime(ABC):
         return self._client_identifier
 
     @property
-    def config(self) -> MainConfig:
+    def config(self) -> MainConfig | DictConfig:
         """Loaded training configuration."""
         return self.checkpoint_loader.config
 

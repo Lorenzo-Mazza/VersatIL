@@ -19,8 +19,13 @@ entries, then delegates quantization and deployment to separate abstractions:
 
 - **Quantization workflows** decide how the policy is exported or quantized:
   no quantization, eager, or PyTorch 2 Export.
-- **Deployment backends** decide the final artifact format: e.g. Torch Export
-  `.pt2` or ExecuTorch `.pte`.
+- **Deployment backends** validate workflow modes, PT2E pairings and eager
+  representations, then produce Torch Export `.pt2` or ExecuTorch `.pte` artifacts.
+
+Within eager quantization, targets select and filter linear layers and construct
+conversion metadata. Quantization schemas supply TorchAO preparation and
+conversion configurations and check numerical, dtype, device and calibration
+requirements. The workflow executes preparation, calibration, conversion and export.
 
 ## Pipeline Flow
 
@@ -29,8 +34,8 @@ PostTrainingCompressor.compress()
 |
 +-- resolve_modules()                    Per-module targets or global fallback
 +-- _resolve_quantization_workflow()      none, eager, or pt2e path
-+-- _validate_deployment_backend_compatibility()
-|   Validate workflow mode vs deployment backend
++-- deployment_backend.validate_quantization()
+|   Validate workflow mode and PT2E backend names
 |
 +-- workflow.load_policy_context()        Load float or QAT-prepared checkpoint
 +-- validate()                            Check preparation/pruning module paths
@@ -41,9 +46,9 @@ PostTrainingCompressor.compress()
 |   +-- fuse_conv_batchnorm()             Fold BN weights into Conv2d
 |   +-- pruner.prune() x N                Apply pruners sequentially
 |
-+-- ExportablePolicy.from_policy()        Positional tensor I/O wrapper
-+-- workflow.quantize()                   Export or quantize policy
-+-- deployment_backend.export()           Build .pt2 descriptor or .pte bytes
++-- create_exportable_policy()           Adapter for the policy's prediction procedure
++-- workflow.quantize()                  Quantize/export; validate eager target formats
++-- deployment_backend.export()          Build .pt2 descriptor or .pte bytes
 +-- save_compressed_model()               Artifact, metadata, normalizer, tokenizer
 |
 +-- optional QuantizationReport           Coverage, size, divergence, speed
@@ -55,12 +60,13 @@ PostTrainingCompressor.compress()
 |-------|--------|------|
 | [`PostTrainingCompressor`][versatil.post_training_compression.compressor.PostTrainingCompressor] | `src/versatil/post_training_compression/compressor.py` | Pipeline orchestrator. Resolves targets, validates compatibility, prepares/prunes, exports, saves. |
 | [`CompressionTarget`][versatil.post_training_compression.compression_target.CompressionTarget] | `src/versatil/post_training_compression/compression_target.py` | Per-module preparation and pruning config: `module_path`, preparation, pruning list. |
-| [`QuantizationModuleTarget`][versatil.quantization.module_target.QuantizationModuleTarget] | `src/versatil/quantization/module_target.py` | Per-module quantization target owned by the selected quantization workflow. |
-| [`ExportablePolicy`][versatil.models.exportable_policy.ExportablePolicy] | `src/versatil/models/exportable_policy.py` | Wraps `Policy` with positional tensor I/O for `torch.export`. |
-| [`DeploymentBackend`][versatil.post_training_compression.deployment_backends.base.DeploymentBackend] | `src/versatil/post_training_compression/deployment_backends/base.py` | Base class for final deployment artifact generation. |
+| [`QuantizationModuleTarget`][versatil.quantization.module_target.QuantizationModuleTarget] | `src/versatil/quantization/module_target.py` | Per-module quantization scope; eager targets select/filter linears and construct conversion metadata. |
+| [`QuantizationSchema`][versatil.quantization.schemas.base.QuantizationSchema] | `src/versatil/quantization/schemas/base.py` | TorchAO preparation and conversion configurations, with numerical, dtype, device and calibration checks. |
+| [`ExportablePolicy`][versatil.models.exportable.base.ExportablePolicy] | `src/versatil/models/exportable/base.py` | Ordered tensor inputs and outputs for graph capture; specialized adapters handle denoising and token generation. |
+| [`DeploymentBackend`][versatil.post_training_compression.deployment_backends.base.DeploymentBackend] | `src/versatil/post_training_compression/deployment_backends/base.py` | Workflow/representation validation and deployment artifact generation. |
 | [`TorchInductorBackend`][versatil.post_training_compression.deployment_backends.torch_inductor.TorchInductorBackend] | `src/versatil/post_training_compression/deployment_backends/torch_inductor.py` | Saves Torch Export `.pt2` artifacts. |
 | [`ExecutorchXNNPACKBackend`][versatil.post_training_compression.deployment_backends.executorch_xnnpack.ExecutorchXNNPACKBackend] | `src/versatil/post_training_compression/deployment_backends/executorch_xnnpack.py` | Lowers exported programs to ExecuTorch XNNPACK `.pte` artifacts. |
-| [`CompressedCheckpointLoader`][versatil.checkpoint_loading.compressed_policy.CompressedCheckpointLoader] | `src/versatil/checkpoint_loading/compressed_policy.py` | Loads compressed checkpoint metadata, normalizer, tokenizer, and deployment artifact. |
+| [`CompressedCheckpointLoader`][versatil.checkpoint_loading.compressed_policy.CompressedCheckpointLoader] | `src/versatil/checkpoint_loading/compressed_policy.py` | Restores inference metadata, normalizer and tokenizer; locates the deployment artifact. |
 | [`CompressedPolicyRuntime`][versatil.inference.policy_runtime.compressed_runtime.CompressedPolicyRuntime] | `src/versatil/inference/policy_runtime/compressed_runtime.py` | Runs compressed policies through the inference runtime interface. |
 
 ## Compression Targets
@@ -117,7 +123,12 @@ calibration, and PT2E backend details.
 
 ## Deployment Backends
 
-Deployment backends run after the workflow returns a `QuantizedContext`.
+The compressor calls `DeploymentBackend.validate_quantization()` before loading
+the checkpoint. This checks the workflow mode and selected PT2E backend names.
+It also passes the backend instance to `workflow.quantize()`, where
+`validate_eager_target()` checks representation-specific requirements before
+eager conversion. Artifact generation runs after the workflow returns a
+`QuantizedContext`.
 
 | Backend | Artifact format | Output file | Notes |
 |---------|-----------------|-------------|-------|
@@ -150,18 +161,28 @@ compressed/<timestamp>/
 - source training checkpoint path;
 - torch and torchao versions;
 - workflow mode (`none`, `eager`, or `pt2e`);
-- PT2E backend flags when applicable.
+- PT2E backend flags when applicable;
+- eager target records, including `schema`, `schema_parameters`, selected/skipped
+  layers and converted weight classes;
+- the number of calibration observation batches consumed;
+- policy graph output meaning and additional input shapes.
 
-`CompressedCheckpointLoader` reads the metadata, normalizer, tokenizer, and
-artifact. `CompressedPolicyRuntime` then exposes the same runtime interface used
-by the inference client for floating-point policies.
+`CompressedCheckpointLoader` constructs the observation and action spaces from
+the saved configuration and restores the normalizer, tokenizer and denoising
+thresholds. `CheckpointMetadata` groups the spaces and observation/prediction
+horizons used by checkpoint loaders. The compressed loader retains the rest of
+the YAML configuration for inference settings, including camera rotation.
 
-!!! warning "Compressed artifacts are not standalone"
+`CompressedPolicyRuntime` loads the deployment artifact and exposes the same
+inference interface as `FloatPolicyRuntime`. Floating and QAT checkpoint loaders
+also construct a `Policy` for native prediction and training.
 
-    Currently, compressed models are not fully standalone: they still require
-    a complete VersatIL installation, including its dependencies. Since this
-    is not ideal for edge deployment, self-contained edge-device inference
-    runtime is currently under development.
+!!! note "Runtime dependencies"
+
+    Compressed policy loading and action reconstruction require VersatIL and
+    the selected runtime and tokenizer dependencies. Torch Export
+    artifacts execute through PyTorch; ExecuTorch artifacts use the ExecuTorch
+    runtime. Tokenizer assets and the normalizer are saved with the artifact.
 
 ## Hydra Configuration
 
@@ -209,7 +230,8 @@ an eager or PT2E workflow as described in [Quantization](quantization.md).
 ## Compatibility Rules
 
 - A compression run uses one quantization workflow: `none`, `eager`, or `pt2e`.
-- `modules` do not carry quantization configs. Use `quantization.targets` for
+- `modules` configures preparation and pruning; `quantization.targets` configures
   module-level quantization.
-- Export currently runs on CPU. PT2E calibration also runs on CPU because the
-  exported graph records device metadata.
+- The current compressor builds its policy context and example inputs on CPU.
+  Export and calibration use that same device, matching the device-specific
+  operations recorded in the graph.

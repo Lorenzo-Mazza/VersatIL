@@ -2,23 +2,38 @@
 
 import re
 from collections.abc import Callable
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
+from torchao.quantization import Int8WeightOnlyConfig, quantize_
+from transformers import PreTrainedTokenizerBase, ProcessorMixin
 from transformers.cache_utils import Cache
 
-from versatil.data.constants import ActionTokenIdMappingType, SampleKey
+from versatil.data.constants import ActionTokenIdMappingType, Cameras, SampleKey
+from versatil.data.metadata import CameraMetadata, PositionActionMetadata
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.action_discretizer import (
     ActionDiscretizer,
     BinnedActionDiscretizer,
+    FastActionDiscretizer,
 )
-from versatil.data.tokenization.action_token_id_mapping import ActionTokenIdMapping
+from versatil.data.tokenization.action_token_id_mapping import (
+    ActionTokenIdMapping,
+    LanguageVocabularyActionTokenIdMapping,
+)
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.decoders.autoregressive_mixin import (
+    AutoregressivePrefix,
+    CachedAutoregressiveGenerationState,
+)
 from versatil.models.decoding.decoders.factory.autoregressive_vla import (
     AutoregressiveVLADecoder,
 )
@@ -28,10 +43,17 @@ from versatil.models.decoding.generative_language_models.base import (
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
 )
+from versatil.models.decoding.generative_language_models.vision_language.paligemma import (
+    PaliGemmaVLM,
+)
 from versatil.models.decoding.generative_language_models.vision_language.prismatic import (
     PrismaticVLM,
 )
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.exportable.factory import create_exportable_policy
 from versatil.models.input_specification import InputSpecification
+from versatil.models.policy import Policy
+from versatil.training.constants import PrecisionType
 
 BATCH_SIZE = 2
 PREFIX_TOKEN_LENGTH = 5
@@ -40,6 +62,175 @@ LANGUAGE_HIDDEN_DIMENSION = 16
 VOCABULARY_SIZE = 32
 PADDED_VOCABULARY_SIZE = 64
 CAMERA_KEY = "agentview"
+OPENVLA_CASE = "openvla"
+FAST_CASE = "pi0_fast"
+EXPORT_ACTION_KEY = "position_action"
+EXPORT_ACTION_DIMENSION = 3
+EXPORT_GENERATION_LENGTH = 3
+
+
+@pytest.fixture
+def vla_export_tokenizer_factory(
+    rng: np.random.Generator,
+) -> Callable[..., Tokenizer]:
+    def factory(vocabulary_size: int, use_fast: bool) -> Tokenizer:
+        language_tokenizer = MagicMock(spec=PreTrainedTokenizerBase)
+        language_tokenizer.vocab_size = vocabulary_size
+        language_tokenizer.eos_token_id = 2
+        language_tokenizer.pad_token = "<pad>"
+        with patch(
+            "versatil.data.tokenization.action_token_id_mapping.load_huggingface_tokenizer",
+            return_value=language_tokenizer,
+        ):
+            mapping = LanguageVocabularyActionTokenIdMapping(
+                language_tokenizer_model="test/tiny-vla",
+                num_special_tokens_to_skip=4,
+            )
+        if use_fast:
+            with patch(
+                "versatil.data.tokenization.action_discretizer.load_fast_processor",
+                return_value=MagicMock(spec=ProcessorMixin),
+            ):
+                discretizer = FastActionDiscretizer(
+                    use_pretrained=True,
+                    tokenizer_model="test/fast-assets",
+                    time_horizon=1,
+                    action_dim=EXPORT_ACTION_DIMENSION,
+                )
+        else:
+            discretizer = BinnedActionDiscretizer(num_bins=16)
+            discretizer.fit(
+                action_chunks=rng.uniform(
+                    low=-1.0, high=1.0, size=(8, 1, EXPORT_ACTION_DIMENSION)
+                )
+            )
+        return Tokenizer(
+            action_tokenizer=ActionTokenizer(
+                action_discretizer=discretizer,
+                token_id_mapping=mapping,
+                max_token_len=EXPORT_GENERATION_LENGTH + (0 if use_fast else 1),
+                pad_token_id=0,
+            )
+        )
+
+    return factory
+
+
+@pytest.fixture
+def vla_export_policy_factory(
+    tiny_prismatic_vlm_factory: Callable[..., PrismaticVLM],
+    real_paligemma_backbone: Callable[..., PaliGemmaVLM],
+    vla_export_tokenizer_factory: Callable[..., Tokenizer],
+    camera_metadata_factory: Callable[..., CameraMetadata],
+    position_action_metadata_factory: Callable[..., PositionActionMetadata],
+    action_space_factory: Callable[..., ActionSpace],
+    observation_space_factory: Callable[..., ObservationSpace],
+    policy_factory: Callable[..., Policy],
+) -> Callable[[str], Policy]:
+    def factory(case_name: str) -> Policy:
+        use_fast = case_name == FAST_CASE
+        backbone = (
+            deepcopy(
+                real_paligemma_backbone(
+                    model_dtype=PrecisionType.FP32.value,
+                    frozen=False,
+                    lora_config=None,
+                    max_text_length=PREFIX_TOKEN_LENGTH,
+                )
+            )
+            if use_fast
+            else tiny_prismatic_vlm_factory(
+                hidden_dimension=16,
+                vocabulary_size=64,
+                max_text_length=PREFIX_TOKEN_LENGTH,
+            )
+        )
+        action_space = action_space_factory(
+            actions_metadata={
+                EXPORT_ACTION_KEY: position_action_metadata_factory(
+                    prediction_dimension=EXPORT_ACTION_DIMENSION,
+                    needs_normalization=False,
+                )
+            },
+            denoise_actions=False,
+        )
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value,
+                    image_width=backbone.image_size,
+                    image_height=backbone.image_size,
+                )
+            }
+        )
+        decoder = AutoregressiveVLADecoder(
+            action_heads={},
+            input_keys=[],
+            action_space=action_space,
+            observation_space=observation_space,
+            observation_horizon=1,
+            prediction_horizon=1,
+            device="cpu",
+            vlm_backbone=backbone,
+            max_seq_len=64,
+            temperature=1.0,
+            learnable_temperature=False,
+            deterministic=True,
+            causal_prefix=not use_fast,
+        )
+        policy = policy_factory(
+            encoding_pipeline=EncodingPipeline(
+                encoders={}, observation_space=observation_space, fusion_stages=[]
+            ),
+            algorithm=BehavioralCloning(),
+            decoder=decoder,
+            observation_space=observation_space,
+            action_space=action_space,
+            prediction_horizon=1,
+            observation_horizon=1,
+            device="cpu",
+        )
+        policy.set_tokenizer(
+            tokenizer=vla_export_tokenizer_factory(
+                vocabulary_size=4096 if use_fast else backbone.get_vocab_size(),
+                use_fast=use_fast,
+            )
+        )
+        return policy.eval()
+
+    return factory
+
+
+@pytest.fixture
+def vla_export_observation_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    def factory(
+        image_size: int,
+        batch_size: int,
+        padding_offset: int,
+    ) -> dict[str, torch.Tensor]:
+        images = torch.from_numpy(
+            rng.standard_normal((batch_size, 1, 3, image_size, image_size)).astype(
+                np.float32
+            )
+        )  # (batch, time=1, channels=3, height, width)
+        tokens = torch.from_numpy(
+            rng.integers(
+                low=3, high=20, size=(batch_size, 1, PREFIX_TOKEN_LENGTH)
+            ).astype(np.int64)
+        )  # (batch, time=1, text_length)
+        lengths = 2 + (torch.arange(batch_size) + padding_offset) % 3  # (batch,)
+        padding = (
+            torch.arange(PREFIX_TOKEN_LENGTH)[None, None, :] >= lengths[:, None, None]
+        )  # (1, 1, text_length), (batch, 1, 1) -> (batch, 1, text_length)
+        return {
+            Cameras.LEFT.value: images,
+            SampleKey.TOKENIZED_OBSERVATIONS.value: tokens,
+            SampleKey.IS_PAD_OBSERVATION.value: padding,
+        }
+
+    return factory
 
 
 @pytest.fixture
@@ -154,6 +345,101 @@ def language_vocab_tokenizer_factory() -> Callable[..., MagicMock]:
         return tokenizer
 
     return factory
+
+
+@pytest.fixture
+def vla_generation_interface_factory(
+    autoregressive_vla_decoder_factory: Callable[..., AutoregressiveVLADecoder],
+) -> Callable[[], AutoregressiveVLADecoder]:
+    def factory() -> AutoregressiveVLADecoder:
+        decoder = autoregressive_vla_decoder_factory(input_keys=[])
+        predictions = {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(
+                BATCH_SIZE, ACTION_TOKEN_LENGTH, dtype=torch.long
+            )  # (batch, generated_length)
+        }
+        decoder._validate_action_tokenizer_is_set = MagicMock()
+        decoder._build_projected_prefix = MagicMock(
+            return_value=decoder.vlm_backbone.build_prefix.return_value
+        )
+        decoder._forward_action_token_training = MagicMock()
+        decoder._forward_action_token_inference = MagicMock(return_value=predictions)
+        decoder._prefill_tokens = MagicMock(
+            return_value=AutoregressivePrefix(
+                state=MagicMock(spec=CachedAutoregressiveGenerationState),
+                max_generation_steps=ACTION_TOKEN_LENGTH,
+                first_output=decoder.vlm_backbone.forward_language_model.return_value,
+            )
+        )
+        decoder._run_cached_autoregressive_generation = MagicMock(
+            return_value=predictions
+        )
+        return decoder
+
+    return factory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fixed_length", [False, True])
+def test_forward_passes_generation_length_mode_to_inference(
+    vla_generation_interface_factory: Callable[[], AutoregressiveVLADecoder],
+    tokenized_text_features_factory: Callable[..., dict[str, torch.Tensor]],
+    fixed_length: bool,
+) -> None:
+    decoder = vla_generation_interface_factory()
+    features = tokenized_text_features_factory(
+        batch_size=BATCH_SIZE, text_token_length=PREFIX_TOKEN_LENGTH
+    )
+
+    predictions = decoder(
+        features=features, fixed_length=fixed_length
+    )  # (batch, generated_length)
+
+    decoder._validate_action_tokenizer_is_set.assert_called_once_with()
+    decoder._build_projected_prefix.assert_called_once_with(features=features)
+    prefix_tokens, prefix_mask = decoder._build_projected_prefix.return_value
+    decoder._forward_action_token_inference.assert_called_once_with(
+        prefix_tokens=prefix_tokens,
+        prefix_token_mask=prefix_mask,
+        fixed_length=fixed_length,
+    )
+    decoder._forward_action_token_training.assert_not_called()
+    torch.testing.assert_close(
+        predictions, decoder._forward_action_token_inference.return_value
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fixed_length", [False, True])
+def test_inference_preserves_generation_mode_through_prefix_and_decoding_loop(
+    vla_generation_interface_factory: Callable[[], AutoregressiveVLADecoder],
+    fixed_length: bool,
+) -> None:
+    decoder = vla_generation_interface_factory()
+    prefix_tokens, prefix_mask = decoder._build_projected_prefix.return_value
+
+    predictions = AutoregressiveVLADecoder._forward_action_token_inference(
+        self=decoder,
+        prefix_tokens=prefix_tokens,
+        prefix_token_mask=prefix_mask,
+        fixed_length=fixed_length,
+    )  # (batch, generated_length)
+
+    decoder._prefill_tokens.assert_called_once_with(
+        prefix_tokens=prefix_tokens,
+        prefix_token_mask=prefix_mask,
+        fixed_length=fixed_length,
+    )
+    prefix = decoder._prefill_tokens.return_value
+    decoder._run_cached_autoregressive_generation.assert_called_once_with(
+        initial_state=prefix.state,
+        max_generation_steps=prefix.max_generation_steps,
+        initial_step_output=prefix.first_output,
+        fixed_length=fixed_length,
+    )
+    torch.testing.assert_close(
+        predictions, decoder._run_cached_autoregressive_generation.return_value
+    )
 
 
 @pytest.mark.unit
@@ -1213,6 +1499,73 @@ class TestAutoregressiveVLADecoderGeneration:
             output[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
             predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
         )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("case_name", [OPENVLA_CASE, FAST_CASE])
+@pytest.mark.parametrize("quantized", [False, True], ids=["float", "int8"])
+def test_bounded_vla_policy_export_preserves_tokens_after_reload(
+    vla_export_policy_factory: Callable[[str], Policy],
+    vla_export_observation_factory: Callable[..., dict[str, torch.Tensor]],
+    tmp_path: Path,
+    case_name: str,
+    quantized: bool,
+) -> None:
+    policy = vla_export_policy_factory(case_name=case_name)
+    wrapper = create_exportable_policy(policy=policy)
+    image_size = policy.decoder.vlm_backbone.image_size
+    observations = vla_export_observation_factory(
+        image_size=image_size, batch_size=2, padding_offset=0
+    )
+    inputs = tuple(observations[key] for key in wrapper.observation_keys)
+    selected_linears = {
+        name
+        for name, module in wrapper.named_modules()
+        if isinstance(module, torch.nn.Linear)
+        and not isinstance(
+            module, torch.nn.modules.linear.NonDynamicallyQuantizableLinear
+        )
+    }
+    if quantized:
+        quantize_(model=wrapper, config=Int8WeightOnlyConfig())
+        converted_linears = {
+            name
+            for name, module in wrapper.named_modules()
+            if isinstance(module, torch.nn.Linear)
+            and type(module.weight).__name__ == "Int8Tensor"
+        }
+        assert selected_linears
+        assert converted_linears == selected_linears
+    batch = torch.export.Dim(name="batch", min=1, max=4)
+    dynamic_shapes = (tuple({0: batch} for _ in inputs),)
+    with torch.no_grad():
+        exported = torch.export.export(
+            wrapper, inputs, dynamic_shapes=dynamic_shapes, strict=False
+        )
+        artifact = tmp_path / f"{case_name}.pt2"
+        torch.export.save(exported, artifact)
+        reloaded = torch.export.load(artifact).module()
+        for batch_size, padding_offset in [(1, 2), (3, 1), (2, 2)]:
+            observations = vla_export_observation_factory(
+                image_size=image_size,
+                batch_size=batch_size,
+                padding_offset=padding_offset,
+            )
+            inputs = tuple(observations[key] for key in wrapper.observation_keys)
+            expected = wrapper(*inputs)[0]  # (batch, generated_length)
+            actual = reloaded(*inputs)[0]  # (batch, generated_length)
+            native_predictions = policy.predict_from_processed_observation(
+                observation=observations
+            )  # (batch, native_generation_length)
+            native = native_predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+            bounded_native = torch.nn.functional.pad(
+                native,
+                (0, EXPORT_GENERATION_LENGTH - native.shape[1]),
+                value=policy.decoder.eos_token_id,
+            )  # (batch, native_generation_length) -> (batch, generated_length)
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            torch.testing.assert_close(actual, bounded_native, rtol=0, atol=0)
+            assert actual.shape == (batch_size, EXPORT_GENERATION_LENGTH)
 
 
 @pytest.mark.integration

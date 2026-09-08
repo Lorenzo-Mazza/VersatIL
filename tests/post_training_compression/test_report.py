@@ -1,7 +1,7 @@
 """Tests for versatil.post_training_compression.report module."""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -9,6 +9,11 @@ import pytest
 import torch
 import torch.nn as nn
 
+from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.exportable.metadata import (
+    PolicyExportMetadata,
+    PredictionOutput,
+)
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.post_training_compression.report import QuantizationReport
 from versatil.quantization.constants import FXNodeOp, ReportMetricKey
@@ -141,6 +146,108 @@ def quantized_model_mock_factory() -> Callable[..., MagicMock]:
     return factory
 
 
+@pytest.fixture
+def comparison_report_factory(
+    example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+) -> Callable[..., QuantizationReport]:
+    """Build a report from controlled graph outputs and mocked model execution.
+
+    Note:
+        B denotes batch size and L the generated token sequence length.
+    """
+
+    def factory(
+        original_tokens: list[list[int]],
+        quantized_tokens: list[list[int]],
+        output: PredictionOutput = PredictionOutput.ACTION_TOKENS,
+        action_keys: list[str] | None = None,
+    ) -> QuantizationReport:
+        float_model = MagicMock(spec=nn.Module)
+        quantized_model = MagicMock(spec=nn.Module)
+        float_model.return_value = (
+            torch.tensor(original_tokens, dtype=torch.long),  # (B, L)
+        )
+        quantized_model.return_value = (
+            torch.tensor(quantized_tokens, dtype=torch.long),  # (B, L)
+        )
+        return QuantizationReport(
+            float_model=float_model,
+            quantized_model=quantized_model,
+            example_inputs=example_inputs_factory(),
+            action_keys=action_keys or [DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
+            export_metadata=PolicyExportMetadata(output=output),
+        )
+
+    return factory
+
+
+@pytest.fixture
+def formatted_report_factory(
+    comparison_report_factory: Callable[..., QuantizationReport],
+) -> Iterator[Callable[..., QuantizationReport]]:
+    """Build a report whose analysis methods return controlled metrics."""
+    patchers = []
+
+    def factory(
+        output: PredictionOutput,
+        action_keys: list[str],
+    ) -> QuantizationReport:
+        report = comparison_report_factory(
+            original_tokens=[[1, 2]],
+            quantized_tokens=[[1, 3]],
+            output=output,
+            action_keys=action_keys,
+        )
+        output_metrics = (
+            {ReportMetricKey.TOKEN_DISAGREEMENT_FRACTION.value: 0.25}
+            if output == PredictionOutput.ACTION_TOKENS
+            else {
+                ReportMetricKey.MAX_DIFFERENCE.value: 0.5,
+                ReportMetricKey.MEAN_DIFFERENCE.value: 0.125,
+            }
+        )
+        for method_name, metrics in (
+            (
+                "compute_operator_coverage",
+                {
+                    "linear": {
+                        ReportMetricKey.TOTAL.value: 2,
+                        ReportMetricKey.QUANTIZED.value: 1,
+                    }
+                },
+            ),
+            (
+                "compute_output_divergence",
+                dict.fromkeys(action_keys, output_metrics),
+            ),
+            (
+                "compute_size_reduction",
+                {
+                    ReportMetricKey.FLOAT_BYTES.value: 400.0,
+                    ReportMetricKey.QUANTIZED_BYTES.value: 200.0,
+                    ReportMetricKey.COMPRESSION_RATIO.value: 2.0,
+                },
+            ),
+            (
+                "compute_inference_timing",
+                {
+                    ReportMetricKey.FLOAT_MS.value: 2.0,
+                    ReportMetricKey.QUANTIZED_MS.value: 1.0,
+                    ReportMetricKey.SPEEDUP.value: 2.0,
+                },
+            ),
+        ):
+            patcher = patch.object(report, method_name, return_value=metrics)
+            patcher.start()
+            patchers.append(patcher)
+        return report
+
+    yield factory
+    for patcher in reversed(patchers):
+        patcher.stop()
+
+
 @pytest.mark.unit
 class TestOperatorCoverage:
     def test_returns_zero_counts_when_model_has_no_graph(
@@ -247,6 +354,40 @@ class TestOperatorCoverage:
 
 @pytest.mark.unit
 class TestOutputDivergence:
+    @pytest.mark.parametrize(
+        "quantized_tokens, expected_fraction",
+        [
+            ([[1, 2, 3], [4, 5, 6]], 0.0),
+            ([[1, 8, 3], [4, 8, 6]], 1.0 / 3.0),
+            ([[1, 255, 3], [4, 255, 6]], 1.0 / 3.0),
+            ([[9, 9, 9], [9, 9, 9]], 1.0),
+        ],
+        ids=["identical", "two-different", "different-id-magnitudes", "all-different"],
+    )
+    def test_reports_fraction_of_disagreeing_token_positions(
+        self,
+        comparison_report_factory: Callable[..., QuantizationReport],
+        quantized_tokens: list[list[int]],
+        expected_fraction: float,
+    ) -> None:
+        report = comparison_report_factory(
+            original_tokens=[[1, 2, 3], [4, 5, 6]],
+            quantized_tokens=quantized_tokens,
+            output=PredictionOutput.ACTION_TOKENS,
+        )
+
+        divergence = report.compute_output_divergence()
+
+        assert divergence == {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: {
+                ReportMetricKey.TOKEN_DISAGREEMENT_FRACTION.value: pytest.approx(
+                    expected_fraction
+                )
+            }
+        }
+        report._float_model.assert_called_once_with(*report._example_inputs)
+        report._quantized_model.assert_called_once_with(*report._example_inputs)
+
     def test_computes_correct_differences_for_known_outputs(
         self,
         example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
@@ -661,11 +802,44 @@ class TestInferenceTiming:
 
 @pytest.mark.unit
 class TestGenerateReport:
+    @pytest.mark.parametrize(
+        "output, expected_line",
+        [
+            (
+                PredictionOutput.ACTIONS,
+                "  position: max=0.500000, mean=0.125000",
+            ),
+            (
+                PredictionOutput.ACTION_TOKENS,
+                "  position: token disagreement=25.00%",
+            ),
+        ],
+    )
+    def test_labels_metrics_for_the_prediction_output_format(
+        self,
+        formatted_report_factory: Callable[..., QuantizationReport],
+        output: PredictionOutput,
+        expected_line: str,
+    ) -> None:
+        report = formatted_report_factory(output=output, action_keys=["position"])
+
+        result = report.generate_report()
+
+        assert expected_line in result.splitlines()
+        report.compute_operator_coverage.assert_called_once_with()
+        report.compute_output_divergence.assert_called_once_with()
+        report.compute_size_reduction.assert_called_once_with()
+        report.compute_inference_timing.assert_called_once_with()
+        report._float_model.assert_not_called()
+        report._quantized_model.assert_not_called()
+
     def test_contains_section_headers(
         self,
-        report_factory: Callable[..., QuantizationReport],
+        formatted_report_factory: Callable[..., QuantizationReport],
     ):
-        report = report_factory(num_outputs=1, action_keys=["position"])
+        report = formatted_report_factory(
+            output=PredictionOutput.ACTIONS, action_keys=["position"]
+        )
 
         result = report.generate_report()
 
@@ -677,10 +851,12 @@ class TestGenerateReport:
 
     def test_contains_action_key_names(
         self,
-        report_factory: Callable[..., QuantizationReport],
+        formatted_report_factory: Callable[..., QuantizationReport],
     ):
         action_keys = ["position", "gripper"]
-        report = report_factory(num_outputs=2, action_keys=action_keys)
+        report = formatted_report_factory(
+            output=PredictionOutput.ACTIONS, action_keys=action_keys
+        )
 
         result = report.generate_report()
 
@@ -689,9 +865,11 @@ class TestGenerateReport:
 
     def test_contains_compression_ratio(
         self,
-        report_factory: Callable[..., QuantizationReport],
+        formatted_report_factory: Callable[..., QuantizationReport],
     ):
-        report = report_factory(num_outputs=1, action_keys=["position"])
+        report = formatted_report_factory(
+            output=PredictionOutput.ACTIONS, action_keys=["position"]
+        )
 
         result = report.generate_report()
 

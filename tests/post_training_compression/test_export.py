@@ -14,7 +14,7 @@ from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.models.exportable_policy import ExportablePolicy
+from versatil.models.exportable.base import ExportablePolicy
 from versatil.post_training_compression.export import (
     _export_with_dynamic_batch,
     build_example_inputs,

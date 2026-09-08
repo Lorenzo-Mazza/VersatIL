@@ -309,7 +309,22 @@ class ActionTokenizer:
     def from_pretrained(
         cls, path: str | Path, device: torch.device | None = None
     ) -> "ActionTokenizer":
-        """Load tokenizer from disk."""
+        """Restore action discretization and token mapping from saved assets.
+
+        Args:
+            path: Directory containing tokenizer state and processor assets.
+            device: Device used for tensors restored from the serialized state.
+
+        Returns:
+            Action tokenizer with its saved vocabulary, chunk shape, and mappings.
+
+        Raises:
+            FileNotFoundError: If the tokenizer directory is missing.
+
+        Note:
+            Components initialize from saved local assets when available. Their
+            original model identifiers remain in the serialized metadata.
+        """
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Tokenizer path not found: {path}")
@@ -320,10 +335,10 @@ class ActionTokenizer:
             weights_only=False,
         )
 
-        tokenizer = cls._from_state_dict(state_dict=state_dict, device=device)
+        tokenizer = cls._from_state_dict(
+            state_dict=state_dict, device=device, assets_path=path
+        )
         tokenizer.load_state_dict(state_dict)
-        tokenizer.action_discretizer.load_pretrained_assets(path)
-        tokenizer.token_id_mapping.load_pretrained_assets(path)
         logging.info(f"Loaded action tokenizer from {path}")
         return tokenizer
 
@@ -406,14 +421,26 @@ class ActionTokenizer:
         cls,
         state_dict: dict[str, Any],
         device: torch.device | None,
+        assets_path: Path | None = None,
     ) -> "ActionTokenizer":
-        """Create an action tokenizer with components described by serialized state."""
+        """Construct serialized components using saved local assets when available.
+
+        Args:
+            state_dict: Serialized tokenizer configuration and fitted state.
+            device: Device for the discretizer's tensor state.
+            assets_path: Saved tokenizer directory containing processor and
+                language-tokenizer subdirectories.
+
+        Returns:
+            Tokenizer with components initialized for subsequent state loading.
+        """
         action_discretizer = _build_action_discretizer_from_state(
-            state_dict["action_discretizer"],
+            state_dict=state_dict["action_discretizer"],
             device=device,
+            assets_path=assets_path,
         )
         token_id_mapping = _build_token_id_mapping_from_state(
-            state_dict["token_id_mapping"]
+            state_dict=state_dict["token_id_mapping"], assets_path=assets_path
         )
         return cls(
             action_discretizer=action_discretizer,
@@ -427,15 +454,32 @@ class ActionTokenizer:
 def _build_action_discretizer_from_state(
     state_dict: dict[str, Any],
     device: torch.device | None,
+    assets_path: Path | None = None,
 ) -> ActionDiscretizer:
-    """Instantiate an action discretizer from serialized state."""
+    """Initialize a discretizer using serialized configuration and local assets.
+
+    Args:
+        state_dict: Discretizer type, configuration, and fitted state.
+        device: Device for binned-discretizer tensors.
+        assets_path: Saved tokenizer directory containing optional FAST assets.
+
+    Returns:
+        Discretizer ready to restore its fitted state.
+
+    Raises:
+        ValueError: If the serialized discretizer type is unsupported.
+    """
     match state_dict["type"]:
         case ActionDiscretizerType.FAST.value:
+            local_processor = assets_path / "fast_processor" if assets_path else None
+            processor_source = state_dict.get(
+                "tokenizer_model", "physical-intelligence/fast"
+            )
+            if local_processor is not None and local_processor.is_dir():
+                processor_source = str(local_processor)
             return FastActionDiscretizer(
                 use_pretrained=state_dict["use_pretrained"],
-                tokenizer_model=state_dict.get(
-                    "tokenizer_model", "physical-intelligence/fast"
-                ),
+                tokenizer_model=processor_source,
             )
         case ActionDiscretizerType.BINNED.value:
             return BinnedActionDiscretizer(
@@ -448,16 +492,40 @@ def _build_action_discretizer_from_state(
 
 def _build_token_id_mapping_from_state(
     state_dict: dict[str, Any],
+    assets_path: Path | None = None,
 ) -> ActionTokenIdMapping:
-    """Instantiate a token-id mapping from serialized state."""
+    """Initialize a token mapping from its saved vocabulary and configuration.
+
+    Args:
+        state_dict: Mapping type, original vocabulary source, and action-ID offset.
+        assets_path: Saved tokenizer directory containing the language vocabulary.
+
+    Returns:
+        Mapping using saved local vocabulary assets when available.
+
+    Raises:
+        ValueError: If the serialized mapping type is unsupported.
+
+    Note:
+        The original vocabulary identifier remains attached to the mapping so
+        subsequent state loading preserves the initialized local vocabulary.
+    """
     match state_dict["type"]:
         case ActionTokenIdMappingType.IDENTITY.value:
             return IdentityActionTokenIdMapping()
         case ActionTokenIdMappingType.LANGUAGE_VOCABULARY.value:
-            return LanguageVocabularyActionTokenIdMapping(
-                language_tokenizer_model=state_dict["language_tokenizer_model"],
+            tokenizer_source = state_dict["language_tokenizer_model"]
+            local_tokenizer = (
+                assets_path / "language_tokenizer" if assets_path else None
+            )
+            if local_tokenizer is not None and local_tokenizer.is_dir():
+                tokenizer_source = str(local_tokenizer)
+            mapping = LanguageVocabularyActionTokenIdMapping(
+                language_tokenizer_model=tokenizer_source,
                 num_special_tokens_to_skip=state_dict["num_special_tokens_to_skip"],
             )
+            mapping.language_tokenizer_model = state_dict["language_tokenizer_model"]
+            return mapping
         case unsupported_type:
             raise ValueError(
                 f"Unsupported action token-id mapping type: {unsupported_type}"

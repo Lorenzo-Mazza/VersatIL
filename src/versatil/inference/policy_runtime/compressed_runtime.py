@@ -9,12 +9,14 @@ import torch.nn as nn
 from versatil.checkpoint_loading.compressed_policy import CompressedCheckpointLoader
 from versatil.common.tensor_ops import to_device
 from versatil.data.processing.transform import (
+    detokenize_actions,
     normalize_observation,
     tokenize_observation,
     unnormalize_actions,
 )
 from versatil.inference.policy_runtime.base import PolicyRuntime
 from versatil.inference.policy_runtime.executorch_adapter import ExecuTorchModuleAdapter
+from versatil.models.exportable.metadata import PredictionOutput
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
     CompressionMetadataKey,
@@ -209,54 +211,129 @@ class CompressedPolicyRuntime(PolicyRuntime):
     def run_inference(
         self, obs_dict: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
-        """Run compressed policy inference with normalization.
-
-        Normalizes observations, optionally tokenizes, converts to
-        positional tensors, runs the compressed model, and converts
-        output back to an unnormalized action dict.
+        """Run the artifact and reconstruct actions using its export metadata.
 
         Args:
             obs_dict: Observation dictionary for the policy.
 
         Returns:
             Unnormalized action dictionary.
+
+        Note:
+            Observation processing follows the checkpoint's normalizer and
+            tokenizer. The export metadata supplies additional noise inputs
+            and selects action-token decoding when required. B denotes batch
+            size, H the action horizon, D each action's dimension and L the
+            generated token sequence length.
         """
-        obs_dict = to_device(obs_dict, device=self.device)
+        obs_dict = to_device(obs_dict, device=self.device)  # (B, ...)
         normalized_obs = normalize_observation(
             observation=obs_dict,
             normalizer=self.checkpoint_loader.normalizer,
             observation_space=self.observation_space,
-        )
+        )  # (B, ...)
         tokenizer = self.tokenizer
         if tokenizer is not None and tokenizer.observation_tokenizer is not None:
             normalized_obs = tokenize_observation(
                 observation=normalized_obs,
                 obs_tokenizer=tokenizer.observation_tokenizer,
                 batched=True,
-            )
+            )  # (B, ...)
         observation_tensors = tuple(normalized_obs[key] for key in self.input_keys)
+        model_inputs = self.checkpoint_loader.export_metadata.prepare_inputs(
+            observations=observation_tensors
+        )  # (B, ...)
         output_tensors = self._run_compressed_model(
-            observation_tensors=observation_tensors,
-        )
-        if len(output_tensors) != len(self.output_keys):
-            raise ValueError(
-                f"Compressed model returned {len(output_tensors)} tensors, "
-                f"but metadata declares {len(self.output_keys)} output keys."
+            model_inputs=model_inputs,
+        )  # actions: (B, H, D); tokens: (B, L)
+        if (
+            self.checkpoint_loader.export_metadata.output
+            == PredictionOutput.ACTION_TOKENS
+        ):
+            if len(output_tensors) != 1:
+                raise ValueError(
+                    "Action-token artifacts must return one token tensor; "
+                    f"received {len(output_tensors)} tensors."
+                )
+            self._validate_token_output(
+                action_tokens=output_tensors[0],
+                batch_size=observation_tensors[0].shape[0],
             )
-        normalized_actions = {
-            key: output_tensors[index] for index, key in enumerate(self.output_keys)
-        }
+            if tokenizer is None or tokenizer.action_tokenizer is None:
+                raise ValueError(
+                    "Action-token artifacts require a saved action tokenizer."
+                )
+            normalized_actions = detokenize_actions(
+                action_tokens=output_tensors[0],
+                action_tokenizer=tokenizer.action_tokenizer,
+                action_space=self.action_space,
+            )  # (B, L) -> (B, H, D)
+            normalized_actions = to_device(
+                normalized_actions, device=self.device
+            )  # (B, H, D)
+        else:
+            if len(output_tensors) != len(self.output_keys):
+                raise ValueError(
+                    f"Compressed model returned {len(output_tensors)} tensors, "
+                    f"but metadata declares {len(self.output_keys)} output keys."
+                )
+            normalized_actions = {
+                key: output_tensors[index] for index, key in enumerate(self.output_keys)
+            }
         return unnormalize_actions(
             normalized_actions=normalized_actions,
             normalizer=self.checkpoint_loader.normalizer,
             action_space=self.action_space,
-        )
+        )  # (B, H, D)
+
+    @staticmethod
+    def _validate_token_output(action_tokens: torch.Tensor, batch_size: int) -> None:
+        """Check the token tensor before action-token decoding.
+
+        Args:
+            action_tokens: Generated IDs with shape (batch, token_length) and
+                dtype torch.int32 or torch.int64.
+            batch_size: Number of observation samples processed by the artifact.
+
+        Raises:
+            ValueError: If token dtype, rank or batch size violates these
+                requirements.
+        """
+        if action_tokens.dtype not in (torch.int32, torch.int64):
+            raise ValueError(
+                "Action-token artifacts require torch.int32 or torch.int64 token "
+                f"outputs, got {action_tokens.dtype}."
+            )
+        if action_tokens.ndim != 2:
+            raise ValueError(
+                "Action-token outputs require shape (batch, token_length), "
+                f"got {tuple(action_tokens.shape)}."
+            )
+        if action_tokens.shape[0] != batch_size:
+            raise ValueError(
+                f"Action-token output batch size {action_tokens.shape[0]} "
+                f"must match observation batch size {batch_size}."
+            )
 
     def _run_compressed_model(
         self,
-        observation_tensors: tuple[torch.Tensor, ...],
+        model_inputs: tuple[torch.Tensor, ...],
     ) -> tuple[torch.Tensor, ...]:
-        """Run the loaded compressed model for the current artifact format."""
+        """Execute the artifact with the inputs declared by its export metadata.
+
+        Args:
+            model_inputs: Tensors in the exported graph's argument order.
+
+        Returns:
+            Graph output tensors in the saved output-key order.
+
+        Raises:
+            RuntimeError: If loading the compressed model is still required.
+
+        Note:
+            B denotes batch size, H action horizon, D action dimension and L token
+            length. Outputs have shape (B, H, D) for actions or (B, L) for tokens.
+        """
         if self._compressed_model is None:
             raise RuntimeError("Compressed model has not been loaded.")
         with torch.no_grad():
@@ -264,9 +341,13 @@ class CompressedPolicyRuntime(PolicyRuntime):
                 self.checkpoint_loader.artifact_format
                 == ArtifactFormat.EXECUTORCH_PTE.value
             ):
-                output_tensors = self._compressed_model(observation_tensors)
+                output_tensors = self._compressed_model(
+                    model_inputs
+                )  # actions: each (B, H, D); tokens: (B, L)
             else:
-                output_tensors = self._compressed_model(*observation_tensors)
+                output_tensors = self._compressed_model(
+                    *model_inputs
+                )  # actions: each (B, H, D); tokens: (B, L)
 
         if isinstance(output_tensors, torch.Tensor):
             return (output_tensors,)

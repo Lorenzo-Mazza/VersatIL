@@ -156,20 +156,21 @@ class TestCreateNoiseScheduler:
             create_noise_scheduler(config=config)
 
     @pytest.mark.parametrize(
-        "prediction_type",
-        ["epsilon", "sample"],
+        "prediction_type, diffusers_prediction_type",
+        [("epsilon", "epsilon"), ("sample", "sample"), ("velocity", "v_prediction")],
     )
     def test_prediction_type_passed_to_scheduler(
         self,
         scheduler_config_factory: Callable[..., DiffusionSchedulerConfig],
         prediction_type: str,
+        diffusers_prediction_type: str,
     ):
         config = scheduler_config_factory(
             scheduler_type=SchedulerType.DDPM.value,
             prediction_type=prediction_type,
         )
         scheduler = create_noise_scheduler(config=config)
-        assert scheduler.config.prediction_type == prediction_type
+        assert scheduler.config.prediction_type == diffusers_prediction_type
 
     @pytest.mark.parametrize("clip_sample", [True, False])
     def test_clip_sample_passed_to_scheduler(

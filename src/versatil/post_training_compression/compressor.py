@@ -9,9 +9,8 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
 from versatil.configs.post_training_compression import PreparationConfig
-from versatil.models.exportable_policy import ExportablePolicy
+from versatil.models.exportable.factory import create_exportable_policy
 from versatil.post_training_compression.compression_target import CompressionTarget
-from versatil.post_training_compression.constants import DeploymentBackendName
 from versatil.post_training_compression.deployment_backends.base import (
     DeploymentBackend,
 )
@@ -25,7 +24,6 @@ from versatil.post_training_compression.preparation import (
 from versatil.post_training_compression.pruning.base import BasePruner
 from versatil.post_training_compression.report import QuantizationReport
 from versatil.post_training_compression.serialization import save_compressed_model
-from versatil.quantization.constants import PT2EBackendName, QuantizationMode
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
 from versatil.training.constants import CheckpointFilename
@@ -57,8 +55,8 @@ class PostTrainingCompressor:
             checkpoint_path: Path to the training checkpoint directory.
             modules: Per-module compression schemes (empty = global).
             preparation: Global preparation settings.
-            calibration_steps: Number of calibration batches for
-                static quantization.
+            calibration_steps: Maximum observation batches for configurations requiring
+                calibration, including static PT2E and SmoothQuant.
             checkpoint_name: Checkpoint filename inside the directory.
             output_directory: Where to save compressed output.
                 Defaults to checkpoint_path/compressed/<timestamp>.
@@ -94,8 +92,7 @@ class PostTrainingCompressor:
         """
         modules = self.resolve_modules()
         quantization_workflow = self._resolve_quantization_workflow()
-        self._validate_deployment_backend_compatibility(
-            deployment_backend_name=self.deployment_backend.name,
+        self.deployment_backend.validate_quantization(
             mode=quantization_workflow.quantization_mode,
             pt2e_backend_names=quantization_workflow.pt2e_backend_names,
         )
@@ -107,13 +104,14 @@ class PostTrainingCompressor:
         self.validate(policy=policy, modules=modules)
         quantization_workflow.validate_targets(model=policy)
         self._prepare_and_prune(policy=policy, modules=modules)
-        exportable = ExportablePolicy.from_policy(policy)
+        exportable = create_exportable_policy(policy=policy)
         logging.info(f"Input keys: {exportable.observation_keys}")
         logging.info(f"Output keys: {exportable.action_keys}")
         quantized = quantization_workflow.quantize(
             context=context,
             exportable=exportable,
             calibration_steps=self.calibration_steps,
+            deployment_backend=self.deployment_backend,
         )
         deployment_artifact = self.deployment_backend.export(
             model=quantized.quantized_model,
@@ -125,8 +123,8 @@ class PostTrainingCompressor:
             converted_model=deployment_artifact.converted_model,
             example_inputs=deployment_artifact.example_inputs,
             save_directory=output_directory,
-            input_keys=policy.input_keys,
-            output_keys=policy.output_keys,
+            input_keys=exportable.observation_keys,
+            output_keys=exportable.action_keys,
             normalizer=policy.normalizer,
             training_checkpoint_path=self.checkpoint_path,
             quantization_config=hydra_config,
@@ -137,6 +135,10 @@ class PostTrainingCompressor:
             model_bytes=deployment_artifact.model_bytes,
             denoising_thresholds=policy.get_denoising_thresholds(),
             pt2e_backend_config=pt2e_backend_config,
+            quantization_targets=quantized.quantization_targets,
+            calibration_batches=quantized.calibration_batches,
+            export_metadata=exportable.export_metadata,
+            tokenizer=context.tokenizer,
         )
         logging.info(f"Compressed model saved to {output_directory}")
         if self.generate_report:
@@ -144,8 +146,9 @@ class PostTrainingCompressor:
                 float_model=quantized.float_model,
                 quantized_model=quantized.quantized_model,
                 example_inputs=quantized.example_inputs,
-                action_keys=policy.output_keys,
+                action_keys=exportable.action_keys,
                 quantization_workflow=quantized.quantization_workflow,
+                export_metadata=exportable.export_metadata,
             )
             logging.info(f"\n{report.generate_report()}")
         return output_directory
@@ -243,83 +246,6 @@ class PostTrainingCompressor:
             compression was configured without quantization.
         """
         return self.quantization or NoQuantizationWorkflow()
-
-    @staticmethod
-    def _validate_deployment_backend_compatibility(
-        deployment_backend_name: str,
-        mode: str,
-        pt2e_backend_names: tuple[str, ...] = (),
-    ) -> None:
-        """Validate quantization workflow and deployment backend compatibility.
-
-        Args:
-            deployment_backend_name: Deployment backend identifier.
-            mode: Quantization mode selected by the workflow.
-            pt2e_backend_names: PT2E backend identifiers used by the workflow.
-
-        Raises:
-            ValueError: If the backend is unknown or does not support ``mode``.
-        """
-        compatibility = {
-            DeploymentBackendName.TORCH_INDUCTOR.value: (
-                QuantizationMode.NONE.value,
-                QuantizationMode.PT2E.value,
-                QuantizationMode.EAGER.value,
-            ),
-            DeploymentBackendName.EXECUTORCH_XNNPACK.value: (
-                QuantizationMode.NONE.value,
-                QuantizationMode.PT2E.value,
-                QuantizationMode.EAGER.value,
-            ),
-        }
-        supported_modes = compatibility.get(deployment_backend_name)
-        if supported_modes is None:
-            raise ValueError(f"Unknown deployment backend '{deployment_backend_name}'.")
-        if mode in supported_modes:
-            if mode != QuantizationMode.PT2E.value:
-                return
-            PostTrainingCompressor._validate_pt2e_backend_compatibility(
-                deployment_backend_name=deployment_backend_name,
-                pt2e_backend_names=pt2e_backend_names,
-            )
-            return
-        raise ValueError(
-            f"Deployment backend {deployment_backend_name} supports quantization modes "
-            f"{list(supported_modes)}, got '{mode}'."
-        )
-
-    @staticmethod
-    def _validate_pt2e_backend_compatibility(
-        deployment_backend_name: str,
-        pt2e_backend_names: tuple[str, ...],
-    ) -> None:
-        """Validate concrete PT2E backend support for a deployment backend.
-
-        Args:
-            deployment_backend_name: Deployment backend identifier.
-            pt2e_backend_names: PT2E backend identifiers used by the workflow.
-
-        Raises:
-            ValueError: If any PT2E backend is incompatible with deployment.
-        """
-        compatibility = {
-            DeploymentBackendName.TORCH_INDUCTOR.value: (
-                PT2EBackendName.X86_INDUCTOR.value,
-            ),
-            DeploymentBackendName.EXECUTORCH_XNNPACK.value: (
-                PT2EBackendName.XNNPACK.value,
-            ),
-        }
-        supported_backends = compatibility[deployment_backend_name]
-        unsupported_backends = [
-            name for name in pt2e_backend_names if name not in supported_backends
-        ]
-        if not unsupported_backends:
-            return
-        raise ValueError(
-            f"Deployment backend {deployment_backend_name} supports PT2E backends "
-            f"{list(supported_backends)}, got {list(pt2e_backend_names)}."
-        )
 
     @staticmethod
     def _pt2e_backend_config(hydra_config: DictConfig) -> dict[str, Any] | None:

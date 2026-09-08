@@ -2,6 +2,7 @@
 
 import json
 import shutil
+from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ import torch.nn as nn
 from omegaconf import OmegaConf
 
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.models.exportable.metadata import PolicyExportMetadata
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
     CompressionFilename,
@@ -18,6 +21,7 @@ from versatil.post_training_compression.constants import (
     DeploymentBackendName,
 )
 from versatil.post_training_compression.export import _export_with_dynamic_batch
+from versatil.quantization.metadata import QuantizationTargetMetadata
 from versatil.training.constants import CheckpointFilename
 
 
@@ -38,18 +42,21 @@ def save_compressed_model(
     model_bytes: bytes | None = None,
     denoising_thresholds: dict[str, float] | None = None,
     pt2e_backend_config: dict[str, Any] | None = None,
+    quantization_targets: list[QuantizationTargetMetadata] | None = None,
+    calibration_batches: int | None = None,
+    export_metadata: PolicyExportMetadata | None = None,
+    tokenizer: Tokenizer | None = None,
 ) -> Path:
     """Save compressed model artifact with normalizer and metadata.
 
-    Saves the deployment artifact, normalizer, quantization config, training
-    config, optional tokenizer files, and compression metadata.
-
     Args:
         converted_model: The converted model, used for Torch Export artifacts.
-        example_inputs: Example input tensors for torch.export.
+        example_inputs: Observation tensors followed by any additional graph
+            inputs required by the export metadata, in argument order.
         save_directory: Directory to save into (created if needed).
         input_keys: Sorted input (observation) key ordering.
-        output_keys: Sorted output (action) key ordering.
+        output_keys: Graph output names in tensor order: action keys or the
+            action-token key.
         normalizer: The policy's normalizer module.
         training_checkpoint_path: Path to the original training checkpoint
             directory used as the source for compression.
@@ -66,9 +73,23 @@ def save_compressed_model(
         pt2e_backend_config: Instantiable config node of the PT2E quantizer
             backend, persisted so inference can rebuild the backend without
             depending on the full compressor config schema.
+        quantization_targets: Per-target conversion settings, selected/skipped
+            layers and resulting weight types supplied by the workflow.
+        calibration_batches: Consumed representative observation batches, or None
+            when the workflow leaves this count unspecified.
+        export_metadata: Graph output format and additional tensor inputs.
+            Defaults to normalized action outputs and observation-only inputs.
+        tokenizer: Loaded observation and action tokenizers to save with their
+            processor implementations, replacing the destination tokenizer bundle.
+            Omitted values use the original checkpoint's tokenizer directory when
+            available.
 
     Returns:
         Path to the save directory.
+
+    Note:
+        The directory contains the deployment artifact, normalizer, quantization
+        config, training config, optional tokenizer files and compression metadata.
     """
     save_path = Path(save_directory)
     save_path.mkdir(parents=True, exist_ok=True)
@@ -95,7 +116,11 @@ def save_compressed_model(
         Path(training_checkpoint_path) / CheckpointFilename.TOKENIZER_DIR.value
     )
     tokenizer_dest = save_path / CompressionFilename.TOKENIZER_DIR.value
-    if tokenizer_source.exists():
+    if tokenizer is not None:
+        if tokenizer_dest.exists():
+            shutil.rmtree(tokenizer_dest)
+        tokenizer.save_pretrained(path=tokenizer_dest)
+    elif tokenizer_source.exists():
         if tokenizer_dest.exists():
             shutil.rmtree(tokenizer_dest)
         shutil.copytree(tokenizer_source, tokenizer_dest)
@@ -115,6 +140,15 @@ def save_compressed_model(
         CompressionMetadataKey.QUANTIZATION_WORKFLOW.value: quantization_workflow,
         CompressionMetadataKey.DENOISING_THRESHOLDS.value: denoising_thresholds or {},
         CompressionMetadataKey.PT2E_BACKEND.value: pt2e_backend_config,
+        CompressionMetadataKey.QUANTIZATION_TARGETS.value: (
+            [asdict(target) for target in quantization_targets]
+            if quantization_targets is not None
+            else None
+        ),
+        CompressionMetadataKey.CALIBRATION_BATCHES.value: calibration_batches,
+        CompressionMetadataKey.POLICY_EXPORT_METADATA.value: (
+            export_metadata or PolicyExportMetadata()
+        ).to_dict(),
     }
     with open(save_path / CompressionFilename.COMPRESSION_METADATA.value, "w") as file:
         json.dump(metadata, file, indent=2)

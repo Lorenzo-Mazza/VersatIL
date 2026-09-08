@@ -55,6 +55,7 @@ class VarianceType(enum.StrEnum):
     """Variance type for DDPM scheduler."""
 
     FIXED_SMALL = "fixed_small"
+    FIXED_SMALL_LOG = "fixed_small_log"
     FIXED_LARGE = "fixed_large"
     LEARNED = "learned"
     LEARNED_RANGE = "learned_range"

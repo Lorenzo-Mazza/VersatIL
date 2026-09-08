@@ -15,6 +15,13 @@ from omegaconf import OmegaConf
 
 from tests.post_training_compression.conftest import verify_reload_fidelity
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.models.exportable.metadata import (
+    NoiseInput,
+    PolicyExportMetadata,
+    PredictionOutput,
+    SamplingInput,
+)
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
     CompressionFilename,
@@ -25,6 +32,10 @@ from versatil.post_training_compression.constants import (
 from versatil.post_training_compression.serialization import (
     load_compression_metadata,
     save_compressed_model,
+)
+from versatil.quantization.metadata import (
+    QuantizationTargetMetadata,
+    QuantizedLayerMetadata,
 )
 
 TORCHAO_VERSION_PATCH = patch(
@@ -101,6 +112,24 @@ def training_dir_factory(tmp_path: Path) -> Callable[..., Path]:
 
 
 @pytest.fixture
+def artifact_tokenizer_factory() -> Callable[..., MagicMock]:
+    def factory(assets: dict[str, str] | None = None) -> MagicMock:
+        tokenizer = MagicMock(spec=Tokenizer)
+        if assets is not None:
+
+            def save_assets(path: Path) -> None:
+                for relative_path, content in assets.items():
+                    asset_path = path / relative_path
+                    asset_path.parent.mkdir(parents=True, exist_ok=True)
+                    asset_path.write_text(content)
+
+            tokenizer.save_pretrained.side_effect = save_assets
+        return tokenizer
+
+    return factory
+
+
+@pytest.fixture
 def saved_compressed_dir(
     tmp_path: Path,
     serialization_model_factory: Callable[..., nn.Module],
@@ -117,6 +146,10 @@ def saved_compressed_dir(
         model_filename: str = CompressionFilename.COMPRESSED_MODEL.value,
         artifact_format: str = ArtifactFormat.TORCH_EXPORT_PT2.value,
         backend_name: str = DeploymentBackendName.TORCH_INDUCTOR.value,
+        quantization_targets: list[QuantizationTargetMetadata] | None = None,
+        calibration_batches: int = 0,
+        export_metadata: PolicyExportMetadata | None = None,
+        tokenizer: Tokenizer | None = None,
     ) -> tuple[Path, nn.Module]:
         if input_keys is None:
             input_keys = ["left"]
@@ -142,10 +175,163 @@ def saved_compressed_dir(
                 model_filename=model_filename,
                 artifact_format=artifact_format,
                 backend_name=backend_name,
+                quantization_targets=quantization_targets,
+                calibration_batches=calibration_batches,
+                export_metadata=export_metadata,
+                tokenizer=tokenizer,
             )
         return output_dir, model
 
     return factory
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("has_source_assets", [False, True])
+def test_saves_loaded_tokenizer_with_current_processor_assets(
+    saved_compressed_dir: Callable[..., tuple[Path, nn.Module]],
+    artifact_tokenizer_factory: Callable[[], MagicMock],
+    has_source_assets: bool,
+) -> None:
+    tokenizer = artifact_tokenizer_factory()
+    output_directory, _ = saved_compressed_dir(
+        tokenizer=tokenizer, has_tokenizer=has_source_assets
+    )
+
+    tokenizer.save_pretrained.assert_called_once_with(
+        path=output_directory / CompressionFilename.TOKENIZER_DIR.value
+    )
+    assert not (output_directory / "tokenizer" / "vocab.txt").exists()
+
+
+@pytest.mark.integration
+def test_replacing_loaded_tokenizer_removes_previous_components_and_assets(
+    saved_compressed_dir: Callable[..., tuple[Path, nn.Module]],
+    artifact_tokenizer_factory: Callable[..., MagicMock],
+) -> None:
+    previous_tokenizer = artifact_tokenizer_factory(
+        assets={
+            "observation_tokenizer/tokenizer.json": "previous observations",
+            "action_tokenizer/previous.json": "previous actions",
+        }
+    )
+    current_tokenizer = artifact_tokenizer_factory(
+        assets={"action_tokenizer/current.json": "current actions"}
+    )
+    output_directory, _ = saved_compressed_dir(tokenizer=previous_tokenizer)
+    saved_compressed_dir(tokenizer=current_tokenizer)
+
+    tokenizer_directory = output_directory / CompressionFilename.TOKENIZER_DIR.value
+    current_tokenizer.save_pretrained.assert_called_once_with(path=tokenizer_directory)
+    assert not (tokenizer_directory / "observation_tokenizer").exists()
+    assert not (tokenizer_directory / "action_tokenizer" / "previous.json").exists()
+    assert (
+        tokenizer_directory / "action_tokenizer" / "current.json"
+    ).read_text() == "current actions"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "export_metadata",
+    [
+        None,
+        PolicyExportMetadata(output=PredictionOutput.ACTION_TOKENS),
+        PolicyExportMetadata(
+            output=PredictionOutput.ACTIONS,
+            noise_inputs=(
+                NoiseInput(name=SamplingInput.INITIAL_NOISE.value, shape=(4, 3)),
+                NoiseInput(name=SamplingInput.STEP_NOISE.value, shape=(2, 4, 3)),
+            ),
+        ),
+    ],
+    ids=["default-actions", "action-tokens", "actions-with-noise"],
+)
+def test_export_metadata_survives_metadata_serialization(
+    saved_compressed_dir: Callable[..., tuple[Path, nn.Module]],
+    export_metadata: PolicyExportMetadata | None,
+) -> None:
+    output_directory, _ = saved_compressed_dir(export_metadata=export_metadata)
+    metadata = load_compression_metadata(
+        metadata_path=str(
+            output_directory / CompressionFilename.COMPRESSION_METADATA.value
+        )
+    )
+
+    restored = PolicyExportMetadata.from_dict(
+        metadata=metadata[CompressionMetadataKey.POLICY_EXPORT_METADATA.value]
+    )
+
+    assert restored == (export_metadata or PolicyExportMetadata())
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("calibration_batches", [0, 2])
+@pytest.mark.parametrize(
+    "target_count", [None, 0, 1], ids=["absent", "empty", "selected"]
+)
+def test_target_selection_and_calibration_count_survive_metadata_serialization(
+    saved_compressed_dir: Callable[..., tuple[Path, nn.Module]],
+    quantized_layer_metadata_factory: Callable[..., QuantizedLayerMetadata],
+    quantization_target_metadata_factory: Callable[..., QuantizationTargetMetadata],
+    calibration_batches: int,
+    target_count: int | None,
+) -> None:
+    layer = quantized_layer_metadata_factory(
+        name="decoder.projection",
+        in_features=64,
+        out_features=32,
+        device="cpu",
+        dtype="torch.float32",
+    )
+    target = quantization_target_metadata_factory(
+        module_path="decoder",
+        selected=[layer],
+        skipped={"decoder.head": "group size"},
+        base_config="torchao.quantization.Int8WeightOnlyConfig",
+        base_config_parameters={"version": "2"},
+        schema="versatil.quantization.schemas.direct.DirectQuantizationSchema",
+        schema_parameters={},
+        weight_representations={"decoder.projection": "Int8Tensor"},
+        requires_calibration=False,
+        group_size=None,
+    )
+    targets = None if target_count is None else [target][:target_count]
+    expected_targets = [
+        {
+            "module_path": "decoder",
+            "selected": [
+                {
+                    "name": "decoder.projection",
+                    "in_features": 64,
+                    "out_features": 32,
+                    "device": "cpu",
+                    "dtype": "torch.float32",
+                }
+            ],
+            "skipped": {"decoder.head": "group size"},
+            "base_config": "torchao.quantization.Int8WeightOnlyConfig",
+            "base_config_parameters": {"version": "2"},
+            "schema": "versatil.quantization.schemas.direct.DirectQuantizationSchema",
+            "schema_parameters": {},
+            "weight_representations": {"decoder.projection": "Int8Tensor"},
+            "requires_calibration": False,
+            "group_size": None,
+        }
+    ]
+    output_directory, _ = saved_compressed_dir(
+        quantization_targets=targets, calibration_batches=calibration_batches
+    )
+    metadata = load_compression_metadata(
+        metadata_path=str(
+            output_directory / CompressionFilename.COMPRESSION_METADATA.value
+        )
+    )
+    assert metadata[CompressionMetadataKey.QUANTIZATION_TARGETS.value] == (
+        None if target_count is None else expected_targets[:target_count]
+    )
+    assert (
+        metadata[CompressionMetadataKey.CALIBRATION_BATCHES.value]
+        == calibration_batches
+    )
 
 
 @pytest.mark.unit

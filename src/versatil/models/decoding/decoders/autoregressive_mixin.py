@@ -41,8 +41,66 @@ class CachedAutoregressiveGenerationState:
     completed_sequence_mask: torch.Tensor | None = None
 
 
+@dataclass
+class AutoregressivePrefix:
+    """Transformer state after encoding the observation prefix.
+
+    Attributes:
+        state: Cached keys and values, masks and input for the next decoding step.
+        max_generation_steps: Number of tokens that fit within the tokenizer and
+            transformer sequence limits.
+        first_output: Prefix output used to select the first action token. ``None``
+            means the decoder must process its beginning-of-sequence embedding first.
+    """
+
+    state: CachedAutoregressiveGenerationState
+    max_generation_steps: int
+    first_output: torch.Tensor | CausalLanguageModelOutput | None = None
+
+
 class AutoregressiveDecoderMixin:
     """Cached autoregressive generation loop."""
+
+    def prefill(
+        self,
+        features: dict[str, torch.Tensor],
+        fixed_length: bool = False,
+    ) -> AutoregressivePrefix:
+        """Encode observations and initialize the state used to generate action tokens.
+
+        Args:
+            features: Encoded observation features expected by the decoder.
+            fixed_length: Whether to retain a fixed prefix width, including padding,
+                so the number of cache positions is independent of tensor values.
+
+        Returns:
+            Cache state, generation limit and optional first-token prediction.
+        """
+        raise NotImplementedError
+
+    def generate(
+        self,
+        features: dict[str, torch.Tensor],
+        fixed_length: bool = False,
+    ) -> dict[str, torch.Tensor]:
+        """Generate action tokens from observation features.
+
+        Args:
+            features: Encoded observation features expected by the decoder.
+            fixed_length: Whether to run the maximum number of decoding steps and
+                repeat EOS after each sequence ends. This gives the exported graph
+                a fixed output width. If false, stop when every sequence reaches EOS.
+
+        Returns:
+            Generated token IDs under the decoder's action-token output key.
+        """
+        prefix = self.prefill(features=features, fixed_length=fixed_length)
+        return self._run_cached_autoregressive_generation(
+            initial_state=prefix.state,
+            max_generation_steps=prefix.max_generation_steps,
+            initial_step_output=prefix.first_output,
+            fixed_length=fixed_length,
+        )
 
     def _decode_next_autoregressive_step(
         self,
@@ -113,14 +171,20 @@ class AutoregressiveDecoderMixin:
         initial_state: CachedAutoregressiveGenerationState,
         max_generation_steps: int,
         initial_step_output: torch.Tensor | CausalLanguageModelOutput | None = None,
+        fixed_length: bool = False,
     ) -> dict[str, torch.Tensor]:
         """Run cached autoregressive generation from a prepared state.
+
+        Note:
+            Generated token tensors have shape ``(B, 1)``, where ``B`` is batch size.
 
         Args:
             initial_state: State after any required prefix prefill.
             max_generation_steps: Maximum number of generated values.
             initial_step_output: Optional output from prefix prefill. Use this
                 when the first generated value is sampled from the prefix output.
+            fixed_length: Whether to run all steps and repeat the stop token for
+                completed sequences instead of stopping the Python loop early.
 
         Returns:
             Decoder-specific generated prediction dictionary.
@@ -139,12 +203,22 @@ class AutoregressiveDecoderMixin:
             generated_output = self._sample_next_autoregressive_output(
                 step_output=step_output,
             )
+            if fixed_length and state.completed_sequence_mask is not None:
+                generated_output = torch.where(
+                    state.completed_sequence_mask.unsqueeze(1),  # (B,) -> (B, 1)
+                    generated_outputs[-1],
+                    generated_output,
+                )  # (B, 1)
             generated_outputs.append(generated_output)
             completed_sequence_mask = self._get_completed_sequence_mask(
                 generated_output=generated_output,
                 state=state,
             )
-            if completed_sequence_mask is not None and completed_sequence_mask.all():
+            if (
+                not fixed_length
+                and completed_sequence_mask is not None
+                and completed_sequence_mask.all()
+            ):
                 break
 
             next_inputs = self._prepare_next_autoregressive_inputs(

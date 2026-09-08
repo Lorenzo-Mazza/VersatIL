@@ -2,8 +2,7 @@
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import torch
@@ -20,13 +19,6 @@ from versatil.models.decoding.constants import (
     VarianceType,
 )
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
-
-
-@dataclass
-class StepOutput:
-    """Mock output for noise scheduler step."""
-
-    prev_sample: torch.Tensor
 
 
 @pytest.fixture
@@ -64,6 +56,18 @@ def diffusion_factory() -> Callable[..., Diffusion]:
 
 
 class TestDiffusionInitialization:
+    def test_changing_step_count_rebuilds_schedule_without_checkpoint_state(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+    ) -> None:
+        diffusion = diffusion_factory(num_train_timesteps=12, num_inference_steps=3)
+        assert diffusion.inference_schedule.timesteps == (8, 4, 0)
+        diffusion.num_inference_steps = 2
+        assert diffusion.num_inference_steps == 2
+        assert diffusion.inference_schedule.timesteps == (6, 0)
+        assert len(diffusion.inference_schedule.coefficients) == 2
+        assert diffusion.state_dict() == {}
+
     def test_inherits_from_decoding_algorithm(
         self,
         diffusion_factory: Callable[..., Diffusion],
@@ -453,88 +457,211 @@ class TestDiffusionGetTargets:
 
 
 class TestDiffusionPredict:
-    def test_predict_returns_exact_action_keys(
+    @pytest.mark.parametrize(
+        "scheduler_type", [member.value for member in SchedulerType]
+    )
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_samples_noise_and_delegates_denoising(
         self,
         diffusion_factory: Callable[..., Diffusion],
         mock_action_decoder_factory: Callable[..., MagicMock],
         feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
-        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
-        features = feature_dictionary_factory()
-        diff.noise_scheduler.step = MagicMock(
-            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        scheduler_type: str,
+        dtype: torch.dtype,
+    ) -> None:
+        diffusion = diffusion_factory(
+            scheduler_type=scheduler_type, num_inference_steps=2, num_train_timesteps=10
         )
-        result = diff.predict(network=mock_network, features=features)
-        assert set(result.keys()) == {"position_action"}
-
-    def test_predict_output_shape(
-        self,
-        diffusion_factory: Callable[..., Diffusion],
-        mock_action_decoder_factory: Callable[..., MagicMock],
-        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
-        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
-        features = feature_dictionary_factory()
-        diff.noise_scheduler.step = MagicMock(
-            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        network = mock_action_decoder_factory(
+            action_keys=["position_action", "unused_action"], prediction_horizon=8
         )
-        result = diff.predict(network=mock_network, features=features)
-        assert result["position_action"].shape == (2, 8, 3)
-
-    def test_predict_passes_batch_expanded_timestep_to_network(
-        self,
-        diffusion_factory: Callable[..., Diffusion],
-        mock_action_decoder_factory: Callable[..., MagicMock],
-        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
-        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        network.action_space.actions_metadata[
+            "unused_action"
+        ].requires_prediction_head = False
         features = feature_dictionary_factory(batch_size=2)
-        diff.noise_scheduler.step = MagicMock(
-            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        initial_noise = torch.ones(2, 8, 3, dtype=dtype)  # (batch, horizon, action_dim)
+        step_noise = torch.zeros(
+            2, 2, 8, 3, dtype=dtype
+        )  # (batch, steps, horizon, action_dim)
+        expected = {"position_action": initial_noise}
+        device = torch.device("cpu")
+        with (
+            patch(
+                "versatil.models.decoding.algorithm.diffusion.resolve_feature_reference",
+                return_value=(2, device, dtype),
+            ) as resolve_reference,
+            patch(
+                "versatil.models.decoding.algorithm.diffusion.torch.randn",
+                side_effect=[initial_noise, step_noise],
+            ) as sample_noise,
+            patch.object(
+                diffusion, "predict_from_noise", return_value=expected
+            ) as denoise,
+        ):
+            actual = diffusion.predict(network=network, features=features)
+        resolve_reference.assert_called_once_with(features=features)
+        stochastic = scheduler_type == SchedulerType.DDPM.value
+        denoise.assert_called_once_with(
+            network=network,
+            features=features,
+            initial_noise={"position_action": initial_noise},
+            step_noise={"position_action": step_noise} if stochastic else None,
         )
-        diff.predict(network=mock_network, features=features)
-        timestep_passed = mock_network.call_args.kwargs["features"][
-            AlgorithmContextKey.TIMESTEP.value
-        ]
-        assert timestep_passed.shape == (2,)
-        assert torch.equal(timestep_passed, timestep_passed[0].expand(2))
+        expected_calls = [call(2, 8, 3, device=device, dtype=dtype)]
+        if stochastic:
+            expected_calls.append(call(2, 2, 8, 3, device=device, dtype=dtype))
+        assert sample_noise.call_args_list == expected_calls
+        torch.testing.assert_close(actual, expected)
 
-    def test_predict_enables_and_disables_encoder_cache(
+
+class TestDiffusionPredictFromNoise:
+    @pytest.mark.parametrize(
+        "scheduler_type", [member.value for member in SchedulerType]
+    )
+    def test_advances_each_action_with_its_own_noise_and_timestep(
         self,
         diffusion_factory: Callable[..., Diffusion],
         mock_action_decoder_factory: Callable[..., MagicMock],
         feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
-        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
-        diff.noise_scheduler.step = MagicMock(
-            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        scheduler_type: str,
+    ) -> None:
+        diffusion = diffusion_factory(
+            scheduler_type=scheduler_type, num_inference_steps=2, num_train_timesteps=10
         )
-        features = feature_dictionary_factory()
-        diff.predict(network=mock_network, features=features)
-        mock_network.enable_encoder_cache.assert_called_once()
-        mock_network.disable_encoder_cache.assert_called_once()
-
-    def test_predict_with_multiple_action_keys(
-        self,
-        diffusion_factory: Callable[..., Diffusion],
-        mock_action_decoder_factory: Callable[..., MagicMock],
-        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
         action_keys = ["gripper_action", "position_action"]
-        mock_network = mock_action_decoder_factory(
-            action_keys=action_keys,
-            prediction_dimension=3,
+        initial_noise, prediction, first_update, second_update = (
+            action_dictionary_factory(
+                action_keys=action_keys,
+                prediction_horizon=8,
+                action_dimension=3,
+                include_padding_mask=False,
+            )
+            for _ in range(4)
         )
-        features = feature_dictionary_factory()
-        diff.noise_scheduler.step = MagicMock(
-            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        stochastic = scheduler_type == SchedulerType.DDPM.value
+        step_noise = (
+            {
+                key: torch.stack(
+                    (initial_noise[key], prediction[key]), dim=1
+                )  # two (batch, horizon, action_dim) -> (batch, steps, horizon, action_dim)
+                for key in action_keys
+            }
+            if stochastic
+            else None
         )
-        result = diff.predict(network=mock_network, features=features)
-        assert set(result.keys()) == set(action_keys)
-        for key in action_keys:
-            assert result[key].shape == (2, 8, 3)
+        network = mock_action_decoder_factory(
+            action_keys=action_keys, return_value=prediction
+        )
+        features = feature_dictionary_factory(batch_size=2)
+        with patch.object(
+            diffusion.inference_schedule,
+            "forward",
+            side_effect=[*first_update.values(), *second_update.values()],
+        ) as update:
+            actual = diffusion.predict_from_noise(
+                network=network,
+                features=features,
+                initial_noise=initial_noise,
+                step_noise=step_noise,
+            )
+        torch.testing.assert_close(actual, second_update)
+        assert network.call_count == 2
+        assert update.call_count == 4
+        for step_index, previous in enumerate((initial_noise, first_update)):
+            network_call = network.call_args_list[step_index].kwargs
+            torch.testing.assert_close(network_call["actions"], previous)
+            expected_timestep = torch.full(
+                (2,),
+                diffusion.inference_schedule.timesteps[step_index],
+                dtype=torch.long,
+            )  # (batch,)
+            torch.testing.assert_close(
+                network_call["features"],
+                {**features, AlgorithmContextKey.TIMESTEP.value: expected_timestep},
+            )
+            for action_index, key in enumerate(action_keys):
+                update_call = update.call_args_list[
+                    2 * step_index + action_index
+                ].kwargs
+                assert update_call["step_index"] == step_index
+                torch.testing.assert_close(update_call["model_output"], prediction[key])
+                torch.testing.assert_close(update_call["sample"], previous[key])
+                if stochastic:
+                    torch.testing.assert_close(
+                        update_call["noise"], step_noise[key][:, step_index]
+                    )  # (batch, steps, horizon, action_dim) -> (batch, horizon, action_dim)
+                else:
+                    assert update_call["noise"] is None
+        network.enable_encoder_cache.assert_called_once_with()
+        network.disable_encoder_cache.assert_called_once_with()
+
+    def test_disables_encoder_cache_when_decoder_fails(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        diffusion = diffusion_factory(
+            scheduler_type=SchedulerType.DDIM.value,
+            num_inference_steps=2,
+            num_train_timesteps=10,
+        )
+        network = mock_action_decoder_factory(action_keys=["position_action"])
+        network.side_effect = RuntimeError("Decoder failed.")
+        features = feature_dictionary_factory(batch_size=2)
+        noise = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+            include_padding_mask=False,
+        )
+        with pytest.raises(RuntimeError, match=re.escape("Decoder failed.")):
+            diffusion.predict_from_noise(
+                network=network, features=features, initial_noise=noise
+            )
+        network.enable_encoder_cache.assert_called_once_with()
+        network.disable_encoder_cache.assert_called_once_with()
+
+    @pytest.mark.parametrize("noise_case", ["missing", "wrong_key", "wrong_steps"])
+    def test_rejects_invalid_ddpm_noise_before_calling_decoder(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        noise_case: str,
+    ) -> None:
+        diffusion = diffusion_factory(
+            scheduler_type=SchedulerType.DDPM.value,
+            num_inference_steps=2,
+            num_train_timesteps=10,
+        )
+        network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory(batch_size=2)
+        initial_noise = {
+            "position_action": torch.zeros(2, 8, 3)
+        }  # (batch, horizon, action_dim)
+        step_noise = None
+        message = "DDPM inference requires step noise for every initial-noise action component."
+        if noise_case == "wrong_key":
+            step_noise = {
+                "gripper_action": torch.zeros(2, 2, 8, 3)
+            }  # (batch, steps, horizon, action_dim)
+        elif noise_case == "wrong_steps":
+            step_noise = {
+                "position_action": torch.zeros(2, 1, 8, 3)
+            }  # (batch, steps, horizon, action_dim)
+            message = (
+                "DDPM step noise for 'position_action' must have shape (2, 2, 8, 3), "
+                "got (2, 1, 8, 3)."
+            )
+        with pytest.raises(ValueError, match=re.escape(message)):
+            diffusion.predict_from_noise(
+                network=network,
+                features=features,
+                initial_noise=initial_noise,
+                step_noise=step_noise,
+            )
+        network.assert_not_called()
+        network.enable_encoder_cache.assert_not_called()

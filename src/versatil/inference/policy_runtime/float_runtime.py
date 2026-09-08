@@ -8,6 +8,7 @@ import torch
 
 from versatil.checkpoint_loading.float_policy import FloatCheckpointLoader
 from versatil.inference.policy_runtime.base import PolicyRuntime
+from versatil.models.policy import Policy
 from versatil.training.constants import (
     CheckpointFilename,
     PrecisionType,
@@ -42,11 +43,17 @@ class FloatPolicyRuntime(PolicyRuntime):
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
         )
+        self._policy = checkpoint_loader.policy
         super().__init__(
             checkpoint_loader=checkpoint_loader,
             client_identifier=str(Path(checkpoint_path) / Path(checkpoint_name).stem),
         )
         self._prepare_inference_model()
+
+    @property
+    def policy(self) -> Policy:
+        """Get the policy used for floating-point inference."""
+        return self._policy
 
     def _set_seed(self, seed: int) -> None:
         """Set random seeds for reproducibility."""

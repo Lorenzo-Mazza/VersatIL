@@ -10,6 +10,8 @@ from versatil.checkpoint_loading.base import (
     strip_compiled_prefixes,
     versatil_checkpoint_safe_globals,
 )
+from versatil.checkpoint_loading.metadata import CheckpointMetadata
+from versatil.models.policy import Policy
 from versatil.training.constants import (
     CheckpointFilename,
     CheckpointKey,
@@ -43,6 +45,13 @@ class FloatCheckpointLoader(BaseCheckpointLoader):
         logging.info(f"Loading policy checkpoint from {checkpoint_file}")
 
         self._policy = self._config.policy
+        self._checkpoint_metadata = CheckpointMetadata(
+            observation_space=self._policy.observation_space,
+            action_space=self._policy.action_space,
+            prediction_horizon=self._policy.prediction_horizon,
+            observation_horizon=self._policy.decoder.observation_horizon,
+        )
+        self._normalizer = self._policy.normalizer
         tokenizer_path = os.path.join(
             self._checkpoint_path, CheckpointFilename.TOKENIZER_DIR.value
         )
@@ -70,3 +79,9 @@ class FloatCheckpointLoader(BaseCheckpointLoader):
             checkpoint_state_dict=checkpoint_state,
             model_state_dict=lightning_module.state_dict(),
         )
+        self._denoising_thresholds = self._policy.get_denoising_thresholds()
+
+    @property
+    def policy(self) -> Policy:
+        """Get the restored floating-point policy."""
+        return self._policy

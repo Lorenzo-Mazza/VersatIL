@@ -31,6 +31,24 @@ from versatil.models.policy import Policy
 register_resolvers()
 
 
+@pytest.fixture
+def policy_prediction_factory(
+    action_tensor_factory: Callable[..., torch.Tensor],
+) -> Callable[..., dict[str, torch.Tensor]]:
+    def factory(tokenized: bool) -> dict[str, torch.Tensor]:
+        actions = action_tensor_factory(
+            batch_size=2, sequence_length=2, action_dimension=3
+        )  # (batch, horizon, action_dim)
+        if tokenized:
+            tokens = (
+                actions.abs().long().flatten(start_dim=1)
+            )  # (batch, horizon, action_dim) -> (batch, token_length)
+            return {DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: tokens}
+        return {"position": actions}
+
+    return factory
+
+
 class TestPolicyInitialization:
     @pytest.mark.parametrize("prediction_horizon", [4, 16])
     @pytest.mark.parametrize("observation_horizon", [1, 3])
@@ -779,6 +797,91 @@ class TestComputeLoss:
             ),
         ):
             policy_factory(metadata_passthrough={"targets": {"x": "y"}})
+
+
+@pytest.mark.unit
+class TestProcessedPrediction:
+    @pytest.mark.parametrize("tokenized", [False, True])
+    def test_runs_algorithm_prediction_without_preprocessing_or_detokenization(
+        self,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        policy_prediction_factory: Callable[..., dict[str, torch.Tensor]],
+        tokenized: bool,
+    ) -> None:
+        observation = observation_dictionary_factory(observation_keys=["left"])
+        features = feature_dictionary_factory(feature_keys=["left_features"])
+        predictions = policy_prediction_factory(tokenized=tokenized)
+        policy = policy_factory(algorithm_predict_return=predictions)
+        with (
+            patch.object(
+                policy, "_build_algorithm_features", return_value=features
+            ) as build_features,
+            patch("versatil.models.policy.normalize_observation") as normalize,
+            patch("versatil.models.policy.tokenize_observation") as tokenize,
+            patch("versatil.models.policy.detokenize_actions") as detokenize,
+            patch("versatil.models.policy.unnormalize_actions") as unnormalize,
+        ):
+            result = policy.predict_from_processed_observation(
+                observation=observation
+            )  # actions: (batch, horizon, action_dim); tokens: (batch, token_length)
+
+        build_features.assert_called_once_with(observation=observation)
+        policy.algorithm.predict.assert_called_once_with(
+            features=features, network=policy.decoder
+        )
+        policy.algorithm.forward.assert_not_called()
+        normalize.assert_not_called()
+        tokenize.assert_not_called()
+        detokenize.assert_not_called()
+        unnormalize.assert_not_called()
+        torch.testing.assert_close(result, predictions)
+
+    def test_predict_action_delegates_after_observation_preprocessing(
+        self,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        policy_prediction_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        observation = observation_dictionary_factory(observation_keys=["left"])
+        processed = observation_dictionary_factory(observation_keys=["left"])
+        predictions = policy_prediction_factory(tokenized=False)
+        policy = policy_factory()
+        policy.tokenizer = None
+        with (
+            patch("versatil.models.policy.to_device", return_value=observation),
+            patch(
+                "versatil.models.policy.normalize_observation", return_value=processed
+            ) as normalize,
+            patch.object(
+                policy,
+                "_strip_metadata_passthrough_observations",
+                return_value=processed,
+            ),
+            patch.object(
+                policy, "predict_from_processed_observation", return_value=predictions
+            ) as predict,
+            patch(
+                "versatil.models.policy.unnormalize_actions", return_value=predictions
+            ) as unnormalize,
+        ):
+            result = policy.predict_action(
+                obs_dict=observation
+            )  # each action: (batch, horizon, action_dim)
+
+        normalize.assert_called_once_with(
+            observation=observation,
+            normalizer=policy.normalizer,
+            observation_space=policy.observation_space,
+        )
+        predict.assert_called_once_with(observation=processed)
+        unnormalize.assert_called_once_with(
+            normalized_actions=predictions,
+            normalizer=policy.normalizer,
+            action_space=policy.action_space,
+        )
+        torch.testing.assert_close(result, predictions)
 
 
 class TestPredictAction:

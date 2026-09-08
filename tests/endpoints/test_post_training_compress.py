@@ -8,12 +8,20 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import hydra
+import numpy as np
 import pytest
 import torch
 import torch._inductor.config as inductor_config
 from hydra import compose, initialize_config_dir
-from omegaconf import OmegaConf
-from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+from omegaconf import DictConfig, OmegaConf
+from tokenizers import Tokenizer as HuggingFaceTokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
+from torch._dynamo.utils import counters
+from torchao.quantization import (
+    Int8DynamicActivationInt8WeightConfig,
+    quantize_,
+)
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.composable_quantizer import (
     ComposableQuantizer,
@@ -22,6 +30,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
     get_default_x86_inductor_quantization_config,
 )
+from transformers import PreTrainedTokenizerFast
 from tso_robotics_sockets import CompressionType
 
 import versatil.configs  # noqa: F401
@@ -33,8 +42,23 @@ from tests.endpoints.conftest import (
     resolve_dataset_type,
     start_mock_observation_server,
 )
-from versatil.configs.post_training_compression import PreparationConfig
+from versatil.configs.post_training_compression import (
+    PostTrainingCompressorConfig,
+    PreparationConfig,
+)
+from versatil.configs.quantization import (
+    EagerQuantizationModuleTargetConfig,
+    EagerQuantizationWorkflowConfig,
+    PT2EQuantizationModuleTargetConfig,
+    PT2EQuantizationWorkflowConfig,
+    X86InductorBackendConfig,
+)
+from versatil.data.constants import Cameras, ObsKey, ProprioKey
 from versatil.data.dataloader import get_dataloaders
+from versatil.data.processing.transform import (
+    normalize_observation,
+    tokenize_observation,
+)
 from versatil.inference.inference_client import InferenceClient
 from versatil.inference.policy_runtime.compressed_runtime import CompressedPolicyRuntime
 from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
@@ -42,7 +66,12 @@ from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
 )
-from versatil.models.exportable_policy import ExportablePolicy
+from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.decoders.factory.autoregressive_vla import (
+    AutoregressiveVLADecoder,
+)
+from versatil.models.exportable.base import ExportablePolicy
+from versatil.models.exportable.factory import create_exportable_policy
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 from versatil.post_training_compression.constants import (
     CompressionFilename,
@@ -101,29 +130,8 @@ PTQ_TEST_CONFIGS = [
     "end_to_end_training_runs/libero_lerobot/flow_dit_cross_attention",
 ]
 
-# torch.export unrolls the flow-matching sampling loop, so every nn.Linear in the
-# denoiser appears num_inference_steps times in the exported graph. torchao's
-# X86InductorQuantizer linear+add fusion annotation builds one SourcePartition
-# per module and raises "Input partition has more than one output node" when a
-# module has multiple call sites (https://github.com/pytorch/ao/issues/4478).
-# Exporting a single denoising step (loop outside the artifact) would avoid the
-# duplication and is the structural fix.
 GLOBAL_PT2E_PARAMS = [
     pytest.param(config_name, id=config_name.split("/")[-1])
-    if "flow" not in config_name.split("/")[-1]
-    else pytest.param(
-        config_name,
-        id=config_name.split("/")[-1],
-        marks=pytest.mark.xfail(
-            raises=ValueError,
-            strict=True,
-            reason=(
-                "torchao 0.17 X86InductorQuantizer cannot annotate graphs where "
-                "one nn.Linear has multiple call sites (unrolled flow-matching "
-                "denoising loop): https://github.com/pytorch/ao/issues/4478"
-            ),
-        ),
-    )
     for config_name in PTQ_TEST_CONFIGS
 ]
 
@@ -138,6 +146,7 @@ def _configure_inductor():
     """Set inductor config once per session."""
     original_freezing = os.environ.get("TORCHINDUCTOR_FREEZING")
     original_cpp_wrapper = inductor_config.cpp_wrapper
+    original_freezing_setting = inductor_config.freezing
     os.environ["TORCHINDUCTOR_FREEZING"] = "1"
     inductor_config.cpp_wrapper = True
     yield
@@ -146,15 +155,20 @@ def _configure_inductor():
     else:
         os.environ["TORCHINDUCTOR_FREEZING"] = original_freezing
     inductor_config.cpp_wrapper = original_cpp_wrapper
+    inductor_config.freezing = original_freezing_setting
 
 
 @pytest.fixture
-def trained_checkpoint(tmp_path, synthetic_zarr_factory):
-    """Train 1 epoch and yield checkpoint directory. Cleans up after."""
+def trained_checkpoint(
+    tmp_path: Path, synthetic_zarr_factory: Callable[..., str]
+) -> Callable[..., Path]:
+    """Train a configured policy and return its checkpoint directory."""
 
     def factory(
         config_name: str = PTQ_TEST_CONFIGS[0],
         extra_overrides: list[str] | None = None,
+        action_values: dict[str, list[float]] | None = None,
+        configure: Callable[[DictConfig], None] | None = None,
     ) -> Path:
         dataset_type = resolve_dataset_type(config_name)
         zarr_path = str(tmp_path / "data.zarr")
@@ -167,6 +181,7 @@ def trained_checkpoint(tmp_path, synthetic_zarr_factory):
             image_width=IMAGE_WIDTH,
             num_episodes=NUM_EPISODES,
             timesteps_per_episode=TIMESTEPS_PER_EPISODE,
+            action_values=action_values,
         )
 
         decoder_overrides = build_tiny_overrides(config_name)
@@ -185,6 +200,8 @@ def trained_checkpoint(tmp_path, synthetic_zarr_factory):
                 config_name=config_name,
                 overrides=all_overrides,
             )
+            if configure is not None:
+                configure(yaml_config)
             with LEROBOT_METADATA_PATCH:
                 config = hydra.utils.instantiate(yaml_config)
 
@@ -206,6 +223,214 @@ def trained_checkpoint(tmp_path, synthetic_zarr_factory):
 
 
 @pytest.fixture
+def rgb_policy_configuration() -> Callable[[DictConfig], None]:
+    """Keep camera observations for the RGB-only policy regression."""
+
+    def configure(config: DictConfig) -> None:
+        metadata = config.task.observation_space.observations_metadata
+        config.task.observation_space.observations_metadata = {
+            Cameras.AGENTVIEW.value: metadata["${cameras:AGENTVIEW}"],
+            Cameras.EYE_IN_HAND.value: metadata["${cameras:EYE_IN_HAND}"],
+        }
+
+    return configure
+
+
+@pytest.fixture
+def trained_binned_checkpoint(
+    trained_checkpoint: Callable[..., Path],
+) -> Callable[[], Path]:
+    """Build a factory that trains a proprioceptive GPT on fixed action chunks."""
+
+    def configure(config: DictConfig) -> None:
+        observation_metadata = config.task.observation_space.observations_metadata
+        action_metadata = config.task.action_space.actions_metadata
+        config.task.observation_space.observations_metadata = {
+            ProprioKey.EE_POS.value: observation_metadata["${proprio_key:EE_POS}"]
+        }
+        config.task.action_space.actions_metadata = {
+            ProprioKey.EE_POS_ACTION.value: action_metadata[
+                "${proprio_key:EE_POS_ACTION}"
+            ]
+        }
+        config.policy.encoding_pipeline.encoders = {}
+
+    def factory() -> Path:
+        tokenizer = "task.dataloader.tokenization.action_tokenizer"
+        return trained_checkpoint(
+            config_name="end_to_end_training_runs/libero_lerobot/gpt_transformer",
+            extra_overrides=[
+                "task/observation_space=libero_rgb_proprio_lerobot",
+                "task/dataloader/tokenization=action_fast",
+                "task.dataloader.tokenization.observation_tokenizer=null",
+                f"{tokenizer}.action_discretizer.type=${{action_discretizer:BINNED}}",
+                f"{tokenizer}.action_discretizer.num_bins=16",
+                f"{tokenizer}.max_token_len=7",
+                f"policy.decoder.input_keys=[{ProprioKey.EE_POS.value}]",
+                "policy.decoder.embedding_dimension=32",
+                "policy.decoder.number_of_heads=2",
+                "policy.decoder.number_of_key_value_heads=2",
+                "policy.decoder.number_of_layers=1",
+                "policy.decoder.feedforward_dimension=64",
+                "policy.decoder.max_seq_len=32",
+                "policy.decoder.dropout_rate=0.0",
+                "policy.decoder.attention_dropout=0.0",
+                "policy.decoder.temperature=1.0",
+                "policy.decoder.learnable_temperature=false",
+                "policy.loss.loss_modules.token_loss.label_smoothing=0.0",
+                "task.prediction_horizon=2",
+                "task.dataloader.num_workers=0",
+                "training.num_epochs=5",
+                "training.optimizer.lr=0.01",
+                "training.optimizer.param_groups=[]",
+                "training.use_ema=false",
+                "experiment.device=cpu",
+            ],
+            action_values={ProprioKey.EE_POS_ACTION.value: [0.25, -0.5, 0.75]},
+            configure=configure,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def binned_policy_observation_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    """Build a factory for batched three-dimensional end-effector observations."""
+
+    def factory(batch_size: int) -> dict[str, torch.Tensor]:
+        return {
+            ProprioKey.EE_POS.value: torch.from_numpy(
+                rng.standard_normal(size=(batch_size, 1, 3)).astype(np.float32)
+            )  # (batch, observation_horizon, position_dim)
+        }
+
+    return factory
+
+
+@pytest.fixture
+def local_language_tokenizer_factory(tmp_path: Path) -> Callable[..., Path]:
+    """Save a local language tokenizer for OpenVLA observation and action tokens."""
+
+    def factory(vocabulary_size: int) -> Path:
+        vocabulary = {
+            "[PAD]": 0,
+            "[EOS]": 1,
+            "[UNK]": 2,
+            "[BOS]": 3,
+            "pick": 4,
+            "up": 5,
+            "object": 6,
+        }
+        vocabulary.update(
+            {
+                f"token_{index}": index
+                for index in range(len(vocabulary), vocabulary_size)
+            }
+        )
+        tokenizer = HuggingFaceTokenizer(WordLevel(vocab=vocabulary, unk_token="[UNK]"))
+        tokenizer.pre_tokenizer = Whitespace()
+        language_tokenizer = PreTrainedTokenizerFast(
+            tokenizer_object=tokenizer,
+            unk_token="[UNK]",
+            bos_token="[BOS]",
+            eos_token="[EOS]",
+            pad_token="[PAD]",
+        )
+        tokenizer_directory = tmp_path / "local_language_tokenizer"
+        language_tokenizer.save_pretrained(tokenizer_directory)
+        return tokenizer_directory
+
+    return factory
+
+
+@pytest.fixture
+def trained_openvla_checkpoint(
+    trained_checkpoint: Callable[..., Path],
+    tiny_prismatic_configuration_factory: Callable[..., Path],
+    local_language_tokenizer_factory: Callable[..., Path],
+) -> Callable[[], Path]:
+    """Train a small OpenVLA policy with local image-language and action vocabularies."""
+
+    def configure(config: DictConfig) -> None:
+        metadata = config.task.observation_space.observations_metadata
+        config.task.observation_space.observations_metadata = {
+            Cameras.AGENTVIEW.value: metadata["${cameras:AGENTVIEW}"],
+            ObsKey.LANGUAGE.value: metadata["${obs_key:LANGUAGE}"],
+        }
+        camera_metadata = config.task.observation_space.observations_metadata[
+            Cameras.AGENTVIEW.value
+        ]
+        camera_metadata.image_height = IMAGE_HEIGHT
+        camera_metadata.image_width = IMAGE_WIDTH
+        action_metadata = config.task.action_space.actions_metadata
+        config.task.action_space.actions_metadata = {
+            ProprioKey.EE_POS_ACTION.value: action_metadata[
+                "${proprio_key:EE_POS_ACTION}"
+            ]
+        }
+
+    def factory() -> Path:
+        model_directory = tiny_prismatic_configuration_factory(
+            hidden_dimension=32, vocabulary_size=128, max_text_length=4
+        )
+        tokenizer_directory = local_language_tokenizer_factory(vocabulary_size=128)
+        observation_tokenizer = "task.dataloader.tokenization.observation_tokenizer"
+        action_tokenizer = "task.dataloader.tokenization.action_tokenizer"
+        backbone = "policy.decoder.vlm_backbone"
+        return trained_checkpoint(
+            config_name="end_to_end_training_runs/libero_lerobot/openvla",
+            extra_overrides=[
+                f"{observation_tokenizer}.tokenizer_model={tokenizer_directory}",
+                f"{observation_tokenizer}.max_token_len=4",
+                f"{observation_tokenizer}.prompt_template='{{instruction}}'",
+                f"{action_tokenizer}.token_id_mapping.language_tokenizer_model={tokenizer_directory}",
+                f"{action_tokenizer}.action_discretizer.num_bins=16",
+                f"{action_tokenizer}.max_token_len=4",
+                f"{backbone}.model_name={model_directory}",
+                f"{backbone}.pretrained=false",
+                f"{backbone}.frozen=false",
+                f"{backbone}.input_keys=[{Cameras.AGENTVIEW.value}]",
+                f"{backbone}.lora_config=null",
+                f"{backbone}.gradient_checkpointing=false",
+                "policy.decoder.max_seq_len=32",
+                "task.prediction_horizon=1",
+                "task.dataloader.num_workers=0",
+                "training.num_epochs=5",
+                "training.gradient_accumulate_every=1",
+                "training.optimizer.lr=0.01",
+                "training.optimizer.param_groups=[]",
+                "training.lr_warmup_steps=0",
+                "training.use_ema=false",
+                "experiment.device=cpu",
+                "experiment.precision=${precision:FP32}",
+            ],
+            action_values={ProprioKey.EE_POS_ACTION.value: [0.25, -0.5, 0.75]},
+            configure=configure,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def openvla_observation_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor | list[list[str]]]]:
+    """Create a camera observation and language instruction for each batch item."""
+
+    def factory(batch_size: int) -> dict[str, torch.Tensor | list[list[str]]]:
+        return {
+            Cameras.AGENTVIEW.value: torch.from_numpy(
+                rng.uniform(0, 1, size=(batch_size, 1, 3, 32, 32)).astype(np.float32)
+            ),  # (batch, observation_horizon, channels, height, width)
+            ObsKey.LANGUAGE.value: [["pick up object"] for _ in range(batch_size)],
+        }
+
+    return factory
+
+
+@pytest.fixture
 def compression_pipeline(trained_checkpoint):
     """Load policy, create calibration and exportable. Cleans up after test."""
     created = []
@@ -221,7 +446,7 @@ def compression_pipeline(trained_checkpoint):
                 checkpoint_name="last.ckpt",
             )
 
-        exportable = ExportablePolicy.from_policy(policy_loader.policy)
+        exportable = create_exportable_policy(policy=policy_loader.policy)
 
         with LEROBOT_METADATA_PATCH:
             train_loader, _, _, _, _ = get_dataloaders(config=policy_loader.config)
@@ -288,6 +513,7 @@ def _save_and_verify_inference(
         quantization_config=ptq_config,
         quantization_workflow=quantization_workflow,
         pt2e_backend_config=pt2e_backend_config,
+        export_metadata=exportable.export_metadata,
     )
 
     assert (Path(compressed_dir) / "compressed_policy.pt2").exists()
@@ -393,7 +619,10 @@ class TestGlobalPT2EQuantization:
         output_dir = Path(policy_loader.checkpoint_path)
 
         _prepare_backbones(policy)
-        example_inputs = next(iter(calibration))
+        observation = next(iter(calibration))
+        example_inputs = exportable.export_metadata.prepare_inputs(
+            observations=tuple(observation[key] for key in exportable.observation_keys)
+        )  # (batch, ...)
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -401,13 +630,19 @@ class TestGlobalPT2EQuantization:
 
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
-        quantizer = X86InductorQuantizer()
-        quantizer.set_global(get_default_x86_inductor_quantization_config())
+        quantizer = X86InductorBackend(is_dynamic=False).create_quantizer(
+            module_path=""
+        )
         prepared = prepare_pt2e(exported, quantizer)
 
         with torch.no_grad():
-            for batch in calibration:
-                prepared(*batch)
+            for observation in calibration:
+                inputs = exportable.export_metadata.prepare_inputs(
+                    observations=tuple(
+                        observation[key] for key in exportable.observation_keys
+                    )
+                )  # (batch, ...)
+                prepared(*inputs)  # (batch, horizon, action_dim)
 
         quantized = convert_pt2e(prepared)
 
@@ -448,7 +683,10 @@ class TestPerModulePT2EWithPruning:
         else:
             _prepare_backbones(policy)
 
-        example_inputs = next(iter(calibration))
+        observation = next(iter(calibration))
+        example_inputs = exportable.export_metadata.prepare_inputs(
+            observations=tuple(observation[key] for key in exportable.observation_keys)
+        )  # (batch, ...)
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -461,8 +699,13 @@ class TestPerModulePT2EWithPruning:
         prepared = prepare_pt2e(exported, composed)
 
         with torch.no_grad():
-            for batch in calibration:
-                prepared(*batch)
+            for observation in calibration:
+                inputs = exportable.export_metadata.prepare_inputs(
+                    observations=tuple(
+                        observation[key] for key in exportable.observation_keys
+                    )
+                )  # (batch, ...)
+                prepared(*inputs)  # (batch, horizon, action_dim)
 
         converted = convert_pt2e(prepared)
 
@@ -512,7 +755,7 @@ class TestGlobalEagerPTQDynamic:
                 checkpoint_name="last.ckpt",
             )
         policy = policy_loader.policy
-        exportable = ExportablePolicy.from_policy(policy)
+        exportable = create_exportable_policy(policy=policy)
 
         with LEROBOT_METADATA_PATCH:
             train_loader, _, _, _, _ = get_dataloaders(config=policy_loader.config)
@@ -522,7 +765,10 @@ class TestGlobalEagerPTQDynamic:
             num_calibration_steps=3,
         )
 
-        example_inputs = next(iter(calibration))
+        observation = next(iter(calibration))
+        example_inputs = exportable.export_metadata.prepare_inputs(
+            observations=tuple(observation[key] for key in exportable.observation_keys)
+        )  # (batch, ...)
         float_outputs = _get_float_outputs(
             exportable=exportable,
             example_inputs=example_inputs,
@@ -597,7 +843,10 @@ class TestGlobalFallbackPipeline:
         _, zeroed = pruner.prune(module=policy)
         assert zeroed > 0
 
-        example_inputs = next(iter(calibration))
+        observation = next(iter(calibration))
+        example_inputs = exportable.export_metadata.prepare_inputs(
+            observations=tuple(observation[key] for key in exportable.observation_keys)
+        )  # (batch, ...)
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
         with torch.no_grad():
@@ -617,7 +866,10 @@ class TestGlobalFallbackPipeline:
         _, zeroed = UnstructuredPruner(amount=0.3).prune(module=policy)
         assert zeroed > 0
 
-        example_inputs = next(iter(calibration))
+        observation = next(iter(calibration))
+        example_inputs = exportable.export_metadata.prepare_inputs(
+            observations=tuple(observation[key] for key in exportable.observation_keys)
+        )  # (batch, ...)
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
 
         with torch.no_grad():
@@ -628,6 +880,211 @@ class TestGlobalFallbackPipeline:
 @pytest.mark.slow
 @pytest.mark.integration
 class TestCompressorEndToEnd:
+    @pytest.mark.parametrize("quantized", [False, True], ids=["float", "int8"])
+    def test_trained_openvla_checkpoint_compression_reconstructs_actions(
+        self,
+        trained_openvla_checkpoint: Callable[[], Path],
+        openvla_observation_factory: Callable[
+            ..., dict[str, torch.Tensor | list[list[str]]]
+        ],
+        quantized: bool,
+        tmp_path: Path,
+    ) -> None:
+        checkpoint_directory = trained_openvla_checkpoint()
+        with LEROBOT_METADATA_PATCH:
+            reference = FloatPolicyRuntime(
+                device=torch.device("cpu"),
+                checkpoint_path=str(checkpoint_directory),
+                checkpoint_name="last.ckpt",
+                compile_model=False,
+            )
+        assert isinstance(reference.policy.decoder, AutoregressiveVLADecoder)
+        quantization_config = None
+        if quantized:
+            quantization_config = EagerQuantizationWorkflowConfig(
+                targets=[
+                    EagerQuantizationModuleTargetConfig(
+                        module_path="decoder.vlm_backbone.language_model",
+                        quantize_config={
+                            "_target_": "torchao.quantization.Int8WeightOnlyConfig"
+                        },
+                    )
+                ],
+                is_qat=False,
+            )
+            quantization = hydra.utils.instantiate(quantization_config)
+            calibration_batches, targets = quantization._apply_ptq(
+                model=reference.policy
+            )
+            assert calibration_batches == 0
+            assert targets[0].selected
+            assert set(targets[0].weight_representations.values()) == {"Int8Tensor"}
+        observations = openvla_observation_factory(batch_size=2)
+        expected_actions = reference.run_inference(obs_dict=observations)
+        processed = normalize_observation(
+            observation=observations,
+            normalizer=reference.policy.normalizer,
+            observation_space=reference.observation_space,
+        )  # camera: (batch, horizon, channels, height, width)
+        processed = tokenize_observation(
+            observation=processed,
+            obs_tokenizer=reference.tokenizer.observation_tokenizer,
+            batched=True,
+        )  # tokens and padding: (batch, horizon, text_length)
+        with torch.no_grad():
+            expected_tokens = reference.policy.predict_from_processed_observation(
+                observation=processed
+            )[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]  # (batch, token_length)
+        hydra_config = OmegaConf.structured(
+            PostTrainingCompressorConfig(
+                checkpoint_path=str(checkpoint_directory),
+                checkpoint_name="last.ckpt",
+                modules=[],
+                preparation=PreparationConfig(
+                    replace_frozen_batchnorm=False, fuse_conv_batchnorm=False
+                ),
+                quantization=quantization_config,
+                calibration_steps=0,
+                output_directory=str(tmp_path / "compressed_openvla"),
+            )
+        )
+        with LEROBOT_METADATA_PATCH:
+            compressor = hydra.utils.instantiate(hydra_config)
+            output = compressor.compress(hydra_config=hydra_config)
+            runtime = CompressedPolicyRuntime(
+                device=torch.device("cpu"),
+                checkpoint_path=output,
+                compile_model=False,
+            )
+        with torch.no_grad():
+            actual_tokens = runtime._compressed_model(
+                *[processed[key] for key in runtime.input_keys]
+            )[0]  # (batch, maximum_token_length)
+        torch.testing.assert_close(actual_tokens, expected_tokens)
+        torch.testing.assert_close(
+            runtime.run_inference(obs_dict=observations), expected_actions
+        )
+        for batch_size in [1, 3]:
+            observations = openvla_observation_factory(batch_size=batch_size)
+            torch.testing.assert_close(
+                runtime.run_inference(obs_dict=observations),
+                reference.run_inference(obs_dict=observations),
+            )
+
+    @pytest.mark.parametrize(
+        "workflow",
+        [
+            QuantizationWorkflow.NONE,
+            QuantizationWorkflow.EAGER,
+            QuantizationWorkflow.PT2E,
+        ],
+        ids=["float", "int8", "pt2e_dynamic"],
+    )
+    def test_binned_checkpoint_compression_reconstructs_trained_actions(
+        self,
+        trained_binned_checkpoint: Callable[[], Path],
+        binned_policy_observation_factory: Callable[..., dict[str, torch.Tensor]],
+        workflow: QuantizationWorkflow,
+        tmp_path: Path,
+    ) -> None:
+        checkpoint_directory = trained_binned_checkpoint()
+        with LEROBOT_METADATA_PATCH:
+            reference = FloatPolicyRuntime(
+                device=torch.device("cpu"),
+                checkpoint_path=str(checkpoint_directory),
+                checkpoint_name="last.ckpt",
+                compile_model=False,
+            )
+        observations = binned_policy_observation_factory(batch_size=2)
+        normalized_observations = normalize_observation(
+            observation=observations,
+            normalizer=reference.policy.normalizer,
+            observation_space=reference.observation_space,
+        )  # each observation: (batch, observation_horizon, position_dim)
+        with torch.no_grad():
+            predictions = reference.policy.predict_from_processed_observation(
+                observation=normalized_observations
+            )  # (batch, token_length)
+        tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        assert tokens.shape == (2, 7)
+        expected_tokens = torch.tensor(
+            [[8, 8, 8, 8, 8, 8, 16], [8, 8, 8, 8, 8, 8, 16]], dtype=torch.long
+        )  # (batch, token_length)
+        torch.testing.assert_close(tokens, expected_tokens)
+        quantization_config = None
+        if workflow == QuantizationWorkflow.EAGER:
+            quantization_config = EagerQuantizationWorkflowConfig(
+                targets=[
+                    EagerQuantizationModuleTargetConfig(
+                        module_path="decoder",
+                        quantize_config={
+                            "_target_": "torchao.quantization.Int8WeightOnlyConfig"
+                        },
+                    )
+                ],
+                is_qat=False,
+            )
+            quantization = hydra.utils.instantiate(quantization_config)
+            calibration_batches, targets = quantization._apply_ptq(
+                model=reference.policy
+            )
+            assert calibration_batches == 0
+            assert targets[0].selected
+            assert set(targets[0].weight_representations.values()) == {"Int8Tensor"}
+        elif workflow == QuantizationWorkflow.PT2E:
+            quantization_config = PT2EQuantizationWorkflowConfig(
+                targets=[
+                    PT2EQuantizationModuleTargetConfig(
+                        module_path="decoder",
+                        pt2e_backend=X86InductorBackendConfig(is_dynamic=True),
+                    )
+                ]
+            )
+        expected_actions = reference.run_inference(obs_dict=observations)
+        trained_action = torch.tensor(
+            [0.3125, -0.4375, 0.8125], dtype=torch.float32
+        ).reshape(1, 1, 3)  # (position_dim,) -> (1, 1, position_dim)
+        torch.testing.assert_close(
+            expected_actions[ProprioKey.EE_POS_ACTION.value],
+            trained_action.expand(
+                2, 2, 3
+            ),  # (1, 1, position_dim) -> (batch, horizon, position_dim)
+        )
+        compressed_directory = tmp_path / "compressed_binned"
+        hydra_config = OmegaConf.structured(
+            PostTrainingCompressorConfig(
+                checkpoint_path=str(checkpoint_directory),
+                checkpoint_name="last.ckpt",
+                modules=[],
+                preparation=PreparationConfig(
+                    replace_frozen_batchnorm=False, fuse_conv_batchnorm=False
+                ),
+                quantization=quantization_config,
+                calibration_steps=0,
+                output_directory=str(compressed_directory),
+            )
+        )
+        with LEROBOT_METADATA_PATCH:
+            compressor = hydra.utils.instantiate(hydra_config)
+            output = compressor.compress(hydra_config=hydra_config)
+            runtime = CompressedPolicyRuntime(
+                device=torch.device("cpu"),
+                checkpoint_path=output,
+                compile_model=workflow == QuantizationWorkflow.PT2E,
+            )
+        lowered_linears = counters["inductor"]["qlinear_unary_lower_count"]
+        actual_actions = runtime.run_inference(obs_dict=observations)
+        torch.testing.assert_close(actual_actions, expected_actions)
+        if workflow == QuantizationWorkflow.PT2E:
+            assert counters["inductor"]["qlinear_unary_lower_count"] > lowered_linears
+        assert runtime.output_keys == [DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        for batch_size in [1, 3]:
+            batch = binned_policy_observation_factory(batch_size=batch_size)
+            torch.testing.assert_close(
+                runtime.run_inference(obs_dict=batch),
+                reference.run_inference(obs_dict=batch),
+            )
+
     def test_compress_full_pipeline_with_pt2e(self, tmp_path, trained_checkpoint):
         output_dir = trained_checkpoint()
         compressed_dir = str(tmp_path / "compressed_output")
@@ -670,8 +1127,19 @@ class TestCompressorEndToEnd:
             Path(compressed_dir) / CompressionFilename.COMPRESSION_METADATA.value
         ).exists()
 
-    def test_compress_without_quantization(self, tmp_path, trained_checkpoint):
-        output_dir = trained_checkpoint()
+    def test_compress_without_quantization(
+        self,
+        tmp_path: Path,
+        trained_checkpoint: Callable[..., Path],
+        rgb_policy_configuration: Callable[[DictConfig], None],
+    ) -> None:
+        output_dir = trained_checkpoint(
+            config_name=PTQ_TEST_CONFIGS[1],
+            extra_overrides=[
+                "task.dataloader.tokenization.tokenize_observations=false"
+            ],
+            configure=rgb_policy_configuration,
+        )
         compressed_dir = str(tmp_path / "compressed_no_quant")
 
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
@@ -698,6 +1166,37 @@ class TestCompressorEndToEnd:
         assert (
             Path(compressed_dir) / CompressionFilename.COMPRESSED_MODEL.value
         ).exists()
+        with LEROBOT_METADATA_PATCH:
+            reference = FloatPolicyRuntime(
+                device=torch.device("cpu"),
+                checkpoint_path=str(output_dir),
+                checkpoint_name="last.ckpt",
+                compile_model=False,
+            )
+            runtime = CompressedPolicyRuntime(
+                device=torch.device("cpu"),
+                checkpoint_path=result,
+                compile_model=False,
+            )
+        compressor._prepare_and_prune(
+            policy=reference.policy, modules=compressor.resolve_modules()
+        )
+        exportable = create_exportable_policy(policy=reference.policy)
+        inputs = build_example_inputs(
+            exportable=exportable,
+            observation_space=reference.observation_space,
+            observation_horizon=reference.observation_horizon,
+            tokenizer=reference.tokenizer,
+        )
+        for batch_size in [1, 2]:
+            observations = {
+                key: tensor[:batch_size]  # (2, horizon, ...) -> (batch, horizon, ...)
+                for key, tensor in zip(exportable.observation_keys, inputs, strict=True)
+            }
+            torch.testing.assert_close(
+                runtime.run_inference(obs_dict=observations),
+                reference.run_inference(obs_dict=observations),
+            )
 
     def test_compress_generates_timestamped_directory(
         self, tmp_path, trained_checkpoint

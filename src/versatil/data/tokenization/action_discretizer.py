@@ -276,8 +276,17 @@ class FastActionDiscretizer(ActionDiscretizer):
             self.action_dim = loaded_action_dim
 
     def save_pretrained(self, path: Path) -> None:
-        """Save fitted local FAST processor assets."""
-        if self.processor is not None and not self.use_pretrained:
+        """Save the FAST processor, BPE vocabulary, and processor implementation.
+
+        Args:
+            path: Tokenizer directory receiving the ``fast_processor`` assets.
+
+        Note:
+            AutoProcessor registration includes the loaded processor's Python
+            module and class reference in the saved directory.
+        """
+        if self.processor is not None:
+            self.processor.register_for_auto_class()
             self.processor.save_pretrained(str(path / "fast_processor"))
 
     def load_pretrained_assets(self, path: Path) -> None:

@@ -9,6 +9,7 @@ import torch
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.autoregressive_mixin import (
     AutoregressiveDecoderMixin,
+    AutoregressivePrefix,
     CachedAutoregressiveGenerationState,
 )
 from versatil.models.layers.transformer.cache.generation import GenerationCache
@@ -79,6 +80,151 @@ def autoregressive_decoder_factory() -> Callable[..., ConcreteAutoregressiveDeco
         return ConcreteAutoregressiveDecoder()
 
     return factory
+
+
+@pytest.fixture
+def generation_state_factory() -> Callable[..., CachedAutoregressiveGenerationState]:
+    def factory(batch_size: int) -> CachedAutoregressiveGenerationState:
+        return CachedAutoregressiveGenerationState(
+            step_index=0,
+            sequence_length=PREFIX_TOKEN_COUNT,
+            past_key_values=MagicMock(spec=GenerationCache),
+            next_inputs=torch.zeros(
+                batch_size, 1, EMBEDDING_DIMENSION
+            ),  # (batch, 1, embedding)
+        )
+
+    return factory
+
+
+@pytest.fixture
+def bounded_generation_decoder_factory(
+    autoregressive_decoder_factory: Callable[..., ConcreteAutoregressiveDecoder],
+) -> Callable[..., ConcreteAutoregressiveDecoder]:
+    def factory(
+        sampled_tokens: list[list[int]], completed_masks: list[list[bool]]
+    ) -> ConcreteAutoregressiveDecoder:
+        decoder = autoregressive_decoder_factory()
+        batch_size = len(sampled_tokens[0])
+        for step_tokens, completed_mask in zip(
+            sampled_tokens, completed_masks, strict=True
+        ):
+            decoder.sample_outputs.append(
+                torch.tensor(step_tokens).unsqueeze(dim=1)  # (batch,) -> (batch, 1)
+            )
+            decoder.completed_sequence_masks.append(
+                torch.tensor(completed_mask, dtype=torch.bool)  # (batch,)
+            )
+            decoder.decode_outputs.append(
+                (
+                    torch.zeros(
+                        batch_size, 1, EMBEDDING_DIMENSION
+                    ),  # (batch, 1, embedding)
+                    MagicMock(spec=GenerationCache),
+                )
+            )
+            decoder.prepared_inputs.append(
+                torch.zeros(batch_size, 1, EMBEDDING_DIMENSION)  # (batch, 1, embedding)
+            )
+        return decoder
+
+    return factory
+
+
+@pytest.fixture
+def generation_interface_factory(
+    generation_state_factory: Callable[..., CachedAutoregressiveGenerationState],
+) -> Callable[..., MagicMock]:
+    def factory(batch_size: int, max_generation_steps: int) -> MagicMock:
+        decoder = MagicMock(spec=AutoregressiveDecoderMixin)
+        decoder.prefill.return_value = AutoregressivePrefix(
+            state=generation_state_factory(batch_size=batch_size),
+            max_generation_steps=max_generation_steps,
+            first_output=torch.zeros(
+                batch_size, 1, EMBEDDING_DIMENSION
+            ),  # (batch, 1, embedding)
+        )
+        decoder._run_cached_autoregressive_generation.return_value = {
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(
+                batch_size, max_generation_steps, dtype=torch.long
+            )  # (batch, generated_length)
+        }
+        return decoder
+
+    return factory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fixed_length", [False, True])
+def test_generate_passes_prefix_state_and_generation_mode_to_loop(
+    generation_interface_factory: Callable[..., MagicMock],
+    flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    fixed_length: bool,
+) -> None:
+    decoder = generation_interface_factory(batch_size=2, max_generation_steps=4)
+    features = flat_feature_factory(batch_size=2, feature_dim=EMBEDDING_DIMENSION)
+
+    predictions = AutoregressiveDecoderMixin.generate(
+        self=decoder, features=features, fixed_length=fixed_length
+    )  # tokens: (batch, generated_length)
+
+    decoder.prefill.assert_called_once_with(
+        features=features, fixed_length=fixed_length
+    )
+    prefix = decoder.prefill.return_value
+    decoder._run_cached_autoregressive_generation.assert_called_once_with(
+        initial_state=prefix.state,
+        max_generation_steps=4,
+        initial_step_output=prefix.first_output,
+        fixed_length=fixed_length,
+    )
+    torch.testing.assert_close(
+        predictions,
+        decoder._run_cached_autoregressive_generation.return_value,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "sampled_tokens, completed_masks, expected_tokens",
+    [
+        (
+            [[6, 1], [2, 2], [3, 6], [4, 4]],
+            [[True, False], [True, False], [True, True], [True, True]],
+            [[6, 6, 6, 6], [1, 2, 6, 6]],
+        ),
+        (
+            [[1, 6], [2, 2], [6, 3], [4, 4]],
+            [[False, True], [False, True], [True, True], [True, True]],
+            [[1, 2, 6, 6], [6, 6, 6, 6]],
+        ),
+    ],
+)
+def test_fixed_length_generation_repeats_each_samples_eos_through_final_step(
+    bounded_generation_decoder_factory: Callable[..., ConcreteAutoregressiveDecoder],
+    generation_state_factory: Callable[..., CachedAutoregressiveGenerationState],
+    sampled_tokens: list[list[int]],
+    completed_masks: list[list[bool]],
+    expected_tokens: list[list[int]],
+) -> None:
+    decoder = bounded_generation_decoder_factory(
+        sampled_tokens=sampled_tokens, completed_masks=completed_masks
+    )
+
+    predictions = decoder._run_cached_autoregressive_generation(
+        initial_state=generation_state_factory(batch_size=2),
+        max_generation_steps=4,
+        fixed_length=True,
+    )  # tokens: (batch, generated_length)
+
+    expected = torch.tensor(expected_tokens)  # (batch, generated_length)
+    torch.testing.assert_close(
+        predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value], expected
+    )
+    assert len(decoder.decoded_states) == 4
+    for step_index, prepared_tokens in enumerate(decoder.prepared_generated_outputs):
+        expected_step = expected[:, step_index : step_index + 1]  # (batch, 1)
+        torch.testing.assert_close(prepared_tokens, expected_step)
 
 
 @pytest.mark.unit

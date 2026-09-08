@@ -9,7 +9,9 @@ from versatil.checkpoint_loading.base import (
     strip_compiled_prefixes,
     versatil_checkpoint_safe_globals,
 )
-from versatil.models.exportable_policy import ExportablePolicy
+from versatil.checkpoint_loading.metadata import CheckpointMetadata
+from versatil.models.exportable.factory import create_exportable_policy
+from versatil.models.policy import Policy
 from versatil.post_training_compression.export import build_example_inputs
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.training.constants import (
@@ -42,6 +44,13 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
         )
         self._config = self._load_config(config_path=config_path)
         self._policy = self._config.policy
+        self._checkpoint_metadata = CheckpointMetadata(
+            observation_space=self._policy.observation_space,
+            action_space=self._policy.action_space,
+            prediction_horizon=self._policy.prediction_horizon,
+            observation_horizon=self._policy.decoder.observation_horizon,
+        )
+        self._normalizer = self._policy.normalizer
         tokenizer_path = os.path.join(
             self._checkpoint_path, CheckpointFilename.TOKENIZER_DIR.value
         )
@@ -75,10 +84,16 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
             checkpoint_state_dict=checkpoint_state,
             model_state_dict=lightning_module.state_dict(),
         )
+        self._denoising_thresholds = self._policy.get_denoising_thresholds()
+
+    @property
+    def policy(self) -> Policy:
+        """Get the restored policy containing trained fake-quantization layers."""
+        return self._policy
 
     def _materialize_lazy_modules(self) -> None:
         """Run one eager pass before QAT prepare mutates Linear modules."""
-        exportable = ExportablePolicy.from_policy(policy=self._policy)
+        exportable = create_exportable_policy(policy=self._policy)
         example_inputs = build_example_inputs(
             exportable=exportable,
             observation_space=self.observation_space,

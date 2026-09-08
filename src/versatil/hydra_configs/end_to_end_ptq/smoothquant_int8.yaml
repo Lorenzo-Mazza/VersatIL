@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - /post_training_compression
+  - /quantization: smoothquant_int8
+  - _self_
+
+checkpoint_path: ???
+checkpoint_name: last.ckpt
+calibration_steps: 16
+generate_report: false
+
+deployment_backend:
+  _target_: versatil.post_training_compression.deployment_backends.torch_inductor.TorchInductorBackend

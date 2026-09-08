@@ -6,6 +6,7 @@ import torch
 
 from versatil.checkpoint_loading.float_policy import FloatCheckpointLoader
 from versatil.inference.policy_runtime.base import PolicyRuntime
+from versatil.models.policy import Policy
 from versatil.training.constants import PrecisionType
 
 
@@ -27,6 +28,7 @@ class ExplainabilityPolicyRuntime(PolicyRuntime):
                 identifier registered with the environment server.
         """
         self._precision = str(checkpoint_loader.config.experiment.precision)
+        self._policy = checkpoint_loader.policy
         client_identifier = str(
             Path(checkpoint_loader.checkpoint_path) / Path(checkpoint_name).stem
         )
@@ -34,6 +36,11 @@ class ExplainabilityPolicyRuntime(PolicyRuntime):
             checkpoint_loader=checkpoint_loader,
             client_identifier=client_identifier,
         )
+
+    @property
+    def policy(self) -> Policy:
+        """Get the policy shared by inference and attribution."""
+        return self._policy
 
     def run_inference(
         self,

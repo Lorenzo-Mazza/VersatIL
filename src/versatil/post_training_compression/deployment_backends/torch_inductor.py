@@ -12,6 +12,7 @@ from versatil.post_training_compression.deployment_backends.base import (
     DeploymentArtifact,
     DeploymentBackend,
 )
+from versatil.quantization.constants import PT2EBackendName, QuantizationMode
 
 
 class TorchInductorBackend(DeploymentBackend):
@@ -20,6 +21,12 @@ class TorchInductorBackend(DeploymentBackend):
     name = DeploymentBackendName.TORCH_INDUCTOR.value
     artifact_format = ArtifactFormat.TORCH_EXPORT_PT2
     model_filename = CompressionFilename.COMPRESSED_MODEL.value
+    supported_quantization_modes = (
+        QuantizationMode.NONE.value,
+        QuantizationMode.PT2E.value,
+        QuantizationMode.EAGER.value,
+    )
+    supported_pt2e_backends = (PT2EBackendName.X86_INDUCTOR.value,)
 
     def export(
         self,

@@ -4,9 +4,27 @@ Guidance for AI coding agents and human contributors working on VersatIL.
 
 ## Working Agreements
 
+### Explanations and Documentation
+
+Use affirmative descriptions in documentation, docstrings, comments and user-facing
+responses. State what each component does, its requirements and its supported
+uses. Avoid contrastive definitions such as "X is not Y", "this does not mean",
+"not just", "rather than" and "not a configuration switch". Explain boundaries
+through concrete requirements and supported operations. For an incompatibility,
+name the conflicting requirements and the change needed to resolve them.
+
+Record resolved issues as brief changelog entries. Keep known-issues documentation
+focused on current problems and their available workarounds.
+
 ### Docstrings
 
-Describe what the code does, what each non-obvious argument means, what it returns, and what it raises. Do not explain behavior by saying what it is not, unless that contrast is necessary to prevent misuse.
+Describe what the code does, what each non-obvious argument means, what it returns,
+and what it raises. Use direct, affirmative descriptions.
+
+Put every explanatory remark, caveat and notation definition in a Google-style
+`Note:` section. This includes definitions of tensor-shape symbols. Keep argument
+descriptions under `Args:`, return values under `Returns:`, and exceptions under
+`Raises:`.
 
 ### Code Quality
 
@@ -347,8 +365,10 @@ Load policy (CPU)
   → Resolve compression targets (per-module or global fallback)
   → Validate module paths and strategy compatibility
   → Per-target: BN replacement → Conv+BN fusion → Pruning (sequential list)
-  → Export to FX graph via torch.export (CPU, dynamic batch)
-  → Quantize or export: none, eager, or PT2E workflow
+  → Selected workflow (CPU, dynamic batch):
+      none: floating-point export
+      eager: module conversion → export
+      PT2E: export → graph preparation/calibration/conversion
   → Deployment backend: .pt2 or .pte artifact
   → Save artifact + normalizer + metadata → compressed/<timestamp>/
   → (Optional) Generate report: op coverage, size reduction, output divergence
@@ -359,10 +379,59 @@ Load policy (CPU)
 | Workflow | API | When to use | Calibration |
 |----------|-----|-------------|-------------|
 | **none** | `torch.export` only | Floating-point export | Not needed |
-| **eager** | `torchao.quantization.quantize_()` / `QATConfig` | Eager PTQ or eager QAT conversion | Not needed |
+| **eager** | `torchao.quantization.quantize_()` / `QATConfig` | Eager PTQ or QAT conversion before export | Configuration-dependent; SmoothQuant requires full-policy predictions |
 | **PT2E** | `prepare_pt2e` → calibrate → `convert_pt2e` | Graph quantization with PT2E backend quantizers | Required for static, skipped for dynamic |
 
-Eager and PT2E workflows cannot be combined in a single run. Eager quantization modifies the `nn.Module` before export, while PT2E operates on the exported graph.
+Each run selects one workflow. Eager quantization modifies the `nn.Module` before
+export; PT2E quantization operates on the exported graph.
+
+**Quantization schemas** (`quantization/schemas/`): `base.py` defines
+`QuantizationSchema`, the abstract interface for preparation/conversion settings and
+numerical, dtype, device and calibration checks. `direct.py` defines
+`DirectQuantizationSchema`, which supplies a base PTQ configuration or matching
+QAT preparation/conversion configurations. `smoothquant.py` defines
+`SmoothQuantSchema`, which supplies PTQ settings for dynamic INT8 activations and
+INT8 weights (`Int8DynamicActivationInt8WeightConfig`, version 2). Import classes
+from these defining modules. Each target accepts either `quantize_config` for
+direct conversion or an explicit `schema`; Hydra registers concrete schemas
+under `quantization/schema`.
+
+Schema = preparation configuration + conversion configuration. Preparation
+inserts observers for calibration or fake-quantization layers for training.
+Conversion produces quantized weights. The workflow executes these operations.
+
+`EagerQuantizationWorkflow` orders initialization, preparation, calibration,
+conversion and export. `EagerQuantizationModuleTarget` resolves its layer scope,
+filters linears and constructs conversion metadata. The workflow validates all
+targets before quantization, prepares all targets, runs required calibration,
+then converts all targets using the recorded selection. QAT optimization remains
+in the trainer. Deployment backends validate allowed workflow modes, PT2E
+pairings and eager representations through `validate_quantization()` and
+`validate_eager_target()`. SmoothQuant deployment uses Torch Export/Inductor.
+The `end_to_end_ptq/smoothquant_int8` preset uses CPU compression and `.pt2` export.
+SmoothQuant uses TorchAO's running-maximum observer, retaining one maximum per
+selected input channel throughout calibration.
+
+**Calibration inputs**: `CalibrationDataProvider` yields dictionaries of model
+observations using the dataset's normalization and tokenization. It preserves
+tensor dtypes when moving observations to the requested device, limits batch
+consumption, and rejects empty data or missing inputs. `build_calibration_data()`
+uses the checkpoint's dataset configuration, normalizer and tokenizer with image
+augmentation and batch shuffling disabled. PT2E arranges these named observations
+into the exported graph's argument order.
+
+**Processed policy prediction**: `Policy.predict_from_processed_observation()`
+accepts already-normalized and tokenized model inputs on the policy device and
+runs the full algorithm prediction, including denoising or token generation. It
+returns normalized actions or generated token IDs. `predict_action()` uses this
+same method between observation preprocessing and action postprocessing. Module
+observer calibration uses it to collect statistics from the complete prediction
+sequence.
+
+`calibrate_policy()` executes processed-input predictions under `torch.no_grad()`
+and requires evaluation mode. Compression metadata records base configuration,
+`schema` and `schema_parameters`, calibration requirements, consumed observation
+batches and converted weight types.
 
 **Compression targets** (`CompressionTarget`):
 Each target specifies a `module_path` (dotted path to a submodule, or `""` for the whole policy) and optional `preparation` and `pruning` (list of pruners, applied sequentially). Quantization targets live under the selected workflow in `quantization.targets`. When the global `modules` list is empty, `resolve_modules()` creates a single root target from the top-level config fields.
@@ -379,10 +448,49 @@ pruning:
 **Compressed inference** (`CompressedPolicyRuntime`):
 Loads compressed artifacts through `CompressedCheckpointLoader`. Torch Export `.pt2` artifacts run through PyTorch and can be compiled with `torch.compile` when appropriate. ExecuTorch `.pte` artifacts run through the ExecuTorch adapter on CPU.
 
+Checkpoint loaders share `CheckpointMetadata` for observation/action spaces and
+horizons. Compressed loading constructs these spaces from the saved configuration
+and restores the bundled normalizer, tokenizer and denoising thresholds. Float
+and QAT loaders also construct the policy and expose it through `.policy`.
+
+**Policy export adapters** (`models/exportable/`): `base.py` adapts continuous
+prediction, `denoising.py` adapts flow/diffusion sampling, and `autoregressive.py`
+adapts token generation. `factory.create_exportable_policy()` selects the adapter
+from the policy's algorithm and decoder. Import adapters from their defining
+modules. These adapters serve both floating-point and quantized exports.
+
+**Policy export metadata** (`models/exportable/metadata.py`): `PolicyExportMetadata`
+records graph output meaning and additional noise input shapes under
+`policy_export_metadata` in compression metadata. Flow and diffusion export
+adapters consume explicit noise; PT2E calibration and compressed inference append
+noise in the same order. The token adapter uses `AutoregressiveDecoderMixin` for
+complete bounded greedy generation with a fresh cache per invocation. OpenVLA
+and Pi0FAST share `AutoregressiveVLADecoder`; they use binned and FAST action
+tokenizers respectively. GPT supplies the same interface for smaller models.
+The runtime validates token
+dtype, rank and batch size, decodes using bundled tokenizer assets, and reverses
+action normalization. Tokenized export requires `BehavioralCloning`, a decoder
+implementing bounded autoregressive generation, greedy selection and a fitted
+binned or FAST discretizer matching the policy's action dimensions.
+
+**Eager validation**: the workflow coordinates target selection, schema checks
+and backend checks before conversion. Each target's layer selection is reused
+for preparation and conversion. Empty selections and invalid settings raise an
+error. Group-size mismatches are skipped or rejected according to the workflow
+configuration. Configurations requiring execution tests produce a logged
+warning. `QuantizedContext` carries `QuantizationTargetMetadata` records in
+`quantization_targets` and the consumed `calibration_batches` count. Data-only
+target and layer records live in `quantization/metadata.py`; serialization
+converts them to dictionaries when writing JSON. `QuantizationReport` handles
+optional measurements of numerical differences, graph coverage, size and execution time.
+
 **Deployment backends**: `TorchInductorBackend` saves Torch Export `.pt2` artifacts. `ExecutorchXNNPACKBackend` lowers exported programs to ExecuTorch XNNPACK `.pte` artifacts. PT2E quantizer backends, such as `X86InductorBackend`, live under `src/versatil/quantization/pt2e/`.
 
 **Known limitations**:
-- **PT2E export and calibration must run on CPU**: `torch.export` bakes device metadata (`_to_copy(device='cpu')`, `_assert_tensor_metadata(device='cpu')`) into the FX graph. Moving the prepared model to CUDA causes runtime device mismatches.
+- **Compression device**: current checkpoint-context and example-input builders
+  use CPU. Export and calibration require consistent devices because captured
+  graphs record device-specific operations. GPU compression requires device-aware
+  context and input construction.
 - **Dynamic batch dimension**: `torch.export` with `batch=1` specializes to a constant. Always use `batch>=2` for dynamic dims.
 - **First inference latency**: `torch.compile` with inductor backend generates and compiles C++ kernels on the first forward pass. Compilation time depends on model size and quantized op count.
 
@@ -419,6 +527,14 @@ python -m versatil.endpoints.post_training_compress \
 - **Never use inline imports** (all imports at module top)
 - **Examine whole codebase for context before changes**
 - **Minimal comments**: Only for tensor shapes or when logic is non-obvious.
+- **Tensor shape comments are required**: Add an inline shape comment to every
+  non-scalar tensor operation you write or modify. Scalar operations do not need
+  shape comments. For operations that change shape, show the input and output
+  shapes. Define shape symbols such as `B` (batch), `P` (prefix length), and `D`
+  (embedding dimension) in a `Note:` section of the docstring. Write the shape
+  directly when its tensor is clear, for example `# (B, T, D)`. Add labels only
+  when needed to distinguish multiple tensors; omit redundant `each input:` and
+  `each output:` prefixes.
 - Use English words as variables, avoid abbreviations.
 - Use kwargs in function calls.
 - **Never use `**kwargs` or `*args`** in function signatures. Always use explicit named parameters.
@@ -479,8 +595,8 @@ Extensions:
 - Exportable autoregressive VLA decoders: export the single-step forward over a
   preallocated static KV cache, drive generation from a thin runtime loop
   (fixed max_tokens, mask after EOS), and reimplement FAST inverse-DCT
-  detokenization in torch. Until then ExportablePolicy.from_policy raises for
-  tokenized-action decoders.
+  detokenization in torch. The current token adapter exports complete bounded
+  generation and uses the saved Python action tokenizer at runtime.
 
 - Re-integrate distributed training with the current workspace.
 - Migrate from MkDocs to [ProperDocs](https://properdocs.org/) before MkDocs 2.0 breaks all plugins/themes.

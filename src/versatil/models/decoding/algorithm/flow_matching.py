@@ -278,10 +278,7 @@ class FlowMatching(DecodingAlgorithm):
         network: ActionDecoder,
         features: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Inference pass using ODE integration.
-
-        Generates actions by integrating the learned velocity field from noise (t=0)
-        to actions (t=1) using an ODE solver.
+        """Sample Gaussian noise and integrate the learned velocity field to actions.
 
         Args:
             network: The action decoder network module.
@@ -289,38 +286,12 @@ class FlowMatching(DecodingAlgorithm):
 
         Returns:
             Decoder output dictionary containing action predictions.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``H`` for prediction horizon
+            and ``D_k`` for the dimension of action component k.
         """
         batch_size, device, dtype = resolve_feature_reference(features=features)
-
-        network.enable_encoder_cache()
-        try:
-            return self._integrate_prediction(
-                network=network,
-                features=features,
-                batch_size=batch_size,
-                device=device,
-                dtype=dtype,
-            )
-        finally:
-            network.disable_encoder_cache()
-
-    def _integrate_prediction(
-        self,
-        network: ActionDecoder,
-        features: dict[str, torch.Tensor],
-        batch_size: int,
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> dict[str, torch.Tensor]:
-        """Integrate the flow ODE from noise to actions.
-
-        Args:
-            network: The action decoder network module.
-            features: Encoded features conditioning the velocity field.
-            batch_size: Batch size of the prediction.
-            device: Device for the sampled noise trajectory.
-            dtype: Dtype for the sampled noise trajectory.
-        """
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
             if not meta.requires_prediction_head:
@@ -332,14 +303,46 @@ class FlowMatching(DecodingAlgorithm):
                 device=device,
                 dtype=dtype,
             )  # (B, H, D_k)
+        return self.predict_from_noise(
+            network=network, features=features, initial_noise=trajectory
+        )
+
+    def predict_from_noise(
+        self,
+        network: ActionDecoder,
+        features: dict[str, torch.Tensor],
+        initial_noise: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Generate an action chunk by integrating the flow from the given noise.
+
+        Note:
+            Tensor shapes use ``B`` for batch size, ``H`` for prediction horizon and
+            ``D_k`` for the dimension of action component k.
+            The decoder caches encoded observations during integration and clears
+            the cache when integration returns or raises an exception.
+
+        Args:
+            network: Decoder that predicts the velocity for each action component.
+            features: Encoded observation features used at every integration step.
+            initial_noise: Starting values for the integration, keyed by action name.
+                Each tensor has shape ``(batch, prediction_horizon, action_dimension)``.
+                Sample these values from a standard normal distribution for inference.
+
+        Returns:
+            Normalized action chunks after ``num_inference_steps`` updates with the
+            configured ODE solver. Keys and tensor shapes match ``initial_noise``.
+        """
+        trajectory = initial_noise
         action_keys = sorted(trajectory.keys())
         shapes = {k: trajectory[k].shape for k in action_keys}
         flat_action_dimensions = {
             key: shapes[key][1] * shapes[key][2] for key in action_keys
         }
-        stacked = torch.cat(
-            [trajectory[k].flatten(1) for k in action_keys], dim=-1
-        )  # (B, H*sum(D_k))
+        flat_trajectories = [
+            trajectory[key].flatten(1)  # (B, H, D_k) -> (B, H * D_k)
+            for key in action_keys
+        ]
+        stacked = torch.cat(flat_trajectories, dim=-1)  # (B, H * sum(D_k))
 
         velocity_fn = VelocityWrapper(
             network=network,
@@ -350,12 +353,16 @@ class FlowMatching(DecodingAlgorithm):
             reverse_convention=self.reverse_flow_convention,
         )
 
-        stacked_final = integrate_ode(
-            z_init=stacked,
-            velocity_fn=velocity_fn,
-            num_steps=self.num_inference_steps,
-            solver=self.ode_solver,
-        )  # (B, H*sum(D_k))
+        network.enable_encoder_cache()
+        try:
+            stacked_final = integrate_ode(
+                z_init=stacked,
+                velocity_fn=velocity_fn,
+                num_steps=self.num_inference_steps,
+                solver=self.ode_solver,
+            )  # (B, H * sum(D_k))
+        finally:
+            network.disable_encoder_cache()
         result: dict[str, torch.Tensor] = {}
         current_offset = 0
         for key in action_keys:

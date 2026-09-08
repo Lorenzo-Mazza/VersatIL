@@ -6,8 +6,12 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from versatil.models.exportable_policy import ExportablePolicy
+from versatil.models.exportable.base import ExportablePolicy
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentBackend,
+)
 from versatil.post_training_compression.policy_context import PolicyContext
+from versatil.quantization.metadata import QuantizationTargetMetadata
 from versatil.quantization.module_target import QuantizationModuleTarget
 
 
@@ -42,6 +46,7 @@ class BaseQuantizationWorkflow(ABC):
         context: PolicyContext,
         exportable: ExportablePolicy,
         calibration_steps: int,
+        deployment_backend: DeploymentBackend | None = None,
     ) -> "QuantizedContext":
         """Run the workflow and return exported deployment inputs.
 
@@ -51,6 +56,9 @@ class BaseQuantizationWorkflow(ABC):
                 ``torch.export``.
             calibration_steps: Maximum calibration batches for workflows that
                 require calibration.
+            deployment_backend: Destination used to validate backend-specific
+                quantization requirements. None leaves those checks to the
+                deployment caller.
 
         Returns:
             Quantized context containing the float export, selected deployment
@@ -134,9 +142,21 @@ def validate_quantization_targets(
 
 @dataclass
 class QuantizedContext:
-    """Quantized export result plus inputs and metadata needed for deployment."""
+    """Quantized export result plus inputs and metadata needed for deployment.
+
+    Note:
+        ``float_model`` captures the policy before conversion. PTQ uses floating
+        weights; QAT retains the restored fake-quantization operations in this
+        reference graph.
+        ``calibration_batches`` counts representative batches when the workflow
+        reports that count. None means the workflow does not report it.
+        ``quantization_targets`` records the actual module selection and converted
+        weight types as typed metadata supplied by the workflow.
+    """
 
     float_model: nn.Module
     quantized_model: nn.Module
     example_inputs: tuple[torch.Tensor, ...]
     quantization_workflow: str
+    calibration_batches: int | None = None
+    quantization_targets: list[QuantizationTargetMetadata] | None = None

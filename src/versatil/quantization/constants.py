@@ -50,6 +50,7 @@ class ReportMetricKey(StrEnum):
     TOTAL = "total"
     MAX_DIFFERENCE = "max_difference"
     MEAN_DIFFERENCE = "mean_difference"
+    TOKEN_DISAGREEMENT_FRACTION = "token_disagreement_fraction"
     FLOAT_BYTES = "float_bytes"
     QUANTIZED_BYTES = "quantized_bytes"
     COMPRESSION_RATIO = "compression_ratio"

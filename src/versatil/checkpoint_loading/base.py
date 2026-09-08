@@ -26,10 +26,11 @@ from omegaconf.nodes import (
     ValueNode,
 )
 
+from versatil.checkpoint_loading.metadata import CheckpointMetadata
 from versatil.configs import MainConfig
+from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.models.policy import Policy
 from versatil.training.constants import CheckpointKey
 from versatil.validation import validate_experiment
 
@@ -131,8 +132,10 @@ class BaseCheckpointLoader:
         self._device = device
         self._checkpoint_path = checkpoint_path
         self._tokenizer: Tokenizer | None = None
-        self._config: MainConfig | None = None
-        self._policy: Policy | None = None
+        self._config: MainConfig | DictConfig | None = None
+        self._checkpoint_metadata: CheckpointMetadata
+        self._normalizer: LinearNormalizer
+        self._denoising_thresholds: dict[str, float] = {}
 
     def _load_config(self, config_path: str) -> MainConfig:
         """Load and validate experiment configuration from YAML.
@@ -165,6 +168,7 @@ class BaseCheckpointLoader:
         Raises:
             FileNotFoundError: If the config requires observation tokenization
                 but the tokenizer directory does not exist.
+            ValueError: If the saved tokenizer omits required observation assets.
         """
         tokenization_required = (
             self._config is not None
@@ -179,6 +183,11 @@ class BaseCheckpointLoader:
                 )
             return None
         tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self._device)
+        if tokenization_required and tokenizer.observation_tokenizer is None:
+            raise ValueError(
+                "Observation tokenization requires saved observation-tokenizer "
+                f"assets at {tokenizer_path}."
+            )
         logging.info(f"Tokenizer loaded from {tokenizer_path}")
         return tokenizer
 
@@ -299,7 +308,7 @@ class BaseCheckpointLoader:
         return self._checkpoint_path
 
     @property
-    def config(self) -> MainConfig:
+    def config(self) -> MainConfig | DictConfig:
         """Get the loaded experiment configuration."""
         return self._config
 
@@ -309,29 +318,24 @@ class BaseCheckpointLoader:
         return self._tokenizer
 
     @property
-    def policy(self) -> Policy:
-        """Get the restored policy."""
-        return self._policy
-
-    @property
     def observation_space(self) -> ObservationSpace:
         """Get the policy's observation space."""
-        return self._policy.observation_space
+        return self._checkpoint_metadata.observation_space
 
     @property
     def action_space(self) -> ActionSpace:
         """Get the policy's action space."""
-        return self._policy.action_space
+        return self._checkpoint_metadata.action_space
 
     @property
     def prediction_horizon(self) -> int:
         """Get the policy's prediction horizon."""
-        return self._policy.prediction_horizon
+        return self._checkpoint_metadata.prediction_horizon
 
     @property
     def observation_horizon(self) -> int:
         """Get the decoder's observation horizon."""
-        return self._policy.decoder.observation_horizon
+        return self._checkpoint_metadata.observation_horizon
 
     @property
     def denoising_thresholds(self) -> dict[str, float]:
@@ -340,14 +344,10 @@ class BaseCheckpointLoader:
         Returns:
             Dict mapping VersatIL action key to threshold. Empty if none set.
         """
-        raw = {
-            key: float(param.item())
-            for key, param in self._policy.denoising_thresholds.params_dict.items()
-        }
-        if not raw:
-            return {}
         return {
-            key: raw[key] for key in self.action_space.actions_metadata if key in raw
+            key: self._denoising_thresholds[key]
+            for key in self.action_space.actions_metadata
+            if key in self._denoising_thresholds
         }
 
     @property
@@ -360,9 +360,9 @@ class BaseCheckpointLoader:
         """
         clamp_ranges: dict[str, tuple[float, float]] = {}
         for depth_key in self.observation_space.depth_cameras:
-            if depth_key not in self._policy.normalizer.params_dict:
+            if depth_key not in self._normalizer.params_dict:
                 continue
-            stats = self._policy.normalizer[depth_key].params_dict.get(
+            stats = self._normalizer[depth_key].params_dict.get(
                 CheckpointKey.INPUT_STATS.value
             )
             if stats is not None:

@@ -6,6 +6,10 @@ from dataclasses import dataclass
 import torch
 from diffusers import DDIMScheduler, DDPMScheduler
 
+from versatil.models.decoding.constants import PredictionType
+
+DIFFUSERS_VELOCITY_PREDICTION = "v_prediction"
+
 
 @dataclass
 class DiffusionSchedulerConfig:
@@ -74,7 +78,11 @@ def create_noise_scheduler(
         "beta_start": config.beta_start,
         "beta_end": config.beta_end,
         "beta_schedule": config.beta_schedule,
-        "prediction_type": config.prediction_type,
+        "prediction_type": (
+            DIFFUSERS_VELOCITY_PREDICTION
+            if config.prediction_type == PredictionType.VELOCITY.value
+            else config.prediction_type
+        ),
         "clip_sample": config.clip_sample,
     }
 

@@ -870,8 +870,8 @@ class TestObservationTokenizerFromPretrained:
         loaded = ObservationTokenizer.from_pretrained(save_path)
         assert loaded.tokenizer_model == "test-model"
         assert loaded._is_fitted is True
-        mock_auto_tokenizer.assert_any_call(
-            tokenizer_model=save_path / "language_tokenizer",
+        mock_auto_tokenizer.assert_called_once_with(
+            tokenizer_model=str(save_path / "language_tokenizer"),
             trust_remote_code=False,
         )
 

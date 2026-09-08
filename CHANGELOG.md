@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group sizes; removed the corresponding compatibility patches.
 - Corrected PT2E round-trip test metadata and isolated staged-training checkpoint
   resume from test execution order.
+- X86 PT2E quantization distinguishes repeated calls to shared layers.
+- X86 compilation activates Inductor weight freezing for quantized kernel lowering.
+- Saved action and observation tokenizers load local assets directly; FAST
+  artifacts include their processor implementation. Replacing a bundled tokenizer
+  clears its previous assets.
+- Flow prediction and export share noise-driven sampling and observation-cache
+  cleanup.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
@@ -24,10 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Miniforge/Mamba.
 
 ### Added
+
+- Policy export adapters and saved input/output metadata for token
+  generation and explicit-noise flow/diffusion sampling.
+- SmoothQuant calibration through complete policy predictions before conversion.
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
 
+- Eager quantization separates workflow execution, target selection, Direct and
+  SmoothQuant schemas, and deployment validation, with typed conversion metadata.
+- Compressed runtimes restore observation/action spaces and preprocessing assets
+  directly from the compressed checkpoint.
 - Updated PyTorch to 2.13, TorchVision to 0.28, TorchAO to 0.18 and ExecuTorch
   to 1.4.1, with ExecuTorch wheel installation on Python 3.13 and 3.14.
 - Newly materialized Zarr datasets group image chunks into configurable storage

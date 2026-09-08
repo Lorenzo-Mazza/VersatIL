@@ -1,12 +1,16 @@
 """Tests for versatil.data.tokenization.action_tokenizer."""
 
+import json
 import re
+from collections.abc import Callable, Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
 from scipy.fft import idct
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization.action_discretizer import (
@@ -18,8 +22,30 @@ from versatil.data.tokenization.action_token_id_mapping import (
     LanguageVocabularyActionTokenIdMapping,
 )
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.tokenization.fast import load_fast_processor
 
 LANGUAGE_ACTION_TOKENIZER_MODEL = "sshleifer/tiny-gpt2"
+
+
+@pytest.fixture
+def local_fast_reload_factory() -> Iterator[Callable[[], tuple[MagicMock, MagicMock]]]:
+    with (
+        patch(
+            "versatil.data.tokenization.action_discretizer.load_fast_processor",
+            wraps=load_fast_processor,
+        ) as load_processor,
+        patch(
+            "versatil.data.tokenization.fast.get_class_from_dynamic_module",
+            wraps=get_class_from_dynamic_module,
+        ) as load_class,
+    ):
+
+        def factory() -> tuple[MagicMock, MagicMock]:
+            load_processor.reset_mock()
+            load_class.reset_mock()
+            return load_processor, load_class
+
+        yield factory
 
 
 def expected_fast_decode(
@@ -1319,13 +1345,16 @@ class TestActionTokenizerSavePretrained:
         tokenizer.save_pretrained(save_path)
         mock_torch_save.assert_called_once()
 
-    def test_save_does_not_save_fast_processor_when_pretrained(
+    def test_save_includes_pretrained_fast_processor_assets(
         self, action_tokenizer_factory, tmp_path
     ):
         tokenizer = action_tokenizer_factory(use_pretrained=True)
         save_path = tmp_path / "tokenizer"
         tokenizer.save_pretrained(save_path)
-        tokenizer.action_discretizer.processor.save_pretrained.assert_not_called()
+        tokenizer.action_discretizer.processor.register_for_auto_class.assert_called_once_with()
+        tokenizer.action_discretizer.processor.save_pretrained.assert_called_once_with(
+            str(save_path / "fast_processor")
+        )
 
     def test_save_saves_fast_processor_when_custom(
         self, action_tokenizer_factory, tmp_path, action_chunk_factory
@@ -1426,9 +1455,8 @@ class TestActionTokenizerFromPretrained:
             "is_fitted": True,
         }
         loaded = ActionTokenizer.from_pretrained(save_path)
-        assert mock_auto_processor.call_count == 2
-        second_call = mock_auto_processor.call_args_list[1]
-        assert second_call[0][0] == str(save_path / "fast_processor")
+        mock_auto_processor.assert_called_once_with(str(save_path / "fast_processor"))
+        assert loaded.action_discretizer.tokenizer_model == "physical-intelligence/fast"
         assert loaded._is_fitted is True
 
     @patch("versatil.data.tokenization.action_tokenizer.torch.load")
@@ -1493,10 +1521,10 @@ class TestActionTokenizerFromPretrained:
             "is_fitted": True,
         }
         loaded = ActionTokenizer.from_pretrained(save_path)
-        mock_auto_tokenizer.assert_any_call(
-            tokenizer_model=save_path / "language_tokenizer"
+        mock_auto_tokenizer.assert_called_once_with(
+            tokenizer_model=str(save_path / "language_tokenizer")
         )
-        assert loaded.token_id_mapping.language_tokenizer is not None
+        assert loaded.token_id_mapping.language_tokenizer_model == "some-model"
 
     @patch("versatil.data.tokenization.action_tokenizer.torch.load")
     def test_from_pretrained_logs_info(
@@ -1593,6 +1621,46 @@ class TestActionTokenizerIntegrationCustomFast:
 
 @pytest.mark.integration
 class TestActionTokenizerIntegrationSaveLoad:
+    @pytest.mark.parametrize("use_pretrained", [False, True])
+    def test_saved_fast_assets_reload_their_local_processor_implementation(
+        self,
+        action_chunk_factory: Callable[..., np.ndarray],
+        local_fast_reload_factory: Callable[[], tuple[MagicMock, MagicMock]],
+        tmp_path: Path,
+        use_pretrained: bool,
+    ) -> None:
+        tokenizer = ActionTokenizer(
+            action_discretizer=FastActionDiscretizer(use_pretrained=use_pretrained),
+        )
+        chunks = action_chunk_factory(batch_size=20, scale=0.5)
+        if not use_pretrained:
+            tokenizer.fit(action_chunks=chunks)
+        tokens = tokenizer.encode_chunk(action_chunk=chunks[0])[
+            SampleKey.TOKENIZED_ACTIONS.value
+        ]  # (maximum_token_length,)
+        expected = tokenizer.decode_chunk(tokens=tokens)  # (horizon, dimension)
+        destination = tmp_path / "action_tokenizer"
+        tokenizer.save_pretrained(path=destination)
+        processor_directory = destination / "fast_processor"
+        config = json.loads((processor_directory / "processor_config.json").read_text())
+        class_reference = config["auto_map"]["AutoProcessor"]
+        module_name = class_reference.split(".")[0]
+        assert (processor_directory / f"{module_name}.py").is_file()
+        load_processor, load_class = local_fast_reload_factory()
+
+        restored = ActionTokenizer.from_pretrained(path=destination)
+
+        load_processor.assert_called_once_with(str(processor_directory))
+        load_class.assert_called_once_with(
+            class_reference, str(processor_directory), trust_remote_code=True
+        )
+        assert (
+            restored.action_discretizer.tokenizer_model == "physical-intelligence/fast"
+        )
+        np.testing.assert_array_equal(
+            restored.decode_chunk(tokens=tokens), expected
+        )  # (horizon, dimension)
+
     def test_fit_save_load_decode_roundtrip(self, action_chunk_factory, tmp_path):
         tokenizer = ActionTokenizer(
             action_discretizer=FastActionDiscretizer(use_pretrained=False),
@@ -1617,8 +1685,6 @@ class TestActionTokenizerIntegrationSaveLoad:
     def test_pretrained_fast_save_load_decode_roundtrip(
         self, action_chunk_factory, tmp_path
     ):
-        # Pretrained FAST does not save processor assets, so the loaded tokenizer
-        # must recover its action shape purely from the serialized state.
         tokenizer = ActionTokenizer(
             action_discretizer=FastActionDiscretizer(use_pretrained=True),
         )

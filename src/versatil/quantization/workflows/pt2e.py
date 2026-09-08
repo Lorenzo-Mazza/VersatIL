@@ -5,21 +5,28 @@ import logging
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.composable_quantizer import (
     ComposableQuantizer,
 )
 
-from versatil.data.episodic_dataset import EpisodicDataset
-from versatil.models.exportable_policy import ExportablePolicy
-from versatil.post_training_compression.constants import QuantizationWorkflow
+from versatil.models.exportable.base import ExportablePolicy
+from versatil.models.exportable.metadata import PolicyExportMetadata
+from versatil.post_training_compression.constants import (
+    QuantizationWorkflow,
+)
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentBackend,
+)
 from versatil.post_training_compression.export import (
     build_example_inputs,
     export_policy,
 )
 from versatil.post_training_compression.policy_loading import load_float_policy_context
-from versatil.quantization.calibration import CalibrationDataProvider
+from versatil.quantization.calibration import (
+    CalibrationDataProvider,
+    build_calibration_data,
+)
 from versatil.quantization.constants import FXNodePattern, QuantizationMode
 from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
@@ -102,6 +109,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         context: PolicyContext,
         exportable: ExportablePolicy,
         calibration_steps: int,
+        deployment_backend: DeploymentBackend | None = None,
     ) -> QuantizedContext:
         """Export, prepare, optionally calibrate, and convert with PT2E.
 
@@ -111,6 +119,8 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
                 ``torch.export``.
             calibration_steps: Maximum number of training batches used for
                 static PT2E calibration.
+            deployment_backend: Destination selected by compression, which checks
+                compatibility with the configured PT2E quantizers.
 
         Returns:
             Float exported model, PT2E-converted model, and example inputs.
@@ -134,7 +144,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
-        )
+        )  # (batch, ...)
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
         # prepare_pt2e/convert_pt2e mutate the exported graph in place; keep a
         # genuinely float copy so the report compares against the pre-
@@ -144,6 +154,9 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             exported=exported,
             targets=self.targets,
             calibration=calibration,
+            example_inputs=example_inputs,
+            observation_keys=exportable.observation_keys,
+            export_metadata=exportable.export_metadata,
         )
         return QuantizedContext(
             float_model=float_exported,
@@ -164,14 +177,16 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         Args:
             context: Loaded policy context containing the training dataloader
                 config.
-            exportable: Policy wrapper whose observation key order determines
-                calibration batch layout.
+            exportable: Policy wrapper identifying the required observation keys.
             targets: PT2E targets that determine whether calibration is needed.
             calibration_steps: Maximum number of calibration batches.
 
         Returns:
             Calibration provider for static targets, or ``None`` when all
             targets are dynamic.
+
+        Raises:
+            ValueError: If a static target requests fewer than one calibration batch.
         """
         needs_calibration = any(target.needs_calibration for target in targets)
         if not needs_calibration:
@@ -179,32 +194,13 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         if calibration_steps < 1:
             raise ValueError(
                 "Static PT2E quantization requires calibration_steps >= 1, "
-                f"got {calibration_steps}; converting uncalibrated observers "
-                "produces garbage quantization parameters."
+                f"got {calibration_steps}."
             )
-        dataset = EpisodicDataset(
-            zarr_path=context.config.task.dataset_schema.zarr_path,
-            action_space=context.config.task.action_space,
-            observation_space=context.observation_space,
-            dataloader_config=context.config.task.dataloader,
-            pred_horizon=context.config.task.prediction_horizon,
-            obs_horizon=context.observation_horizon,
-            train=True,
-            seed=context.config.experiment.seed,
-            augment_images=False,
-        )
-        dataset.set_normalizer(context.policy.normalizer)
-        dataset.set_tokenizer(context.tokenizer)
-        calibration_loader = DataLoader(
-            dataset=dataset,
-            batch_size=context.config.task.dataloader.batch_size,
-            shuffle=False,
-            num_workers=0,
-        )
-        return CalibrationDataProvider(
-            dataloader=calibration_loader,
+        return build_calibration_data(
+            context=context,
             observation_keys=exportable.observation_keys,
             num_calibration_steps=calibration_steps,
+            device=torch.device("cpu"),
         )
 
     @staticmethod
@@ -212,13 +208,29 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         exported: nn.Module,
         targets: list[PT2EQuantizationModuleTarget],
         calibration: CalibrationDataProvider | None,
+        example_inputs: tuple[torch.Tensor, ...],
+        observation_keys: list[str],
+        export_metadata: PolicyExportMetadata | None = None,
     ) -> nn.Module:
         """Apply PT2E prepare/calibrate/convert to an exported model.
+
+        Note:
+            A forward pass with the export inputs initializes weight observers for
+            dynamic activation quantization, including weights shared across
+            denoising steps. Static calibration appends the noise inputs described
+            by the policy export metadata to each observation batch.
+            ``B`` denotes batch size. Output dimensions depend on whether the
+            exported policy produces action tensors or action-token IDs.
 
         Args:
             exported: Exported float graph module.
             targets: PT2E targets used to create backend quantizers.
             calibration: Calibration batches for static PT2E targets.
+            example_inputs: Export inputs used to initialize weight observers
+                when no calibration provider is needed.
+            observation_keys: Observation keys in the exported graph's input order.
+            export_metadata: Additional graph inputs appended to observations
+                during static calibration. The default uses observation inputs only.
 
         Returns:
             Converted PT2E graph module.
@@ -247,9 +259,19 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             prepared = prepare_pt2e(exported, composed)
             if calibration is not None:
                 logger.info("Calibrating PT2E...")
+                export_metadata = export_metadata or PolicyExportMetadata()
                 with torch.no_grad():
-                    for batch in calibration:
-                        prepared(*batch)
+                    for observation in calibration:
+                        inputs = export_metadata.prepare_inputs(
+                            observations=tuple(
+                                observation[key] for key in observation_keys
+                            )
+                        )  # (B, ...)
+                        prepared(*inputs)  # (B, ...)
+            else:
+                logger.info("Initializing PT2E weight observers with export inputs.")
+                with torch.no_grad():
+                    prepared(*example_inputs)  # (B, ...)
             converted = convert_pt2e(prepared)
         static_op_count = str(converted.graph).count(
             FXNodePattern.QUANTIZE_PER_TENSOR.value

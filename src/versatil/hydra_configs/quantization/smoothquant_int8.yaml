@@ -1,0 +1,17 @@
+defaults:
+  - /quantization/workflow@_here_: eager
+  - _self_
+
+targets:
+  - _target_: versatil.quantization.module_target.EagerQuantizationModuleTarget
+    module_path: decoder
+    schema:
+      _target_: versatil.quantization.schemas.smoothquant.SmoothQuantSchema
+      alpha: 0.5
+      base_config:
+        _target_: torchao.quantization.Int8DynamicActivationInt8WeightConfig
+        version: 2
+        weight_only_decode: false
+
+is_qat: false
+auto_filter_incompatible_linears: true

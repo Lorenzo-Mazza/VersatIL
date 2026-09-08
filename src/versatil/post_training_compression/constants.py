@@ -42,6 +42,10 @@ class CompressionMetadataKey(StrEnum):
     QUANTIZATION_WORKFLOW = "quantization_workflow"
     DENOISING_THRESHOLDS = "denoising_thresholds"
     PT2E_BACKEND = "pt2e_backend"
+    QUANTIZATION_TARGETS = "quantization_targets"
+    CALIBRATION_BATCHES = "calibration_batches"
+    POLICY_EXPORT_METADATA = "policy_export_metadata"
+    LEGACY_INFERENCE_CONTRACT = "inference_contract"
 
 
 class CompressionFilename(StrEnum):
