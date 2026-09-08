@@ -583,6 +583,54 @@ class TestSmolVLMForward:
             inputs[Cameras.RIGHT.value].squeeze(1),
         )
 
+    @pytest.mark.parametrize(
+        "memory_format", [torch.contiguous_format, torch.channels_last]
+    )
+    def test_image_encoding_receives_contiguous_stacked_cameras(
+        self,
+        smolvlm_backbone_factory: Callable[..., SmolVLM],
+        smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        memory_format: torch.memory_format,
+    ) -> None:
+        camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
+        backbone = smolvlm_backbone_factory(
+            input_keys=camera_keys, pretrained=False, frozen=False
+        )
+        inputs = {}
+        for camera_key in camera_keys:
+            camera_inputs = smolvlm_input_factory(
+                camera_key=camera_key,
+                batch_size=2,
+                channels=3,
+                height=IMAGE_SIZE,
+                width=IMAGE_SIZE,
+                time_steps=1,
+            )
+            inputs[camera_key] = (
+                camera_inputs[camera_key].squeeze(dim=1).to(memory_format=memory_format)
+            )  # (2, 1, 3, 56, 56) -> (2, 3, 56, 56)
+
+        with patch(
+            "versatil.models.decoding.generative_language_models.vision_language.smolvlm.resize_to_target_size",
+            side_effect=list(inputs.values()),
+        ) as resize:
+            embeddings, masks = backbone._embed_images(inputs=inputs, batch_size=2)
+
+        assert resize.call_count == 2
+        backbone.vlm.get_image_features.assert_called_once()
+        pixel_values = backbone.vlm.get_image_features.call_args.args[0]
+        assert pixel_values.is_contiguous()
+        flattened = pixel_values.view(
+            4, 3, IMAGE_SIZE, IMAGE_SIZE
+        )  # (2, 2, 3, 56, 56) -> (4, 3, 56, 56)
+        expected = torch.stack(list(inputs.values()), dim=1).reshape(
+            4, 3, IMAGE_SIZE, IMAGE_SIZE
+        )  # (2, 2, 3, 56, 56) -> (4, 3, 56, 56)
+        torch.testing.assert_close(flattened, expected)
+        assert embeddings[0].shape == (2, 2 * NUM_IMAGE_TOKENS, HIDDEN_DIM)
+        assert masks[0].shape == (2, 2 * NUM_IMAGE_TOKENS)
+        assert not masks[0].any()
+
     def test_padding_mask_image_portion_is_never_padded(
         self,
         smolvlm_backbone_factory: Callable[..., SmolVLM],

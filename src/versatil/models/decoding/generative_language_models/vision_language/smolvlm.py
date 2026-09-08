@@ -93,10 +93,6 @@ class SmolVLM(HuggingFaceGenerativeVLM):
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
         """Stack all cameras along num_images dim and encode in a single call.
 
-        Stacks N camera images into (B, N, C, H, W), passes through the vision
-        encoder which returns (B*N, tokens_per_camera, hidden_dimension), then reshapes
-        back to (B, N*tokens_per_camera, hidden_dimension).
-
         Args:
             inputs: Dict with camera images as (B, C, H, W) per camera key.
             batch_size: Batch size.
@@ -105,6 +101,11 @@ class SmolVLM(HuggingFaceGenerativeVLM):
             ([embeddings], [pad_mask]) where embeddings is
             (B, N*tokens_per_camera, hidden_dimension) and pad_mask is
             (B, N*tokens_per_camera).
+
+        Note:
+            B is batch size, N is camera count, C is channel count, and H and W
+            are image height and width. The contiguous camera stack supports
+            Idefics3's view-based flattening of the batch and camera axes.
         """
         camera_images = []
         for camera_key in self.camera_keys:
@@ -116,7 +117,9 @@ class SmolVLM(HuggingFaceGenerativeVLM):
                 )
             )
         num_cameras = len(self.camera_keys)
-        pixel_values = torch.stack(camera_images, dim=1)  # (B, num_cameras, C, H, W)
+        pixel_values = torch.stack(
+            tensors=camera_images, dim=1
+        ).contiguous()  # (B, N, C, H, W)
         image_features = self.vlm.get_image_features(pixel_values)
         # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dimension)
         image_embeddings = image_features.pooler_output
