@@ -294,6 +294,28 @@ class TestTrainingStageConfig:
 
 @pytest.mark.unit
 class TestTrainingConfig:
+    @pytest.mark.parametrize(
+        "max_steps, expectation",
+        [
+            (-1, does_not_raise()),
+            (0, does_not_raise()),
+            (12, does_not_raise()),
+            (
+                -2,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("max_steps must be -1 or a non-negative integer."),
+                ),
+            ),
+        ],
+    )
+    def test_validates_optimizer_step_limit(
+        self, max_steps: int, expectation: AbstractContextManager
+    ) -> None:
+        with expectation:
+            config = TrainingConfig(max_steps=max_steps)
+            assert config.max_steps == max_steps
+
     @pytest.mark.parametrize("num_epochs", [50, 200])
     @pytest.mark.parametrize("use_ema", [True, False])
     @pytest.mark.parametrize("clip_gradient_norm", [True, False])

@@ -16,7 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
     StochasticWeightAveraging,
 )
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import CSVLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
@@ -225,6 +225,10 @@ class Workspace:
             len(self.train_loader) / self.config.training.gradient_accumulate_every
         )
         total_training_steps = steps_per_epoch * self.config.training.num_epochs
+        if self.config.training.max_steps >= 0:
+            total_training_steps = min(
+                total_training_steps, self.config.training.max_steps
+            )
         self.lightning_policy = LightningPolicy(
             policy=self.policy,
             training_config=self.config.training,
@@ -280,13 +284,19 @@ class Workspace:
         )
         limit_val_batches = 1.0 if self.val_loader is not None else 0
         log_every_n_steps = self._get_log_every_n_steps()
+        trainer_logger = self.logger
+        if trainer_logger is None and self.config.experiment.profiler is not None:
+            # Fallback logger, as profiling needs it.
+            trainer_logger = CSVLogger(save_dir=str(self.output_dir))
 
         self.trainer = pl.Trainer(
             max_epochs=self.config.training.num_epochs,
+            max_steps=self.config.training.max_steps,
+            profiler=self.config.experiment.profiler,
             accelerator="gpu" if "cuda" in self.config.experiment.device else "cpu",
             devices="auto" if self.config.experiment.distributed else 1,
             strategy=strategy,
-            logger=self.logger,
+            logger=trainer_logger,
             callbacks=callbacks,
             gradient_clip_val=gradient_clip_val,
             accumulate_grad_batches=self.config.training.gradient_accumulate_every,

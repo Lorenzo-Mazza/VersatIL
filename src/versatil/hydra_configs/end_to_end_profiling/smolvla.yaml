@@ -1,0 +1,35 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/libero_lerobot/smolvla
+  - _self_
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:profiling}
+  use_wandb: false
+  save_checkpoints: false
+  profiler:
+    _target_: pytorch_lightning.profilers.PyTorchProfiler
+    dirpath: null
+    filename: smolvla
+    export_to_chrome: true
+    row_limit: 50
+    record_module_names: true
+    record_shapes: true
+    profile_memory: true
+    with_stack: false
+    schedule:
+      _target_: torch.profiler.schedule
+      wait: 20
+      warmup: 5
+      active: 30
+      repeat: 1
+
+training:
+  max_steps: 80
+  early_stopping_patience: null
+
+task:
+  dataloader:
+    batch_size: 64
+    num_workers: 8
+    val_ratio: 0.0

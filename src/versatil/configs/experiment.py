@@ -1,6 +1,7 @@
 """Configuration for experiment tracking and setup."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from omegaconf import MISSING
 
@@ -28,6 +29,8 @@ class ExperimentConfig:
         val_every: Epoch interval between validation runs.
         validate_loss_keys: Whether loss modules are validated against decoder output
             keys.
+        profiler: Lightning profiler name or Hydra-instantiated profiler, or null
+            to disable profiling.
     """
 
     name: str = MISSING
@@ -49,3 +52,4 @@ class ExperimentConfig:
     )
     val_every: int = 1
     validate_loss_keys: bool = True
+    profiler: Any = None

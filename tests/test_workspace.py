@@ -61,6 +61,7 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         save_checkpoints: bool = True,
         val_every: int = 1,
         validate_loss_keys: bool = True,
+        profiler: MagicMock | str | None = None,
     ) -> MagicMock:
         config = MagicMock(spec=ExperimentConfig)
         config.name = name
@@ -78,6 +79,7 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         config.save_checkpoints = save_checkpoints
         config.val_every = val_every
         config.validate_loss_keys = validate_loss_keys
+        config.profiler = profiler
         return config
 
     return factory
@@ -89,6 +91,7 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
 
     def factory(
         num_epochs: int = 10,
+        max_steps: int = -1,
         gradient_accumulate_every: int = 1,
         clip_gradient_norm: bool = False,
         clip_max_norm: float = 0.1,
@@ -110,6 +113,7 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
     ) -> MagicMock:
         config = MagicMock(spec=TrainingConfig)
         config.num_epochs = num_epochs
+        config.max_steps = max_steps
         config.gradient_accumulate_every = gradient_accumulate_every
         config.clip_gradient_norm = clip_gradient_norm
         config.clip_max_norm = clip_max_norm
@@ -1163,6 +1167,40 @@ class TestCreateCallbacks:
 
 @pytest.mark.unit
 class TestSetupTrainer:
+    @pytest.mark.parametrize("max_steps", [-1, 0, 12])
+    @pytest.mark.parametrize("profiling_enabled", [False, True])
+    @pytest.mark.parametrize("existing_logger", [False, True])
+    def test_passes_step_limit_and_profiler_with_local_logging_fallback(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        max_steps: int,
+        profiling_enabled: bool,
+        existing_logger: bool,
+    ) -> None:
+        profiler = MagicMock() if profiling_enabled else None
+        workspace = workspace_factory(
+            experiment_kwargs={"profiler": profiler},
+            training_kwargs={"max_steps": max_steps},
+        )
+        workspace.logger = MagicMock() if existing_logger else None
+
+        with (
+            patch.object(workspace, "_create_callbacks", return_value=[]),
+            patch.object(workspace, "_create_strategy", return_value="auto"),
+            patch("versatil.workspace.CSVLogger") as csv_logger,
+            patch("versatil.workspace.pl.Trainer") as trainer,
+        ):
+            workspace._setup_trainer()
+
+        assert trainer.call_args.kwargs["max_steps"] == max_steps
+        assert trainer.call_args.kwargs["profiler"] == profiler
+        if profiling_enabled and not existing_logger:
+            csv_logger.assert_called_once_with(save_dir=str(workspace.output_dir))
+            assert trainer.call_args.kwargs["logger"] == csv_logger.return_value
+        else:
+            csv_logger.assert_not_called()
+            assert trainer.call_args.kwargs["logger"] == workspace.logger
+
     def test_trainer_uses_gpu_accelerator_for_cuda_device(
         self, workspace_factory, mock_workspace_policy_factory
     ):
@@ -1480,13 +1518,16 @@ class TestSetupPolicy:
         )
 
     @pytest.mark.parametrize(
-        "train_loader_length, gradient_accumulate_every, num_epochs, expected_total",
+        "train_loader_length, gradient_accumulate_every, num_epochs, max_steps, expected_total",
         [
-            (100, 2, 10, 500),
+            (100, 2, 10, -1, 500),
             # Lightning flushes the final partial accumulation window each
             # epoch, so 101 batches with accumulation 2 yield 51 steps.
-            (101, 2, 10, 510),
-            (7, 3, 4, 12),
+            (101, 2, 10, -1, 510),
+            (7, 3, 4, -1, 12),
+            (101, 2, 10, 12, 12),
+            (7, 3, 4, 100, 12),
+            (7, 3, 4, 0, 0),
         ],
     )
     def test_computes_total_training_steps_correctly(
@@ -1496,12 +1537,14 @@ class TestSetupPolicy:
         train_loader_length: int,
         gradient_accumulate_every: int,
         num_epochs: int,
+        max_steps: int,
         expected_total: int,
     ):
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(
             training_kwargs={
                 "num_epochs": num_epochs,
+                "max_steps": max_steps,
                 "gradient_accumulate_every": gradient_accumulate_every,
             },
             policy=policy,

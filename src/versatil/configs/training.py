@@ -182,6 +182,7 @@ class TrainingConfig:
 
     Attributes:
         num_epochs: Total training epochs.
+        max_steps: Maximum optimizer steps, or -1 to use the epoch limit.
         gradient_accumulate_every: Batches accumulated per optimizer step.
         optimizer: Optimizer (defaults to AdamW).
         clip_gradient_norm: Gradient clipping.
@@ -212,6 +213,7 @@ class TrainingConfig:
     """
 
     num_epochs: int = 100
+    max_steps: int = -1
     gradient_accumulate_every: int = 1
 
     # Optimizer (defaults to AdamW)
@@ -262,6 +264,8 @@ class TrainingConfig:
 
     def __post_init__(self) -> None:
         """Validate training knobs that are incompatible with staged control."""
+        if self.max_steps < -1:
+            raise ValueError("max_steps must be -1 or a non-negative integer.")
         if self.stages and self.reduce_lr_on_plateau:
             raise ValueError("training.stages does not support reduce_lr_on_plateau.")
         if self.lr_schedule is not None and self.reduce_lr_on_plateau:
