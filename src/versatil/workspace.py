@@ -418,7 +418,7 @@ class Workspace:
         # - SLURM_CPUS_PER_TASK: Workers per GPU
 
         strategy = DDPStrategy(
-            find_unused_parameters=False,
+            find_unused_parameters=True,
             gradient_as_bucket_view=True,
         )
         logging.info("Using DDP strategy for distributed training")

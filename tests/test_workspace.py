@@ -568,14 +568,14 @@ class TestCreateStrategy:
 
         assert isinstance(result, DDPStrategy)
 
-    def test_ddp_strategy_disables_find_unused_parameters(self, workspace_factory):
+    def test_ddp_strategy_enables_find_unused_parameters(self, workspace_factory):
         workspace = workspace_factory(
             experiment_kwargs={"distributed": True},
         )
 
         strategy = workspace._create_strategy()
 
-        assert strategy._ddp_kwargs["find_unused_parameters"] is False
+        assert strategy._ddp_kwargs["find_unused_parameters"] is True
 
     def test_ddp_strategy_enables_gradient_as_bucket_view(self, workspace_factory):
         workspace = workspace_factory(

@@ -4,6 +4,7 @@ import logging
 import os
 
 import hydra
+import torch
 from omegaconf import DictConfig, OmegaConf
 
 from versatil.common.logging import override_log_format
@@ -12,6 +13,19 @@ from versatil.validation import validate_experiment
 from versatil.workspace import Workspace
 
 EXPERIMENTS_DIR = get_hydra_configs_dir()
+
+
+def _set_cuda_device_from_local_rank(device: str) -> None:
+    """Bind a distributed process to its local CUDA device."""
+    local_rank = os.environ.get("LOCAL_RANK") or os.environ.get("SLURM_LOCALID")
+    if not device.startswith("cuda") or local_rank is None:
+        return
+    if not torch.cuda.is_available():
+        return
+
+    device_index = int(local_rank)
+    torch.cuda.set_device(device_index)
+    logging.info(f"Bound local rank {device_index} to CUDA device {device_index}")
 
 
 @hydra.main(version_base=None, config_path=str(EXPERIMENTS_DIR), config_name="main")
@@ -39,6 +53,9 @@ def main(config: DictConfig) -> None:
         logging.info(
             f"Distributed training detected (WORLD_SIZE={os.environ['WORLD_SIZE']})"
         )
+
+    if config.experiment.distributed:
+        _set_cuda_device_from_local_rank(device=str(config.experiment.device))
 
     instantiated_config = hydra.utils.instantiate(config)
     validate_experiment(instantiated_config)
