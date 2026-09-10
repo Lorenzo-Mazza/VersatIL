@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Distributed learning-rate schedules use Lightning's world-size-aware optimizer
+  step estimate; monitored losses aggregate across ranks; epoch time and peak GPU
+  memory report the slowest and largest rank; short-run logging uses the per-rank
+  batch count; and DDP initializes on the training stream to avoid unnecessary
+  CUDA synchronization.
+- Distributed training binds every local rank to its CUDA device before policy
+  construction, preventing lazy initialization from concentrating all ranks on GPU 0.
+
 - TorchAO 0.18 fixes Python 3.14 PT2E imports and preserves configured INT4 QAT
   group sizes; removed the corresponding compatibility patches.
 - Corrected PT2E round-trip test metadata and isolated staged-training checkpoint
