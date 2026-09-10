@@ -151,6 +151,7 @@ class TestTrainingStep:
                 on_epoch=True,
                 prog_bar=True,
                 batch_size=1,
+                sync_dist=True,
             )
 
 
@@ -235,6 +236,7 @@ class TestValidationStep:
                 on_epoch=True,
                 prog_bar=True,
                 batch_size=1,
+                sync_dist=True,
             )
 
 
@@ -335,6 +337,11 @@ class TestOnTrainEpochEnd:
             assert len(epoch_time_calls) == 1
             logged_duration = epoch_time_calls[0][0][1]
             assert logged_duration >= 0.0
+            assert epoch_time_calls[0].kwargs == {
+                "on_epoch": True,
+                "reduce_fx": "max",
+                "sync_dist": True,
+            }
 
     @pytest.mark.requires_gpu
     def test_logs_gpu_memory_peak_on_cuda(
@@ -370,6 +377,11 @@ class TestOnTrainEpochEnd:
             ]
             assert len(memory_calls) == 1
             assert memory_calls[0][0][1] >= 0.0
+            assert memory_calls[0].kwargs == {
+                "on_epoch": True,
+                "reduce_fx": "max",
+                "sync_dist": True,
+            }
 
     def test_skips_gpu_memory_logging_on_cpu(
         self,

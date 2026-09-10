@@ -18,7 +18,6 @@ from pytorch_lightning.callbacks import (
     TQDMProgressBar,
 )
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.strategies import DDPStrategy
 from torchao.quantization import Int4WeightOnlyConfig
 
 from versatil.configs.experiment import ExperimentConfig
@@ -36,6 +35,7 @@ from versatil.training.callbacks.gradient_norm import GradientNormCallback
 from versatil.training.callbacks.latent_visualization import LatentVisualizationCallback
 from versatil.training.callbacks.reduce_lr_on_plateau import ReduceLROnPlateauCallback
 from versatil.training.callbacks.training_stage import TrainingStageCallback
+from versatil.training.ddp_strategy import DefaultStreamDDPStrategy
 from versatil.training.lightning_policy import LightningPolicy
 from versatil.training.stage import TrainingStage
 from versatil.workspace import Workspace
@@ -566,7 +566,7 @@ class TestCreateStrategy:
 
         result = workspace._create_strategy()
 
-        assert isinstance(result, DDPStrategy)
+        assert type(result) is DefaultStreamDDPStrategy
 
     def test_ddp_strategy_enables_find_unused_parameters(self, workspace_factory):
         workspace = workspace_factory(
@@ -1431,6 +1431,46 @@ class TestSetupTrainer:
             call_kwargs = mock_trainer_cls.call_args[1]
             assert call_kwargs["log_every_n_steps"] == expected_log_every_n_steps
 
+    @pytest.mark.parametrize(
+        "world_size, expected_log_every_n_steps",
+        [
+            (2, 19),
+            (4, 10),
+        ],
+    )
+    def test_log_every_n_steps_uses_per_rank_batch_count(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        mock_workspace_policy_factory: Callable[..., MagicMock],
+        world_size: int,
+        expected_log_every_n_steps: int,
+    ) -> None:
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            experiment_kwargs={"distributed": True},
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+        train_loader = MagicMock()
+        train_loader.__len__ = MagicMock(return_value=37)
+        workspace.train_loader = train_loader
+
+        with (
+            patch.dict(
+                os.environ,
+                {"WORLD_SIZE": str(world_size), "SLURM_NTASKS": "1"},
+            ),
+            patch(
+                "versatil.workspace.torch.cuda.device_count", return_value=world_size
+            ),
+            patch("versatil.workspace.pl.Trainer") as mock_trainer_cls,
+        ):
+            workspace._setup_trainer()
+
+        call_kwargs = mock_trainer_cls.call_args[1]
+        assert call_kwargs["log_every_n_steps"] == expected_log_every_n_steps
+
     def test_log_every_n_steps_keeps_default_without_train_loader(
         self,
         workspace_factory: Callable[..., Workspace],
@@ -1517,38 +1557,13 @@ class TestSetupPolicy:
             expected_dtype
         )
 
-    @pytest.mark.parametrize(
-        "train_loader_length, gradient_accumulate_every, num_epochs, max_steps, expected_total",
-        [
-            (100, 2, 10, -1, 500),
-            # Lightning flushes the final partial accumulation window each
-            # epoch, so 101 batches with accumulation 2 yield 51 steps.
-            (101, 2, 10, -1, 510),
-            (7, 3, 4, -1, 12),
-            (101, 2, 10, 12, 12),
-            (7, 3, 4, 100, 12),
-            (7, 3, 4, 0, 0),
-        ],
-    )
-    def test_computes_total_training_steps_correctly(
+    def test_delegates_training_step_estimation_to_lightning(
         self,
         workspace_factory,
         mock_workspace_policy_factory,
-        train_loader_length: int,
-        gradient_accumulate_every: int,
-        num_epochs: int,
-        max_steps: int,
-        expected_total: int,
     ):
         policy = mock_workspace_policy_factory()
-        workspace = workspace_factory(
-            training_kwargs={
-                "num_epochs": num_epochs,
-                "max_steps": max_steps,
-                "gradient_accumulate_every": gradient_accumulate_every,
-            },
-            policy=policy,
-        )
+        workspace = workspace_factory(policy=policy)
         workspace.policy = None
 
         workspace.normalizer = MagicMock(spec=LinearNormalizer)
@@ -1557,7 +1572,7 @@ class TestSetupPolicy:
         workspace.gripper_class_weights = None
 
         mock_train_loader = MagicMock()
-        mock_train_loader.__len__ = MagicMock(return_value=train_loader_length)
+        mock_train_loader.__len__ = MagicMock(return_value=100)
         workspace.train_loader = mock_train_loader
 
         workspace.config.policy = policy
@@ -1572,7 +1587,6 @@ class TestSetupPolicy:
             mock_lightning_cls.assert_called_once_with(
                 policy=policy,
                 training_config=workspace.config.training,
-                total_training_steps=expected_total,
             )
 
     def test_prepares_qat_after_lazy_initialization(

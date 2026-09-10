@@ -99,6 +99,7 @@ class LightningPolicy(pl.LightningModule):
             on_epoch=True,
             prog_bar=True,
             batch_size=batch_size,
+            sync_dist=True,
         )
         return loss_output.total_loss
 
@@ -115,14 +116,26 @@ class LightningPolicy(pl.LightningModule):
         # Log epoch duration in seconds
         if hasattr(self, "_epoch_start_time"):
             epoch_duration = time.monotonic() - self._epoch_start_time
-            self.log("train/epoch_time_seconds", epoch_duration, on_epoch=True)
+            self.log(
+                "train/epoch_time_seconds",
+                epoch_duration,
+                on_epoch=True,
+                reduce_fx="max",
+                sync_dist=True,
+            )
 
         # Log peak GPU memory usage in GB, then reset for next epoch
         if torch.cuda.is_available() and self.device.type == "cuda":
             peak_memory_gb = torch.cuda.max_memory_allocated(device=self.device) / (
                 1024**3
             )
-            self.log("train/gpu_memory_peak_gb", peak_memory_gb, on_epoch=True)
+            self.log(
+                "train/gpu_memory_peak_gb",
+                peak_memory_gb,
+                on_epoch=True,
+                reduce_fx="max",
+                sync_dist=True,
+            )
             torch.cuda.reset_peak_memory_stats(device=self.device)
 
     def validation_step(
@@ -147,6 +160,7 @@ class LightningPolicy(pl.LightningModule):
             on_epoch=True,
             prog_bar=True,
             batch_size=batch_size,
+            sync_dist=True,
         )
         return loss_output.total_loss
 

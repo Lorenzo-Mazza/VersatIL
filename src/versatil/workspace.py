@@ -17,7 +17,6 @@ from pytorch_lightning.callbacks import (
     StochasticWeightAveraging,
 )
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
-from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
@@ -33,6 +32,7 @@ from versatil.quantization.workflows.none import NoQuantizationWorkflow
 from versatil.training.callback_factory import build_training_callbacks
 from versatil.training.callbacks.provider import CallbackProvider
 from versatil.training.constants import PrecisionType
+from versatil.training.ddp_strategy import DefaultStreamDDPStrategy
 from versatil.training.lightning_policy import LightningPolicy
 
 
@@ -218,21 +218,9 @@ class Workspace:
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
         self.policy.set_gripper_class_weights(self.gripper_class_weights)
-        # Calculate total training steps for learning-rate scheduling. Lightning
-        # flushes the final partial accumulation window each epoch, so the
-        # optimizer step count per epoch is the ceiling, not the floor.
-        steps_per_epoch = math.ceil(
-            len(self.train_loader) / self.config.training.gradient_accumulate_every
-        )
-        total_training_steps = steps_per_epoch * self.config.training.num_epochs
-        if self.config.training.max_steps >= 0:
-            total_training_steps = min(
-                total_training_steps, self.config.training.max_steps
-            )
         self.lightning_policy = LightningPolicy(
             policy=self.policy,
             training_config=self.config.training,
-            total_training_steps=total_training_steps,
         )
         self._initialize_lazy_modules()
         self._prepare_qat()
@@ -246,7 +234,6 @@ class Workspace:
             )
             self.lightning_policy.policy = self.policy
         logging.info(f"Policy created: {self.policy.__class__.__name__}")
-        logging.info(f"Total training steps: {total_training_steps}")
 
     def _prepare_qat(self) -> None:
         """Apply QAT fake quantization before optimizer construction."""
@@ -313,10 +300,24 @@ class Workspace:
         logging.info(f"Trainer created with {len(callbacks)} callbacks")
 
     def _get_log_every_n_steps(self) -> int:
-        """Choose a logging interval that stays visible on small datasets."""
+        """Choose a logging interval from the per-rank batch count."""
         if self.train_loader is None:
             return 50
-        return max(1, min(50, len(self.train_loader)))
+        world_size = self._get_distributed_world_size()
+        batches_per_rank = math.ceil(len(self.train_loader) / world_size)
+        return max(1, min(50, batches_per_rank))
+
+    def _get_distributed_world_size(self) -> int:
+        """Estimate the number of training processes before Trainer starts."""
+        if not self.config.experiment.distributed:
+            return 1
+
+        configured_world_sizes = [torch.cuda.device_count()]
+        for environment_variable in ("WORLD_SIZE", "SLURM_NTASKS"):
+            value = os.environ.get(environment_variable)
+            if value is not None:
+                configured_world_sizes.append(int(value))
+        return max(1, *configured_world_sizes)
 
     def _create_callbacks(self):
         """Create training callbacks.
@@ -417,7 +418,7 @@ class Workspace:
         # - SLURM_GPUS_ON_NODE: GPUs per node
         # - SLURM_CPUS_PER_TASK: Workers per GPU
 
-        strategy = DDPStrategy(
+        strategy = DefaultStreamDDPStrategy(
             find_unused_parameters=True,
             gradient_as_bucket_view=True,
         )
