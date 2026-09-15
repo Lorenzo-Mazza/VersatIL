@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from versatil.models.adaptation.constants import (
     DEFAULT_LORA_INIT_WEIGHTS,
-    LoRATargetModulePreset,
+    PEFTTargetModulePreset,
 )
 
 
@@ -33,7 +33,7 @@ class LoRAAdaptationConfig:
     rank: int = 8
     alpha: int = 16
     dropout: float = 0.0
-    target_modules: str = LoRATargetModulePreset.AUTO.value
+    target_modules: str = PEFTTargetModulePreset.AUTO.value
     exclude_modules: list[str] | None = None
     bias: str = "none"
     init_lora_weights: str = DEFAULT_LORA_INIT_WEIGHTS

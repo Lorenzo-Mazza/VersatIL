@@ -18,7 +18,7 @@ from transformers.models.llama.modeling_llama import LlamaModel
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.generative_language_models.constants import (
     SmolVLMModelType,
@@ -41,14 +41,6 @@ NUM_IMAGE_TOKENS = 1  # (56/14)^2 / 4^2 = 16/16
 MAX_TEXT_LENGTH = 128
 VOCAB_SIZE = 32000
 DEFAULT_INPUT_KEYS = [Cameras.LEFT.value]
-
-
-def _return_model(
-    model: MagicMock,
-    lora_config: LoRAAdaptation | None,
-    frozen: bool,
-) -> MagicMock:
-    return model
 
 
 def _create_mock_config() -> MagicMock:
@@ -79,6 +71,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         text_model.rotary_emb = MagicMock(spec=nn.Module)
         mock_vlm.model = MagicMock(spec=nn.Module)
         mock_vlm.model.text_model = text_model
+        mock_vlm.model.vision_model = nn.Identity()
         mock_vlm.model.connector = nn.Identity()
 
         mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
@@ -113,13 +106,18 @@ def smolvlm_backbone_factory(
         pretrained: bool = False,
         frozen: bool = False,
         lora_config: LoRAAdaptation | None = None,
+        model: MagicMock | None = None,
     ) -> SmolVLM:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value]
         mock_config = _create_mock_config()
         camera_keys = [input_keys] if isinstance(input_keys, str) else input_keys
         camera_count = len(camera_keys)
-        mock_vlm = mock_vlm_factory(num_cameras=max(camera_count, 1))
+        mock_vlm = (
+            mock_vlm_factory(num_cameras=max(camera_count, 1))
+            if model is None
+            else model
+        )
 
         with (
             patch(
@@ -148,7 +146,7 @@ def smolvlm_backbone_factory(
 
 @pytest.fixture
 def smolvlm_input_factory(
-    rng: np.random.Generator,
+    vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
 ) -> Callable[..., dict[str, torch.Tensor]]:
     def factory(
         camera_key: str = Cameras.LEFT.value,
@@ -159,21 +157,19 @@ def smolvlm_input_factory(
         sequence_length: int = 10,
         time_steps: int = 1,
         include_padding_mask: bool = False,
+        vocabulary_size: int = VOCAB_SIZE,
     ) -> dict[str, torch.Tensor]:
-        image_shape = (batch_size, time_steps, channels, height, width)
-        text_shape = (batch_size, time_steps, sequence_length)
-        images = torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
-        token_ids = torch.from_numpy(
-            rng.integers(low=0, high=VOCAB_SIZE, size=text_shape).astype(np.int64)
+        return vlm_input_factory(
+            camera_key=camera_key,
+            batch_size=batch_size,
+            channels=channels,
+            height=height,
+            width=width,
+            sequence_length=sequence_length,
+            time_steps=time_steps,
+            include_padding_mask=include_padding_mask,
+            vocabulary_size=vocabulary_size,
         )
-        result = {
-            camera_key: images,
-            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
-        }
-        if include_padding_mask:
-            mask = torch.zeros(text_shape, dtype=torch.bool)
-            result[SampleKey.IS_PAD_OBSERVATION.value] = mask
-        return result
 
     return factory
 
@@ -240,25 +236,41 @@ class TestSmolVLMInitialization:
             for parameter in backbone.parameters():
                 assert not parameter.requires_grad
 
+    @pytest.mark.parametrize("pretrained", [False, True])
     def test_applies_lora_to_loaded_vlm(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
+        mock_vlm_factory: Callable[..., MagicMock],
         smolvlm_backbone_factory: Callable[..., SmolVLM],
+        pretrained: bool,
     ) -> None:
-        lora_config = LoRAAdaptation(
+        model = mock_vlm_factory()
+        adapted_model = mock_vlm_factory()
+        lora_config = lora_config_factory(
             enabled=True,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
         )
 
         with patch(
             "versatil.models.decoding.generative_language_models.vision_language.huggingface.apply_lora_config",
-            side_effect=_return_model,
+            autospec=True,
+            return_value=adapted_model,
         ) as mock_apply_lora:
-            backbone = smolvlm_backbone_factory(lora_config=lora_config)
+            backbone = smolvlm_backbone_factory(
+                pretrained=pretrained,
+                frozen=False,
+                lora_config=lora_config,
+                model=model,
+            )
 
-        mock_apply_lora.assert_called_once()
-        assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
-        assert mock_apply_lora.call_args.kwargs["frozen"] is False
-        assert backbone.lora_config is lora_config
+        mock_apply_lora.assert_called_once_with(
+            model=model,
+            lora_config=lora_config,
+            frozen=False,
+            scoped_modules=[model.model.vision_model, model.model.connector],
+        )
+        assert backbone.vlm == adapted_model
+        assert backbone.lora_config == lora_config
 
     @pytest.mark.parametrize(
         "image_size, patch_size, scale_factor, expected_tokens",
@@ -832,45 +844,62 @@ class TestSmolVLMIntegration:
         assert targets[0].patch_grid == backbone._get_image_token_grid()
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("lora_enabled", [False, True])
-    def test_forward_pass_with_real_model(
+    @pytest.mark.parametrize(
+        "target_modules, expected_trainable_scope",
+        [
+            (None, None),
+            (
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
+                (".text_model.",),
+            ),
+            (
+                PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+                (".vision_model.", ".connector."),
+            ),
+        ],
+    )
+    def test_forward_pass_propagates_gradients_to_selected_modules(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_smolvlm_backbone: Callable[..., SmolVLM],
         smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
-        lora_enabled: bool,
+        target_modules: str | None,
+        expected_trainable_scope: tuple[str, ...] | None,
         parameter_count: Callable[[torch.nn.Module], int],
         trainable_parameter_count: Callable[[torch.nn.Module], int],
     ) -> None:
         batch_size = 1
         lora_config = (
-            LoRAAdaptation(
+            lora_config_factory(
                 enabled=True,
                 rank=2,
                 alpha=4,
-                target_modules=(
-                    LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
-                ),
+                target_modules=target_modules,
             )
-            if lora_enabled
+            if target_modules is not None
             else None
         )
         backbone = real_smolvlm_backbone(
             model_dtype=PrecisionType.FP32.value,
+            frozen=False,
             lora_config=lora_config,
         )
         backbone.eval()
+        backbone.zero_grad(set_to_none=True)
         inputs = smolvlm_input_factory(
             batch_size=batch_size,
             height=backbone.image_size,
             width=backbone.image_size,
             sequence_length=10,
+            time_steps=1,
+            vocabulary_size=backbone.get_vocab_size(),
         )
-        with torch.no_grad():
-            output = backbone(inputs=inputs)
+        output = backbone(inputs=inputs)
         fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
+        fused.square().mean().backward()
         assert fused.shape[0] == batch_size
         assert fused.shape[-1] == backbone.hidden_dimension
-        if lora_enabled:
+        if expected_trainable_scope is not None:
             trainable_parameter_names = [
                 name
                 for name, parameter in backbone.vlm.named_parameters()
@@ -880,20 +909,40 @@ class TestSmolVLMIntegration:
             total_parameters = parameter_count(backbone.vlm)
             assert trainable_parameter_names
             assert all("lora_" in name for name in trainable_parameter_names)
-            assert all(".text_model." in name for name in trainable_parameter_names)
+            assert all(
+                any(scope in name for scope in expected_trainable_scope)
+                for name in trainable_parameter_names
+            )
+            assert all(
+                any(
+                    scope in name
+                    and "lora_" in name
+                    and parameter.grad is not None
+                    and parameter.grad.abs().sum() > 0
+                    for name, parameter in backbone.vlm.named_parameters()
+                )
+                for scope in expected_trainable_scope
+            )
             assert 0 < trainable_parameters < total_parameters
+        else:
+            assert any(
+                parameter.grad is not None and parameter.grad.abs().sum() > 0
+                for parameter in backbone.vlm.parameters()
+            )
 
     @pytest.mark.integration
     def test_forward_language_model_with_real_peft_resized_vocabulary(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
+        language_input_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
         real_smolvlm_backbone: Callable[..., SmolVLM],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=3,
             alpha=6,
             target_modules=(
-                LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
             ),
         )
         backbone = real_smolvlm_backbone(
@@ -904,13 +953,20 @@ class TestSmolVLMIntegration:
         backbone.eval()
         resized_vocab_size = backbone.get_vocab_size() + 1
         backbone.resize_token_embeddings(vocabulary_size=resized_vocab_size)
-        token_ids = torch.tensor([[0, resized_vocab_size - 1]], dtype=torch.long)
-        attention_mask = torch.ones_like(token_ids)
+        token_ids, attention_mask = language_input_factory(
+            token_ids=[0, resized_vocab_size - 1],
+        )
         inputs_embeds = backbone.embed_input_ids(token_ids=token_ids)
 
         with torch.no_grad():
             output = backbone.forward_language_model(
                 inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                use_cache=True,
+            )
+
+            output_from_token_ids = backbone.forward_language_model(
+                input_ids=token_ids,
                 attention_mask=attention_mask,
                 use_cache=True,
             )
@@ -922,6 +978,7 @@ class TestSmolVLMIntegration:
         )
         assert output.hidden_states[-1].shape == inputs_embeds.shape
         assert output.past_key_values is not None
+        torch.testing.assert_close(output.logits, output_from_token_ids.logits)
 
     @pytest.mark.integration
     def test_backbone_accessors_return_real_modules(
@@ -961,14 +1018,15 @@ class TestSmolVLMIntegration:
     @pytest.mark.integration
     def test_lora_adapters_stay_float32_under_mixed_precision(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_smolvlm_backbone: Callable[..., SmolVLM],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=2,
             alpha=4,
             target_modules=(
-                LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
             ),
         )
         backbone = real_smolvlm_backbone(

@@ -27,7 +27,7 @@ python -m versatil.endpoints.explain \
 Common overrides:
 
 ```bash
-# Restrict methods, cameras, or visual modules
+# Restrict methods, cameras, or vision modules
 explanation_types='[gradcam]'
 target_camera_keys='[left]'
 target_vision_module_names='[left_rgb_encoder]'
@@ -46,7 +46,7 @@ ExplainabilityRunner
   -> FloatCheckpointLoader                 (restore policy, normalizer, tokenizer)
   -> ExplanationSource                     (dataset windows or live inference windows)
   -> per batch, per explanation type:
-       resolve_camera_explanation_targets  (discover visual modules and cameras)
+       resolve_camera_explanation_targets  (discover vision modules and cameras)
        compute heatmaps                    (Grad-CAM/Grad-CAM++/Ablation-CAM)
   -> ExplanationWriter                     (overlay images, optional raw .pt tensors)
 ```
@@ -90,7 +90,7 @@ Targets are discovered automatically from the policy:
 
 Each module declares its capture metadata through [`VisionExplanationTarget`][versatil.models.encoding.explainability.VisionExplanationTarget]: the target layer, whether it produces a spatial feature map (`NCHW`/`NHWC`) or a ViT token sequence (`NLC`), the tuple output index when the layer returns several tensors, and for token targets the prefix-token count and patch grid. Attribution hooks that layer, converts the captured activation to `NCHW`, computes the map, and resizes it back to the camera image with bicubic interpolation.
 
-When one module serves several cameras, a capture mode routes the hook to the right camera: separate forward calls per camera (`per_camera_call`), a camera-stacked batch dimension (`stacked_camera_batch`), or a single call (`single_call`). When multiple visual modules can explain the same camera, their normalized maps are averaged; use `target_vision_module_names` to isolate one module.
+When one module serves several cameras, a capture mode routes the hook to the right camera: separate forward calls per camera (`per_camera_call`), a camera-stacked batch dimension (`stacked_camera_batch`), or a single call (`single_call`). When multiple vision modules can explain the same camera, their normalized maps are averaged; use `target_vision_module_names` to isolate one module.
 
 ## Prediction objective
 
@@ -112,7 +112,7 @@ Ablation-CAM controls its memory/compute trade-off through `channel_batch_size`:
 
 ## Limitations
 
-- Each visual module must expose exactly one compatible explainability target. Per-target selection inside a module is not yet configurable.
+- Each vision module must expose exactly one compatible explainability target. Per-target selection inside a module is not yet configurable.
 - Token targets without an explicit `patch_grid` require a perfect-square patch count to infer the grid.
 - Attribution runs full policy forwards (plus one forward per `channel_batch_size` channels for Ablation-CAM), so online mode adds latency to each explained inference step.
 - There is no data format convention for explaining recorded inference rollouts, since recording formats depend on the simulator or hardware setup. The recommended workflow is currently to convert recorded rollouts into the same dataset schema used for training, then explain them through the dataset source by pointing `data_path_override` at the converted data.

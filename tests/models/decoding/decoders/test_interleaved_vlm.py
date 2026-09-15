@@ -219,6 +219,52 @@ def interleaved_decoder_factory(
     return factory
 
 
+@pytest.fixture
+def gradient_decoder_factory() -> Callable[..., _TestInterleavedDecoder]:
+    def factory(parameter_gradients: tuple[bool, ...]) -> _TestInterleavedDecoder:
+        decoder = _TestInterleavedDecoder.__new__(_TestInterleavedDecoder)
+        torch.nn.Module.__init__(self=decoder)
+        decoder.vlm_layers = MagicMock(spec=torch.nn.ModuleList)
+        parameters = []
+        for requires_grad in parameter_gradients:
+            parameter = MagicMock(spec=torch.nn.Parameter)
+            parameter.requires_grad = requires_grad
+            parameters.append(parameter)
+        decoder.vlm_layers.parameters.return_value = iter(parameters)
+        return decoder
+
+    return factory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("prefix_requires_grad", [False, True])
+@pytest.mark.parametrize(
+    "parameter_gradients, layers_require_grad",
+    [((), False), ((False,), False), ((False, True), True)],
+)
+def test_vlm_stream_retains_gradients_for_prefix_or_language_layers(
+    gradient_decoder_factory: Callable[..., _TestInterleavedDecoder],
+    sequence_tensor_factory: Callable[..., torch.Tensor],
+    prefix_requires_grad: bool,
+    parameter_gradients: tuple[bool, ...],
+    layers_require_grad: bool,
+) -> None:
+    decoder = gradient_decoder_factory(parameter_gradients=parameter_gradients)
+    prefix = sequence_tensor_factory(
+        batch_size=BATCH_SIZE,
+        sequence_length=PREFIX_TOKEN_COUNT,
+        embedding_dimension=HIDDEN_DIMENSION,
+    ).requires_grad_(prefix_requires_grad)
+
+    result = decoder._vlm_stream_requires_grad(prefix_embeddings=prefix)
+
+    assert result == (prefix_requires_grad or layers_require_grad)
+    if prefix_requires_grad:
+        decoder.vlm_layers.parameters.assert_not_called()
+    else:
+        decoder.vlm_layers.parameters.assert_called_once_with()
+
+
 @pytest.mark.unit
 class TestBaseInterleavedVLMDecoderWiring:
     def test_decoder_input_contains_encoded_and_raw_vlm_keys(

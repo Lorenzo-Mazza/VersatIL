@@ -70,6 +70,7 @@ class HuggingFaceGenerativeVLM(GenerativeVLM, abc.ABC):
             model=self.vlm,
             lora_config=lora_config,
             frozen=frozen,
+            scoped_modules=self._get_vision_modules(),
         )
         self.image_size: int = config.vision_config.image_size
         self.hidden_dimension: int = config.text_config.hidden_size

@@ -83,6 +83,10 @@ class PaliGemmaVLM(HuggingFaceGenerativeVLM):
             return self.vlm.model.model
         return self.vlm.model
 
+    def _get_vision_modules(self) -> list[nn.Module]:
+        """Return the PaliGemma vision backbone and multimodal projector."""
+        return [self.vlm.model.vision_tower, self.vlm.model.multi_modal_projector]
+
     def forward_language_model(
         self,
         input_ids: torch.Tensor | None = None,

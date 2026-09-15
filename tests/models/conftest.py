@@ -12,11 +12,42 @@ from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss
+from versatil.models.adaptation.constants import (
+    DEFAULT_LORA_INIT_WEIGHTS,
+    PEFTTargetModulePreset,
+)
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.encoders.base import EncoderInput, EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
+
+
+@pytest.fixture
+def lora_config_factory() -> Callable[..., LoRAAdaptation]:
+    def factory(
+        enabled: bool = True,
+        rank: int = 2,
+        alpha: int = 4,
+        dropout: float = 0.0,
+        target_modules: str = PEFTTargetModulePreset.AUTO.value,
+        exclude_modules: list[str] | None = None,
+        bias: str = "none",
+        init_lora_weights: str = DEFAULT_LORA_INIT_WEIGHTS,
+    ) -> LoRAAdaptation:
+        return LoRAAdaptation(
+            enabled=enabled,
+            rank=rank,
+            alpha=alpha,
+            dropout=dropout,
+            target_modules=target_modules,
+            exclude_modules=exclude_modules,
+            bias=bias,
+            init_lora_weights=init_lora_weights,
+        )
+
+    return factory
 
 
 @pytest.fixture
@@ -371,5 +402,47 @@ def policy_factory(
             device=device,
             metadata_passthrough=metadata_passthrough,
         )
+
+    return factory
+
+
+@pytest.fixture
+def vlm_input_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    def factory(
+        camera_key: str = Cameras.LEFT.value,
+        batch_size: int = 2,
+        time_steps: int = 1,
+        channels: int = 3,
+        height: int = 56,
+        width: int = 56,
+        sequence_length: int = 10,
+        vocabulary_size: int = 1000,
+        include_padding_mask: bool = False,
+        image_value: float | None = None,
+        token_value: int | None = None,
+    ) -> dict[str, torch.Tensor]:
+        image_shape = (batch_size, time_steps, channels, height, width)
+        text_shape = (batch_size, time_steps, sequence_length)
+        result = {
+            camera_key: (
+                torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
+                if image_value is None
+                else torch.full(image_shape, image_value, dtype=torch.float32)
+            ),
+            SampleKey.TOKENIZED_OBSERVATIONS.value: (
+                torch.from_numpy(
+                    rng.integers(low=0, high=vocabulary_size, size=text_shape)
+                )
+                if token_value is None
+                else torch.full(text_shape, token_value, dtype=torch.long)
+            ),
+        }
+        if include_padding_mask:
+            result[SampleKey.IS_PAD_OBSERVATION.value] = torch.zeros(
+                text_shape, dtype=torch.bool
+            )
+        return result
 
     return factory
