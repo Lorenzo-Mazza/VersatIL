@@ -2,11 +2,19 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
 import torch
+from transformers import (
+    CLIPConfig,
+    CLIPImageProcessor,
+    Siglip2Config,
+    Siglip2ImageProcessor,
+    SiglipConfig,
+    SiglipImageProcessor,
+)
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from versatil.data.constants import Cameras, SampleKey
@@ -14,6 +22,7 @@ from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetada
 from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.constants import (
+    AttentionImplementation,
     EncoderOutputKeys,
     ImageTextModelType,
     PoolingMethod,
@@ -61,7 +70,24 @@ def _create_mock_encoder() -> MagicMock:
 
 
 @pytest.fixture
-def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
+def vlm_loader_factory() -> Callable[[], MagicMock]:
+    def factory() -> MagicMock:
+        loaders = MagicMock()
+        encoder = _create_mock_encoder()
+        loaders.config.return_value = MagicMock()
+        loaders.pretrained_model.return_value = encoder
+        loaders.model_from_config.return_value = encoder
+        loaders.image_processor.return_value = MagicMock(side_effect=_process_images)
+        loaders.pooling_head.output_dim = 32
+        return loaders
+
+    return factory
+
+
+@pytest.fixture
+def vlm_encoder_factory(
+    vlm_loader_factory: Callable[[], MagicMock],
+) -> Callable[..., VLMEncoder]:
     """Factory for VLMEncoder with mocked HuggingFace model downloads."""
 
     def factory(
@@ -71,29 +97,30 @@ def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
         pooling_method: str = PoolingMethod.DEFAULT.value,
         model_name: str = ImageTextModelType.CLIP_VITB32.value,
         lora_config: LoRAAdaptation | None = None,
+        attention_type: str = AttentionImplementation.SDPA.value,
+        loaders: MagicMock | None = None,
     ) -> VLMEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value]
-        mock_encoder = _create_mock_encoder()
-        mock_config = MagicMock()
-        mock_image_processor = MagicMock(side_effect=_process_images)
+        if loaders is None:
+            loaders = vlm_loader_factory()
 
         with (
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoConfig.from_pretrained",
-                return_value=mock_config,
+                new=loaders.config,
             ),
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoModel.from_pretrained",
-                return_value=mock_encoder,
+                new=loaders.pretrained_model,
             ),
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoModel.from_config",
-                return_value=mock_encoder,
+                new=loaders.model_from_config,
             ),
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoImageProcessor.from_pretrained",
-                return_value=mock_image_processor,
+                new=loaders.image_processor,
             ),
         ):
             return VLMEncoder(
@@ -103,46 +130,210 @@ def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
                 pooling_method=pooling_method,
                 model_name=model_name,
                 lora_config=lora_config,
+                attention_type=attention_type,
             )
 
     return factory
 
 
 @pytest.fixture
-def vlm_input_factory(
-    rng: np.random.Generator,
+def encoder_input_factory(
+    vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
 ) -> Callable[..., dict[str, torch.Tensor]]:
-    """Factory for VLM input tensors with images and tokenized text."""
-
     def factory(
         camera_key: str = Cameras.LEFT.value,
         batch_size: int = 2,
         channels: int = 3,
-        height: int = 224,
-        width: int = 224,
+        height: int = IMAGE_SIZE,
+        width: int = IMAGE_SIZE,
         sequence_length: int = 10,
         time_steps: int = 1,
         include_padding_mask: bool = False,
+        vocabulary_size: int = VOCAB_SIZE,
     ) -> dict[str, torch.Tensor]:
-        image_shape = (batch_size, time_steps, channels, height, width)
-        text_shape = (batch_size, time_steps, sequence_length)
-        images = torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
-        token_ids = torch.from_numpy(
-            rng.integers(low=0, high=VOCAB_SIZE, size=text_shape).astype(np.int64)
+        return vlm_input_factory(
+            camera_key=camera_key,
+            batch_size=batch_size,
+            channels=channels,
+            height=height,
+            width=width,
+            sequence_length=sequence_length,
+            time_steps=time_steps,
+            include_padding_mask=include_padding_mask,
+            vocabulary_size=vocabulary_size,
         )
-        result = {
-            camera_key: images,
-            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def real_vlm_encoder_factory() -> Callable[..., VLMEncoder]:
+    def factory(model_name: str, lora_config: LoRAAdaptation | None) -> VLMEncoder:
+        text_config = {
+            "vocab_size": 128,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 2,
+            "max_position_embeddings": 16,
+            "bos_token_id": 0,
+            "eos_token_id": 2,
+            "pad_token_id": 1,
         }
-        if include_padding_mask:
-            mask = torch.zeros(text_shape, dtype=torch.bool)
-            result[SampleKey.IS_PAD_OBSERVATION.value] = mask
-        return result
+        vision_config = {
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 2,
+        }
+        match ImageTextModelType(model_name):
+            case ImageTextModelType.SIGLIP_BASE_PATCH16:
+                config = Siglip2Config(
+                    text_config=text_config,
+                    vision_config={
+                        **vision_config,
+                        "patch_size": 16,
+                        "num_patches": 256,
+                    },
+                )
+                processor_type = Siglip2ImageProcessor
+            case ImageTextModelType.SIGLIP_SO400M:
+                config = SiglipConfig(
+                    text_config=text_config,
+                    vision_config={
+                        **vision_config,
+                        "image_size": 224,
+                        "patch_size": 14,
+                    },
+                )
+                processor_type = SiglipImageProcessor
+            case _:
+                patch_sizes = {
+                    ImageTextModelType.CLIP_VITB32: 32,
+                    ImageTextModelType.CLIP_VITB16: 16,
+                    ImageTextModelType.CLIP_VITL14: 14,
+                }
+                config = CLIPConfig(
+                    text_config=text_config,
+                    vision_config={
+                        **vision_config,
+                        "image_size": 224,
+                        "patch_size": patch_sizes[ImageTextModelType(model_name)],
+                    },
+                    projection_dim=32,
+                )
+                processor_type = CLIPImageProcessor
+        image_processor = processor_type(
+            do_rescale=False,
+            do_normalize=False,
+            do_convert_rgb=False,
+            do_resize=False,
+        )
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoConfig.from_pretrained",
+                autospec=True,
+                return_value=config,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoImageProcessor.from_pretrained",
+                autospec=True,
+                return_value=image_processor,
+            ),
+        ):
+            return VLMEncoder(
+                input_keys=[Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                model_name=model_name,
+                lora_config=lora_config,
+            )
 
     return factory
 
 
 class TestVLMEncoderInitialization:
+    @pytest.mark.parametrize("pretrained", [False, True])
+    @pytest.mark.parametrize(
+        "model_name, attention_type",
+        [
+            (ImageTextModelType.CLIP_VITB32.value, AttentionImplementation.SDPA.value),
+            (
+                ImageTextModelType.SIGLIP_SO400M.value,
+                AttentionImplementation.EAGER.value,
+            ),
+        ],
+    )
+    def test_loads_model_and_processor_with_requested_configuration(
+        self,
+        vlm_encoder_factory: Callable[..., VLMEncoder],
+        vlm_loader_factory: Callable[[], MagicMock],
+        pretrained: bool,
+        model_name: str,
+        attention_type: str,
+    ) -> None:
+        loaders = vlm_loader_factory()
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.apply_lora_config",
+                side_effect=_return_model,
+            ) as apply_lora,
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.create_token_pooling_head",
+                return_value=loaders.pooling_head,
+            ) as create_pooling_head,
+        ):
+            encoder = vlm_encoder_factory(
+                pretrained=pretrained,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                model_name=model_name,
+                attention_type=attention_type,
+                lora_config=None,
+                loaders=loaders,
+            )
+
+        loaders.config.assert_called_once_with(model_name)
+        if pretrained:
+            loaders.pretrained_model.assert_called_once_with(
+                model_name, attn_implementation=attention_type
+            )
+            loaders.model_from_config.assert_not_called()
+        else:
+            loaders.model_from_config.assert_called_once_with(
+                loaders.config.return_value, attn_implementation=attention_type
+            )
+            loaders.pretrained_model.assert_not_called()
+        loaders.image_processor.assert_called_once_with(
+            model_name,
+            do_rescale=False,
+            do_normalize=False,
+            do_convert_rgb=False,
+            do_resize=False,
+        )
+        apply_lora.assert_called_once_with(
+            model=loaders.model_from_config.return_value,
+            lora_config=None,
+            frozen=False,
+            scoped_modules=[loaders.model_from_config.return_value.vision_model],
+        )
+        assert create_pooling_head.call_args_list == [
+            call(
+                pooling_method=PoolingMethod.DEFAULT.value,
+                input_dimension=HIDDEN_VISION_DIM,
+                num_prefix_tokens=1,
+            ),
+            call(
+                pooling_method=PoolingMethod.DEFAULT.value,
+                input_dimension=HIDDEN_LANGUAGE_DIM,
+                sequence_length=MAX_TEXT_LENGTH,
+                num_prefix_tokens=0,
+            ),
+        ]
+        assert encoder.encoder == loaders.model_from_config.return_value
+        assert encoder.image_processor == loaders.image_processor.return_value
+
     def test_has_encoder_interface(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
@@ -204,28 +395,48 @@ class TestVLMEncoderInitialization:
         )
         assert encoder.padding_mask_name == expected
 
+    @pytest.mark.parametrize("pretrained", [False, True])
     def test_applies_lora_to_loaded_model(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
+        vlm_loader_factory: Callable[[], MagicMock],
         vlm_encoder_factory: Callable[..., VLMEncoder],
+        pretrained: bool,
     ) -> None:
-        lora_config = LoRAAdaptation(
+        loaders = vlm_loader_factory()
+        model = loaders.model_from_config.return_value
+        adapted_model = vlm_loader_factory().model_from_config.return_value
+        lora_config = lora_config_factory(
             enabled=True,
-            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
         )
 
-        with patch(
-            "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.apply_lora_config",
-            side_effect=_return_model,
-        ) as mock_apply_lora:
-            encoder = vlm_encoder_factory(lora_config=lora_config)
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.apply_lora_config",
+                autospec=True,
+                return_value=adapted_model,
+            ) as mock_apply_lora,
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.create_token_pooling_head",
+                return_value=loaders.pooling_head,
+            ),
+        ):
+            encoder = vlm_encoder_factory(
+                pretrained=pretrained,
+                frozen=False,
+                lora_config=lora_config,
+                loaders=loaders,
+            )
 
-        mock_apply_lora.assert_called_once()
-        assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
-        assert mock_apply_lora.call_args.kwargs["frozen"] is False
-        assert mock_apply_lora.call_args.kwargs["scoped_modules"] == [
-            encoder.encoder.vision_model
-        ]
-        assert encoder.lora_config is lora_config
+        mock_apply_lora.assert_called_once_with(
+            model=model,
+            lora_config=lora_config,
+            frozen=False,
+            scoped_modules=[model.vision_model],
+        )
+        assert encoder.encoder == adapted_model
+        assert encoder.lora_config == lora_config
 
 
 class TestVLMEncoderPadTextInputs:
@@ -322,7 +533,7 @@ class TestVLMEncoderForward:
     def test_output_shape_with_temporal_dimension(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
         time_steps: int,
     ):
         batch_size = 2
@@ -332,7 +543,7 @@ class TestVLMEncoderForward:
             encoder=encoder,
             batch_size=effective_batch,
         )
-        inputs = vlm_input_factory(
+        inputs = encoder_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
             include_padding_mask=True,
@@ -366,7 +577,7 @@ class TestVLMEncoderForward:
     def test_none_pooling_with_time_reshapes_to_4d(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
         time_steps = 3
@@ -378,7 +589,7 @@ class TestVLMEncoderForward:
             encoder=encoder,
             batch_size=effective_batch,
         )
-        inputs = vlm_input_factory(
+        inputs = encoder_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
             include_padding_mask=True,
@@ -407,7 +618,7 @@ class TestVLMEncoderForward:
     def test_output_contains_all_expected_keys(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
         encoder = vlm_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
@@ -415,7 +626,7 @@ class TestVLMEncoderForward:
             encoder=encoder,
             batch_size=batch_size,
         )
-        inputs = vlm_input_factory(batch_size=batch_size)
+        inputs = encoder_input_factory(batch_size=batch_size)
         output = encoder(inputs=inputs)
         assert EncoderOutputKeys.RGB.value in output
         assert EncoderOutputKeys.LANGUAGE.value in output
@@ -457,7 +668,7 @@ class TestVLMEncoderForward:
     def test_average_pooling_ignores_language_padding_mask(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
         encoder = vlm_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
@@ -477,7 +688,7 @@ class TestVLMEncoderForward:
             last_hidden_state=language_hidden,
             pooler_output=language_pooler,
         )
-        inputs = vlm_input_factory(
+        inputs = encoder_input_factory(
             batch_size=batch_size,
             sequence_length=5,
             include_padding_mask=True,
@@ -645,8 +856,10 @@ class TestVLMEncoderGetOutputSpecification:
     "model_name",
     [model_type.value for model_type in ImageTextModelType],
 )
-def test_integration_forward_pass_per_model(
-    rng: np.random.Generator,
+def test_forward_pass_with_tiny_model_architectures(
+    lora_config_factory: Callable[..., LoRAAdaptation],
+    encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
+    real_vlm_encoder_factory: Callable[..., VLMEncoder],
     model_name: str,
     lora_enabled: bool,
     parameter_count: Callable[[torch.nn.Module], int],
@@ -654,7 +867,7 @@ def test_integration_forward_pass_per_model(
 ) -> None:
     batch_size = 2
     lora_config = (
-        LoRAAdaptation(
+        lora_config_factory(
             enabled=True,
             rank=2,
             alpha=4,
@@ -663,28 +876,15 @@ def test_integration_forward_pass_per_model(
         if lora_enabled
         else None
     )
-    encoder = VLMEncoder(
-        input_keys=[
-            Cameras.LEFT.value,
-            SampleKey.TOKENIZED_OBSERVATIONS.value,
-        ],
-        pretrained=False,
-        frozen=False,
-        pooling_method=PoolingMethod.DEFAULT.value,
-        model_name=model_name,
-        lora_config=lora_config,
+    encoder = real_vlm_encoder_factory(model_name=model_name, lora_config=lora_config)
+    inputs = encoder_input_factory(
+        batch_size=batch_size,
+        time_steps=1,
+        height=IMAGE_SIZE,
+        width=IMAGE_SIZE,
+        sequence_length=10,
+        vocabulary_size=encoder.get_vocab_size(),
     )
-    vocab_size = encoder.get_vocab_size()
-    image_shape = (batch_size, 1, 3, 224, 224)
-    text_shape = (batch_size, 1, 10)
-    inputs = {
-        Cameras.LEFT.value: torch.from_numpy(
-            rng.standard_normal(image_shape).astype(np.float32)
-        ),
-        SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
-            rng.integers(low=0, high=vocab_size, size=text_shape).astype(np.int64)
-        ),
-    }
     output = encoder(inputs=inputs)
     assert EncoderOutputKeys.RGB.value in output
     assert EncoderOutputKeys.LANGUAGE.value in output
@@ -699,3 +899,18 @@ def test_integration_forward_pass_per_model(
         assert trainable_parameter_names
         assert all("lora_" in name for name in trainable_parameter_names)
         assert 0 < trainable_parameters < total_parameters
+        loss = sum(
+            output[key].square().mean()
+            for key in (EncoderOutputKeys.RGB.value, EncoderOutputKeys.LANGUAGE.value)
+        )
+        loss.backward()
+        assert all(
+            any(
+                scope in name
+                and "lora_" in name
+                and parameter.grad is not None
+                and parameter.grad.abs().sum() > 0
+                for name, parameter in encoder.encoder.named_parameters()
+            )
+            for scope in (".vision_model.", ".text_model.")
+        )
