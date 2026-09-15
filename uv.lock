@@ -3954,7 +3954,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", specifier = ">=5.9" },
     { name = "tso-robotics-sockets", specifier = ">=0.2" },
-    { name = "versatil-constants", specifier = ">=0.2.2" },
+    { name = "versatil-constants", specifier = "==0.3.0" },
     { name = "wandb", specifier = ">=0.22" },
     { name = "zarr", specifier = ">=3.1.3" },
 ]
