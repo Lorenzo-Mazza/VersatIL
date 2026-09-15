@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- TorchAO 0.18 fixes Python 3.14 PT2E imports and preserves configured INT4 QAT
+  group sizes; removed the corresponding compatibility patches.
+- Corrected PT2E round-trip test metadata and isolated staged-training checkpoint
+  resume from test execution order.
+- Fix SmolVLA inference with non-contiguous camera tensors.
 - Interleaved VLM decoders retain gradients through frozen language layers
   when training vision adapters.
 - Constrain `versatil-constants` to versions below 0.3.0 while VersatIL imports

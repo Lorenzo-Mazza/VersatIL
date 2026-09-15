@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group sizes; removed the corresponding compatibility patches.
 - Corrected PT2E round-trip test metadata and isolated staged-training checkpoint
   resume from test execution order.
+- Fix SmolVLA inference with non-contiguous camera tensors.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
