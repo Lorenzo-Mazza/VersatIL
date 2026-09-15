@@ -33,6 +33,7 @@ from versatil.post_training_compression.serialization import (
     load_compression_metadata,
     save_compressed_model,
 )
+from versatil.quantization.constants import QuantizationModuleType
 from versatil.quantization.metadata import (
     QuantizationTargetMetadata,
     QuantizedLayerMetadata,
@@ -264,6 +265,7 @@ def test_export_metadata_survives_metadata_serialization(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("module_type", list(QuantizationModuleType))
 @pytest.mark.parametrize("calibration_batches", [0, 2])
 @pytest.mark.parametrize(
     "target_count", [None, 0, 1], ids=["absent", "empty", "selected"]
@@ -274,11 +276,12 @@ def test_target_selection_and_calibration_count_survive_metadata_serialization(
     quantization_target_metadata_factory: Callable[..., QuantizationTargetMetadata],
     calibration_batches: int,
     target_count: int | None,
+    module_type: QuantizationModuleType,
 ) -> None:
     layer = quantized_layer_metadata_factory(
         name="decoder.projection",
-        in_features=64,
-        out_features=32,
+        module_type=module_type,
+        weight_shape=(32, 64),
         device="cpu",
         dtype="torch.float32",
     )
@@ -301,8 +304,8 @@ def test_target_selection_and_calibration_count_survive_metadata_serialization(
             "selected": [
                 {
                     "name": "decoder.projection",
-                    "in_features": 64,
-                    "out_features": 32,
+                    "module_type": module_type.value,
+                    "weight_shape": [32, 64],
                     "device": "cpu",
                     "dtype": "torch.float32",
                 }

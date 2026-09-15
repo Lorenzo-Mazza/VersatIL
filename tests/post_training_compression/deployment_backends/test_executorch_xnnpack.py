@@ -5,6 +5,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -36,11 +37,51 @@ from versatil.post_training_compression.deployment_backends.executorch_xnnpack i
     _lower_exported_program,
 )
 from versatil.post_training_compression.export import _export_with_dynamic_batch
-from versatil.quantization.constants import PT2EBackendName, QuantizationMode
+from versatil.quantization.constants import (
+    FXNodeOp,
+    PT2EBackendName,
+    QuantizationMode,
+    QuantizationModuleType,
+)
 
 XNNPACK_MODULE = (
     "versatil.post_training_compression.deployment_backends.executorch_xnnpack"
 )
+
+
+@pytest.fixture
+def exported_embedding_graph_factory() -> Callable[..., MagicMock]:
+    def factory(gradient_args: tuple[int | bool, ...]) -> MagicMock:
+        exported_program = MagicMock(spec=torch.export.ExportedProgram)
+        weights = MagicMock(spec=torch.fx.Node)
+        indices = MagicMock(spec=torch.fx.Node)
+        embedding = MagicMock(spec=torch.fx.Node)
+        embedding.op = FXNodeOp.CALL_FUNCTION.value
+        embedding.target = torch.ops.aten.embedding.default
+        embedding.args = (weights, indices, *gradient_args)
+        linear = MagicMock(spec=torch.fx.Node)
+        linear.op = FXNodeOp.CALL_FUNCTION.value
+        linear.target = torch.ops.aten.linear.default
+        linear.args = (indices, weights, None)
+        exported_program.graph.nodes = [embedding, linear]
+        return exported_program
+
+    return factory
+
+
+@pytest.fixture
+def lowering_dependencies_factory() -> Callable[..., tuple[MagicMock, MagicMock]]:
+    def factory(model_bytes: bytes) -> tuple[MagicMock, MagicMock]:
+        executorch_exir = MagicMock(spec=ModuleType)
+        executorch_exir.to_edge_transform_and_lower = MagicMock()
+        executorch_exir.ExecutorchBackendConfig = MagicMock()
+        edge_program = executorch_exir.to_edge_transform_and_lower.return_value
+        edge_program.to_executorch.return_value.buffer = model_bytes
+        xnnpack_partitioner = MagicMock(spec=ModuleType)
+        xnnpack_partitioner.XnnpackPartitioner = MagicMock()
+        return executorch_exir, xnnpack_partitioner
+
+    return factory
 
 
 @pytest.fixture
@@ -49,11 +90,19 @@ def xnnpack_quantization_config_factory() -> Callable[..., MagicMock]:
         packing: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8,
         mapping: MappingType = MappingType.SYMMETRIC,
         weight_dtype: torch.dtype = torch.int4,
+        embedding: bool = False,
+        version: int = 2,
     ) -> MagicMock:
-        config = MagicMock(spec=Int8DynamicActivationIntxWeightConfig)
+        config = MagicMock(
+            spec=IntxWeightOnlyConfig
+            if embedding
+            else Int8DynamicActivationIntxWeightConfig
+        )
         config.intx_packing_format = packing
         config.weight_mapping_type = mapping
+        config.mapping_type = mapping
         config.weight_dtype = weight_dtype
+        config.version = version
         return config
 
     return factory
@@ -170,6 +219,123 @@ class TestExecutorchXNNPACKBackend:
 
 @pytest.mark.unit
 class TestExecutorchXNNPACKQuantizationValidation:
+    @pytest.mark.parametrize(
+        "weight_dtype, mapping, packing, version, valid",
+        [
+            (
+                torch.int2,
+                MappingType.SYMMETRIC,
+                IntxPackingFormat.UNPACKED_TO_INT8,
+                2,
+                True,
+            ),
+            (
+                torch.int4,
+                MappingType.SYMMETRIC,
+                IntxPackingFormat.UNPACKED_TO_INT8,
+                2,
+                True,
+            ),
+            (
+                torch.int8,
+                MappingType.SYMMETRIC,
+                IntxPackingFormat.UNPACKED_TO_INT8,
+                2,
+                True,
+            ),
+            (
+                torch.int3,
+                MappingType.SYMMETRIC,
+                IntxPackingFormat.UNPACKED_TO_INT8,
+                2,
+                False,
+            ),
+            (
+                torch.int4,
+                MappingType.ASYMMETRIC,
+                IntxPackingFormat.UNPACKED_TO_INT8,
+                2,
+                False,
+            ),
+            (torch.int4, MappingType.SYMMETRIC, "packed", 2, False),
+            (
+                torch.int4,
+                MappingType.SYMMETRIC,
+                IntxPackingFormat.UNPACKED_TO_INT8,
+                1,
+                False,
+            ),
+        ],
+    )
+    def test_embedding_lowering_requires_supported_weight_only_format(
+        self,
+        deployment_target_factory: Callable[..., MagicMock],
+        deployment_model_factory: Callable[..., MagicMock],
+        xnnpack_quantization_config_factory: Callable[..., MagicMock],
+        weight_dtype: torch.dtype,
+        mapping: MappingType,
+        packing: str,
+        version: int,
+        valid: bool,
+    ) -> None:
+        config = xnnpack_quantization_config_factory(
+            embedding=True,
+            weight_dtype=weight_dtype,
+            mapping=mapping,
+            packing=packing,
+            version=version,
+        )
+        target = deployment_target_factory(
+            config=config, group_size=32, module_type=QuantizationModuleType.EMBEDDING
+        )
+        model = deployment_model_factory(device="cpu")
+        expectation = (
+            does_not_raise()
+            if valid
+            else pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "Target '(root)': XNNPACK embeddings require version=2, symmetric "
+                    "INT2, INT4 or INT8 weights and unpacked_to_int8 packing."
+                ),
+            )
+        )
+        with expectation:
+            ExecutorchXNNPACKBackend(max_batch_size=4).validate_eager_target(
+                model=model,
+                target=target,
+                module_names={"embedding"},
+                for_conversion=True,
+            )
+        if valid:
+            model.get_submodule.assert_called_once_with("embedding")
+        else:
+            model.get_submodule.assert_not_called()
+
+    def test_embedding_lowering_rejects_activation_quantization(
+        self,
+        deployment_target_factory: Callable[..., MagicMock],
+        deployment_model_factory: Callable[..., MagicMock],
+        xnnpack_quantization_config_factory: Callable[..., MagicMock],
+    ) -> None:
+        target = deployment_target_factory(
+            config=xnnpack_quantization_config_factory(embedding=False),
+            module_type=QuantizationModuleType.EMBEDDING,
+        )
+        model = deployment_model_factory(device="cpu")
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Target '(root)': XNNPACK embeddings require IntxWeightOnlyConfig."
+            ),
+        ):
+            ExecutorchXNNPACKBackend(max_batch_size=4).validate_eager_target(
+                model=model,
+                target=target,
+                module_names={"embedding"},
+            )
+        model.get_submodule.assert_not_called()
+
     @pytest.mark.parametrize("mode", [*list(QuantizationMode), "unsupported"])
     def test_declares_supported_quantization_workflows(self, mode: str) -> None:
         backend = ExecutorchXNNPACKBackend(max_batch_size=8)
@@ -487,17 +653,41 @@ class TestExecutorchXNNPACKBackendIntegration:
 
 @pytest.mark.unit
 class TestLowerExportedProgram:
-    def test_delegates_to_executorch_xnnpack_partitioner(self) -> None:
-        exported_program = MagicMock()
-        edge_program = MagicMock()
-        executorch_program = MagicMock()
-        executorch_program.buffer = b"pte"
-        edge_program.to_executorch.return_value = executorch_program
-        executorch_exir = MagicMock()
-        executorch_exir.to_edge_transform_and_lower.return_value = edge_program
-        partitioner = MagicMock()
-        xnnpack_partitioner = MagicMock()
-        xnnpack_partitioner.XnnpackPartitioner.return_value = partitioner
+    @pytest.mark.parametrize("gradient_args", [(), (0,), (0, True, True)])
+    def test_export_canonicalizes_embedding_gradient_arguments(
+        self,
+        exported_embedding_graph_factory: Callable[..., MagicMock],
+        lowering_dependencies_factory: Callable[..., tuple[MagicMock, MagicMock]],
+        gradient_args: tuple[int | bool, ...],
+    ) -> None:
+        exported_program = exported_embedding_graph_factory(gradient_args=gradient_args)
+        embedding, linear = exported_program.graph.nodes
+        weights, indices = embedding.args[:2]
+        executorch_exir, xnnpack_partitioner = lowering_dependencies_factory(
+            model_bytes=b"pte"
+        )
+
+        _lower_exported_program(
+            exported_program=exported_program,
+            executorch_exir=executorch_exir,
+            xnnpack_partitioner=xnnpack_partitioner,
+        )
+
+        assert embedding.args == (weights, indices)
+        assert linear.args == (indices, weights, None)
+        exported_program.graph_module.recompile.assert_called_once_with()
+
+    def test_delegates_to_executorch_xnnpack_partitioner(
+        self,
+        exported_embedding_graph_factory: Callable[..., MagicMock],
+        lowering_dependencies_factory: Callable[..., tuple[MagicMock, MagicMock]],
+    ) -> None:
+        exported_program = exported_embedding_graph_factory(gradient_args=())
+        executorch_exir, xnnpack_partitioner = lowering_dependencies_factory(
+            model_bytes=b"pte"
+        )
+        partitioner = xnnpack_partitioner.XnnpackPartitioner.return_value
+        edge_program = executorch_exir.to_edge_transform_and_lower.return_value
 
         result = _lower_exported_program(
             exported_program=exported_program,
@@ -509,5 +699,10 @@ class TestLowerExportedProgram:
             exported_program,
             partitioner=[partitioner],
         )
-        edge_program.to_executorch.assert_called_once_with()
+        executorch_exir.ExecutorchBackendConfig.assert_called_once_with(
+            do_quant_fusion_and_const_prop=True
+        )
+        edge_program.to_executorch.assert_called_once_with(
+            config=executorch_exir.ExecutorchBackendConfig.return_value
+        )
         assert result == b"pte"

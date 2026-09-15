@@ -408,8 +408,11 @@ Conversion produces quantized weights. The workflow executes these operations.
 
 `EagerQuantizationWorkflow` orders initialization, preparation, calibration,
 conversion and export. `EagerQuantizationModuleTarget` resolves its layer scope,
-filters linears and constructs conversion metadata. The workflow validates all
-targets before quantization, prepares all targets, runs required calibration,
+selects linear or embedding layers through `module_type` and constructs
+conversion metadata. Targets with different layer types can share a module path.
+Embedding targets use `IntxWeightOnlyConfig`; QAT requires embedding forward
+lookups. The workflow validates all targets before quantization, prepares all
+targets, runs required calibration,
 then converts all targets using the recorded selection. QAT optimization remains
 in the trainer. Deployment backends validate allowed workflow modes, PT2E
 pairings and eager representations through `validate_quantization()` and

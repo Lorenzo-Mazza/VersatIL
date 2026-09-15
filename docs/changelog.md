@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- ExecuTorch export preserves quantized embedding lookups with padding indices.
 - Fix SmolVLA inference with non-contiguous camera tensors.
 - SmolVLA's shared action head derives its input dimension from the selected
   VLM's text configuration and expert width multiplier.
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Embedding PTQ/QAT targets and a preset combining INT4 embeddings with W4A8 linears.
 - Policy export adapters and saved input/output metadata for token
   generation and explicit-noise flow/diffusion sampling.
 - SmoothQuant calibration through complete policy predictions before conversion.

@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 import torch
 from torch import nn
+from torchao.core.config import AOBaseConfig
+from torchao.quantization import IntxWeightOnlyConfig
 
+from versatil.quantization.constants import QuantizationModuleType
 from versatil.quantization.module_target import (
     EagerQuantizationModuleTarget,
     PT2EQuantizationModuleTarget,
@@ -39,15 +42,23 @@ def target_configuration_factory() -> Callable[
 @pytest.fixture
 def eager_selection_target_factory() -> Callable[..., EagerQuantizationModuleTarget]:
     def factory(
-        module_path: str, group_size: int | None
+        module_path: str,
+        group_size: int | None,
+        module_type: str = QuantizationModuleType.LINEAR.value,
     ) -> EagerQuantizationModuleTarget:
         schema = MagicMock(spec=QuantizationSchema)
-        schema.base_config = MagicMock(spec=[])
+        schema.base_config = MagicMock(
+            spec=IntxWeightOnlyConfig
+            if module_type == QuantizationModuleType.EMBEDDING
+            else AOBaseConfig
+        )
         schema.base_config.version = 2
         schema.parameters = {"alpha": "0.75"}
         schema.needs_calibration = True
         schema.weight_group_size = group_size
-        return EagerQuantizationModuleTarget(module_path=module_path, schema=schema)
+        return EagerQuantizationModuleTarget(
+            module_path=module_path, schema=schema, module_type=module_type
+        )
 
     return factory
 
@@ -58,13 +69,27 @@ def layer_selection_model_factory() -> Callable[..., MagicMock]:
         layers: tuple[tuple[str, int], ...],
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
+        module_type: QuantizationModuleType = QuantizationModuleType.LINEAR,
     ) -> MagicMock:
-        modules = {"activation": MagicMock(spec=nn.ReLU)}
-        for name, in_features in layers:
-            layer = MagicMock(spec=nn.Linear)
-            layer.in_features = in_features
-            layer.out_features = 16
+        modules = {
+            "activation": MagicMock(spec=nn.ReLU),
+            "encoder.other_type": MagicMock(
+                spec=nn.Linear
+                if module_type == QuantizationModuleType.EMBEDDING
+                else nn.Embedding
+            ),
+        }
+        for name, dimension in layers:
+            if module_type == QuantizationModuleType.EMBEDDING:
+                layer = MagicMock(spec=nn.Embedding)
+                layer.embedding_dim = dimension
+                layer.num_embeddings = 16
+            else:
+                layer = MagicMock(spec=nn.Linear)
+                layer.in_features = dimension
+                layer.out_features = 16
             layer.weight = MagicMock(spec=torch.Tensor)
+            layer.weight.shape = torch.Size((16, dimension))
             layer.weight.device = torch.device(device)
             layer.weight.dtype = dtype
             modules[name] = layer
@@ -182,6 +207,45 @@ def test_overlaps_detects_root_same_and_nested_targets(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("left_type", list(QuantizationModuleType))
+@pytest.mark.parametrize("right_type", list(QuantizationModuleType))
+@pytest.mark.parametrize("right_path", ["", "encoder"])
+def test_eager_overlap_accounts_for_layer_type(
+    eager_selection_target_factory: Callable[..., EagerQuantizationModuleTarget],
+    left_type: QuantizationModuleType,
+    right_type: QuantizationModuleType,
+    right_path: str,
+) -> None:
+    left = eager_selection_target_factory(
+        module_path="", group_size=32, module_type=left_type
+    )
+    right = eager_selection_target_factory(
+        module_path=right_path, group_size=32, module_type=right_type
+    )
+
+    assert left.overlaps(other=right) == (left_type == right_type)
+    assert right.overlaps(other=left) == (left_type == right_type)
+
+
+@pytest.mark.unit
+def test_embedding_target_rejects_a_linear_configuration(
+    target_configuration_factory: Callable,
+) -> None:
+    _, schema = target_configuration_factory(with_config=False, with_schema=True)
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "Target 'encoder': embedding quantization requires IntxWeightOnlyConfig."
+        ),
+    ):
+        EagerQuantizationModuleTarget(
+            module_path="encoder",
+            schema=schema,
+            module_type=QuantizationModuleType.EMBEDDING.value,
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "is_dynamic, expected",
     [
@@ -203,6 +267,7 @@ def test_pt2e_target_needs_calibration_reflects_backend_dynamic_flag(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("module_type", list(QuantizationModuleType))
 class TestEagerLayerSelection:
     @pytest.mark.parametrize(
         "module_path, expected",
@@ -220,27 +285,29 @@ class TestEagerLayerSelection:
             ("decoder.head", ["decoder.head"]),
         ],
     )
-    def test_scope_selects_linears_and_preserves_sibling_boundaries(
+    def test_scope_selects_layers_and_preserves_sibling_boundaries(
         self,
         eager_selection_target_factory: Callable[..., EagerQuantizationModuleTarget],
         layer_selection_model_factory: Callable[..., MagicMock],
         module_path: str,
         expected: list[str],
+        module_type: QuantizationModuleType,
     ) -> None:
         target = eager_selection_target_factory(
-            module_path=module_path, group_size=None
+            module_path=module_path, group_size=None, module_type=module_type
         )
         model = layer_selection_model_factory(
+            module_type=module_type,
             layers=(
                 ("encoder.projection", 64),
                 ("encoder.head", 16),
                 ("encoder_other.projection", 32),
                 ("decoder.head", 16),
-            )
+            ),
         )
 
-        selected, skipped = target.select_linear_modules(
-            model=model, auto_filter_incompatible_linears=True
+        selected, skipped = target.select_modules(
+            model=model, auto_filter_incompatible=True
         )
 
         assert selected == expected
@@ -254,12 +321,16 @@ class TestEagerLayerSelection:
         eager_selection_target_factory: Callable[..., EagerQuantizationModuleTarget],
         layer_selection_model_factory: Callable[..., MagicMock],
         auto_filter: bool,
+        module_type: QuantizationModuleType,
     ) -> None:
-        target = eager_selection_target_factory(module_path="encoder", group_size=32)
-        model = layer_selection_model_factory(
-            layers=(("encoder.projection", 64), ("encoder.head", 48))
+        target = eager_selection_target_factory(
+            module_path="encoder", group_size=32, module_type=module_type
         )
-        reason = "in_features 48 is not divisible by group_size 32"
+        model = layer_selection_model_factory(
+            module_type=module_type,
+            layers=(("encoder.projection", 64), ("encoder.head", 48)),
+        )
+        reason = "Weight row width 48 requires divisibility by group_size 32"
         expectation = (
             does_not_raise()
             if auto_filter
@@ -269,8 +340,8 @@ class TestEagerLayerSelection:
         )
 
         with expectation:
-            selected, skipped = target.select_linear_modules(
-                model=model, auto_filter_incompatible_linears=auto_filter
+            selected, skipped = target.select_modules(
+                model=model, auto_filter_incompatible=auto_filter
             )
 
         if auto_filter:
@@ -284,17 +355,20 @@ class TestEagerLayerSelection:
         eager_selection_target_factory: Callable[..., EagerQuantizationModuleTarget],
         layer_selection_model_factory: Callable[..., MagicMock],
         group_size: int,
+        module_type: QuantizationModuleType,
     ) -> None:
-        target = eager_selection_target_factory(module_path="", group_size=group_size)
-        model = layer_selection_model_factory(layers=(("projection", 64),))
+        target = eager_selection_target_factory(
+            module_path="", group_size=group_size, module_type=module_type
+        )
+        model = layer_selection_model_factory(
+            layers=(("projection", 64),), module_type=module_type
+        )
 
         with pytest.raises(
             ValueError,
             match=re.escape(f"Target '(root)' has invalid group_size {group_size}."),
         ):
-            target.select_linear_modules(
-                model=model, auto_filter_incompatible_linears=True
-            )
+            target.select_modules(model=model, auto_filter_incompatible=True)
 
         model.named_modules.assert_not_called()
 
@@ -306,7 +380,9 @@ class TestEagerLayerSelection:
             (
                 (("encoder.head", 8),),
                 32,
-                {"encoder.head": "in_features 8 is not divisible by group_size 32"},
+                {
+                    "encoder.head": "Weight row width 8 requires divisibility by group_size 32"
+                },
             ),
         ],
     )
@@ -317,39 +393,45 @@ class TestEagerLayerSelection:
         layers: tuple[tuple[str, int], ...],
         group_size: int | None,
         expected_skipped: dict[str, str],
+        module_type: QuantizationModuleType,
     ) -> None:
         target = eager_selection_target_factory(
-            module_path="encoder", group_size=group_size
+            module_path="encoder", group_size=group_size, module_type=module_type
         )
-        model = layer_selection_model_factory(layers=layers)
+        model = layer_selection_model_factory(layers=layers, module_type=module_type)
 
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Target 'encoder' selects zero eligible nn.Linear modules; skipped modules: {expected_skipped}."
+                f"Target 'encoder' selects zero eligible {module_type} modules; skipped modules: {expected_skipped}."
             ),
         ):
-            target.select_linear_modules(
-                model=model, auto_filter_incompatible_linears=True
-            )
+            target.select_modules(model=model, auto_filter_incompatible=True)
 
         model.named_modules.assert_called_once_with()
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("dataclass_config", [False, True])
+@pytest.mark.parametrize("module_type", list(QuantizationModuleType))
 def test_metadata_captures_resolved_weights_and_schema_settings_without_reselection(
     eager_selection_target_factory: Callable[..., EagerQuantizationModuleTarget],
     layer_selection_model_factory: Callable[..., MagicMock],
     dataclass_config: bool,
+    module_type: QuantizationModuleType,
 ) -> None:
-    target = eager_selection_target_factory(module_path="encoder", group_size=32)
+    target = eager_selection_target_factory(
+        module_path="encoder", group_size=32, module_type=module_type
+    )
     model = layer_selection_model_factory(
+        module_type=module_type,
         layers=(("encoder.projection", 64), ("encoder.head", 32)),
         device="cuda:1",
         dtype=torch.bfloat16,
     )
-    skipped = {"encoder.excluded": "in_features 48 is not divisible by group_size 32"}
+    skipped = {
+        "encoder.excluded": "Weight row width 48 requires divisibility by group_size 32"
+    }
     with (
         patch(
             f"{MODULE_TARGET_MODULE}.is_dataclass", return_value=dataclass_config
@@ -392,8 +474,8 @@ def test_metadata_captures_resolved_weights_and_schema_settings_without_reselect
         "encoder.head",
         "encoder.projection",
     ]
-    assert [layer.in_features for layer in metadata.selected] == [32, 64]
-    assert [layer.out_features for layer in metadata.selected] == [16, 16]
+    assert [layer.weight_shape for layer in metadata.selected] == [(16, 32), (16, 64)]
+    assert [layer.module_type for layer in metadata.selected] == [module_type] * 2
     assert [layer.device for layer in metadata.selected] == ["cuda:1", "cuda:1"]
     assert [layer.dtype for layer in metadata.selected] == [
         "torch.bfloat16",
@@ -402,6 +484,6 @@ def test_metadata_captures_resolved_weights_and_schema_settings_without_reselect
     assert metadata.skipped == skipped
     skipped.clear()
     assert metadata.skipped == {
-        "encoder.excluded": "in_features 48 is not divisible by group_size 32"
+        "encoder.excluded": "Weight row width 48 requires divisibility by group_size 32"
     }
     assert metadata.weight_representations == {}

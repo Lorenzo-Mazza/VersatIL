@@ -86,6 +86,7 @@ from versatil.models.encoding.encoders.rgb.flat import FlatRGBEncoder
 from versatil.models.encoding.encoders.rgb.spatial import SpatialRGBEncoder
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
+from versatil.quantization.constants import QuantizationModuleType
 from versatil.quantization.metadata import (
     QuantizationTargetMetadata,
     QuantizedLayerMetadata,
@@ -117,15 +118,15 @@ VLM_TOKEN_ID_UPPER_BOUND = 128
 def quantized_layer_metadata_factory() -> Callable[..., QuantizedLayerMetadata]:
     def factory(
         name: str,
-        in_features: int,
-        out_features: int,
+        module_type: QuantizationModuleType,
+        weight_shape: tuple[int, int],
         device: str,
         dtype: str,
     ) -> QuantizedLayerMetadata:
         return QuantizedLayerMetadata(
             name=name,
-            in_features=in_features,
-            out_features=out_features,
+            module_type=module_type,
+            weight_shape=weight_shape,
             device=device,
             dtype=dtype,
         )

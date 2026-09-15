@@ -22,6 +22,13 @@ class QuantizationMode(StrEnum):
     EAGER = "eager"
 
 
+class QuantizationModuleType(StrEnum):
+    """Layer types selected by eager quantization targets."""
+
+    LINEAR = "linear"
+    EMBEDDING = "embedding"
+
+
 class QuantizableOperatorType(StrEnum):
     """Operator types targeted for quantization coverage analysis."""
 

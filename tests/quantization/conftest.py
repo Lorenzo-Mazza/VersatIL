@@ -375,17 +375,27 @@ def mock_pt2e_backend_factory() -> Callable[..., MagicMock]:
     return factory
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def language_action_transformer_qat_policy_factory() -> Callable[
-    [str], tuple[Policy, EagerQuantizationWorkflow]
+    ..., tuple[Policy, EagerQuantizationWorkflow]
 ]:
     """Factory for a real language ActionTransformer policy with QAT config."""
 
-    def factory(qat_preset: str) -> tuple[Policy, EagerQuantizationWorkflow]:
+    def factory(
+        qat_preset: str, full_language: bool = False
+    ) -> tuple[Policy, EagerQuantizationWorkflow]:
         overrides = [
             f"+quantization={qat_preset}",
             "experiment.device=cuda",
         ]
+        if full_language:
+            overrides.extend(
+                [
+                    "policy.encoding_pipeline.encoders.instruction.use_embeddings_only=false",
+                    "policy.encoding_pipeline.encoders.instruction.frozen=false",
+                    "quantization.targets.1.module_path=encoding_pipeline.encoders.instruction",
+                ]
+            )
         with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
             yaml_config = compose(
                 config_name=LANGUAGE_ACTION_TRANSFORMER_TINY_CONFIG,

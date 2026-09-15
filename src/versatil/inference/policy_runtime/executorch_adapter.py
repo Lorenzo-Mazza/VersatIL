@@ -11,11 +11,20 @@ class ExecuTorchModuleAdapter(nn.Module):
     """Adapter exposing an ExecuTorch PTE program through nn.Module."""
 
     def __init__(self, model_path: str) -> None:
-        """Load a PTE program from disk."""
+        """Register quantized kernels and load a PTE program from disk.
+
+        Args:
+            model_path: Path to the serialized ExecuTorch program.
+
+        Note:
+            ExecuTorch is an optional dependency, loaded when this adapter is
+            constructed.
+        """
         super().__init__()
+        importlib.import_module("executorch.kernels.quantized")
         portable_lib = importlib.import_module(
             "executorch.extension.pybindings.portable_lib"
-        )  # This avoids a hard dependency on executorch for the entire versatil package, only requiring it when this adapter is used.
+        )
         self._module: Any = portable_lib._load_for_executorch(model_path)
 
     def forward(

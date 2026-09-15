@@ -8,6 +8,7 @@ import torch
 from torch import nn
 from torchao.core.config import AOBaseConfig
 
+from versatil.quantization.constants import QuantizationModuleType
 from versatil.quantization.module_target import EagerQuantizationModuleTarget
 from versatil.quantization.schemas.base import QuantizationSchema
 from versatil.quantization.schemas.smoothquant import SmoothQuantSchema
@@ -19,6 +20,7 @@ def deployment_target_factory() -> Callable[..., MagicMock]:
         config: AOBaseConfig,
         group_size: int | None = None,
         smoothquant: bool = False,
+        module_type: QuantizationModuleType = QuantizationModuleType.LINEAR,
     ) -> MagicMock:
         schema = MagicMock(
             spec=SmoothQuantSchema if smoothquant else QuantizationSchema
@@ -29,6 +31,7 @@ def deployment_target_factory() -> Callable[..., MagicMock]:
         target.schema = schema
         target.quantize_config = config
         target.label = "(root)"
+        target.module_type = module_type
         return target
 
     return factory

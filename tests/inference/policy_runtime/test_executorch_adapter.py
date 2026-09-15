@@ -1,7 +1,9 @@
 """Tests for versatil.inference.policy_runtime.executorch_adapter module."""
 
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from types import ModuleType
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import torch
@@ -18,7 +20,40 @@ from versatil.post_training_compression.deployment_backends.executorch_xnnpack i
 EXECUTORCH_ADAPTER_MODULE = "versatil.inference.policy_runtime.executorch_adapter"
 
 
+@pytest.fixture
+def runtime_dependencies_factory() -> Callable[[], MagicMock]:
+    def factory() -> MagicMock:
+        dependencies = MagicMock()
+        portable_library = MagicMock(spec=ModuleType)
+        portable_library._load_for_executorch = MagicMock()
+        dependencies.import_module.side_effect = [
+            MagicMock(spec=ModuleType),
+            portable_library,
+        ]
+        dependencies.attach_mock(portable_library._load_for_executorch, "load_program")
+        return dependencies
+
+    return factory
+
+
 class TestExecutorchModuleAdapter:
+    @pytest.mark.unit
+    def test_registers_quantized_kernels_before_loading_program(
+        self, runtime_dependencies_factory: Callable[[], MagicMock]
+    ) -> None:
+        dependencies = runtime_dependencies_factory()
+        with patch(
+            f"{EXECUTORCH_ADAPTER_MODULE}.importlib.import_module",
+            dependencies.import_module,
+        ):
+            ExecuTorchModuleAdapter(model_path="policy.pte")
+
+        assert dependencies.mock_calls == [
+            call.import_module("executorch.kernels.quantized"),
+            call.import_module("executorch.extension.pybindings.portable_lib"),
+            call.load_program("policy.pte"),
+        ]
+
     @pytest.mark.unit
     def test_forward_makes_every_input_contiguous_before_executorch(self) -> None:
         portable_library = MagicMock()

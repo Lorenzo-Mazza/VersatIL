@@ -53,7 +53,7 @@ class _PreparedEagerTarget:
         preparation_config: Observer or fake-quant configuration, or None when
             the schema supplies a direct PTQ conversion configuration.
         conversion_config: Configuration that produces the quantized weights.
-        skipped: Excluded linear-layer names and their dimension mismatch reasons.
+        skipped: Excluded layer names and their dimension mismatch reasons.
     """
 
     target: EagerQuantizationModuleTarget
@@ -78,8 +78,8 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             targets: Module-level eager quantization targets.
             is_qat: Whether this workflow is used for QAT checkpoint training
                 and conversion.
-            auto_filter_incompatible_linears: Whether to skip linears whose
-                ``in_features`` are incompatible with the config group size.
+            auto_filter_incompatible_linears: Skip linear and embedding layers
+                whose weight row widths conflict with the configured group size.
 
         Raises:
             ValueError: If the target list is empty.
@@ -239,9 +239,8 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             model: Policy model to prepare for QAT.
 
         Raises:
-            ValueError: If the workflow is not a QAT workflow, if a target path
-                is invalid, or if a target selects no eligible ``nn.Linear``
-                modules.
+            ValueError: If is_qat is false, a target path is invalid, or a target
+                selects zero eligible layers.
         """
         if not self.is_qat:
             raise ValueError("prepare_model() requires is_qat=True.")
@@ -299,7 +298,7 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         """Resolve layer names and validate every target before quantization mutation.
 
         Args:
-            model: Policy or module containing the floating-point linear layers.
+            model: Policy or module containing the floating-point layers.
             activation_dtype: Known dtype of inputs to the selected linear layers.
             deployment_backend: Backend selected for the exported artifact.
             for_conversion: Apply weight-device and dtype requirements for the
@@ -315,9 +314,9 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         self.validate_targets(model=model)
         prepared_targets = []
         for target in self.targets:
-            selected, skipped = target.select_linear_modules(
+            selected, skipped = target.select_modules(
                 model=model,
-                auto_filter_incompatible_linears=self.auto_filter_incompatible_linears,
+                auto_filter_incompatible=self.auto_filter_incompatible_linears,
             )
             module_names = set(selected)
             self._validate_target(

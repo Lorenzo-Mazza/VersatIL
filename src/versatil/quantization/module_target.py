@@ -3,8 +3,10 @@
 from dataclasses import fields, is_dataclass
 
 import torch.nn as nn
+from torchao.quantization import IntxWeightOnlyConfig
 from torchao.quantization.quant_api import AOBaseConfig
 
+from versatil.quantization.constants import QuantizationModuleType
 from versatil.quantization.metadata import (
     QuantizationTargetMetadata,
     QuantizedLayerMetadata,
@@ -71,13 +73,14 @@ class QuantizationModuleTarget:
 
 
 class EagerQuantizationModuleTarget(QuantizationModuleTarget):
-    """Select linear layers and associate them with a quantization schema."""
+    """Select layers by scope and type and associate them with a schema."""
 
     def __init__(
         self,
         module_path: str,
         quantize_config: AOBaseConfig | None = None,
         schema: QuantizationSchema | None = None,
+        module_type: str = QuantizationModuleType.LINEAR.value,
     ) -> None:
         """Initialize an eager quantization target.
 
@@ -87,11 +90,14 @@ class EagerQuantizationModuleTarget(QuantizationModuleTarget):
             schema: TorchAO preparation and conversion settings, including
                 calibration and weight-format requirements.
                 Specify this or quantize_config.
+            module_type: Layer type selected within the module scope.
 
         Raises:
-            ValueError: If both configuration forms are supplied or both are absent.
+            ValueError: If configuration forms conflict, both are absent, or
+                the module type and quantization configuration are incompatible.
         """
         super().__init__(module_path=module_path)
+        self.module_type = QuantizationModuleType(module_type)
         if (quantize_config is None) == (schema is None):
             raise ValueError("Specify exactly one of quantize_config or schema.")
         self.schema = (
@@ -99,20 +105,35 @@ class EagerQuantizationModuleTarget(QuantizationModuleTarget):
             if schema is not None
             else DirectQuantizationSchema(base_config=quantize_config)
         )
+        if self.module_type == QuantizationModuleType.EMBEDDING and not isinstance(
+            self.quantize_config, IntxWeightOnlyConfig
+        ):
+            raise ValueError(
+                f"Target '{self.label}': embedding quantization requires IntxWeightOnlyConfig."
+            )
 
     @property
     def quantize_config(self) -> AOBaseConfig:
         """Return the schema's base weight and activation quantization configuration."""
         return self.schema.base_config
 
-    def select_linear_modules(
-        self, model: nn.Module, auto_filter_incompatible_linears: bool
+    def overlaps(self, other: QuantizationModuleTarget) -> bool:
+        """Return whether the targets can select the same layers."""
+        if (
+            isinstance(other, EagerQuantizationModuleTarget)
+            and self.module_type != other.module_type
+        ):
+            return False
+        return super().overlaps(other=other)
+
+    def select_modules(
+        self, model: nn.Module, auto_filter_incompatible: bool
     ) -> tuple[list[str], dict[str, str]]:
-        """Resolve eligible linear layers within this target's module scope.
+        """Resolve eligible layers within this target's module scope and type.
 
         Args:
             model: Initialized model whose module tree will be inspected.
-            auto_filter_incompatible_linears: Skip layers whose input dimensions
+            auto_filter_incompatible: Skip layers whose weight row widths
                 are incompatible with the schema's group size. False raises an
                 error for the first incompatible layer.
 
@@ -131,24 +152,34 @@ class EagerQuantizationModuleTarget(QuantizationModuleTarget):
             )
         selected: list[str] = []
         skipped: dict[str, str] = {}
+        layer_type = (
+            nn.Embedding
+            if self.module_type == QuantizationModuleType.EMBEDDING
+            else nn.Linear
+        )
         for name, module in model.named_modules():
-            if not isinstance(module, nn.Linear):
+            if not isinstance(module, layer_type):
                 continue
             if not self.contains_module(module_name=name):
                 continue
-            if group_size is not None and module.in_features % group_size != 0:
+            dimension = (
+                module.embedding_dim
+                if self.module_type == QuantizationModuleType.EMBEDDING
+                else module.in_features
+            )
+            if group_size is not None and dimension % group_size != 0:
                 reason = (
-                    f"in_features {module.in_features} is not divisible by "
+                    f"Weight row width {dimension} requires divisibility by "
                     f"group_size {group_size}"
                 )
-                if not auto_filter_incompatible_linears:
+                if not auto_filter_incompatible:
                     raise ValueError(f"Module '{name}': {reason}.")
                 skipped[name] = reason
                 continue
             selected.append(name)
         if not selected:
             raise ValueError(
-                f"Target '{self.label}' selects zero eligible nn.Linear modules; "
+                f"Target '{self.label}' selects zero eligible {self.module_type} modules; "
                 f"skipped modules: {skipped}."
             )
         return selected, skipped
@@ -177,8 +208,8 @@ class EagerQuantizationModuleTarget(QuantizationModuleTarget):
             selected.append(
                 QuantizedLayerMetadata(
                     name=name,
-                    in_features=module.in_features,
-                    out_features=module.out_features,
+                    module_type=self.module_type,
+                    weight_shape=tuple(module.weight.shape),
                     device=str(module.weight.device),
                     dtype=str(module.weight.dtype),
                 )

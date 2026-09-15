@@ -151,8 +151,9 @@ quantization:
   auto_filter_incompatible_linears: true
 ```
 
-The `quantize_config` is a plain torchao config, so any scheme torchao
-supports for `nn.Linear` composes here, from 8-bit down to 2-bit.
+The `quantize_config` supplies the TorchAO scheme. Targets default to linear
+layers; set `module_type: embedding` with `IntxWeightOnlyConfig` for weight-only
+embedding conversion. Each deployment backend checks its supported formats.
 
 ## Converting a QAT Checkpoint
 

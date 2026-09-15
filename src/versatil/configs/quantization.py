@@ -5,6 +5,8 @@ from typing import Any
 
 from omegaconf import MISSING
 
+from versatil.quantization.constants import QuantizationModuleType
+
 
 @dataclass
 class BasePT2EBackendConfig:
@@ -121,6 +123,7 @@ class EagerQuantizationModuleTargetConfig:
     Attributes:
         _target_: Import path instantiated by Hydra.
         module_path: Dotted path to the target module, or ``""`` for root.
+        module_type: Layer type selected within the module scope.
         quantize_config: TorchAO base config for direct PTQ or QAT.
         schema: Supplies preparation and conversion configurations and checks
             numerical, device, dtype and calibration requirements. Specify this
@@ -131,6 +134,7 @@ class EagerQuantizationModuleTargetConfig:
     module_path: str = ""
     quantize_config: Any = None
     schema: Any = None
+    module_type: str = QuantizationModuleType.LINEAR.value
 
 
 @dataclass
@@ -174,8 +178,8 @@ class EagerQuantizationWorkflowConfig:
         targets: Module-level eager quantization targets.
         is_qat: Whether this workflow is used for QAT checkpoint training and
             conversion.
-        auto_filter_incompatible_linears: Whether to skip linears whose ``in_features``
-            are incompatible with the config group size.
+        auto_filter_incompatible_linears: Skip linear and embedding layers whose
+            weight row widths conflict with the configured group size.
     """
 
     _target_: str = "versatil.quantization.workflows.eager.EagerQuantizationWorkflow"

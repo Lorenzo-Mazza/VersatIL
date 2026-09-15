@@ -6,6 +6,7 @@ from types import ModuleType
 
 import torch
 import torch.nn as nn
+from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
@@ -27,7 +28,12 @@ from versatil.post_training_compression.deployment_backends.base import (
     DeploymentBackend,
 )
 from versatil.post_training_compression.export import _export_with_dynamic_batch
-from versatil.quantization.constants import PT2EBackendName, QuantizationMode
+from versatil.quantization.constants import (
+    FXNodeOp,
+    PT2EBackendName,
+    QuantizationMode,
+    QuantizationModuleType,
+)
 from versatil.quantization.module_target import EagerQuantizationModuleTarget
 from versatil.quantization.schemas.smoothquant import SmoothQuantSchema
 
@@ -68,9 +74,9 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
         """Check the weight representation and device used for XNNPACK export.
 
         Args:
-            model: Model containing the selected linear layers.
+            model: Model containing the selected linear or embedding layers.
             target: Quantization schema and module scope selected by the workflow.
-            module_names: Fully qualified names of the selected linear layers.
+            module_names: Fully qualified names of the selected layers.
             for_conversion: Require CPU weights when converting for XNNPACK export.
 
         Raises:
@@ -78,9 +84,9 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
                 device conflicts with the implemented XNNPACK export path.
 
         Note:
-            The implemented eager path uses dynamically quantized INT8 activations
-            and symmetric INT4 weights with unpacked-to-INT8 storage. Additional
-            representations produce a warning and require lowering validation.
+            Linear layers use dynamic INT8 activations and symmetric INT4 weights.
+            Embeddings use symmetric INT2, INT4 or INT8 weight-only quantization.
+            Conversion produces unpacked INT8 storage for ExecuTorch lowering.
         """
         config = target.quantize_config
         label = target.label
@@ -90,7 +96,9 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
                 "torch_inductor deployment backend. XNNPACK lowering requires "
                 "separate validation."
             )
-        if isinstance(
+        if target.module_type == QuantizationModuleType.EMBEDDING:
+            self._validate_embedding_config(config=config, label=label)
+        elif isinstance(
             config, (Int4WeightOnlyConfig, Int8WeightOnlyConfig, IntxWeightOnlyConfig)
         ):
             raise ValueError(
@@ -98,7 +106,7 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
                 "Int8DynamicActivationIntxWeightConfig with symmetric INT4 "
                 "weights and unpacked_to_int8 packing."
             )
-        if isinstance(config, Int8DynamicActivationIntxWeightConfig):
+        elif isinstance(config, Int8DynamicActivationIntxWeightConfig):
             if config.intx_packing_format != IntxPackingFormat.UNPACKED_TO_INT8:
                 raise ValueError(
                     f"Target '{label}': XNNPACK requires unpacked_to_int8 weight packing."
@@ -130,6 +138,32 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
         ):
             raise ValueError(
                 f"Target '{label}': this XNNPACK export workflow requires CPU weights."
+            )
+
+    @staticmethod
+    def _validate_embedding_config(config: AOBaseConfig, label: str) -> None:
+        """Check the weight-only embedding format accepted by ExecuTorch.
+
+        Args:
+            config: TorchAO conversion configuration.
+            label: Target path used in validation errors.
+
+        Raises:
+            ValueError: If the configuration conflicts with the embedding format.
+        """
+        if not isinstance(config, IntxWeightOnlyConfig):
+            raise ValueError(
+                f"Target '{label}': XNNPACK embeddings require IntxWeightOnlyConfig."
+            )
+        if (
+            config.version != 2
+            or config.intx_packing_format != IntxPackingFormat.UNPACKED_TO_INT8
+            or config.mapping_type != MappingType.SYMMETRIC
+            or config.weight_dtype not in (torch.int2, torch.int4, torch.int8)
+        ):
+            raise ValueError(
+                f"Target '{label}': XNNPACK embeddings require version=2, symmetric "
+                "INT2, INT4 or INT8 weights and unpacked_to_int8 packing."
             )
 
     def export(
@@ -174,10 +208,27 @@ def _lower_exported_program(
     executorch_exir: ModuleType,
     xnnpack_partitioner: ModuleType,
 ) -> bytes:
-    """Lower an exported program using imported ExecuTorch modules."""
+    """Lower an exported inference program using imported ExecuTorch modules.
+
+    Note:
+        Embedding padding and gradient flags control backward computation.
+        Removing those arguments preserves lookup values and enables fusion
+        into packed quantized embedding operators.
+    """
+    for node in exported_program.graph.nodes:
+        if (
+            node.op == FXNodeOp.CALL_FUNCTION.value
+            and node.target == torch.ops.aten.embedding.default
+        ):
+            node.args = node.args[:2]
+    exported_program.graph_module.recompile()
     edge_program = executorch_exir.to_edge_transform_and_lower(
         exported_program,
         partitioner=[xnnpack_partitioner.XnnpackPartitioner()],
     )
-    executorch_program = edge_program.to_executorch()
+    executorch_program = edge_program.to_executorch(
+        config=executorch_exir.ExecutorchBackendConfig(
+            do_quant_fusion_and_const_prop=True
+        )
+    )
     return bytes(executorch_program.buffer)

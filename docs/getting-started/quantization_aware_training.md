@@ -7,8 +7,9 @@ checkpoint that converts to a quantized artifact with much less accuracy loss
 than quantizing a float policy after the fact. For the background and the
 workflow contract, see the [quantization architecture](../architecture/quantization.md).
 
-QAT in VersatIL is eager-mode through torchao's `QATConfig` and applies to
-`nn.Linear` layers. Incompatible linears are filtered out automatically.
+QAT in VersatIL uses torchao's eager `QATConfig` for `nn.Linear` and
+`nn.Embedding` layers. Each target selects one layer type. The
+`auto_filter_incompatible_linears` setting filters both types by weight row width.
 
 ## Step 1: Pick a Quantization Scheme
 
@@ -19,6 +20,7 @@ The `/quantization` config group ships ready-to-compose presets:
 | `qat_int8_dynamic_intx_int4` | int8 dynamic activations, int4 weights (group size 32) |
 | `qat_int4_weight_only` | int4 weight-only |
 | `qat_int2_weight_only` | int2 weight-only |
+| `qat_int4_embeddings_and_linears` | W4A8 linears and INT4 weight-only embeddings, group size 32 |
 
 Add one to the defaults list of any end-to-end training config:
 
@@ -60,7 +62,7 @@ python -m versatil.endpoints.train \
 ```
 
 Before the first optimizer step, the workflow applies
-`QATConfig(base_config=..., step="prepare")` to the eligible linear layers of
+`QATConfig(base_config=..., step="prepare")` to the eligible layers of
 the configured targets. Training then proceeds normally: the fake-quant
 layers quantize and dequantize on the fly during the forward pass, gradients
 flow through, and the checkpoint stores the QAT-prepared weights.
@@ -78,8 +80,9 @@ in the compression tutorial.
 
 ## Limitations
 
-- QAT is eager-mode only; PT2E QAT is not supported yet.
-- torchao's eager quantization covers only `nn.Linear` layers, with schemes from
-  8-bit down to 2-bit.
-- The conversion step (before lowering and deployment) must use the same quantization config the    training run prepared with; converting with a different scheme silently mismatches the
-  fake-quant statistics the weights were trained under.
+- QAT uses the eager workflow. Each selected layer needs a matching TorchAO
+  preparation and conversion configuration.
+- Conversion uses the same quantization configuration saved during training.
+- Embedding QAT applies fake quantization through the module's forward lookup.
+  Select embedding modules used through this operation; direct `.weight` reads
+  bypass fake quantization.

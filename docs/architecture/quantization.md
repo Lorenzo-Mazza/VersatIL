@@ -27,7 +27,8 @@ deployment backend can save or lower.
 The two main workflows in `torchao` are:
 
 - **Eager quantization**: transforms selected
-  `nn.Linear` modules through `quantize_()` before exporting the policy.
+  `nn.Linear` or `nn.Embedding` modules through `quantize_()` before exporting
+  the policy.
 - **PyTorch 2 Export (PT2E) quantization**: annotates and transforms the exported
   graph using a backend-specific quantizer. VersatIL's current PT2E adapters
   provide INT8 linear and supported convolution quantization.
@@ -102,7 +103,7 @@ The eager quantization components have four responsibilities:
 | Component | Responsibility |
 |---|---|
 | `EagerQuantizationWorkflow` | Order initialization, preparation, calibration, conversion and export; retain QAT preparation state |
-| `EagerQuantizationModuleTarget` | Resolve the layer scope, select and filter linears, and construct target metadata |
+| `EagerQuantizationModuleTarget` | Select linear or embedding layers by scope and type, filter incompatible dimensions, and construct target metadata |
 | `QuantizationSchema` | Specify preparation/conversion settings and check numerical settings, device, dtype and calibration statistics |
 | `DeploymentBackend` | Validate workflow modes, PT2E backend pairings and eager representations; produce the deployment artifact |
 
@@ -175,7 +176,7 @@ defines the common interface:
 | `targets` | Module-level quantization targets owned by the workflow. |
 | `prepare_model()` | Training-time QAT preparation hook. Raises when unsupported. |
 | `load_policy_context()` | Loads the checkpoint shape required by the workflow. |
-| `validate_targets()` | Validates target paths and rejects overlapping targets. |
+| `validate_targets()` | Validates target paths and rejects overlapping layer selections. |
 | `quantize()` | Runs export and quantization, returning `QuantizedContext`. |
 
 [`QuantizedContext`][versatil.quantization.workflows.base.QuantizedContext]
@@ -191,7 +192,8 @@ contains:
   direct PTQ and QAT conversion;
 - `quantization_targets`: `QuantizationTargetMetadata` records of actual eager
   selections and converted weight types, or `None` when the workflow leaves these
-  details unspecified. Selected layers use `QuantizedLayerMetadata`.
+  details unspecified. `QuantizedLayerMetadata` records each selected layer's
+  name, module type, weight shape, device and dtype.
 
 PTC calls the selected workflow once, then passes the resulting context to the
 deployment backend.
@@ -215,7 +217,9 @@ configuration within the same workflow by defining a
 [`QuantizationModuleTarget`][versatil.quantization.module_target.QuantizationModuleTarget].
 For example, one eager workflow can use an int4 config for `decoder.head` and
 an int8 dynamic config for `decoder.backbone`. Target paths must exist in the
-policy and must not overlap. `module_path: ""` is the root policy target.
+policy. Eager targets with different `module_type` values can share a path;
+targets of the same type require disjoint scopes. `module_path: ""` selects the
+root policy scope.
 
 ## Policy Artifacts
 
@@ -318,8 +322,9 @@ actions and representative observations or rollouts.
 uses the torchao
 [`quantize_()` API](https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_)
 before export. The same class supports eager PTQ and eager QAT.
-VersatIL selects linear layers for this workflow. The base TorchAO configuration
-specifies weight precision, activation precision and tensor representation.
+VersatIL selects linear or embedding layers for this workflow. The base TorchAO
+configuration specifies weight precision, activation precision and tensor
+representation.
 
 ### Eager PTQ
 
@@ -329,9 +334,11 @@ When `is_qat: false`, quantization is applied only after training:
 torchao.quantization.quantize_(model, quantize_config)
 ```
 
-For the root target, the config is applied to the whole policy. For submodule
-targets, it filters to `nn.Linear` modules under the
-configured `module_path`.
+Each target filters its `module_path` by `module_type`: `linear` selects
+`nn.Linear` and `embedding` selects `nn.Embedding`. Embedding targets require
+`IntxWeightOnlyConfig`. The root path selects the configured layer type throughout
+the policy. Group size must divide the weight row width: `in_features` for
+linears and `embedding_dim` for embeddings.
 
 Targets can specify either `quantize_config` for direct conversion or
 `schema` for preparation/conversion settings and calibration checks.
@@ -411,7 +418,7 @@ it in a `QATConfig`:
 
 - Training calls `prepare_model()`, which applies
   `QATConfig(base_config=quantize_config, step="prepare")` to eligible
-  `nn.Linear` modules selected by the workflow targets.
+  linear or embedding modules selected by the workflow targets.
 - Post-training compression restores the prepared layers and checkpoint weights,
   then applies
   `QATConfig(base_config=quantize_config, step="convert")`.

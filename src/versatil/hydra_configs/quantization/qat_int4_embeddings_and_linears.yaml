@@ -1,0 +1,25 @@
+defaults:
+  - /quantization/workflow@_here_: eager
+  - _self_
+
+targets:
+  - _target_: versatil.quantization.module_target.EagerQuantizationModuleTarget
+    module_path: ""
+    module_type: linear
+    quantize_config:
+      _target_: torchao.quantization.Int8DynamicActivationIntxWeightConfig
+      weight_dtype: ${torch_dtype:int4}
+      weight_granularity:
+        _target_: torchao.quantization.PerGroup
+        group_size: 32
+  - _target_: versatil.quantization.module_target.EagerQuantizationModuleTarget
+    module_path: ""
+    module_type: embedding
+    quantize_config:
+      _target_: torchao.quantization.IntxWeightOnlyConfig
+      weight_dtype: ${torch_dtype:int4}
+      granularity:
+        _target_: torchao.quantization.PerGroup
+        group_size: 32
+is_qat: true
+auto_filter_incompatible_linears: true

@@ -1,23 +1,25 @@
-"""Data recorded for quantized targets and their selected linear layers."""
+"""Data recorded for quantized targets and their selected layers."""
 
 from dataclasses import dataclass, field
+
+from versatil.quantization.constants import QuantizationModuleType
 
 
 @dataclass
 class QuantizedLayerMetadata:
-    """Record a selected linear layer's properties before weight conversion.
+    """Record a selected layer's properties before weight conversion.
 
     Attributes:
         name: Fully qualified layer name within the policy.
-        in_features: Number of input features to the linear layer.
-        out_features: Number of output features from the linear layer.
+        module_type: Linear or embedding layer.
+        weight_shape: Weight matrix rows and columns before conversion.
         device: Weight device at conversion, including its index when specified.
         dtype: Floating-point weight dtype before conversion.
     """
 
     name: str
-    in_features: int
-    out_features: int
+    module_type: QuantizationModuleType
+    weight_shape: tuple[int, int]
     device: str
     dtype: str
 
@@ -35,7 +37,7 @@ class QuantizationTargetMetadata:
         requires_calibration: Whether the schema requires representative inference.
         group_size: Number of input-channel weights sharing a scale, or None for
             configurations with another granularity.
-        selected: Selected linear layers and their pre-conversion properties.
+        selected: Selected layers and their pre-conversion properties.
         skipped: Excluded layer names mapped to their exclusion reasons.
         weight_representations: Selected layer names mapped to the weight tensor
             class names observed after conversion.

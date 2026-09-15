@@ -55,7 +55,7 @@ def schema_target_factory(
         target.label = module_path or "(root)"
         target.schema = schema
         layer_name = f"{module_path}.projection" if module_path else "projection"
-        target.select_linear_modules.return_value = ([layer_name], {})
+        target.select_modules.return_value = ([layer_name], {})
         target.build_metadata.return_value = quantization_target_metadata_factory(
             module_path=module_path, selected=[]
         )
@@ -358,8 +358,8 @@ class TestCalibratedModuleWorkflow:
             is_qat=True,
         )
         policy = calibrated_policy_factory(training=True)
-        workflow.targets[1].select_linear_modules.side_effect = ValueError(
-            "Target 'decoder' selects zero eligible nn.Linear modules; skipped modules: {}."
+        workflow.targets[1].select_modules.side_effect = ValueError(
+            "Target 'decoder' selects zero eligible linear modules; skipped modules: {}."
         )
         with (
             patch.object(workflow, "validate_targets") as validate,
@@ -367,7 +367,7 @@ class TestCalibratedModuleWorkflow:
             pytest.raises(
                 ValueError,
                 match=re.escape(
-                    "Target 'decoder' selects zero eligible nn.Linear modules; "
+                    "Target 'decoder' selects zero eligible linear modules; "
                     "skipped modules: {}."
                 ),
             ),
@@ -667,8 +667,8 @@ class TestEagerTargetResolution:
         target = schema_target_factory(
             module_path="decoder", needs_calibration=False, needs_preparation=True
         )
-        reason = "in_features 48 is not divisible by group_size 32"
-        target.select_linear_modules.return_value = (
+        reason = "Weight row width 48 requires divisibility by group_size 32"
+        target.select_modules.return_value = (
             ["decoder.projection"],
             {"decoder.head": reason},
         )
@@ -690,8 +690,8 @@ class TestEagerTargetResolution:
                 for_conversion=False,
             )
         validate_paths.assert_called_once_with(model=model)
-        target.select_linear_modules.assert_called_once_with(
-            model=model, auto_filter_incompatible_linears=auto_filter
+        target.select_modules.assert_called_once_with(
+            model=model, auto_filter_incompatible=auto_filter
         )
         target.schema.preparation_config.assert_called_once_with(is_qat=True)
         target.schema.conversion_config.assert_called_once_with(is_qat=True)
@@ -727,7 +727,7 @@ class TestEagerTargetResolution:
         backend = deployment_backend_factory()
         message = f"Decoder {failure_stage} validation failed."
         if failure_stage == "selection":
-            targets[1].select_linear_modules.side_effect = ValueError(message)
+            targets[1].select_modules.side_effect = ValueError(message)
         elif failure_stage == "schema":
             targets[1].schema.validate_configuration.side_effect = ValueError(message)
         else:
@@ -740,8 +740,8 @@ class TestEagerTargetResolution:
             workflow._apply_ptq(model=model, deployment_backend=backend)
         quantize.assert_not_called()
         for target in targets:
-            target.select_linear_modules.assert_called_once_with(
-                model=model, auto_filter_incompatible_linears=True
+            target.select_modules.assert_called_once_with(
+                model=model, auto_filter_incompatible=True
             )
 
     def test_path_validation_precedes_selection(
@@ -758,7 +758,7 @@ class TestEagerTargetResolution:
             pytest.raises(ValueError, match=re.escape(message)),
         ):
             workflow._resolve_targets(model=model)
-        target.select_linear_modules.assert_not_called()
+        target.select_modules.assert_not_called()
         target.schema.validate_configuration.assert_not_called()
 
     def test_captures_all_target_metadata_before_conversion(
@@ -856,7 +856,7 @@ class TestEagerQATLifecycle:
             match=re.escape("QAT convert_model() requires prepare_model() first."),
         ):
             workflow.convert_model(model=model)
-        target.select_linear_modules.assert_not_called()
+        target.select_modules.assert_not_called()
 
     def test_conversion_reuses_prepared_names_and_checks_current_placement(
         self,
@@ -873,11 +873,11 @@ class TestEagerQATLifecycle:
             patch(f"{EAGER_WORKFLOW_MODULE}.quantize_") as quantize,
         ):
             workflow.prepare_model(model=model)
-            target.select_linear_modules.return_value = (["decoder.new_projection"], {})
+            target.select_modules.return_value = (["decoder.new_projection"], {})
             model.training = False
             workflow.convert_model(model=model)
-        target.select_linear_modules.assert_called_once_with(
-            model=model, auto_filter_incompatible_linears=True
+        target.select_modules.assert_called_once_with(
+            model=model, auto_filter_incompatible=True
         )
         assert target.schema.validate_configuration.call_args_list == [
             call(
