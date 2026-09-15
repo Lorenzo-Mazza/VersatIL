@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
 - Interleaved VLM decoders retain gradients through frozen language layers
   when training vision adapters.
 - Constrain `versatil-constants` to versions below 0.3.0 while VersatIL imports
   the legacy TSO orientation keys removed by that release.
+- TorchAO 0.18 fixes Python 3.14 PT2E imports and preserves configured INT4 QAT
+  group sizes; removed the corresponding compatibility patches.
+- Corrected PT2E round-trip test metadata and isolated staged-training checkpoint
+  resume from test execution order.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
@@ -28,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
+
+- Updated PyTorch to 2.13, TorchVision to 0.28, TorchAO to 0.18 and ExecuTorch
+  to 1.4.1, with ExecuTorch wheel installation on Python 3.13 and 3.14.
 - Newly materialized Zarr datasets group image chunks into configurable storage
   shards (`task.dataloader.image_frames_per_shard`, 256 frames by default), and
   replay-buffer copies and rewrites preserve existing shard layouts.

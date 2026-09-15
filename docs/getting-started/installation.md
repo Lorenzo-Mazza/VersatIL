@@ -119,7 +119,8 @@ uv sync --python "$PYTHON_VERSION" --extra gpu
 
 Both source setup paths install:
 
-- **PyTorch 2.12.0** from the selected PyTorch wheel extra (`gpu` or `cpu`)
+- **PyTorch 2.13**, **TorchVision 0.28** and **TorchAO 0.18** from the selected
+  PyTorch wheel extra (`gpu` or `cpu`)
 - **Hydra + OmegaConf** for configuration
 - **Lightning 2.6.1** for training
 - **timm**, **transformers**, **diffusers** for model backbones
@@ -131,54 +132,48 @@ Both source setup paths install:
 
 ### Optional ExecuTorch Dependency
 
-Python 3.13 environments can install ExecuTorch from PyPI through the optional
-extra:
+ExecuTorch 1.4.1 provides wheels for Python 3.13 and 3.14. Install it through
+the optional extra:
 
 ```bash
-PYTHON_VERSION=3.13
-uv sync --python "$PYTHON_VERSION" --extra cpu --extra executorch
+PYTHON_VERSION=3.14
+uv sync --frozen --python "$PYTHON_VERSION" --extra cpu --extra executorch
 # Use --extra gpu instead of --extra cpu when installing the CUDA PyTorch stack.
 ```
 
-The `executorch` extra is ignored on Python 3.14 by package markers because the
-published ExecuTorch wheel currently declares `requires-python = ">=3.10,<3.14"`.
-Python 3.14 environments need an ExecuTorch package built from source in the
-active `versatil` environment:
+This installs the Python export tools and the packaged runtime for CPU/XNNPACK
+inference on both supported Python versions.
+The lockfile selects the following versions together:
+
+| Package | Version |
+| --- | --- |
+| PyTorch | 2.13.0 |
+| TorchVision | 0.28.0 |
+| TorchAO | 0.18.0 |
+| ExecuTorch | 1.4.1 |
+
+Check the installed dependencies and run the ExecuTorch tests with:
 
 ```bash
-cd ..
-git clone https://github.com/pytorch/executorch.git
-cd executorch
-git submodule update --init --recursive
-
-# Build dependencies must be present because --no-build-isolation is used.
-pip install "cmake>=3.24,<4.0.0" "packaging>=24.2" pyyaml "setuptools>=77.0.3" wheel zstd certifi ninja
-
-SITE_PACKAGES=$(python - <<'PY'
-import site
-print(site.getsitepackages()[0])
-PY
-)
-# CUDA and OpenVINO must be disabled explicitly
-# because setup.py auto-enables them when nvcc / Linux are detected; the LLM
-# kernels are preset defaults this deployment does not need.
-CMAKE_PREFIX_PATH="$SITE_PACKAGES" \
-CMAKE_BUILD_PARALLEL_LEVEL=8 \
-CMAKE_ARGS="-DEXECUTORCH_BUILD_CUDA=OFF -DEXECUTORCH_BUILD_OPENVINO=OFF -DEXECUTORCH_BUILD_KERNELS_LLM=OFF -DEXECUTORCH_BUILD_KERNELS_LLM_AOT=OFF" \
-python -m pip install . --no-build-isolation --ignore-requires-python --no-deps -v
-
-cd ../versatil
-
-# Runtime dependencies are skipped by --no-deps; install the AoT set manually.
-pip install flatbuffers "ruamel.yaml" sympy tabulate pytorch-tokenizers \
-    expecttest hypothesis kgb parameterized
-
-# Now all ExecuTorch-gated tests should pass.
-pytest -m requires_executorch -o addopts=""
+uv pip check
+python -m pytest -m "requires_executorch and not slow and not requires_gpu"
 ```
 
-`python -m pip check` can still report a `scikit-learn` metadata conflict in
-Python 3.14 environments. The XNNPACK export path works with the built package.
+### ExecuTorch CUDA Runtime
+
+The `gpu` extra installs CUDA-enabled PyTorch. The `executorch` extra installs
+ExecuTorch's Python export tools and packaged CPU runtime.
+
+CUDA deployment uses AOTInductor to compile the exported model and a native
+ExecuTorch runtime built with `-DEXECUTORCH_BUILD_CUDA=ON`. Follow the
+[CUDA backend build instructions for ExecuTorch 1.4.1](https://github.com/pytorch/executorch/blob/v1.4.1/docs/source/backends/cuda/cuda-overview.md)
+with a matching `v1.4.1` source checkout. Build that runtime separately from the
+standard Python wheel installation. Its build environment requires the CUDA
+toolkit, including `nvcc`, and a C++ compiler. PyTorch wheels supply the CUDA
+libraries used during execution.
+
+VersatIL's ExecuTorch deployment adapter targets XNNPACK on CPU. CUDA integration
+requires a deployment adapter for export and a CUDA-enabled runtime for execution.
 
 ### Install Pre-commit Hooks
 

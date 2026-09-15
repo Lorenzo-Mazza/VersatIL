@@ -278,4 +278,5 @@ Verify the installed driver supports the pinned CUDA 13.0 PyTorch wheels with `n
 
 ### Python 3.14 Compatibility
 
-If Hydra or torchao crash on Python 3.14, see [Known Issues](../known-issues.md) for active workarounds.
+Follow the [installation guide](installation.md) to install the supported
+Python 3.14 dependency versions.

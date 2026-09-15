@@ -143,11 +143,15 @@ jobs:
   executorch-tests:
     runs-on: ubuntu-latest
     needs: [ruff-format, ruff-lint]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v5
         with:
           cache-dependency-glob: pyproject.toml
@@ -160,9 +164,9 @@ jobs:
           EOF
       - name: Install dependencies
         run: |
-          uv venv .venv --python 3.13
+          uv venv .venv --python ${{ matrix.python-version }}
           source .venv/bin/activate
-          uv sync --python 3.13 --extra cpu --extra executorch
+          uv sync --frozen --python ${{ matrix.python-version }} --extra cpu --extra executorch
       - name: Run ExecuTorch tests
         run: |
           source .venv/bin/activate
@@ -172,15 +176,15 @@ jobs:
         with:
           files: coverage-executorch.xml
           disable_search: true
-          flags: executorch
-          name: executorch-tests
+          flags: executorch-py${{ matrix.python-version }}
+          name: executorch-tests-${{ matrix.python-version }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: executorch-test-report
+          name: executorch-test-report-${{ matrix.python-version }}
           path: report-executorch.xml
 
   e2e-tests:
