@@ -197,6 +197,17 @@ api_key: ${env:WANDB_API_KEY}            # Direct env var access
 
 Available enum resolvers are available at `src/versatil/configs/__init__.py`.
 
+Resolvers use `OmegaConf.register_resolver()` from the required OmegaConf
+`>=2.4.0.dev12` dependency. It supports nested interpolations and typed arguments.
+In older OmegaConf versions this name referred to the legacy API; sync the project
+dependencies if nested expressions fail. `register_new_resolver()` is deprecated
+since `2.4.0.dev12`.
+
+SmolVLA derives its action-head input dimension from the selected VLM's text
+configuration with `${vlm_hidden_dimension:${policy.decoder.vlm_backbone.model_name}}`
+and scales it by `expert_width_multiplier`. This reads model configuration
+metadata from a local directory or the HuggingFace cache/Hub.
+
 ## Config Validation
 
 VersatIL validates configurations at multiple levels to catch errors before training begins.

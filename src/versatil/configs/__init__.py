@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
+from transformers import AutoConfig
 from versatil_constants.shared import ActionComponent
 from versatil_constants.tso import TSOObsKey
 
@@ -425,10 +426,27 @@ def _action_space_prediction_dimension_resolver(action_space: DictConfig) -> int
     return total_dimension
 
 
-def register_resolvers():
-    """Register custom OmegaConf resolvers for enum access in YAML configs.
+def _vlm_hidden_dimension_resolver(model_name: str) -> int:
+    """Read the language hidden dimension from a HuggingFace VLM config.
 
-    This allows using ${cameras:LEFT} in YAML to get Cameras.LEFT.value.
+    Args:
+        model_name: HuggingFace model identifier or local model directory.
+
+    Returns:
+        Language model hidden dimension used by the VLM backbone.
+
+    Raises:
+        OSError: If the model configuration cannot be loaded.
+        AttributeError: If the configuration has no text hidden size.
+    """
+    config = AutoConfig.from_pretrained(pretrained_model_name_or_path=model_name)
+    return config.text_config.hidden_size
+
+
+def register_resolvers() -> None:
+    """Register YAML resolvers with OmegaConf 2.4's nested interpolation API.
+
+    For example, ${cameras:LEFT} resolves to Cameras.LEFT.value.
     """
     if not OmegaConf.has_resolver("cameras"):
         OmegaConf.register_resolver("cameras", lambda name: Cameras[name].value)
@@ -672,6 +690,11 @@ def register_resolvers():
         OmegaConf.register_resolver(
             "int_mul",
             _integer_multiply_resolver,
+        )
+    if not OmegaConf.has_resolver("vlm_hidden_dimension"):
+        OmegaConf.register_resolver(
+            "vlm_hidden_dimension",
+            _vlm_hidden_dimension_resolver,
         )
     if not OmegaConf.has_resolver("action_space_prediction_dimension"):
         OmegaConf.register_resolver(

@@ -2,6 +2,7 @@
 
 import glob
 import re
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
 from omegaconf import ListConfig, OmegaConf
+from transformers import Idefics3Config
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
 from versatil.configs.paths import get_hydra_configs_dir
@@ -109,6 +111,56 @@ VLM_IMAGE_NORM_CONFIGS = [
         id="smolvlm-smolvla",
     ),
 ]
+
+
+@pytest.fixture
+def local_smolvlm_config_factory(tmp_path: Path) -> Callable[..., Path]:
+    def factory(hidden_dimension: int) -> Path:
+        model_directory = tmp_path / f"smolvlm-{hidden_dimension}"
+        config = Idefics3Config(
+            text_config={
+                "hidden_size": hidden_dimension,
+                "num_attention_heads": 2,
+                "num_key_value_heads": 1,
+            }
+        )
+        config.save_pretrained(model_directory)
+        return model_directory
+
+    return factory
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "hidden_dimension, multiplier, expected_dimension",
+    [(32, 0.5, 16), (48, 0.75, 36)],
+)
+def test_smolvla_head_dimension_tracks_backbone_and_expert_width(
+    local_smolvlm_config_factory: Callable[..., Path],
+    hidden_dimension: int,
+    multiplier: float,
+    expected_dimension: int,
+) -> None:
+    model_directory = local_smolvlm_config_factory(hidden_dimension=hidden_dimension)
+    with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
+        config = compose(
+            config_name="end_to_end_training_runs/libero_lerobot/smolvla",
+            overrides=[
+                f"policy.decoder.vlm_backbone.model_name={model_directory}",
+                f"policy.decoder.expert_width_multiplier={multiplier}",
+            ],
+        )
+
+    head = config.policy.decoder.action_heads.joint_action
+    assert head.input_dimension == expected_dimension
+
+    config.policy.decoder.expert_width_multiplier = 1.0
+    assert head.input_dimension == hidden_dimension
+
+    config.policy.decoder.vlm_backbone.model_name = str(
+        local_smolvlm_config_factory(hidden_dimension=64)
+    )
+    assert head.input_dimension == 64
 
 
 @pytest.mark.unit

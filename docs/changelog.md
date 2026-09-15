@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SmolVLA's shared action head derives its input dimension from the selected
+  VLM's text configuration and expert width multiplier.
 - TorchAO 0.18 fixes Python 3.14 PT2E imports and preserves configured INT4 QAT
   group sizes; removed the corresponding compatibility patches.
 - Corrected PT2E round-trip test metadata and isolated staged-training checkpoint

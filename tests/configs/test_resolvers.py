@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError
 from versatil_constants.shared import ActionComponent
 
-from versatil.configs import register_resolvers
+from versatil.configs import _vlm_hidden_dimension_resolver, register_resolvers
 from versatil.data.constants import (
     ActionDiscretizerType,
     ActionTokenIdMappingType,
@@ -62,6 +62,44 @@ from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
 register_resolvers()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("hidden_dimension", [576, 960])
+def test_vlm_hidden_dimension_reads_selected_model_config(
+    hidden_dimension: int,
+) -> None:
+    model_name = "local-smolvlm"
+    with patch(
+        "versatil.configs.AutoConfig.from_pretrained", autospec=True
+    ) as load_config:
+        load_config.return_value.text_config.hidden_size = hidden_dimension
+
+        result = _vlm_hidden_dimension_resolver(model_name=model_name)
+
+    assert result == hidden_dimension
+    load_config.assert_called_once_with(pretrained_model_name_or_path=model_name)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "expression, initial_value, updated_value",
+    [
+        ("${int_mul:${factor},960}", 480, 720),
+        ("${mul:${factor},${int_mul:2,480}}", 480.0, 720.0),
+        ("${stage_split_epoch:100,${factor}}", 50, 75),
+    ],
+)
+def test_nested_resolvers_follow_config_changes(
+    expression: str,
+    initial_value: int | float,
+    updated_value: int | float,
+) -> None:
+    config = OmegaConf.create({"factor": 0.5, "result": expression})
+
+    assert config.result == initial_value
+    config.factor = 0.75
+    assert config.result == updated_value
 
 
 ENUM_RESOLVER_CASES = [

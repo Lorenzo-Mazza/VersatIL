@@ -3,5 +3,5 @@ defaults:
   - _self_
 
 joint_action:
-  input_dimension: ${int_mul:${policy.decoder.expert_width_multiplier},960}
+  input_dimension: ${int_mul:${policy.decoder.expert_width_multiplier},${vlm_hidden_dimension:${policy.decoder.vlm_backbone.model_name}}}
   blocks: null
