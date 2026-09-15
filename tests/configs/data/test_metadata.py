@@ -1,10 +1,12 @@
 """Tests for versatil.configs.data.metadata module."""
 
 import importlib
+from collections.abc import Callable
 
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
+from versatil_constants.shared import ActionComputationMethod
 
 from versatil.configs.data.metadata import (
     ActionMetadataConfig,
@@ -27,6 +29,44 @@ from versatil.data.constants import (
     GripperType,
     OrientationRepresentation,
 )
+
+
+@pytest.fixture
+def orientation_action_metadata_config_factory() -> Callable[
+    ..., OrientationActionMetadataConfig
+]:
+    def factory(computation_method: str | None) -> OrientationActionMetadataConfig:
+        return OrientationActionMetadataConfig(
+            frame=CoordinateSystem.CAMERA.value,
+            orientation_representation=OrientationRepresentation.ROLL.value,
+            raw_data_column_keys=[OrientationRepresentation.ROLL.value],
+            storage_dimension=1,
+            prediction_dimension=1,
+            needs_normalization=True,
+            dtype="float32",
+            computation_method=computation_method,
+        )
+
+    return factory
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "method", [None, *[member.value for member in ActionComputationMethod]]
+)
+def test_orientation_action_config_preserves_computation_method(
+    orientation_action_metadata_config_factory: Callable[
+        ..., OrientationActionMetadataConfig
+    ],
+    method: str | None,
+) -> None:
+    config = orientation_action_metadata_config_factory(computation_method=method)
+
+    metadata = instantiate(config)
+
+    assert metadata.computation_method == method
+    assert metadata.frame == CoordinateSystem.CAMERA.value
+    assert metadata.orientation_representation == OrientationRepresentation.ROLL.value
 
 
 @pytest.mark.unit

@@ -3954,7 +3954,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", specifier = ">=5.9" },
     { name = "tso-robotics-sockets", specifier = ">=0.2" },
-    { name = "versatil-constants", specifier = ">=0.2.1,<0.3.0" },
+    { name = "versatil-constants", specifier = "==0.3.0" },
     { name = "wandb", specifier = ">=0.22" },
     { name = "zarr", specifier = ">=3.1.3" },
 ]
@@ -3970,11 +3970,11 @@ dev = [
 
 [[package]]
 name = "versatil-constants"
-version = "0.2.1"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4f/51/8cfd3e05c408e70f14149515f520262c2e76e37883952988afdd0454b7d4/versatil_constants-0.2.1.tar.gz", hash = "sha256:bbe899515aa9b3ea6edb7b3126f92443f16ea1984381d68592839c44a65d6424", size = 5235, upload-time = "2026-05-04T22:46:21.169Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7c/9d/7daccbf2fb60dd05f979f243be843439318e2e8676120f500378e9911414/versatil_constants-0.3.0.tar.gz", hash = "sha256:177f5e26fb95869391df78616579df58bc873e64e3c3faebef5302a5de0714a8", size = 5381, upload-time = "2026-09-15T14:52:03.349Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/f7/254a8a4acb922de0ef8676071b2fbfff677e9440a0366104113067991598/versatil_constants-0.2.1-py3-none-any.whl", hash = "sha256:1968a2836ed933f2271a0c44802a2ce26827072c7d09d28565f66234786269be", size = 7817, upload-time = "2026-05-04T22:46:19.513Z" },
+    { url = "https://files.pythonhosted.org/packages/36/c1/90fb8765333746661913acd930628006024ef16f96ddb6767a01853013df/versatil_constants-0.3.0-py3-none-any.whl", hash = "sha256:e9ca18eccbbc94f1967f7530b015e5fa09094a9d3fdb64d7d2429a387cd39e75", size = 7831, upload-time = "2026-09-15T14:52:02.289Z" },
 ]
 
 [[package]]

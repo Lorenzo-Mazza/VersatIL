@@ -1,6 +1,8 @@
 """Tests for versatil.data.metadata module."""
 
 import re
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 
 import pytest
@@ -1126,6 +1128,66 @@ class TestPositionActionMetadata:
 
 
 class TestOrientationActionMetadata:
+    @pytest.mark.parametrize(
+        "method, expectation",
+        [(member.value, does_not_raise()) for member in ActionComputationMethod]
+        + [
+            (None, does_not_raise()),
+            (
+                "velocity",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "computation_method must be one of "
+                        f"{[member.value for member in ActionComputationMethod]}, "
+                        "got 'velocity'"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_computation_method_validation(
+        self,
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
+        method: str | None,
+        expectation: AbstractContextManager,
+    ) -> None:
+        with expectation:
+            metadata = orientation_action_metadata_factory(computation_method=method)
+            assert metadata.computation_method == method
+
+    @pytest.mark.parametrize(
+        "method", [None, *[member.value for member in ActionComputationMethod]]
+    )
+    @pytest.mark.parametrize(
+        "other_method", [None, *[member.value for member in ActionComputationMethod]]
+    )
+    def test_equality_includes_computation_method(
+        self,
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
+        method: str | None,
+        other_method: str | None,
+    ) -> None:
+        metadata = orientation_action_metadata_factory(computation_method=method)
+        other = orientation_action_metadata_factory(computation_method=other_method)
+
+        assert (metadata == other) == (method == other_method)
+
+    @pytest.mark.parametrize(
+        "method", [None, *[member.value for member in ActionComputationMethod]]
+    )
+    def test_equality_with_legacy_metadata(
+        self,
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
+        method: str | None,
+    ) -> None:
+        current = orientation_action_metadata_factory(computation_method=method)
+        legacy = orientation_action_metadata_factory(computation_method=None)
+        del legacy.computation_method
+
+        assert (current == legacy) == (method is None)
+        assert (legacy == current) == (method is None)
+
     def test_invalid_frame_raises(self):
         with pytest.raises(ValueError, match="frame must be one of"):
             OrientationActionMetadata(

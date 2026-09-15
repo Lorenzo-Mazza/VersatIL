@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError
+from versatil_constants.shared import ActionComponent
 
 from versatil.configs import register_resolvers
 from versatil.data.constants import (
@@ -115,6 +116,9 @@ ENUM_RESOLVER_CASES = [
     ("coordinate_system", "ROBOT_BASE", CoordinateSystem.ROBOT_BASE.value),
     ("gripper_range", "ZERO_ONE", BinaryGripperRange.ZERO_ONE.value),
     ("proprio_key", "GRIPPER_STATE", ProprioKey.GRIPPER_STATE.value),
+    ("proprio_key", "RELATIVE_PIVOT_ROLL", ProprioKey.RELATIVE_PIVOT_ROLL.value),
+    ("action_component", "POSITION", ActionComponent.POSITION.value),
+    ("action_component", "ORIENTATION", ActionComponent.ORIENTATION.value),
     ("latent_key", "POSTERIOR_LATENT", LatentKey.POSTERIOR_LATENT.value),
     ("scheduler_type", "DDIM", SchedulerType.DDIM.value),
     ("denoising_algorithm", "DIFFUSION", DenoisingAlgorithm.DIFFUSION.value),
