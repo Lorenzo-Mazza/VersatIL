@@ -7,13 +7,10 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers import (
-    Gemma2Config,
-    PaliGemmaConfig,
-    SiglipVisionConfig,
-)
 
 from versatil.data.constants import Cameras, SampleKey
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
+from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import (
     AlgorithmContextKey,
@@ -22,9 +19,6 @@ from versatil.models.decoding.constants import (
 from versatil.models.decoding.decoders import interleaved_vlm as interleaved_vlm_module
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.pi0 import Pi0Decoder
-from versatil.models.decoding.generative_language_models.constants import (
-    PaliGemmaModelType,
-)
 from versatil.models.decoding.generative_language_models.vision_language.paligemma import (
     PaliGemmaVLM,
 )
@@ -50,53 +44,32 @@ PROPRIO_KEY = "robot_state_proprio"
 PROPRIO_DIM = 8
 
 
-def _make_tiny_paligemma_config() -> PaliGemmaConfig:
-    text_config = Gemma2Config(
-        num_hidden_layers=NUM_EXPERT_LAYERS,
-        hidden_size=VLM_HIDDEN_DIMENSION,
-        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
-        num_attention_heads=NUM_ATTENTION_HEADS,
-        num_key_value_heads=NUM_KEY_VALUE_HEADS,
-        head_dim=HEAD_DIMENSION,
-        vocab_size=1000,
-    )
-    vision_config = SiglipVisionConfig(
-        hidden_size=VLM_HIDDEN_DIMENSION,
-        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
-        num_hidden_layers=1,
-        num_attention_heads=NUM_ATTENTION_HEADS,
-        image_size=56,
-        patch_size=14,
-    )
-    config = PaliGemmaConfig(
-        text_config=text_config.to_dict(),
-        vision_config=vision_config.to_dict(),
-        projection_dim=VLM_HIDDEN_DIMENSION,
-    )
-    config.vision_config.num_image_tokens = 16
-    config.vision_config.projection_dim = VLM_HIDDEN_DIMENSION
-    return config
+@pytest.fixture(scope="session")
+def paligemma_backbone_factory(
+    tiny_paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+) -> Callable[..., PaliGemmaVLM]:
+    def factory(lora_config: LoRAAdaptation | None = None) -> PaliGemmaVLM:
+        return tiny_paligemma_backbone_factory(
+            number_of_layers=NUM_EXPERT_LAYERS,
+            intermediate_multiplier=4,
+            input_keys=[Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
+            frozen=False,
+            lora_config=lora_config,
+        )
+
+    return factory
 
 
 @pytest.fixture(scope="session")
-def real_paligemma_backbone() -> PaliGemmaVLM:
-    tiny_config = _make_tiny_paligemma_config()
-    with patch(
-        "versatil.models.decoding.generative_language_models.vision_language"
-        ".huggingface.AutoConfig.from_pretrained",
-        return_value=tiny_config,
-    ):
-        backbone = PaliGemmaVLM(
-            input_keys=[
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ],
-            pretrained=False,
-            frozen=False,
-            model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
-        )
-    backbone.vlm = backbone.vlm.float()
-    return backbone
+def real_paligemma_backbone(
+    paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+) -> Callable[[], PaliGemmaVLM]:
+    backbone = paligemma_backbone_factory(lora_config=None)
+
+    def factory() -> PaliGemmaVLM:
+        return backbone
+
+    return factory
 
 
 @pytest.fixture
@@ -104,7 +77,7 @@ def pi0_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
     action_head_factory: Callable[..., ActionHead],
-    real_paligemma_backbone: PaliGemmaVLM,
+    real_paligemma_backbone: Callable[[], PaliGemmaVLM],
 ) -> Callable[..., Pi0Decoder]:
     def factory(
         expert_hidden_size: int = EXPERT_HIDDEN_SIZE,
@@ -127,7 +100,7 @@ def pi0_decoder_factory(
         if input_keys is None:
             input_keys = [FEATURE_KEY]
         if vlm_backbone is None and use_default_vlm_backbone:
-            vlm_backbone = real_paligemma_backbone
+            vlm_backbone = real_paligemma_backbone()
         action_space = mock_action_space_factory(position_dim=position_dim)
         observation_space = mock_observation_space_factory()
         action_heads = {
@@ -322,14 +295,15 @@ class TestPi0DecoderInitialization:
     def test_vlm_backbone_needs_raw_observations(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
-        real_paligemma_backbone: PaliGemmaVLM,
-    ):
+        real_paligemma_backbone: Callable[[], PaliGemmaVLM],
+    ) -> None:
+        backbone = real_paligemma_backbone()
         decoder = pi0_decoder_factory(
             input_keys=[],
-            vlm_backbone=real_paligemma_backbone,
+            vlm_backbone=backbone,
         )
         assert decoder.decoder_input.needs_raw_observations is True
-        assert decoder.vlm_backbone is real_paligemma_backbone
+        assert decoder.vlm_backbone is backbone
 
     @pytest.mark.parametrize(
         "time_conditioning, proprioceptive_feature_key",
@@ -455,9 +429,10 @@ class TestPi0DecoderSetBackbone:
     def test_raises_when_vlm_layer_count_mismatches_expert_count(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
-        real_paligemma_backbone: PaliGemmaVLM,
-    ):
-        vlm_layer_count = len(real_paligemma_backbone.get_backbone_layers())
+        real_paligemma_backbone: Callable[[], PaliGemmaVLM],
+    ) -> None:
+        backbone = real_paligemma_backbone()
+        vlm_layer_count = len(backbone.get_backbone_layers())
         with pytest.raises(
             ValueError,
             match=re.escape(
@@ -467,7 +442,7 @@ class TestPi0DecoderSetBackbone:
         ):
             pi0_decoder_factory(
                 expert_number_of_layers=99,
-                vlm_backbone=real_paligemma_backbone,
+                vlm_backbone=backbone,
             )
 
 
@@ -528,20 +503,21 @@ class TestPi0DecoderForward:
     def test_vlm_backbone_builds_prefix_from_observations(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
-        real_paligemma_backbone: PaliGemmaVLM,
+        real_paligemma_backbone: Callable[[], PaliGemmaVLM],
         raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
         noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
+    ) -> None:
+        backbone = real_paligemma_backbone()
         decoder = pi0_decoder_factory(
             input_keys=[],
-            vlm_backbone=real_paligemma_backbone,
+            vlm_backbone=backbone,
         )
         features = raw_vlm_features_factory()
         actions = noisy_actions_factory()
         with patch.object(
-            real_paligemma_backbone,
+            backbone,
             "build_prefix",
-            wraps=real_paligemma_backbone.build_prefix,
+            wraps=backbone.build_prefix,
         ) as build_prefix_spy:
             outputs = decoder(features=features, actions=actions)
         build_prefix_spy.assert_called_once_with(inputs=features)
@@ -657,6 +633,55 @@ class TestPi0DecoderBehavior:
         assert not vlm_has_grad
         for parameter, grad_flag in original_requires_grad.items():
             parameter.requires_grad = grad_flag
+
+    def test_vision_lora_receives_gradients_through_frozen_language_layers(
+        self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+        paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+        raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        lora_config = lora_config_factory(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        backbone = paligemma_backbone_factory(lora_config=lora_config)
+        decoder = pi0_decoder_factory(
+            input_keys=[],
+            vlm_backbone=backbone,
+        )
+        features = raw_vlm_features_factory()
+        actions = noisy_actions_factory()
+
+        outputs = decoder(features=features, actions=actions)
+        sum(tensor.square().mean() for tensor in outputs.values()).backward()
+
+        trainable_vision_parameters = [
+            (name, parameter)
+            for name, parameter in backbone.named_parameters()
+            if parameter.requires_grad
+        ]
+        assert trainable_vision_parameters
+        assert all(
+            (".vision_tower." in name or ".multi_modal_projector." in name)
+            and "lora_" in name
+            for name, _ in trainable_vision_parameters
+        )
+        assert all(
+            any(
+                scope in name
+                and parameter.grad is not None
+                and parameter.grad.abs().sum() > 0
+                for name, parameter in trainable_vision_parameters
+            )
+            for scope in (".vision_tower.", ".multi_modal_projector.")
+        )
+        assert not any(
+            parameter.requires_grad for parameter in decoder.vlm_layers.parameters()
+        )
 
     def test_concat_mlp_timestep_sensitivity(
         self,

@@ -293,7 +293,7 @@ We also provide ZMQ server wrappers for common robot learning simulators, so Ver
 
 #### 🔍 Explainability
 Visual attribution for trained policies: per-camera heatmaps showing which image regions drove the predicted actions.
-We currently support Grad-CAM, Grad-CAM++, and Ablation-CAM, computed over every visual module of the policy (encoding-pipeline encoders as well as decoder-owned VLM vision towers), either on offline dataset samples or live during inference.
+We currently support Grad-CAM, Grad-CAM++, and Ablation-CAM, computed over every vision module of the policy (encoding-pipeline encoders as well as decoder-owned VLM vision towers), either on offline dataset samples or live during inference.
 
 ```bash
 python -m versatil.endpoints.explain \

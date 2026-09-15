@@ -205,7 +205,7 @@ from versatil.data.constants import (
 from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     DiTType,
@@ -454,7 +454,7 @@ def register_resolvers():
         OmegaConf.register_resolver("precision", lambda name: PrecisionType[name].value)
     if not OmegaConf.has_resolver("lora_target_modules"):
         OmegaConf.register_resolver(
-            "lora_target_modules", lambda name: LoRATargetModulePreset[name].value
+            "lora_target_modules", lambda name: PEFTTargetModulePreset[name].value
         )
     if not OmegaConf.has_resolver("float32_matmul"):
         OmegaConf.register_resolver(

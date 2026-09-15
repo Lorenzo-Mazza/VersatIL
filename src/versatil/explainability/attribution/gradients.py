@@ -31,7 +31,7 @@ def compute_gradient_maps_for_policy(
     target_vision_module_names: list[str] | None = None,
     preprocess_observation: bool = True,
 ) -> dict[str, torch.Tensor]:
-    """Compute gradient visual maps for policy visual modules.
+    """Compute gradient visual maps for policy vision modules.
 
     This is the policy-level entry point for gradient explanations. CNN
     feature maps and ViT patch-token activations use the same public method;
@@ -48,8 +48,8 @@ def compute_gradient_maps_for_policy(
         output_selector: Optional function selecting the prediction tensor to
             explain for continuous predictors.
         target_camera: Optional camera key to explain. If omitted, every camera
-            exposed by a visual module is explained.
-        target_vision_module_names: Optional visual module allowlist.
+            exposed by a vision module is explained.
+        target_vision_module_names: Optional vision module allowlist.
         preprocess_observation: Whether to normalize/tokenize ``observation``
             before attribution. Online inference windows should use ``True``;
             dataset batches that already passed through ``EpisodicDataset``
@@ -60,9 +60,9 @@ def compute_gradient_maps_for_policy(
 
     Raises:
         ValueError: If ``explanation_type`` is not a supported gradient method.
-        ValueError: If ``target_camera`` is not exposed by a visual module.
+        ValueError: If ``target_camera`` is not exposed by a vision module.
         ValueError: If a camera tensor has an unsupported rank.
-        RuntimeError: If the selected visual module does not expose a compatible
+        RuntimeError: If the selected vision module does not expose a compatible
             explainability target.
         RuntimeError: If target-layer hooks do not capture activation or
             gradient tensors.

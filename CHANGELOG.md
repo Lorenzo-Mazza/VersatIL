@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Interleaved VLM decoders retain gradients through frozen language layers
+  when training vision adapters.
 - Constrain `versatil-constants` to versions below 0.3.0 while VersatIL imports
   the legacy TSO orientation keys removed by that release.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
@@ -21,9 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Miniforge/Mamba.
 
 ### Added
+- Vision-only LoRA targeting for PaliGemma, SmolVLM, and Prismatic backbones,
+  including their projectors or connectors.
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
+- Rename `LoRATargetModulePreset` to `PEFTTargetModulePreset` for adaptation
+  target selection. Update direct imports of the old enum name.
 - OpenVLA and OpenVLA-OFT presets train LoRA with the recipe learning rate of 5e-4.
 - main carries a `.dev` version between releases so source installs are distinguishable from PyPI releases.
 - Gaussian mixture NLL training defaults to fixed variance with sigma 0.5.
