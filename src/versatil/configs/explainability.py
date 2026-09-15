@@ -73,8 +73,8 @@ class ExplainabilityConfig:
         explanation_types: Visual attribution methods to run. ``gradcam``
             handles both CNN feature maps and ViT patch-token maps internally.
         target_camera_keys: Optional camera-key allowlist. ``None`` explains all
-            cameras exposed by visual modules.
-        target_vision_module_names: Optional visual module allowlist. Names
+            cameras exposed by vision modules.
+        target_vision_module_names: Optional vision module allowlist. Names
             include encoding-pipeline entries and decoder-owned VLM vision tower
             paths.
         channel_batch_size: Number of feature channels ablated per forward pass

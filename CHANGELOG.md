@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clears its previous assets.
 - Flow prediction and export share noise-driven sampling and observation-cache
   cleanup.
+- Interleaved VLM decoders retain gradients through frozen language layers
+  when training vision adapters.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
@@ -35,10 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Policy export adapters and saved input/output metadata for token
   generation and explicit-noise flow/diffusion sampling.
 - SmoothQuant calibration through complete policy predictions before conversion.
+- Vision-only LoRA targeting for PaliGemma, SmolVLM, and Prismatic backbones,
+  including their projectors or connectors.
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
 
+- Pin `versatil-constants` to 0.3.0 and support its orientation action metadata.
 - Eager quantization separates workflow execution, target selection, Direct and
   SmoothQuant schemas, and deployment validation, with typed conversion metadata.
 - Compressed runtimes restore observation/action spaces and preprocessing assets
@@ -48,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Newly materialized Zarr datasets group image chunks into configurable storage
   shards (`task.dataloader.image_frames_per_shard`, 256 frames by default), and
   replay-buffer copies and rewrites preserve existing shard layouts.
+- Rename `LoRATargetModulePreset` to `PEFTTargetModulePreset` for adaptation
+  target selection. Update direct imports of the old enum name.
 - OpenVLA and OpenVLA-OFT presets train LoRA with the recipe learning rate of 5e-4.
 - main carries a `.dev` version between releases so source installs are distinguishable from PyPI releases.
 - Gaussian mixture NLL training defaults to fixed variance with sigma 0.5.

@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers import Gemma2Config, PaliGemmaConfig, SiglipVisionConfig
+from transformers import (
+    Gemma2Config,
+    Idefics3Config,
+    LlamaConfig,
+    PaliGemmaConfig,
+    SiglipVisionConfig,
+)
 
 from versatil.data.constants import Cameras
 from versatil.data.metadata import ActionMetadata
@@ -17,9 +23,13 @@ from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.generative_language_models.constants import (
     PaliGemmaModelType,
+    SmolVLMModelType,
 )
 from versatil.models.decoding.generative_language_models.vision_language.paligemma import (
     PaliGemmaVLM,
+)
+from versatil.models.decoding.generative_language_models.vision_language.smolvlm import (
+    SmolVLM,
 )
 from versatil.training.constants import PrecisionType
 
@@ -47,43 +57,14 @@ def lora_cache_key_factory() -> Callable[
     return factory
 
 
-def make_tiny_paligemma_config() -> PaliGemmaConfig:
-    """Create a PaliGemma configuration with one vision layer and one language layer."""
-    hidden_dimension = 32
-    text_config = Gemma2Config(
-        num_hidden_layers=1,
-        hidden_size=hidden_dimension,
-        intermediate_size=hidden_dimension * 2,
-        num_attention_heads=2,
-        num_key_value_heads=1,
-        head_dim=hidden_dimension // 2,
-        vocab_size=1000,
-    )
-    vision_config = SiglipVisionConfig(
-        hidden_size=hidden_dimension,
-        intermediate_size=hidden_dimension * 2,
-        num_hidden_layers=1,
-        num_attention_heads=2,
-        image_size=56,
-        patch_size=14,
-    )
-    config = PaliGemmaConfig(
-        text_config=text_config.to_dict(),
-        vision_config=vision_config.to_dict(),
-        projection_dim=hidden_dimension,
-    )
-    config.vision_config.num_image_tokens = 16
-    return config
-
-
 @pytest.fixture(scope="session")
 def real_paligemma_backbone(
+    tiny_paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
     lora_cache_key_factory: Callable[
         [LoRAAdaptation | None], tuple[bool, int, int, float, str, tuple[str, ...], str]
     ],
 ) -> Callable[..., PaliGemmaVLM]:
     """Factory for a real tiny PaliGemma backbone, cached by precision and adaptation."""
-    tiny_config = make_tiny_paligemma_config()
     cache: dict[
         tuple[
             str,
@@ -107,19 +88,13 @@ def real_paligemma_backbone(
             max_text_length,
         )
         if cache_key not in cache:
-            with patch(
-                "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoConfig.from_pretrained",
-                return_value=tiny_config,
-            ):
-                cache[cache_key] = PaliGemmaVLM(
-                    input_keys=[Cameras.LEFT.value],
-                    pretrained=False,
-                    frozen=frozen,
-                    model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
-                    model_dtype=model_dtype,
-                    lora_config=lora_config,
-                    max_text_length=max_text_length,
-                )
+            cache[cache_key] = tiny_paligemma_backbone_factory(
+                input_keys=[Cameras.LEFT.value],
+                frozen=frozen,
+                model_dtype=model_dtype,
+                lora_config=lora_config,
+                max_text_length=max_text_length,
+            )
         return cache[cache_key]
 
     return factory
@@ -466,5 +441,106 @@ def action_heads_factory(
             if meta.requires_prediction_head:
                 heads[key] = action_head_factory(input_dimension=input_dimension)
         return heads
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def tiny_smolvlm_backbone_factory() -> Callable[..., SmolVLM]:
+    def factory(
+        number_of_layers: int = 1,
+        intermediate_multiplier: int = 2,
+        input_keys: list[str] | None = None,
+        model_dtype: str = PrecisionType.FP32.value,
+        frozen: bool = False,
+        lora_config: LoRAAdaptation | None = None,
+    ) -> SmolVLM:
+        text_config = LlamaConfig(
+            num_hidden_layers=number_of_layers,
+            hidden_size=32,
+            intermediate_size=32 * intermediate_multiplier,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            head_dim=16,
+        )
+        vision_config = SiglipVisionConfig(
+            hidden_size=32,
+            intermediate_size=32 * intermediate_multiplier,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            image_size=56,
+            patch_size=14,
+        )
+        config = Idefics3Config(
+            text_config=text_config.to_dict(),
+            vision_config=vision_config.to_dict(),
+            scale_factor=4,
+        )
+        with patch(
+            "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoConfig.from_pretrained",
+            autospec=True,
+            return_value=config,
+        ):
+            return SmolVLM(
+                input_keys=[Cameras.LEFT.value] if input_keys is None else input_keys,
+                pretrained=False,
+                frozen=frozen,
+                model_name=SmolVLMModelType.SMOLVLM_256M.value,
+                model_dtype=model_dtype,
+                lora_config=lora_config,
+            )
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def tiny_paligemma_backbone_factory() -> Callable[..., PaliGemmaVLM]:
+    def factory(
+        number_of_layers: int = 1,
+        intermediate_multiplier: int = 2,
+        input_keys: list[str] | None = None,
+        model_dtype: str = PrecisionType.FP32.value,
+        frozen: bool = False,
+        lora_config: LoRAAdaptation | None = None,
+        max_text_length: int | None = None,
+    ) -> PaliGemmaVLM:
+        text_config = Gemma2Config(
+            num_hidden_layers=number_of_layers,
+            hidden_size=32,
+            intermediate_size=32 * intermediate_multiplier,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            head_dim=16,
+            vocab_size=1000,
+        )
+        vision_config = SiglipVisionConfig(
+            hidden_size=32,
+            intermediate_size=32 * intermediate_multiplier,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            image_size=56,
+            patch_size=14,
+        )
+        config = PaliGemmaConfig(
+            text_config=text_config.to_dict(),
+            vision_config=vision_config.to_dict(),
+            projection_dim=32,
+        )
+        config.vision_config.num_image_tokens = 16
+        config.vision_config.projection_dim = 32
+        with patch(
+            "versatil.models.decoding.generative_language_models.vision_language.huggingface.AutoConfig.from_pretrained",
+            autospec=True,
+            return_value=config,
+        ):
+            return PaliGemmaVLM(
+                input_keys=[Cameras.LEFT.value] if input_keys is None else input_keys,
+                pretrained=False,
+                frozen=frozen,
+                model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
+                model_dtype=model_dtype,
+                lora_config=lora_config,
+                max_text_length=max_text_length,
+            )
 
     return factory

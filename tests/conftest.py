@@ -876,6 +876,7 @@ def orientation_action_metadata_factory() -> Callable[..., OrientationActionMeta
         dtype: str = "float32",
         slice_start: int = None,
         slice_end: int = None,
+        computation_method: str | None = None,
     ) -> OrientationActionMetadata:
         if raw_data_column_keys is None:
             raw_data_column_keys = ["roll", "pitch", "yaw"][:prediction_dimension]
@@ -889,6 +890,7 @@ def orientation_action_metadata_factory() -> Callable[..., OrientationActionMeta
             dtype=dtype,
             slice_start=slice_start,
             slice_end=slice_end,
+            computation_method=computation_method,
         )
 
     return factory

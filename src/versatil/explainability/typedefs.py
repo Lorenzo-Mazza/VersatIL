@@ -23,7 +23,7 @@ type PolicyExplanationObjective = Callable[
 
 @dataclass(frozen=True)
 class VisionExplainableModule:
-    """Camera-addressable visual module exposed to the explainer.
+    """Camera-addressable vision module exposed to the explainer.
 
     Attributes:
         name: Stable module path used by runner filters and output metadata.
@@ -91,7 +91,7 @@ class ExplanationHeatmapFunction(Protocol):
             actions: Optional action tensors used by discrete predictors to
                 score teacher-forced action-token likelihoods.
             target_camera: Optional camera key selected by runner filtering.
-            target_vision_module_names: Optional visual module allowlist.
+            target_vision_module_names: Optional vision module allowlist.
             preprocess_observation: Whether to run policy preprocessing before
                 attribution.
 

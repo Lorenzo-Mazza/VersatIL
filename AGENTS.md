@@ -271,6 +271,12 @@ Decoder(
 3. Decode actions via base algorithm: p(a|z,s)
 
 
+Vision-only LoRA uses the `VLM_VISION_MODULES` preset from
+`PEFTTargetModulePreset`. Each generative VLM declares its vision backbones and
+projectors/connectors through `_get_vision_modules()`. Interleaved decoders retain
+the autograd graph through frozen language layers when those vision modules train.
+For SmolVLA vision LoRA, set `freeze_vlm: false`; PEFT keeps text parameters frozen.
+
 #### 5. Observation and Action Spaces
 
 **TaskSpace** (`src/versatil/data/task.py`) defines what data the experiment uses at runtime. It combines an ActionSpace, an ObservationSpace, a DatasetSchema, and the dataloader config, and validates at construction that every requested key exists in the schema with consistent metadata. Both spaces are metadata-driven: they hold a dict from zarr store key to a metadata object, and typed views are exposed as properties.

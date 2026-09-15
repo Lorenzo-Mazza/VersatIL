@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
+from versatil_constants.shared import ActionComponent
 from versatil_constants.tso import TSOObsKey
 
 from versatil.common.set_cache_dir import resolve_cache_directory
@@ -207,7 +208,7 @@ from versatil.data.constants import (
 from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     DiTType,
@@ -443,6 +444,10 @@ def register_resolvers():
         OmegaConf.register_resolver(
             "action_computation", lambda name: ActionComputationMethod[name].value
         )
+    if not OmegaConf.has_resolver("action_component"):
+        OmegaConf.register_resolver(
+            "action_component", lambda name: ActionComponent[name].value
+        )
     if not OmegaConf.has_resolver("rgb_backbone"):
         OmegaConf.register_resolver(
             "rgb_backbone", lambda name: RGBBackboneType[name].value
@@ -455,7 +460,7 @@ def register_resolvers():
         OmegaConf.register_resolver("precision", lambda name: PrecisionType[name].value)
     if not OmegaConf.has_resolver("lora_target_modules"):
         OmegaConf.register_resolver(
-            "lora_target_modules", lambda name: LoRATargetModulePreset[name].value
+            "lora_target_modules", lambda name: PEFTTargetModulePreset[name].value
         )
     if not OmegaConf.has_resolver("float32_matmul"):
         OmegaConf.register_resolver(
