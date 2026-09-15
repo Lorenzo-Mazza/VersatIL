@@ -134,7 +134,7 @@ def paligemma_backbone_factory(
 
 @pytest.fixture
 def paligemma_input_factory(
-    rng: np.random.Generator,
+    vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
 ) -> Callable[..., dict[str, torch.Tensor]]:
     def factory(
         camera_key: str = Cameras.LEFT.value,
@@ -145,21 +145,19 @@ def paligemma_input_factory(
         sequence_length: int = 10,
         time_steps: int = 1,
         include_padding_mask: bool = False,
+        vocabulary_size: int = VOCAB_SIZE,
     ) -> dict[str, torch.Tensor]:
-        image_shape = (batch_size, time_steps, channels, height, width)
-        text_shape = (batch_size, time_steps, sequence_length)
-        images = torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
-        token_ids = torch.from_numpy(
-            rng.integers(low=0, high=VOCAB_SIZE, size=text_shape).astype(np.int64)
+        return vlm_input_factory(
+            camera_key=camera_key,
+            batch_size=batch_size,
+            channels=channels,
+            height=height,
+            width=width,
+            sequence_length=sequence_length,
+            time_steps=time_steps,
+            include_padding_mask=include_padding_mask,
+            vocabulary_size=vocabulary_size,
         )
-        result = {
-            camera_key: images,
-            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
-        }
-        if include_padding_mask:
-            mask = torch.zeros(text_shape, dtype=torch.bool)
-            result[SampleKey.IS_PAD_OBSERVATION.value] = mask
-        return result
 
     return factory
 
@@ -709,15 +707,16 @@ class TestPaliGemmaVLMIntegration:
     @pytest.mark.parametrize("lora_enabled", [False, True])
     def test_forward_pass_with_real_model(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_paligemma_backbone: Callable[..., PaliGemmaVLM],
-        rng: np.random.Generator,
+        paligemma_input_factory: Callable[..., dict[str, torch.Tensor]],
         lora_enabled: bool,
         parameter_count: Callable[[torch.nn.Module], int],
         trainable_parameter_count: Callable[[torch.nn.Module], int],
     ) -> None:
         batch_size = 1
         lora_config = (
-            LoRAAdaptation(
+            lora_config_factory(
                 enabled=True,
                 rank=2,
                 alpha=4,
@@ -734,21 +733,14 @@ class TestPaliGemmaVLMIntegration:
             lora_config=lora_config,
         )
         backbone.eval()
-        vocab_size = backbone.get_vocab_size()
-        images = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, 1, 3, backbone.image_size, backbone.image_size)
-            ).astype(np.float32)
+        inputs = paligemma_input_factory(
+            batch_size=batch_size,
+            time_steps=1,
+            height=backbone.image_size,
+            width=backbone.image_size,
+            vocabulary_size=backbone.get_vocab_size(),
+            sequence_length=10,
         )
-        token_ids = torch.from_numpy(
-            rng.integers(low=0, high=vocab_size, size=(batch_size, 1, 10)).astype(
-                np.int64
-            )
-        )
-        inputs = {
-            Cameras.LEFT.value: images,
-            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
-        }
         with torch.no_grad():
             output = backbone(inputs=inputs)
         fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
@@ -770,11 +762,12 @@ class TestPaliGemmaVLMIntegration:
     @pytest.mark.integration
     def test_vision_lora_receives_gradients_from_real_model(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_paligemma_backbone: Callable[..., PaliGemmaVLM],
-        rng: np.random.Generator,
+        paligemma_input_factory: Callable[..., dict[str, torch.Tensor]],
     ) -> None:
         batch_size = 1
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=2,
             alpha=4,
@@ -785,25 +778,15 @@ class TestPaliGemmaVLMIntegration:
             frozen=False,
             lora_config=lora_config,
         )
-        images = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, 1, 3, backbone.image_size, backbone.image_size)
-            ).astype(np.float32)
+        inputs = paligemma_input_factory(
+            batch_size=batch_size,
+            time_steps=1,
+            height=backbone.image_size,
+            width=backbone.image_size,
+            vocabulary_size=backbone.get_vocab_size(),
+            sequence_length=10,
         )
-        token_ids = torch.from_numpy(
-            rng.integers(
-                low=0,
-                high=backbone.get_vocab_size(),
-                size=(batch_size, 1, 10),
-            ).astype(np.int64)
-        )
-
-        output = backbone(
-            inputs={
-                Cameras.LEFT.value: images,
-                SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
-            }
-        )
+        output = backbone(inputs=inputs)
         output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value].square().mean().backward()
 
         trainable_parameters = [
@@ -831,9 +814,10 @@ class TestPaliGemmaVLMIntegration:
     @pytest.mark.integration
     def test_forward_language_model_with_real_peft_resized_vocabulary(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_paligemma_backbone: Callable[..., PaliGemmaVLM],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=3,
             alpha=6,

@@ -7,6 +7,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+from transformers import (
+    CLIPConfig,
+    CLIPImageProcessor,
+    Siglip2Config,
+    Siglip2ImageProcessor,
+    SiglipConfig,
+    SiglipImageProcessor,
+)
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from versatil.data.constants import Cameras, SampleKey
@@ -109,35 +117,118 @@ def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
 
 
 @pytest.fixture
-def vlm_input_factory(
-    rng: np.random.Generator,
+def encoder_input_factory(
+    vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
 ) -> Callable[..., dict[str, torch.Tensor]]:
-    """Factory for VLM input tensors with images and tokenized text."""
-
     def factory(
         camera_key: str = Cameras.LEFT.value,
         batch_size: int = 2,
         channels: int = 3,
-        height: int = 224,
-        width: int = 224,
+        height: int = IMAGE_SIZE,
+        width: int = IMAGE_SIZE,
         sequence_length: int = 10,
         time_steps: int = 1,
         include_padding_mask: bool = False,
+        vocabulary_size: int = VOCAB_SIZE,
     ) -> dict[str, torch.Tensor]:
-        image_shape = (batch_size, time_steps, channels, height, width)
-        text_shape = (batch_size, time_steps, sequence_length)
-        images = torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
-        token_ids = torch.from_numpy(
-            rng.integers(low=0, high=VOCAB_SIZE, size=text_shape).astype(np.int64)
+        return vlm_input_factory(
+            camera_key=camera_key,
+            batch_size=batch_size,
+            channels=channels,
+            height=height,
+            width=width,
+            sequence_length=sequence_length,
+            time_steps=time_steps,
+            include_padding_mask=include_padding_mask,
+            vocabulary_size=vocabulary_size,
         )
-        result = {
-            camera_key: images,
-            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def real_vlm_encoder_factory() -> Callable[..., VLMEncoder]:
+    def factory(model_name: str, lora_config: LoRAAdaptation | None) -> VLMEncoder:
+        text_config = {
+            "vocab_size": 128,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 2,
+            "max_position_embeddings": 16,
+            "bos_token_id": 0,
+            "eos_token_id": 2,
+            "pad_token_id": 1,
         }
-        if include_padding_mask:
-            mask = torch.zeros(text_shape, dtype=torch.bool)
-            result[SampleKey.IS_PAD_OBSERVATION.value] = mask
-        return result
+        vision_config = {
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 2,
+        }
+        match ImageTextModelType(model_name):
+            case ImageTextModelType.SIGLIP_BASE_PATCH16:
+                config = Siglip2Config(
+                    text_config=text_config,
+                    vision_config={
+                        **vision_config,
+                        "patch_size": 16,
+                        "num_patches": 256,
+                    },
+                )
+                processor_type = Siglip2ImageProcessor
+            case ImageTextModelType.SIGLIP_SO400M:
+                config = SiglipConfig(
+                    text_config=text_config,
+                    vision_config={
+                        **vision_config,
+                        "image_size": 224,
+                        "patch_size": 14,
+                    },
+                )
+                processor_type = SiglipImageProcessor
+            case _:
+                patch_sizes = {
+                    ImageTextModelType.CLIP_VITB32: 32,
+                    ImageTextModelType.CLIP_VITB16: 16,
+                    ImageTextModelType.CLIP_VITL14: 14,
+                }
+                config = CLIPConfig(
+                    text_config=text_config,
+                    vision_config={
+                        **vision_config,
+                        "image_size": 224,
+                        "patch_size": patch_sizes[ImageTextModelType(model_name)],
+                    },
+                    projection_dim=32,
+                )
+                processor_type = CLIPImageProcessor
+        image_processor = processor_type(
+            do_rescale=False,
+            do_normalize=False,
+            do_convert_rgb=False,
+            do_resize=False,
+        )
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoConfig.from_pretrained",
+                autospec=True,
+                return_value=config,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoImageProcessor.from_pretrained",
+                autospec=True,
+                return_value=image_processor,
+            ),
+        ):
+            return VLMEncoder(
+                input_keys=[Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                model_name=model_name,
+                lora_config=lora_config,
+            )
 
     return factory
 
@@ -206,9 +297,10 @@ class TestVLMEncoderInitialization:
 
     def test_applies_lora_to_loaded_model(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         vlm_encoder_factory: Callable[..., VLMEncoder],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
@@ -322,7 +414,7 @@ class TestVLMEncoderForward:
     def test_output_shape_with_temporal_dimension(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
         time_steps: int,
     ):
         batch_size = 2
@@ -332,7 +424,7 @@ class TestVLMEncoderForward:
             encoder=encoder,
             batch_size=effective_batch,
         )
-        inputs = vlm_input_factory(
+        inputs = encoder_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
             include_padding_mask=True,
@@ -366,7 +458,7 @@ class TestVLMEncoderForward:
     def test_none_pooling_with_time_reshapes_to_4d(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
         time_steps = 3
@@ -378,7 +470,7 @@ class TestVLMEncoderForward:
             encoder=encoder,
             batch_size=effective_batch,
         )
-        inputs = vlm_input_factory(
+        inputs = encoder_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
             include_padding_mask=True,
@@ -407,7 +499,7 @@ class TestVLMEncoderForward:
     def test_output_contains_all_expected_keys(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
         encoder = vlm_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
@@ -415,7 +507,7 @@ class TestVLMEncoderForward:
             encoder=encoder,
             batch_size=batch_size,
         )
-        inputs = vlm_input_factory(batch_size=batch_size)
+        inputs = encoder_input_factory(batch_size=batch_size)
         output = encoder(inputs=inputs)
         assert EncoderOutputKeys.RGB.value in output
         assert EncoderOutputKeys.LANGUAGE.value in output
@@ -457,7 +549,7 @@ class TestVLMEncoderForward:
     def test_average_pooling_ignores_language_padding_mask(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
-        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
         encoder = vlm_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
@@ -477,7 +569,7 @@ class TestVLMEncoderForward:
             last_hidden_state=language_hidden,
             pooler_output=language_pooler,
         )
-        inputs = vlm_input_factory(
+        inputs = encoder_input_factory(
             batch_size=batch_size,
             sequence_length=5,
             include_padding_mask=True,
@@ -645,8 +737,10 @@ class TestVLMEncoderGetOutputSpecification:
     "model_name",
     [model_type.value for model_type in ImageTextModelType],
 )
-def test_integration_forward_pass_per_model(
-    rng: np.random.Generator,
+def test_forward_pass_with_tiny_model_architectures(
+    lora_config_factory: Callable[..., LoRAAdaptation],
+    encoder_input_factory: Callable[..., dict[str, torch.Tensor]],
+    real_vlm_encoder_factory: Callable[..., VLMEncoder],
     model_name: str,
     lora_enabled: bool,
     parameter_count: Callable[[torch.nn.Module], int],
@@ -654,7 +748,7 @@ def test_integration_forward_pass_per_model(
 ) -> None:
     batch_size = 2
     lora_config = (
-        LoRAAdaptation(
+        lora_config_factory(
             enabled=True,
             rank=2,
             alpha=4,
@@ -663,28 +757,15 @@ def test_integration_forward_pass_per_model(
         if lora_enabled
         else None
     )
-    encoder = VLMEncoder(
-        input_keys=[
-            Cameras.LEFT.value,
-            SampleKey.TOKENIZED_OBSERVATIONS.value,
-        ],
-        pretrained=False,
-        frozen=False,
-        pooling_method=PoolingMethod.DEFAULT.value,
-        model_name=model_name,
-        lora_config=lora_config,
+    encoder = real_vlm_encoder_factory(model_name=model_name, lora_config=lora_config)
+    inputs = encoder_input_factory(
+        batch_size=batch_size,
+        time_steps=1,
+        height=IMAGE_SIZE,
+        width=IMAGE_SIZE,
+        sequence_length=10,
+        vocabulary_size=encoder.get_vocab_size(),
     )
-    vocab_size = encoder.get_vocab_size()
-    image_shape = (batch_size, 1, 3, 224, 224)
-    text_shape = (batch_size, 1, 10)
-    inputs = {
-        Cameras.LEFT.value: torch.from_numpy(
-            rng.standard_normal(image_shape).astype(np.float32)
-        ),
-        SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
-            rng.integers(low=0, high=vocab_size, size=text_shape).astype(np.int64)
-        ),
-    }
     output = encoder(inputs=inputs)
     assert EncoderOutputKeys.RGB.value in output
     assert EncoderOutputKeys.LANGUAGE.value in output
@@ -699,3 +780,18 @@ def test_integration_forward_pass_per_model(
         assert trainable_parameter_names
         assert all("lora_" in name for name in trainable_parameter_names)
         assert 0 < trainable_parameters < total_parameters
+        loss = sum(
+            output[key].square().mean()
+            for key in (EncoderOutputKeys.RGB.value, EncoderOutputKeys.LANGUAGE.value)
+        )
+        loss.backward()
+        assert all(
+            any(
+                scope in name
+                and "lora_" in name
+                and parameter.grad is not None
+                and parameter.grad.abs().sum() > 0
+                for name, parameter in encoder.encoder.named_parameters()
+            )
+            for scope in (".vision_model.", ".text_model.")
+        )

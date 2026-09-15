@@ -244,9 +244,10 @@ class TestSmolVLMInitialization:
 
     def test_applies_lora_to_loaded_vlm(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         smolvlm_backbone_factory: Callable[..., SmolVLM],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
@@ -854,6 +855,7 @@ class TestSmolVLMIntegration:
     )
     def test_forward_pass_with_real_model(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_smolvlm_backbone: Callable[..., SmolVLM],
         smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
         target_modules: str | None,
@@ -863,7 +865,7 @@ class TestSmolVLMIntegration:
     ) -> None:
         batch_size = 1
         lora_config = (
-            LoRAAdaptation(
+            lora_config_factory(
                 enabled=True,
                 rank=2,
                 alpha=4,
@@ -911,9 +913,10 @@ class TestSmolVLMIntegration:
     @pytest.mark.integration
     def test_forward_language_model_with_real_peft_resized_vocabulary(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_smolvlm_backbone: Callable[..., SmolVLM],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=3,
             alpha=6,
@@ -986,9 +989,10 @@ class TestSmolVLMIntegration:
     @pytest.mark.integration
     def test_lora_adapters_stay_float32_under_mixed_precision(
         self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
         real_smolvlm_backbone: Callable[..., SmolVLM],
     ) -> None:
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=2,
             alpha=4,

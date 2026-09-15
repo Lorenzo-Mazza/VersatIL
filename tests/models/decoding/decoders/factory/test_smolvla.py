@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.adaptation.constants import PEFTTargetModulePreset
@@ -19,9 +18,9 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.smolvla import (
     SmolVLADecoder,
 )
-from versatil.models.decoding.decoders.interleaved_vlm import InterleavedLayerType
-from versatil.models.decoding.generative_language_models.constants import (
-    SmolVLMModelType,
+from versatil.models.decoding.decoders.interleaved_vlm import (
+    BaseInterleavedVLMDecoder,
+    InterleavedLayerType,
 )
 from versatil.models.decoding.generative_language_models.vision_language.base import (
     GenerativeVLM,
@@ -58,51 +57,32 @@ FEATURE_KEY = "vlm_fused_rgb_language"
 PADDING_MASK_KEY = f"{FEATURE_KEY}_{EncoderOutputKeys.PADDING_MASK.value}"
 
 
-def _make_tiny_smolvlm_config() -> Idefics3Config:
-    """Create a tiny SmolVLM config without network access."""
-    text_config = LlamaConfig(
-        num_hidden_layers=NUM_VLM_LAYERS,
-        hidden_size=VLM_HIDDEN_DIMENSION,
-        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
-        num_attention_heads=NUM_ATTENTION_HEADS,
-        num_key_value_heads=NUM_KEY_VALUE_HEADS,
-        head_dim=HEAD_DIMENSION,
-    )
-    vision_config = SiglipVisionConfig(
-        hidden_size=VLM_HIDDEN_DIMENSION,
-        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
-        num_hidden_layers=1,
-        num_attention_heads=NUM_ATTENTION_HEADS,
-        image_size=56,
-        patch_size=14,
-    )
-    return Idefics3Config(
-        text_config=text_config.to_dict(),
-        vision_config=vision_config.to_dict(),
-        scale_factor=4,
-    )
+@pytest.fixture(scope="session")
+def smolvlm_backbone_factory(
+    tiny_smolvlm_backbone_factory: Callable[..., SmolVLM],
+) -> Callable[..., SmolVLM]:
+    def factory(lora_config: LoRAAdaptation | None = None) -> SmolVLM:
+        return tiny_smolvlm_backbone_factory(
+            number_of_layers=NUM_VLM_LAYERS,
+            intermediate_multiplier=4,
+            input_keys=[Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
+            frozen=False,
+            lora_config=lora_config,
+        )
+
+    return factory
 
 
 @pytest.fixture(scope="session")
-def real_smolvlm_backbone() -> SmolVLM:
-    """Session-scoped real tiny SmolVLM backbone for integration tests."""
-    tiny_config = _make_tiny_smolvlm_config()
-    with patch(
-        "versatil.models.decoding.generative_language_models.vision_language"
-        ".huggingface.AutoConfig.from_pretrained",
-        return_value=tiny_config,
-    ):
-        backbone = SmolVLM(
-            input_keys=[
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ],
-            pretrained=False,
-            frozen=False,
-            model_name=SmolVLMModelType.SMOLVLM_256M.value,
-        )
-    backbone.vlm = backbone.vlm.float()
-    return backbone
+def real_smolvlm_backbone(
+    smolvlm_backbone_factory: Callable[..., SmolVLM],
+) -> Callable[[], SmolVLM]:
+    backbone = smolvlm_backbone_factory(lora_config=None)
+
+    def factory() -> SmolVLM:
+        return backbone
+
+    return factory
 
 
 @pytest.fixture
@@ -110,7 +90,7 @@ def smolvla_decoder_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_observation_space_factory: Callable[..., MagicMock],
     action_head_factory: Callable[..., ActionHead],
-    real_smolvlm_backbone: SmolVLM,
+    real_smolvlm_backbone: Callable[[], SmolVLM],
 ) -> Callable[..., SmolVLADecoder]:
     def factory(
         expert_width_multiplier: float = EXPERT_WIDTH_MULTIPLIER,
@@ -131,7 +111,7 @@ def smolvla_decoder_factory(
         if input_keys is None:
             input_keys = [FEATURE_KEY]
         if vlm_backbone is None and use_default_vlm_backbone:
-            vlm_backbone = real_smolvlm_backbone
+            vlm_backbone = real_smolvlm_backbone()
         action_space = mock_action_space_factory(position_dim=position_dim)
         observation_space = mock_observation_space_factory()
         action_head_input_dimension = int(
@@ -272,6 +252,49 @@ def raw_vlm_features_factory(
     return factory
 
 
+@pytest.fixture
+def gradient_decoder_factory() -> Callable[..., SmolVLADecoder]:
+    def factory(freeze_vlm: bool) -> SmolVLADecoder:
+        decoder = SmolVLADecoder.__new__(SmolVLADecoder)
+        torch.nn.Module.__init__(self=decoder)
+        decoder.freeze_vlm = freeze_vlm
+        return decoder
+
+    return factory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("freeze_vlm", [False, True])
+@pytest.mark.parametrize("backbone_requires_grad", [False, True])
+def test_freeze_vlm_overrides_backbone_gradient_requirement(
+    gradient_decoder_factory: Callable[..., SmolVLADecoder],
+    sequence_tensor_factory: Callable[..., torch.Tensor],
+    freeze_vlm: bool,
+    backbone_requires_grad: bool,
+) -> None:
+    decoder = gradient_decoder_factory(freeze_vlm=freeze_vlm)
+    prefix = sequence_tensor_factory(
+        batch_size=BATCH_SIZE,
+        sequence_length=PREFIX_SEQUENCE_LENGTH,
+        embedding_dimension=VLM_HIDDEN_DIMENSION,
+    )
+    with patch.object(
+        BaseInterleavedVLMDecoder,
+        "_vlm_stream_requires_grad",
+        autospec=True,
+        return_value=backbone_requires_grad,
+    ) as check_backbone_gradients:
+        result = decoder._vlm_stream_requires_grad(prefix_embeddings=prefix)
+
+    assert result == (not freeze_vlm and backbone_requires_grad)
+    if freeze_vlm:
+        check_backbone_gradients.assert_not_called()
+    else:
+        check_backbone_gradients.assert_called_once_with(
+            decoder, prefix_embeddings=prefix
+        )
+
+
 class TestSmolVLADecoderInitialization:
     def test_inherits_from_action_decoder(
         self,
@@ -319,14 +342,15 @@ class TestSmolVLADecoderInitialization:
     def test_vlm_backbone_needs_raw_observations(
         self,
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
-        real_smolvlm_backbone: SmolVLM,
-    ):
+        real_smolvlm_backbone: Callable[[], SmolVLM],
+    ) -> None:
+        backbone = real_smolvlm_backbone()
         decoder = smolvla_decoder_factory(
             input_keys=[],
-            vlm_backbone=real_smolvlm_backbone,
+            vlm_backbone=backbone,
         )
         assert decoder.decoder_input.needs_raw_observations is True
-        assert decoder.vlm_backbone is real_smolvlm_backbone
+        assert decoder.vlm_backbone is backbone
 
     def test_caching_initially_disabled(
         self,
@@ -414,25 +438,10 @@ class TestSmolVLADecoderSetBackbone:
 
     def test_vlm_parameters_trainable_when_freeze_vlm_false(
         self,
+        smolvlm_backbone_factory: Callable[..., SmolVLM],
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
-    ):
-        # Use fresh VLM layers to avoid mutating the session-scoped backbone
-        tiny_config = _make_tiny_smolvlm_config()
-        with patch(
-            "versatil.models.decoding.generative_language_models.vision_language"
-            ".huggingface.AutoConfig.from_pretrained",
-            return_value=tiny_config,
-        ):
-            fresh_encoder = SmolVLM(
-                input_keys=[
-                    Cameras.LEFT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                pretrained=False,
-                frozen=False,
-                model_name=SmolVLMModelType.SMOLVLM_256M.value,
-            )
-        fresh_encoder.vlm = fresh_encoder.vlm.float()
+    ) -> None:
+        fresh_encoder = smolvlm_backbone_factory(lora_config=None)
         decoder = smolvla_decoder_factory(
             freeze_vlm=False,
             vlm_backbone=fresh_encoder,
@@ -529,20 +538,21 @@ class TestSmolVLADecoderForward:
     def test_vlm_backbone_builds_prefix_from_observations(
         self,
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
-        real_smolvlm_backbone: SmolVLM,
+        real_smolvlm_backbone: Callable[[], SmolVLM],
         raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
         noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
+    ) -> None:
+        backbone = real_smolvlm_backbone()
         decoder = smolvla_decoder_factory(
             input_keys=[],
-            vlm_backbone=real_smolvlm_backbone,
+            vlm_backbone=backbone,
         )
         features = raw_vlm_features_factory()
         actions = noisy_actions_factory()
         with patch.object(
-            real_smolvlm_backbone,
+            backbone,
             "build_prefix",
-            wraps=real_smolvlm_backbone.build_prefix,
+            wraps=backbone.build_prefix,
         ) as build_prefix_spy:
             outputs = decoder(features=features, actions=actions)
         build_prefix_spy.assert_called_once_with(inputs=features)
@@ -624,33 +634,19 @@ class TestSmolVLADecoderBehavior:
 
     def test_vision_lora_receives_gradients_while_text_model_stays_frozen(
         self,
+        smolvlm_backbone_factory: Callable[..., SmolVLM],
+        lora_config_factory: Callable[..., LoRAAdaptation],
         smolvla_decoder_factory: Callable[..., SmolVLADecoder],
         raw_vlm_features_factory: Callable[..., dict[str, torch.Tensor]],
         noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
     ) -> None:
-        tiny_config = _make_tiny_smolvlm_config()
-        lora_config = LoRAAdaptation(
+        lora_config = lora_config_factory(
             enabled=True,
             rank=2,
             alpha=4,
             target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
         )
-        with patch(
-            "versatil.models.decoding.generative_language_models.vision_language"
-            ".huggingface.AutoConfig.from_pretrained",
-            return_value=tiny_config,
-        ):
-            vision_adapted_backbone = SmolVLM(
-                input_keys=[
-                    Cameras.LEFT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                pretrained=False,
-                frozen=False,
-                model_name=SmolVLMModelType.SMOLVLM_256M.value,
-                lora_config=lora_config,
-            )
-        vision_adapted_backbone.vlm = vision_adapted_backbone.vlm.float()
+        vision_adapted_backbone = smolvlm_backbone_factory(lora_config=lora_config)
         decoder = smolvla_decoder_factory(
             input_keys=[],
             freeze_vlm=False,
