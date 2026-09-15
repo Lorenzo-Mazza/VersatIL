@@ -11,7 +11,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -33,6 +33,7 @@ def _return_model(
     model: MagicMock,
     lora_config: LoRAAdaptation | None,
     frozen: bool,
+    scoped_modules: list[torch.nn.Module] | None = None,
 ) -> MagicMock:
     return model
 
@@ -209,7 +210,7 @@ class TestVLMEncoderInitialization:
     ) -> None:
         lora_config = LoRAAdaptation(
             enabled=True,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
 
         with patch(
@@ -221,6 +222,9 @@ class TestVLMEncoderInitialization:
         mock_apply_lora.assert_called_once()
         assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
         assert mock_apply_lora.call_args.kwargs["frozen"] is False
+        assert mock_apply_lora.call_args.kwargs["scoped_modules"] == [
+            encoder.encoder.vision_model
+        ]
         assert encoder.lora_config is lora_config
 
 
@@ -654,7 +658,7 @@ def test_integration_forward_pass_per_model(
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         if lora_enabled
         else None

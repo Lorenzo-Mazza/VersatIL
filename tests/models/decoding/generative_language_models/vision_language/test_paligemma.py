@@ -18,7 +18,7 @@ from transformers.models.gemma2.modeling_gemma2 import Gemma2Model
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.decoding.generative_language_models.constants import (
     PaliGemmaModelType,
@@ -68,6 +68,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         language_model.rotary_emb = MagicMock(spec=nn.Module)
         mock_vlm.model = MagicMock(spec=nn.Module)
         mock_vlm.model.language_model = language_model
+        mock_vlm.model.vision_tower = nn.Identity()
         mock_vlm.model.multi_modal_projector = nn.Identity()
 
         total_image_tokens = NUM_IMAGE_TOKENS * num_cameras
@@ -721,7 +722,7 @@ class TestPaliGemmaVLMIntegration:
                 rank=2,
                 alpha=4,
                 target_modules=(
-                    LoRATargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
+                    PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value
                 ),
             )
             if lora_enabled
@@ -767,6 +768,67 @@ class TestPaliGemmaVLMIntegration:
             assert 0 < trainable_parameters < total_parameters
 
     @pytest.mark.integration
+    def test_vision_lora_receives_gradients_from_real_model(
+        self,
+        real_paligemma_backbone: Callable[..., PaliGemmaVLM],
+        rng: np.random.Generator,
+    ) -> None:
+        batch_size = 1
+        lora_config = LoRAAdaptation(
+            enabled=True,
+            rank=2,
+            alpha=4,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        backbone = real_paligemma_backbone(
+            model_dtype=PrecisionType.FP32.value,
+            frozen=False,
+            lora_config=lora_config,
+        )
+        images = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, 1, 3, backbone.image_size, backbone.image_size)
+            ).astype(np.float32)
+        )
+        token_ids = torch.from_numpy(
+            rng.integers(
+                low=0,
+                high=backbone.get_vocab_size(),
+                size=(batch_size, 1, 10),
+            ).astype(np.int64)
+        )
+
+        output = backbone(
+            inputs={
+                Cameras.LEFT.value: images,
+                SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
+            }
+        )
+        output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value].square().mean().backward()
+
+        trainable_parameters = [
+            (name, parameter)
+            for name, parameter in backbone.vlm.named_parameters()
+            if parameter.requires_grad
+        ]
+        assert trainable_parameters
+        assert all("lora_" in name for name, _ in trainable_parameters)
+        assert all(
+            ".vision_tower." in name or ".multi_modal_projector." in name
+            for name, _ in trainable_parameters
+        )
+        assert all(
+            any(
+                scope in name
+                and parameter.grad is not None
+                and parameter.grad.abs().sum() > 0
+                for name, parameter in trainable_parameters
+            )
+            for scope in (".vision_tower.", ".multi_modal_projector.")
+        )
+        assert not any(".language_model." in name for name, _ in trainable_parameters)
+
+    @pytest.mark.integration
     def test_forward_language_model_with_real_peft_resized_vocabulary(
         self,
         real_paligemma_backbone: Callable[..., PaliGemmaVLM],
@@ -776,7 +838,7 @@ class TestPaliGemmaVLMIntegration:
             rank=3,
             alpha=6,
             target_modules=(
-                LoRATargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
+                PEFTTargetModulePreset.VLM_TEXT_MODEL_QUERY_VALUE_PROJECTIONS.value
             ),
         )
         backbone = real_paligemma_backbone(
