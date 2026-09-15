@@ -10,7 +10,7 @@ import torch
 
 from versatil.data.constants import CameraModality, Cameras
 from versatil.data.metadata import BaseMetadata, CameraMetadata, DepthCameraMetadata
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
@@ -223,7 +223,7 @@ class TestSpatialDepthEncoderInitialization:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         backbone = MagicMock()
         backbone.feature_info.channels.return_value = [64, 128, 256, 512]
@@ -631,7 +631,7 @@ class TestSpatialDepthEncoderIntegration:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         encoder = SpatialDepthEncoder(
             input_keys=Cameras.DEPTH.value,

@@ -91,7 +91,7 @@ class ExplainabilityRunner:
                 supported methods.
             target_camera_keys: Optional camera-key allowlist for generated
                 heatmaps.
-            target_vision_module_names: Optional visual module allowlist. Names
+            target_vision_module_names: Optional vision module allowlist. Names
                 include encoding-pipeline entries and decoder-owned VLM vision
                 tower paths.
             online: Socket inference client settings used by

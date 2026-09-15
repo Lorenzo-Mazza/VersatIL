@@ -17,7 +17,7 @@ from versatil.data.metadata import (
     DepthCameraMetadata,
     RGBCameraMetadata,
 )
-from versatil.models.adaptation.constants import LoRATargetModulePreset
+from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
@@ -862,7 +862,7 @@ class TestDFormerEncoderLoRA:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         encoder = dformer_encoder_factory(real_build=True, lora_config=lora_config)
         trainable_names = [
@@ -885,7 +885,7 @@ class TestDFormerEncoderLoRA:
             enabled=True,
             rank=2,
             alpha=4,
-            target_modules=LoRATargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
         )
         with pytest.raises(ValueError, match="LoRA adaptation cannot be enabled"):
             dformer_encoder_factory(

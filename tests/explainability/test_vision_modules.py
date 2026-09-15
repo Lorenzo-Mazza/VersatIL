@@ -92,7 +92,7 @@ class TestGetVisionExplainableModules:
             ),
         ]
         expected_message = (
-            "Visual module 'hybrid_encoder' exposes multiple compatible "
+            "Vision module 'hybrid_encoder' exposes multiple compatible "
             "explainability targets ['spatial_feature_map', 'token_sequence']. "
             "Configure the module to expose exactly one target until per-target "
             "selection is supported."
@@ -147,7 +147,7 @@ class TestGetVisionExplainableModules:
             RuntimeError,
             match=re.escape(
                 "No compatible vision explainability modules found. "
-                "Explainability requires visual modules that expose target metadata "
+                "Explainability requires vision modules that expose target metadata "
                 "through get_explainability_targets()."
             ),
         ):
@@ -391,7 +391,7 @@ class TestResolveCameraExplanationTargets:
         assert result[0].stacked_camera_index == 1
         assert result[0].stacked_camera_count == 2
 
-    def test_filters_by_visual_module_name(
+    def test_filters_by_vision_module_name(
         self,
         vision_target_factory: Callable[[], VisionExplanationTarget],
         vision_policy_factory: Callable[..., MagicMock],
@@ -430,7 +430,7 @@ class TestResolveCameraExplanationTargets:
         )
         policy = vision_policy_factory(encoders={"rgb_encoder": encoder})
         expected_message = (
-            f"target_camera='{Cameras.RIGHT.value}' did not match visual module "
+            f"target_camera='{Cameras.RIGHT.value}' did not match vision module "
             f"cameras: ['{Cameras.LEFT.value}']"
         )
 

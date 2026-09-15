@@ -179,7 +179,7 @@ def compute_ablation_maps_for_policy(
     channel_batch_size: int = 32,
     preprocess_observation: bool = True,
 ) -> dict[str, torch.Tensor]:
-    """Compute Ablation-CAM maps for policy visual modules.
+    """Compute Ablation-CAM maps for policy vision modules.
 
     Note:
         Ablation-CAM is perturbation-based: each channel in the selected visual
@@ -198,8 +198,8 @@ def compute_ablation_maps_for_policy(
         output_selector: Optional function selecting the prediction tensor to
             score for continuous predictors.
         target_camera: Optional camera key to explain. If omitted, every camera
-            exposed by a visual module is explained.
-        target_vision_module_names: Optional visual module allowlist.
+            exposed by a vision module is explained.
+        target_vision_module_names: Optional vision module allowlist.
         channel_batch_size: Number of feature channels ablated per forward pass.
         preprocess_observation: Whether to normalize/tokenize ``observation``
             before attribution. Online inference windows should use ``True``;
@@ -211,9 +211,9 @@ def compute_ablation_maps_for_policy(
 
     Raises:
         ValueError: If ``channel_batch_size`` is not positive.
-        ValueError: If ``target_camera`` is not exposed by a visual module.
+        ValueError: If ``target_camera`` is not exposed by a vision module.
         ValueError: If a camera tensor has an unsupported rank.
-        RuntimeError: If the selected visual module does not expose a compatible
+        RuntimeError: If the selected vision module does not expose a compatible
             explainability target.
         RuntimeError: If target-layer activation capture fails.
         RuntimeError: If the captured activation batch is not divisible by the
