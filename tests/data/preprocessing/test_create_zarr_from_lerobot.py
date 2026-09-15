@@ -111,7 +111,11 @@ class TestCreateReplayBufferFromLerobot:
             extract_return={"state": np.zeros((10, 7), dtype=np.float32)},
         )
 
-        create_replay_buffer_from_lerobot(schema=schema)
+        create_replay_buffer_from_lerobot(
+            schema=schema,
+            image_frames_per_shard=32,
+        )
 
         call_kwargs = mock_create_zarr.call_args
         assert call_kwargs.kwargs["schema"] is schema
+        assert call_kwargs.kwargs["image_frames_per_shard"] == 32

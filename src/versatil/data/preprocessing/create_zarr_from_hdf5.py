@@ -7,6 +7,7 @@ import h5py
 import numpy as np
 
 from versatil.data.preprocessing.create_zarr_arrays import create_zarr_replay_buffer
+from versatil.data.preprocessing.sharding import DEFAULT_IMAGE_FRAMES_PER_SHARD
 from versatil.data.raw.schemas import Hdf5DatasetSchema
 
 
@@ -34,11 +35,21 @@ def _count_hdf5_episodes(schema: Hdf5DatasetSchema) -> int:
     return total
 
 
-def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
+def create_replay_buffer_from_hdf5(
+    schema: Hdf5DatasetSchema,
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
+) -> None:
     """Creates a Zarr-based replay buffer from multiple HDF5 files.
 
     Args:
         schema: Hdf5DatasetSchema instance with HDF5 paths and zarr path configured
+        image_frames_per_shard: Number of image frames stored in each shard, or
+            None to disable sharding.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If image_frames_per_shard is not a positive multiple of the
+            image chunk length.
     """
     total_episodes = _count_hdf5_episodes(schema=schema)
     episodes = _iter_hdf5_episodes(schema=schema)
@@ -47,4 +58,5 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
         schema=schema,
         episodes=episodes,
         total_episodes=total_episodes,
+        image_frames_per_shard=image_frames_per_shard,
     )

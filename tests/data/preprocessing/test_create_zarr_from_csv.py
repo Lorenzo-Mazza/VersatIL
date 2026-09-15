@@ -115,7 +115,12 @@ class TestCreateReplayBuffer:
             "position": np.zeros((5, 3), dtype=np.float32)
         }
 
-        def capture_episodes(schema, episodes, total_episodes):
+        def capture_episodes(
+            schema,
+            episodes,
+            total_episodes,
+            image_frames_per_shard,
+        ):
             for episode in episodes:
                 call_order.append(episode)
 
@@ -164,7 +169,9 @@ class TestCreateReplayBuffer:
         create_replay_buffer(
             schema=schema,
             datasets_paths=["/data/1/ep.csv"],
+            image_frames_per_shard=32,
         )
 
         call_kwargs = mock_create_zarr.call_args
         assert call_kwargs.kwargs["schema"] is schema
+        assert call_kwargs.kwargs["image_frames_per_shard"] == 32

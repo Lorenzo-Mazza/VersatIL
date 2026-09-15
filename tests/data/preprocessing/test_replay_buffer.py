@@ -70,6 +70,30 @@ def zarr_buffer_factory(
     return factory
 
 
+@pytest.fixture
+def sharded_image_buffer(rng: np.random.Generator) -> ReplayBuffer:
+    """Create a Zarr-backed buffer containing a sharded WebP image array."""
+    root = zarr.open_group(store=MemoryStore(), mode="w")
+    data_group = root.create_group("data")
+    image_data = rng.integers(0, 255, (6, 16, 16, 3), dtype=np.uint8)
+    data_group.create_array(
+        name="image",
+        data=image_data,
+        chunks=(1, 16, 16, 3),
+        shards=(4, 16, 16, 3),
+        serializer=WebPCodec(level=95),
+        compressors=None,
+    )
+    meta_group = root.create_group("meta")
+    meta_group.create_array(
+        name="episode_ends",
+        data=np.array([len(image_data)], dtype=np.int64),
+        chunks=(1,),
+        compressors=None,
+    )
+    return ReplayBuffer(root=root)
+
+
 class TestCheckChunksCompatible:
     @pytest.mark.parametrize(
         "chunks, shape, expectation",
@@ -497,7 +521,12 @@ class TestGetSerializerCodec:
 
         assert result is None
 
-    def test_returns_webp_codec_for_webp_array(self, rng: np.random.Generator):
+    @pytest.mark.parametrize("shards", [None, (4, 32, 32, 3)])
+    def test_returns_webp_codec_for_webp_array(
+        self,
+        rng: np.random.Generator,
+        shards: tuple[int, ...] | None,
+    ):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         image_data = rng.integers(0, 255, (5, 32, 32, 3), dtype=np.uint8)
         codec = WebPCodec(level=95)
@@ -505,6 +534,7 @@ class TestGetSerializerCodec:
             "test",
             data=image_data,
             chunks=(1, 32, 32, 3),
+            shards=shards,
             serializer=codec,
             compressors=None,
         )
@@ -531,7 +561,7 @@ class TestCreateZarrDataArray:
         assert array.shape == (10, 3)
         assert array.chunks == (5, 3)
 
-    def test_webp_codec_overrides_chunks_to_single_image(
+    def test_webp_codec_uses_single_image_chunks_and_requested_shards(
         self,
         rng: np.random.Generator,
     ):
@@ -543,11 +573,12 @@ class TestCreateZarrDataArray:
             group=group,
             name="test",
             chunks=(5, 32, 32, 3),
+            shards=(4, 32, 32, 3),
             codec=codec,
             data=image_data,
         )
-        # WebPCodec forces chunks to (1, H, W, C) regardless of input
         assert array.chunks == (1, 32, 32, 3)
+        assert array.shards == (4, 32, 32, 3)
 
     def test_none_codec_creates_uncompressed_array(self, rng: np.random.Generator):
         group = zarr.open_group(store=MemoryStore(), mode="w")
@@ -610,7 +641,13 @@ class TestRechunkRecompressArray:
         old_codec = BloscCodec(cname="lz4", clevel=5, shuffle=BloscShuffle.noshuffle)
         new_codec = BloscCodec(cname="zstd", clevel=5, shuffle=BloscShuffle.bitshuffle)
         data = rng.standard_normal((20, 3)).astype(np.float32)
-        group.create_array("test", data=data, chunks=(10, 3), compressors=old_codec)
+        group.create_array(
+            "test",
+            data=data,
+            chunks=(2, 3),
+            shards=(10, 3),
+            compressors=old_codec,
+        )
 
         result = rechunk_recompress_array(
             group=group,
@@ -619,6 +656,29 @@ class TestRechunkRecompressArray:
         )
 
         assert result.compressors[-1].cname.value == "zstd"
+        assert result.shards == (10, 3)
+
+    def test_rechunk_preserves_shards(self, rng: np.random.Generator):
+        group = zarr.open_group(store=MemoryStore(), mode="w")
+        codec = BloscCodec(cname="lz4", clevel=5, shuffle=BloscShuffle.noshuffle)
+        data = rng.standard_normal((20, 3)).astype(np.float32)
+        group.create_array(
+            "test",
+            data=data,
+            chunks=(2, 3),
+            shards=(10, 3),
+            compressors=codec,
+        )
+
+        result = rechunk_recompress_array(
+            group=group,
+            name="test",
+            chunks=(5, 3),
+        )
+
+        assert result.chunks == (5, 3)
+        assert result.shards == (10, 3)
+        np.testing.assert_array_almost_equal(result[:], data)
 
     def test_preserves_data_after_rechunk(self, rng: np.random.Generator):
         group = zarr.open_group(store=MemoryStore(), mode="w")
@@ -1090,6 +1150,23 @@ class TestReplayBufferCopyFromStoreToZarr:
         assert copied.n_episodes == 2
         assert copied.n_steps == 10
 
+    def test_copy_preserves_image_shards_and_serializer(
+        self,
+        sharded_image_buffer: ReplayBuffer,
+    ):
+        copied = ReplayBuffer.copy_from_store(
+            src_store=sharded_image_buffer.root.store,
+            store=MemoryStore(),
+        )
+
+        image_array = copied["image"]
+        codec = _get_serializer_codec(image_array)
+        assert image_array.chunks == (1, 16, 16, 3)
+        assert image_array.shards == (4, 16, 16, 3)
+        assert isinstance(codec, WebPCodec)
+        assert codec.level == 95
+        assert image_array[:].shape == (6, 16, 16, 3)
+
     def test_copy_with_selective_keys(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -1124,6 +1201,25 @@ class TestReplayBufferSaveToStore:
         )
         assert loaded.n_episodes == 2
         assert loaded.n_steps == 10
+
+    def test_save_preserves_image_shards_and_serializer(
+        self,
+        sharded_image_buffer: ReplayBuffer,
+    ):
+        destination_store = MemoryStore()
+
+        sharded_image_buffer.save_to_store(store=destination_store)
+
+        loaded = ReplayBuffer.create_from_group(
+            zarr.open_group(store=destination_store, mode="r"),
+        )
+        image_array = loaded["image"]
+        codec = _get_serializer_codec(image_array)
+        assert image_array.chunks == (1, 16, 16, 3)
+        assert image_array.shards == (4, 16, 16, 3)
+        assert isinstance(codec, WebPCodec)
+        assert codec.level == 95
+        assert image_array[:].shape == (6, 16, 16, 3)
 
     def test_save_with_custom_compressor(
         self,

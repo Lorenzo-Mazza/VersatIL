@@ -28,8 +28,10 @@ from versatil.data.dataloader import (
     get_dataloaders,
     validate_dataloader_config,
 )
+from versatil.data.preprocessing.sharding import DEFAULT_IMAGE_FRAMES_PER_SHARD
 from versatil.data.raw.schemas import CsvDatasetSchema
 from versatil.data.raw.schemas.base import DatasetSchema
+from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
 from versatil.data.raw.schemas.hdf5 import Hdf5DatasetSchema
 from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -45,6 +47,7 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
         skip_initial_episode_steps: int = 0,
         downsample_factor: int = 1,
         action_backward_shift: int = 0,
+        image_frames_per_shard: int | float | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
         kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX.value,
         tokenization: TokenizationConfig | None = None,
     ) -> DataLoaderConfig:
@@ -60,6 +63,7 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
             skip_initial_episode_steps=skip_initial_episode_steps,
             downsample_factor=downsample_factor,
             action_backward_shift=action_backward_shift,
+            image_frames_per_shard=image_frames_per_shard,
         )
 
     return factory
@@ -101,6 +105,8 @@ def mock_hydra_config_factory() -> Callable[..., MagicMock]:
         has_gripper_actions: bool = False,
         use_gripper_class_weights: bool = False,
         downsample_factor: int = 1,
+        recreate_zarr_on_missing_keys: bool = False,
+        image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
     ) -> MagicMock:
         dataloader_config = DataLoaderConfig(
             batch_size=batch_size,
@@ -108,6 +114,8 @@ def mock_hydra_config_factory() -> Callable[..., MagicMock]:
             shuffle=shuffle,
             val_ratio=val_ratio,
             downsample_factor=downsample_factor,
+            recreate_zarr_on_missing_keys=recreate_zarr_on_missing_keys,
+            image_frames_per_shard=image_frames_per_shard,
         )
         schema = MagicMock(spec=DatasetSchema)
         schema.zarr_path = "/tmp/test.zarr"
@@ -253,6 +261,44 @@ class TestValidateDataloaderConfig:
 
         with expectation:
             validate_dataloader_config(config)
+
+    @pytest.mark.parametrize(
+        "image_frames_per_shard,expectation",
+        [
+            (None, does_not_raise()),
+            (1, does_not_raise()),
+            (64, does_not_raise()),
+            (
+                0,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("image_frames_per_shard must be positive, got 0."),
+                ),
+            ),
+            (
+                64.5,
+                pytest.raises(
+                    TypeError,
+                    match=re.escape(
+                        "image_frames_per_shard must be an integer or None, "
+                        "got <class 'float'>."
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_image_frames_per_shard_validation(
+        self,
+        dataloader_config_factory: Callable[..., DataLoaderConfig],
+        image_frames_per_shard: int | float | None,
+        expectation,
+    ):
+        config = dataloader_config_factory(
+            image_frames_per_shard=image_frames_per_shard,
+        )
+
+        with expectation:
+            validate_dataloader_config(config=config)
 
     @pytest.mark.parametrize(
         "val_ratio, expectation",
@@ -533,7 +579,10 @@ class TestEnsureZarrExists:
             )
 
             mock_shutil.rmtree.assert_called_once()
-            mock_create.assert_called_once_with(schema=schema)
+            mock_create.assert_called_once_with(
+                schema=schema,
+                image_frames_per_shard=DEFAULT_IMAGE_FRAMES_PER_SHARD,
+            )
 
     def test_corrupt_store_triggers_recreation(self, mock_dataset_schema_factory):
         schema = mock_dataset_schema_factory(schema_type=Hdf5DatasetSchema)
@@ -552,7 +601,10 @@ class TestEnsureZarrExists:
             _ensure_zarr_exists(schema=schema)
 
             mock_shutil.rmtree.assert_called_once()
-            mock_create.assert_called_once_with(schema=schema)
+            mock_create.assert_called_once_with(
+                schema=schema,
+                image_frames_per_shard=DEFAULT_IMAGE_FRAMES_PER_SHARD,
+            )
 
     def test_nonexistent_zarr_creates_from_hdf5(self, mock_dataset_schema_factory):
         schema = mock_dataset_schema_factory(schema_type=Hdf5DatasetSchema)
@@ -565,9 +617,15 @@ class TestEnsureZarrExists:
         ):
             mock_path_class.return_value.exists.return_value = False
 
-            _ensure_zarr_exists(schema=schema)
+            _ensure_zarr_exists(
+                schema=schema,
+                image_frames_per_shard=32,
+            )
 
-            mock_create.assert_called_once_with(schema=schema)
+            mock_create.assert_called_once_with(
+                schema=schema,
+                image_frames_per_shard=32,
+            )
 
     def test_nonexistent_zarr_creates_from_csv(self, mock_dataset_schema_factory):
         schema = mock_dataset_schema_factory(
@@ -595,6 +653,7 @@ class TestEnsureZarrExists:
             mock_create.assert_called_once_with(
                 schema=schema,
                 datasets_paths=["/ep1.csv", "/ep2.csv"],
+                image_frames_per_shard=DEFAULT_IMAGE_FRAMES_PER_SHARD,
             )
 
     def test_nonexistent_zarr_creates_from_lerobot(self, mock_dataset_schema_factory):
@@ -612,7 +671,34 @@ class TestEnsureZarrExists:
 
             _ensure_zarr_exists(schema=schema)
 
-            mock_create.assert_called_once_with(schema=schema)
+            mock_create.assert_called_once_with(
+                schema=schema,
+                image_frames_per_shard=DEFAULT_IMAGE_FRAMES_PER_SHARD,
+            )
+
+    def test_nonexistent_zarr_creates_synthetic_with_requested_sharding(
+        self,
+        mock_dataset_schema_factory,
+    ):
+        schema = mock_dataset_schema_factory(schema_type=SyntheticSchema)
+
+        with (
+            patch("versatil.data.dataloader.Path") as mock_path_class,
+            patch(
+                "versatil.data.dataloader.create_replay_buffer_from_synthetic"
+            ) as mock_create,
+        ):
+            mock_path_class.return_value.exists.return_value = False
+
+            _ensure_zarr_exists(
+                schema=schema,
+                image_frames_per_shard=None,
+            )
+
+            mock_create.assert_called_once_with(
+                schema=schema,
+                image_frames_per_shard=None,
+            )
 
     def test_unknown_schema_type_raises_not_implemented(
         self, mock_dataset_schema_factory
@@ -658,7 +744,9 @@ class TestGetDataloaders:
         with (
             patch("versatil.data.dataloader.validate_dataloader_config"),
             patch("versatil.data.dataloader.validate_tokenizer_config"),
-            patch("versatil.data.dataloader._ensure_zarr_exists"),
+            patch(
+                "versatil.data.dataloader._ensure_zarr_exists"
+            ) as self.mock_ensure_zarr_exists,
             patch(
                 "versatil.data.dataloader.EpisodicDataset",
                 side_effect=[mock_train_dataset, mock_val_dataset],
@@ -683,6 +771,23 @@ class TestGetDataloaders:
         assert train_loader.dataset is self.mock_train_dataset
         assert normalizer.normalize == self.mock_normalizer.normalize
         assert tokenizer.encode == self.mock_tokenizer.encode
+
+    def test_forwards_zarr_materialization_settings(
+        self,
+        mock_hydra_config_factory,
+    ):
+        config = mock_hydra_config_factory(
+            recreate_zarr_on_missing_keys=True,
+            image_frames_per_shard=32,
+        )
+
+        get_dataloaders(config=config)
+
+        self.mock_ensure_zarr_exists.assert_called_once_with(
+            schema=config.task.dataset_schema,
+            recreate_on_missing_keys=True,
+            image_frames_per_shard=32,
+        )
 
     def test_creates_val_loader_when_val_ratio_positive(
         self, mock_hydra_config_factory

@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
+- Newly materialized Zarr datasets group image chunks into configurable storage
+  shards (`task.dataloader.image_frames_per_shard`, 256 frames by default), and
+  replay-buffer copies and rewrites preserve existing shard layouts.
 - Rename `LoRATargetModulePreset` to `PEFTTargetModulePreset` for adaptation
   target selection. Update direct imports of the old enum name.
 - OpenVLA and OpenVLA-OFT presets train LoRA with the recipe learning rate of 5e-4.

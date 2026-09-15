@@ -14,14 +14,14 @@ from threadpoolctl import threadpool_limits
 from zarr.codecs import BloscCodec, BloscShuffle
 
 from versatil.data.preprocessing.codecs import WebPCodec
+from versatil.data.preprocessing.sharding import (
+    DEFAULT_IMAGE_FRAMES_PER_SHARD,
+    get_image_shard_shape,
+    is_uint8_image_spec,
+)
 from versatil.data.raw.schemas.base import DatasetSchema
 
 WEBP_QUALITY = 99
-
-
-def is_uint8_image_spec(spec: dict) -> bool:
-    """Check if a zarr array spec corresponds to a uint8 image array."""
-    return len(spec["shape"]) == 4 and spec["dtype"] == "uint8"
 
 
 def create_zarr_arrays(
@@ -29,6 +29,7 @@ def create_zarr_arrays(
     schema: DatasetSchema,
     image_codec: WebPCodec,
     numeric_compressor: BloscCodec,
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
 ) -> None:
     """Create zarr arrays with codec selection based on data type.
 
@@ -40,17 +41,28 @@ def create_zarr_arrays(
         schema: Dataset schema providing array specifications.
         image_codec: WebP codec for uint8 image arrays.
         numeric_compressor: Blosc codec for numerical arrays.
+        image_frames_per_shard: Number of independently compressed image frames
+            stored in each shard, or None to disable sharding.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If image_frames_per_shard is not a positive multiple of the
+            image chunk length.
     """
     specs = schema.get_zarr_array_specs()
     for key, spec in specs.items():
         dtype = str if spec["dtype"] == "str" else getattr(np, spec["dtype"])
         if is_uint8_image_spec(spec):
-            # One image per chunk for WebP per-frame compression
             chunks = (1, *spec["shape"][1:])
+            shards = get_image_shard_shape(
+                image_chunks=chunks,
+                image_frames_per_shard=image_frames_per_shard,
+            )
             data_group.create_array(
                 name=key,
                 shape=spec["shape"],
                 chunks=chunks,
+                shards=shards,
                 dtype=dtype,
                 serializer=image_codec,
                 compressors=None,
@@ -69,6 +81,7 @@ def create_zarr_replay_buffer(
     schema: DatasetSchema,
     episodes: Iterable[dict[str, np.ndarray]],
     total_episodes: int | None = None,
+    image_frames_per_shard: int | None = DEFAULT_IMAGE_FRAMES_PER_SHARD,
 ) -> None:
     """Create a zarr replay buffer from an iterable of episodes.
 
@@ -79,6 +92,13 @@ def create_zarr_replay_buffer(
         schema: Dataset schema with zarr_path and array specs.
         episodes: Iterable yielding episode dicts mapping keys to arrays.
         total_episodes: Total number of episodes for progress reporting.
+        image_frames_per_shard: Number of independently compressed image frames
+            stored in each shard, or None to disable sharding.
+
+    Raises:
+        TypeError: If image_frames_per_shard is not an integer.
+        ValueError: If image_frames_per_shard is not a positive multiple of the
+            image chunk length.
     """
     logging.info(
         msg=f"Creating Zarr dataset at {schema.zarr_path} "
@@ -99,6 +119,7 @@ def create_zarr_replay_buffer(
         schema=schema,
         image_codec=image_codec,
         numeric_compressor=numeric_compressor,
+        image_frames_per_shard=image_frames_per_shard,
     )
 
     episode_ends: list[int] = []
