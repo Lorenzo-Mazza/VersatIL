@@ -745,6 +745,46 @@ class TestBuildActionMetadata:
 
 @pytest.mark.unit
 class TestAddActionTypeMetadata:
+    @pytest.mark.parametrize(
+        "method", [None, *[member.value for member in ActionComputationMethod]]
+    )
+    def test_precomputed_orientation_action_type(
+        self,
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
+        method: str | None,
+    ) -> None:
+        metadata = orientation_action_metadata_factory(computation_method=method)
+        entry: dict[str, str | int] = {ActionMetadataField.DIMENSION.value: 1}
+        expected = dict(entry)
+        if method is not None:
+            expected[ActionMetadataField.ACTION_TYPE.value] = method
+
+        ActionPostprocessor._add_action_type_metadata(action_meta=metadata, entry=entry)
+
+        assert entry == expected
+
+    @pytest.mark.parametrize(
+        "action_type", [ActionComponent.POSITION, ActionComponent.ORIENTATION]
+    )
+    def test_legacy_precomputed_metadata_keeps_existing_fields(
+        self,
+        position_action_metadata_factory: Callable[..., PositionActionMetadata],
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
+        action_type: ActionComponent,
+    ) -> None:
+        factory = (
+            position_action_metadata_factory
+            if action_type == ActionComponent.POSITION
+            else orientation_action_metadata_factory
+        )
+        metadata = factory(computation_method=None)
+        del metadata.computation_method
+        entry: dict[str, str | int] = {ActionMetadataField.DIMENSION.value: 1}
+
+        ActionPostprocessor._add_action_type_metadata(action_meta=metadata, entry=entry)
+
+        assert entry == {ActionMetadataField.DIMENSION.value: 1}
+
     def test_adds_computation_method_for_on_the_fly_metadata(
         self,
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
