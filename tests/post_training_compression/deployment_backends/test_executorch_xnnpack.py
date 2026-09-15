@@ -99,6 +99,26 @@ def xnnpack_example_inputs_factory(
     return factory
 
 
+@pytest.fixture(scope="session")
+def executorch_backend_factory() -> Callable[..., ExecutorchXNNPACKBackend]:
+    def factory(max_batch_size: int) -> ExecutorchXNNPACKBackend:
+        return ExecutorchXNNPACKBackend(max_batch_size=max_batch_size)
+
+    return factory
+
+
+@pytest.fixture
+def executorch_runtime_factory(
+    tmp_path: Path,
+) -> Callable[..., ExecuTorchModuleAdapter]:
+    def factory(model_bytes: bytes, filename: str) -> ExecuTorchModuleAdapter:
+        model_path = tmp_path / filename
+        model_path.write_bytes(model_bytes)
+        return ExecuTorchModuleAdapter(model_path=str(model_path))
+
+    return factory
+
+
 @pytest.mark.unit
 class TestExecutorchXNNPACKBackend:
     @pytest.mark.parametrize("max_batch_size", [1, 8, 16])
@@ -392,13 +412,28 @@ class TestExecutorchXNNPACKQuantizationValidation:
 @pytest.mark.integration
 @pytest.mark.requires_executorch
 class TestExecutorchXNNPACKBackendIntegration:
-    @pytest.mark.parametrize("batch_size", [1, 2, 8])
+    @pytest.mark.parametrize(
+        "batch_size, expectation",
+        [
+            (1, does_not_raise()),
+            (2, does_not_raise()),
+            (
+                8,
+                pytest.raises(
+                    RuntimeError,
+                    match=re.escape("Failed to execute method forward, error: 0x10"),
+                ),
+            ),
+        ],
+    )
     def test_unbounded_dynamic_batch_uses_example_size_as_runtime_limit(
         self,
         eager_xnnpack_model_factory: Callable[[], nn.Module],
         xnnpack_example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
-        tmp_path: Path,
+        executorch_backend_factory: Callable[..., ExecutorchXNNPACKBackend],
+        executorch_runtime_factory: Callable[..., ExecuTorchModuleAdapter],
         batch_size: int,
+        expectation: AbstractContextManager[None],
     ) -> None:
         model = eager_xnnpack_model_factory()
         example_inputs = xnnpack_example_inputs_factory(batch_size=2)
@@ -410,15 +445,15 @@ class TestExecutorchXNNPACKBackendIntegration:
         model_bytes = ExecutorchXNNPACKBackend._lower_to_pte_buffer(
             exported_program=exported_program,
         )
-        model_path = tmp_path / CompressionFilename.EXECUTORCH_MODEL.value
-        model_path.write_bytes(model_bytes)
-        runtime = ExecuTorchModuleAdapter(model_path=str(model_path))
-        bounded_artifact = ExecutorchXNNPACKBackend(max_batch_size=8).export(
+        runtime = executorch_runtime_factory(
+            model_bytes=model_bytes, filename=CompressionFilename.EXECUTORCH_MODEL.value
+        )
+        bounded_artifact = executorch_backend_factory(max_batch_size=8).export(
             model=model, example_inputs=example_inputs
         )
-        bounded_path = tmp_path / "bounded.pte"
-        bounded_path.write_bytes(bounded_artifact.model_bytes)
-        bounded_runtime = ExecuTorchModuleAdapter(model_path=str(bounded_path))
+        bounded_runtime = executorch_runtime_factory(
+            model_bytes=bounded_artifact.model_bytes, filename="bounded.pte"
+        )
 
         # Use matching XNNPACK kernels to isolate dynamic-shape handling.
         inputs = xnnpack_example_inputs_factory(batch_size=batch_size)
@@ -427,19 +462,11 @@ class TestExecutorchXNNPACKBackendIntegration:
                 0
             ]  # (batch_size, 64) -> (batch_size, 16)
             assert expected.shape == (batch_size, 16)
-            if batch_size <= example_inputs[0].shape[0]:
+            with expectation:
                 actual = runtime(observation_tensors=inputs)[
                     0
                 ]  # (batch_size, 64) -> (batch_size, 16)
                 torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-            else:
-                with pytest.raises(
-                    RuntimeError,
-                    match=re.escape("Failed to execute method forward, error: 0x10"),
-                ):
-                    runtime(
-                        observation_tensors=inputs
-                    )  # (batch_size, 64) -> runtime capacity error
 
     def test_export_lowers_eager_quantized_model_with_bounded_dynamic_batch(
         self,

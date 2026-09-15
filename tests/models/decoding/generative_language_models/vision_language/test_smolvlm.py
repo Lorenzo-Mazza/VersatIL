@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -628,7 +628,14 @@ class TestSmolVLMForward:
         ) as resize:
             embeddings, masks = backbone._embed_images(inputs=inputs, batch_size=2)
 
-        assert resize.call_count == 2
+        assert resize.call_args_list == [
+            call(
+                images=inputs[camera_key],
+                target_height=IMAGE_SIZE,
+                target_width=IMAGE_SIZE,
+            )
+            for camera_key in camera_keys
+        ]
         backbone.vlm.get_image_features.assert_called_once()
         pixel_values = backbone.vlm.get_image_features.call_args.args[0]
         assert pixel_values.is_contiguous()
