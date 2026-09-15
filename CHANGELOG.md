@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Fix SmolVLA inference with non-contiguous camera tensors.
 - Interleaved VLM decoders retain gradients through frozen language layers
   when training vision adapters.
 - Constrain `versatil-constants` to versions below 0.3.0 while VersatIL imports
