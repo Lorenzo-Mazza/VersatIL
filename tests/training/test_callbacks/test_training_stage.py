@@ -29,8 +29,6 @@ from versatil.training.constants import OPTIMIZER_UNMATCHED_GROUPS_NAME
 from versatil.training.lightning_policy import LightningPolicy
 from versatil.training.stage import TrainingStage
 
-torch.serialization.add_safe_globals([TrainingConfig, AdamConfig, ParameterGroupConfig])
-
 
 def _stage(**fields: Any) -> TrainingStage:
     """Build a ``TrainingStage`` from keyword fields for use in callback tests."""
@@ -1415,6 +1413,7 @@ class TestTrainingStageCallbackIntegration:
                 model=second_module,
                 train_dataloaders=_dummy_dataloader(),
                 ckpt_path=str(checkpoint_path),
+                weights_only=False,
             )
 
         resumed_epochs = [snapshot["epoch"] for snapshot in second_recorder.history]

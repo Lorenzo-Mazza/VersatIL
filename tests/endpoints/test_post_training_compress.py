@@ -12,6 +12,7 @@ import pytest
 import torch
 import torch._inductor.config as inductor_config
 from hydra import compose, initialize_config_dir
+from omegaconf import OmegaConf
 from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.composable_quantizer import (
@@ -269,6 +270,13 @@ def _save_and_verify_inference(
             overrides=[f"checkpoint_path={str(output_dir)}"],
         )
 
+    pt2e_backend_config = None
+    if quantization_workflow == QuantizationWorkflow.PT2E.value:
+        pt2e_backend_config = OmegaConf.to_container(
+            ptq_config.quantization.targets[0].pt2e_backend,
+            resolve=True,
+        )
+
     save_compressed_model(
         converted_model=compressed_model,
         example_inputs=example_inputs,
@@ -279,6 +287,7 @@ def _save_and_verify_inference(
         training_checkpoint_path=str(output_dir),
         quantization_config=ptq_config,
         quantization_workflow=quantization_workflow,
+        pt2e_backend_config=pt2e_backend_config,
     )
 
     assert (Path(compressed_dir) / "compressed_policy.pt2").exists()
