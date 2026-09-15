@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Constrain `versatil-constants` to versions below 0.3.0 while VersatIL imports
+  the legacy TSO orientation keys removed by that release.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
