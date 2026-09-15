@@ -1,0 +1,10 @@
+defaults:
+  - csv
+  - zarr_meta/endoscope_guidance_phantom_5hz_phase@metadata
+  - _self_
+
+_target_: versatil.data.raw.schemas.custom.tso.TSODatasetSchema
+dataset_type: ${dataset_type:TSO}
+zarr_path: ${zarr_dir:endoscope_guidance_phantom_5hz_phase.zarr}
+dataset_folders:
+  - ${dataset_dir:VERSATIL_ENDOSCOPE_GUIDANCE_PHANTOM_5HZ_DIR}

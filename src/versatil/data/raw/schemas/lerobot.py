@@ -308,6 +308,21 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
     def lerobot_metadata(self, lerobot_metadata: LeRobotDatasetMetadataV30) -> None:
         self._lerobot_metadata = lerobot_metadata
 
+    @staticmethod
+    def _get_tabular_feature_array(
+        episode_table: pa.Table,
+        column_key: str,
+        slice_start: int | None,
+        slice_end: int | None,
+    ) -> np.ndarray:
+        """Load one scalar or vector LeRobot feature as a two-dimensional array."""
+        feature_array = np.stack(episode_table[column_key].to_pylist())
+        if feature_array.ndim == 1:
+            feature_array = feature_array[:, np.newaxis]
+        if slice_start is not None and slice_end is not None:
+            feature_array = feature_array[:, slice_start:slice_end]
+        return feature_array
+
     def _get_frames_from_videos(
         self, query_timestamps: dict[str, list[float]], episode_index: int
     ) -> dict[str, list[np.ndarray]]:
@@ -543,10 +558,12 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                         f"The column {col_key} does not exist in the dataset."
                     )
 
-                obs_array = np.stack(episode_table[col_key].to_pylist())
-                # Apply optional slicing to extract specific dimensions
-                if obs.slice_start is not None and obs.slice_end is not None:
-                    obs_array = obs_array[:, obs.slice_start : obs.slice_end]
+                obs_array = self._get_tabular_feature_array(
+                    episode_table=episode_table,
+                    column_key=col_key,
+                    slice_start=obs.slice_start,
+                    slice_end=obs.slice_end,
+                )
                 data[zarr_key] = obs_array.astype(obs.dtype)
 
         # Process precomputed actions (pre-computed in LeRobot format)
@@ -556,10 +573,12 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             if col_key not in episode_table.column_names:
                 raise ValueError(f"The column {col_key} does not exist in the dataset.")
 
-            action_array = np.stack(episode_table[col_key].to_pylist())
-            # Apply optional slicing to extract specific action dimensions
-            if action.slice_start is not None and action.slice_end is not None:
-                action_array = action_array[:, action.slice_start : action.slice_end]
+            action_array = self._get_tabular_feature_array(
+                episode_table=episode_table,
+                column_key=col_key,
+                slice_start=action.slice_start,
+                slice_end=action.slice_end,
+            )
             data[zarr_key] = action_array.astype(action.dtype)
 
         return data

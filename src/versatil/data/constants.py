@@ -69,6 +69,9 @@ class RawCameraKey(enum.StrEnum):
     IMAGE_PUSHT = "observation.image"
     # Kitchen LeRobot
     IMAGE_KITCHEN = "observation.image"
+    # TSO LeRobot
+    LEFT_CAMERA_TSO_LEROBOT = "observation.images.left"
+    RIGHT_CAMERA_TSO_LEROBOT = "observation.images.right"
 
 
 class CameraModality(enum.StrEnum):
@@ -95,6 +98,8 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     RawCameraKey.IMAGE_METAWORLD.value: Cameras.AGENTVIEW.value,
     RawCameraKey.IMAGE_PUSHT.value: Cameras.AGENTVIEW.value,
     RawCameraKey.IMAGE_KITCHEN.value: Cameras.AGENTVIEW.value,
+    RawCameraKey.LEFT_CAMERA_TSO_LEROBOT.value: Cameras.LEFT.value,
+    RawCameraKey.RIGHT_CAMERA_TSO_LEROBOT.value: Cameras.RIGHT.value,
 }
 
 
@@ -107,9 +112,8 @@ class ProprioKey(enum.StrEnum):
 
     # TSO datasets proprioceptive keys
     ROBOT_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
-    ROBOT_FRAME_CARTESIAN_TIP_ORI = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value
     CAMERA_FRAME_CARTESIAN_TIP_POS = TSOProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
-    CAMERA_FRAME_CARTESIAN_TIP_ORI = TSOProprioKey.CAMERA_FRAME_CARTESIAN_TIP_ORI.value
+    RELATIVE_PIVOT_ROLL = TSOProprioKey.RELATIVE_PIVOT_ROLL.value
     # LIBERO/Metaworld proprioceptive keys
     EE_POS = LiberoProprioKey.EE_POS.value
     EE_ORI = LiberoProprioKey.EE_ORI.value
@@ -249,6 +253,7 @@ class DatasetType(enum.StrEnum):
     KITCHEN = "kitchen"
     ANT = "ant"
     UR3 = "ur3"
+    ENDOSCOPE_GUIDANCE = "endoscope_guidance"
 
 
 class LeRobotPathsV30(enum.StrEnum):

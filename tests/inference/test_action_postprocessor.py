@@ -797,6 +797,25 @@ class TestAddActionTypeMetadata:
             == ActionComputationMethod.NEXT_TIMESTEP.value
         )
 
+    def test_adds_computation_method_for_precomputed_orientation_metadata(
+        self,
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
+    ):
+        metadata = orientation_action_metadata_factory(
+            computation_method=ActionComputationMethod.DELTA.value,
+        )
+        entry: dict[str, str | int] = {}
+
+        ActionPostprocessor._add_action_type_metadata(
+            action_meta=metadata,
+            entry=entry,
+        )
+
+        assert (
+            entry[ActionMetadataField.ACTION_TYPE.value]
+            == ActionComputationMethod.DELTA.value
+        )
+
 
 @pytest.mark.unit
 class TestAddFrameMetadata:

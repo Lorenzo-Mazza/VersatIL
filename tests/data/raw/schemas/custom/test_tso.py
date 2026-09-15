@@ -18,6 +18,7 @@ from versatil.data.constants import (
     DatasetType,
     GripperType,
     ObsKey,
+    OrientationRepresentation,
     ProprioKey,
     RawCameraKey,
 )
@@ -25,6 +26,7 @@ from versatil.data.metadata import (
     CameraMetadata,
     GripperObservationMetadata,
     ObservationMetadata,
+    OrientationObservationMetadata,
     PositionObservationMetadata,
     PrecomputedActionMetadata,
 )
@@ -405,13 +407,15 @@ class TestTSOValidateMetadata:
 
         assert schema.metadata is metadata
 
-    def test_orientation_observations_present_raises(
+    def test_invalid_orientation_key_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
         position_observation_metadata_factory: Callable[
             ..., PositionObservationMetadata
         ],
-        orientation_observation_metadata_factory: Callable,
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -441,8 +445,91 @@ class TestTSOValidateMetadata:
 
         expected_message = (
             "TSODatasetSchema validation failed:\n"
-            "  - TSODatasetSchema does not support orientation proprioceptive observations."
+            "  - Invalid orientation observation keys: ['orientation']. "
+            "TSODatasetSchema requires keys from: "
+            "['relative_pivot_roll']"
         )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            TSODatasetSchema(
+                dataset_folders=["/data/ep1"],
+                zarr_path="/tmp/test.zarr",
+                metadata=metadata,
+                dataset_type=DatasetType.TSO.value,
+            )
+
+    @pytest.mark.parametrize(
+        "frame",
+        [
+            CoordinateSystem.ROBOT_BASE.value,
+            CoordinateSystem.CAMERA.value,
+            CoordinateSystem.UNKNOWN.value,
+        ],
+        ids=[
+            "robot-frame",
+            "camera-frame",
+            "unknown-frame",
+        ],
+    )
+    def test_relative_pivot_roll_accepts_any_frame(
+        self,
+        frame: str,
+        valid_tso_metadata: DatasetMetadata,
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        orientation_key = ProprioKey.RELATIVE_PIVOT_ROLL.value
+        observations = {
+            **valid_tso_metadata.observations,
+            orientation_key: orientation_observation_metadata_factory(
+                dimension=1,
+                frame=frame,
+                orientation_representation=OrientationRepresentation.ROLL.value,
+                raw_data_column_keys=[orientation_key],
+            ),
+        }
+        metadata = dataset_metadata_factory(
+            observations=observations, precomputed_actions={}
+        )
+
+        schema = TSODatasetSchema(
+            dataset_folders=["/data/ep1"],
+            zarr_path="/tmp/test.zarr",
+            metadata=metadata,
+            dataset_type=DatasetType.TSO.value,
+        )
+
+        assert schema.metadata.orientation_observations[orientation_key].frame == frame
+
+    def test_non_roll_orientation_raises(
+        self,
+        valid_tso_metadata: DatasetMetadata,
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        orientation_key = ProprioKey.RELATIVE_PIVOT_ROLL.value
+        observations = {
+            **valid_tso_metadata.observations,
+            orientation_key: orientation_observation_metadata_factory(
+                dimension=4,
+                frame=CoordinateSystem.UNKNOWN.value,
+                orientation_representation=OrientationRepresentation.QUATERNION.value,
+                raw_data_column_keys=["x", "y", "z", "w"],
+            ),
+        }
+        metadata = dataset_metadata_factory(
+            observations=observations, precomputed_actions={}
+        )
+        expected_message = (
+            "TSODatasetSchema validation failed:\n"
+            f"  - '{orientation_key}' must use orientation_representation="
+            f"'{OrientationRepresentation.ROLL.value}', got: "
+            f"'{OrientationRepresentation.QUATERNION.value}'"
+        )
+
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             TSODatasetSchema(
                 dataset_folders=["/data/ep1"],

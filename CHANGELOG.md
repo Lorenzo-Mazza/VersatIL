@@ -10,8 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Interleaved VLM decoders retain gradients through frozen language layers
   when training vision adapters.
-- Constrain `versatil-constants` to versions below 0.3.0 while VersatIL imports
-  the legacy TSO orientation keys removed by that release.
 - Mixed-precision training keeps trainable parameters in float32 storage, so optimizer updates no longer round away in bf16. This unblocks autoregressive OpenVLA LoRA fine-tuning, whose adapters previously never left their initialization.
 - Forward passes outside the Lightning loop (synthetic rollout evaluation, prior target standardization, explainability attribution, encoder shape probing) run under the same autocast as training instead of crashing on mixed-precision policies.
 - MoDE-ACT mixture heads initialize from aligned demonstrated action chunks with
@@ -23,11 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Miniforge/Mamba.
 
 ### Added
+- Endoscope guidance CSV and LeRobot schemas, camera-frame position and scalar
+  pivot-roll actions, and 25 training presets with observation histories of one,
+  two, or five frames.
+- Delta/next-timestep metadata for precomputed orientation actions, including
+  the action metadata sent during deployment.
 - Vision-only LoRA targeting for PaliGemma, SmolVLM, and Prismatic backbones,
   including their projectors or connectors.
 - The publish workflow verifies each release by installing it from PyPI in clean pip and uv environments and running a training smoke test.
 
 ### Changed
+- Use `RELATIVE_PIVOT_ROLL` for TSO roll observations and remove the unsupported
+  `ROBOT_FRAME_CARTESIAN_TIP_ORI` and `CAMERA_FRAME_CARTESIAN_TIP_ORI` enum members.
+  Require `versatil-constants>=0.2.2` and remove the temporary pre-0.3 upper bound.
+- The shared `stereo_rgb_language_encoder` preset runs the full frozen language
+  model instead of only its token embeddings. This also changes the language
+  features used by existing LIBERO presets that compose it.
 - Rename `LoRATargetModulePreset` to `PEFTTargetModulePreset` for adaptation
   target selection. Update direct imports of the old enum name.
 - OpenVLA and OpenVLA-OFT presets train LoRA with the recipe learning rate of 5e-4.

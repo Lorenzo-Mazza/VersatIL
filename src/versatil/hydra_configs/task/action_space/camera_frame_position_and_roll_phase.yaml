@@ -1,0 +1,13 @@
+defaults:
+  - camera_frame_position_and_roll
+  - _self_
+
+actions_metadata:
+  ${tso_obs_key:PHASE_LABEL}:
+    _target_: versatil.data.metadata.PrecomputedActionMetadata
+    raw_data_column_keys: [task_phase]
+    dtype: uint8
+    storage_dimension: 1
+    prediction_dimension: 6
+    is_numerical: false
+    needs_normalization: false

@@ -16,6 +16,7 @@ from versatil.data.constants import (
     DatasetType,
     GripperType,
     ObsKey,
+    OrientationRepresentation,
     ProprioKey,
 )
 from versatil.data.metadata import CameraMetadata, ObservationMetadata
@@ -33,6 +34,7 @@ ALLOWED_POS_OBS_KEYS = {
     ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
     ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
 }
+ALLOWED_ORI_OBS_KEYS = {ProprioKey.RELATIVE_PIVOT_ROLL.value}
 TSO_GRIPPER_COL = "open"
 TSO_PHASE_COL = "task_phase"
 TSO_LANGUAGE_COL = "language"
@@ -46,6 +48,7 @@ class TSODatasetSchema(CsvDatasetSchema):
 
     These datasets can contain:
     - 3D cartesian position in robot and camera frames
+    - Roll orientation around the pivot point
     - Binary gripper state (open/close)
     - Optional task phase labels
     - Stereo camera images (left, right) with optional depth
@@ -146,10 +149,27 @@ class TSODatasetSchema(CsvDatasetSchema):
                     f"'{ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value}' must have frame='{CoordinateSystem.CAMERA.value}', "
                     f"got: '{obs.frame}'"
                 )
-        if metadata.orientation_observations:
+        orientation_keys = set(metadata.orientation_observations)
+        invalid_orientation_keys = orientation_keys - ALLOWED_ORI_OBS_KEYS
+        if invalid_orientation_keys:
             errors.append(
-                "TSODatasetSchema does not support orientation proprioceptive observations."
+                "Invalid orientation observation keys: "
+                f"{sorted(invalid_orientation_keys)}. "
+                "TSODatasetSchema requires keys from: "
+                f"{sorted(ALLOWED_ORI_OBS_KEYS)}"
             )
+        for key, observation in metadata.orientation_observations.items():
+            if key not in ALLOWED_ORI_OBS_KEYS:
+                continue
+            if (
+                observation.orientation_representation
+                != OrientationRepresentation.ROLL.value
+            ):
+                errors.append(
+                    f"'{key}' must use orientation_representation="
+                    f"'{OrientationRepresentation.ROLL.value}', got: "
+                    f"'{observation.orientation_representation}'"
+                )
         for gripper_observation in metadata.gripper_observations.values():
             if gripper_observation.gripper_type != GripperType.BINARY.value:
                 errors.append(

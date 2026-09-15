@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - /end_to_end_training_runs/endoscope_guidance_phantom_5hz/phase_act_proprio_history_5
+  - _self_
+
+task:
+  observation_horizon: 2

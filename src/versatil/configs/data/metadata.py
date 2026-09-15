@@ -272,11 +272,13 @@ class OrientationActionMetadataConfig(BasePrecomputedActionMetadataConfig):
         _target_: Import path instantiated by Hydra.
         frame: Coordinate frame of the orientation, camera or robot base.
         orientation_representation: Representation of the orientation.
+        computation_method: Whether actions are deltas or next-timestep orientations.
     """
 
     _target_: str = "versatil.data.metadata.OrientationActionMetadata"
     frame: str = MISSING
     orientation_representation: str = MISSING
+    computation_method: str | None = None
 
 
 @dataclass

@@ -1,0 +1,12 @@
+defaults:
+  - stereo_rgb_camera_frame_position_and_roll_lerobot
+  - _self_
+
+observations_metadata:
+  ${obs_key:LANGUAGE}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [task]
+    dtype: str
+    dimension: 1
+    is_numerical: false
+    needs_normalization: false

@@ -1,9 +1,10 @@
 """Tests for versatil.data.preprocessing.create_zarr_from_csv module."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from versatil.data.preprocessing.create_zarr_from_csv import (
     _iter_csv_episodes,
@@ -100,36 +101,71 @@ class TestCreateReplayBuffer:
 
         mock_create_zarr.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("unsorted_paths", "expected_paths"),
+        [
+            (
+                ["/data/10/ep.csv", "/data/2/ep.csv", "/data/1/ep.csv"],
+                ["/data/1/ep.csv", "/data/2/ep.csv", "/data/10/ep.csv"],
+            ),
+            (
+                [
+                    "/data/overview_20260827_165404_501912/episode.csv",
+                    "/data/focus_20260827_164102_692903/episode.csv",
+                    "/data/focus_20260827_162700_091746/episode.csv",
+                ],
+                [
+                    "/data/focus_20260827_162700_091746/episode.csv",
+                    "/data/focus_20260827_164102_692903/episode.csv",
+                    "/data/overview_20260827_165404_501912/episode.csv",
+                ],
+            ),
+            (
+                [
+                    "/data/overview_20260827_165404_501912/episode.csv",
+                    "/data/10/episode.csv",
+                    "/data/focus_20260827_162700_091746/episode.csv",
+                    "/data/2/episode.csv",
+                ],
+                [
+                    "/data/2/episode.csv",
+                    "/data/10/episode.csv",
+                    "/data/focus_20260827_162700_091746/episode.csv",
+                    "/data/overview_20260827_165404_501912/episode.csv",
+                ],
+            ),
+        ],
+    )
     @patch("versatil.data.preprocessing.create_zarr_from_csv.pd.read_csv")
     @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")
-    def test_paths_sorted_by_numeric_parent_directory_name(
+    def test_paths_sorted_by_parent_directory_name(
         self,
-        mock_create_zarr,
-        mock_read_csv,
+        mock_create_zarr: MagicMock,
+        mock_read_csv: MagicMock,
         mock_schema_factory: Callable[..., MagicMock],
-    ):
+        unsorted_paths: list[str],
+        expected_paths: list[str],
+    ) -> None:
         mock_read_csv.return_value = MagicMock()
-        call_order = []
         schema = mock_schema_factory(cameras={})
-        schema.extract_episode.side_effect = lambda episode: {
+        schema.extract_episode.return_value = {
             "position": np.zeros((5, 3), dtype=np.float32)
         }
 
-        def capture_episodes(schema, episodes, total_episodes):
-            for episode in episodes:
-                call_order.append(episode)
+        def consume_episodes(
+            schema: MagicMock,
+            episodes: Iterable[dict[str, np.ndarray]],
+            total_episodes: int,
+        ) -> None:
+            del schema, total_episodes
+            list(episodes)
 
-        mock_create_zarr.side_effect = capture_episodes
-        unsorted_paths = [
-            "/data/10/ep.csv",
-            "/data/2/ep.csv",
-            "/data/1/ep.csv",
-        ]
+        mock_create_zarr.side_effect = consume_episodes
 
         create_replay_buffer(schema=schema, datasets_paths=unsorted_paths)
 
-        read_paths = [c.args[0] for c in mock_read_csv.call_args_list]
-        assert read_paths == ["/data/1/ep.csv", "/data/2/ep.csv", "/data/10/ep.csv"]
+        read_paths = [call.args[0] for call in mock_read_csv.call_args_list]
+        assert read_paths == expected_paths
 
     @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")
     def test_total_episodes_matches_number_of_paths(

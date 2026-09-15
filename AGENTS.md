@@ -283,6 +283,11 @@ Raw Episodes (CSV)
   → Policy
 ```
 
+Endoscope guidance schemas support stereo RGB, camera-frame tip position,
+and scalar `RELATIVE_PIVOT_ROLL`. LeRobot presets load precomputed delta actions
+under `ActionComponent.POSITION` and `ActionComponent.ORIENTATION`; CSV presets
+compute deltas from observations. Roll uses `OrientationRepresentation.ROLL`.
+
 **Key Classes**:
 - **ReplayBuffer** (`src/versatil/data/preprocessing/replay_buffer.py`): Converts episodes to Zarr
 - **EpisodicDataset** (`src/versatil/data/episodic_dataset.py`): Loads temporal windows from Zarr

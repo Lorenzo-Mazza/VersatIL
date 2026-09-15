@@ -672,8 +672,7 @@ class PositionActionMetadata(PrecomputedActionMetadata):
         return (
             super().__eq__(other)
             and self.frame == other.frame
-            and getattr(self, "computation_method", None)
-            == getattr(other, "computation_method", None)
+            and self.computation_method == other.computation_method
         )
 
 
@@ -682,6 +681,8 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
 
     Attributes:
         orientation_representation: Representation of the orientation.
+        computation_method: Optional interpretation of the stored orientation as
+            an absolute next value or a delta.
     """
 
     def __init__(
@@ -695,6 +696,7 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
         dtype: str,
         slice_start: int | None = None,
         slice_end: int | None = None,
+        computation_method: str | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -714,10 +716,18 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
             raise ValueError(
                 f"orientation_representation must be one of {valid_methods}, got '{orientation_representation}'"
             )
+        if computation_method is not None:
+            valid_computation_methods = [e.value for e in ActionComputationMethod]
+            if computation_method not in valid_computation_methods:
+                raise ValueError(
+                    "computation_method must be one of "
+                    f"{valid_computation_methods}, got '{computation_method}'"
+                )
         self.raw_data_column_keys = raw_data_column_keys
         self.storage_dimension = storage_dimension
         self.frame = frame
         self.orientation_representation = orientation_representation
+        self.computation_method = computation_method
         self.action_type = ProprioceptiveType.ORIENTATION.value
 
     def __eq__(self, other: object) -> bool:
@@ -728,6 +738,7 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
             super().__eq__(other)
             and self.frame == other.frame
             and self.orientation_representation == other.orientation_representation
+            and self.computation_method == other.computation_method
         )
 
 

@@ -569,6 +569,63 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         assert ObsKey.LANGUAGE.value in data
         assert data[ObsKey.LANGUAGE.value].tolist() == [["pick bowl"], ["pick bowl"]]
 
+    def test_scalar_observation_and_action_have_explicit_feature_dimension(
+        self,
+        precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        phase_observation = ObservationMetadata(
+            raw_data_column_keys=["task_phase"],
+            dimension=1,
+            dtype="int64",
+            is_numerical=True,
+            needs_normalization=False,
+        )
+        phase_action = precomputed_action_metadata_factory(
+            raw_data_column_keys=["task_phase"],
+            storage_dimension=1,
+            prediction_dimension=1,
+            dtype="int64",
+            needs_normalization=False,
+        )
+        metadata = dataset_metadata_factory(
+            observations={"phase_observation": phase_observation},
+            precomputed_actions={"phase_action": phase_action},
+        )
+        schema = LeRobotDatasetSchemaV30(
+            dataset_path="/data/ds",
+            zarr_path="/tmp/test.zarr",
+            metadata=metadata,
+            dataset_type="test",
+        )
+        episode_table = pa.table(
+            {
+                "task_phase": [0, 1, 2],
+                "timestamp": [0.0, 0.1, 0.2],
+                "task_index": [0, 0, 0],
+                "frame_index": [0, 1, 2],
+                "episode_index": [0, 0, 0],
+            }
+        )
+
+        with (
+            patch.object(schema, "get_episode_parquet", return_value=episode_table),
+            patch.object(
+                schema,
+                "get_episode_language_instructions",
+                return_value=[["pick"]] * 3,
+            ),
+            patch.object(schema, "get_episode_videos_frames", return_value={}),
+            patch.object(schema, "get_episode_images", return_value={}),
+        ):
+            data = schema.extract_episode(episode_id=0)
+
+        assert data["phase_observation"].shape == (3, 1)
+        assert data["phase_action"].shape == (3, 1)
+        np.testing.assert_array_equal(
+            data["phase_observation"][:, 0], np.array([0, 1, 2])
+        )
+
     def test_missing_camera_key_raises(
         self,
         rng: np.random.Generator,

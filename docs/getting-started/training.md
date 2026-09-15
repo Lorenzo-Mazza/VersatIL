@@ -18,6 +18,48 @@ python -m versatil.endpoints.train --config-name end_to_end_training_runs/bowel_
 python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_hdf5/act
 ```
 
+## Endoscope Guidance
+
+The `endoscope_guidance_phantom_5hz` presets train on LeRobot V3 datasets with
+stereo RGB images, camera-frame tip position, and scalar pivot roll. Set
+`VERSATIL_ENDOSCOPE_GUIDANCE_PHANTOM_5HZ_LEROBOT_DIR` in `.env` to the dataset
+directory, alongside the cache, Zarr, and checkpoint paths in `.env.example`.
+
+The dataset schema expects `observation.images.left` and
+`observation.images.right`, an `observation.state` vector containing three
+position values followed by roll, and an `action` vector containing the
+corresponding four deltas. It also reads language instructions from the task
+metadata and the scalar `task_phase` column; phase-conditioned presets use six
+phase classes.
+
+```bash
+python -m versatil.endpoints.train \
+    --config-name end_to_end_training_runs/endoscope_guidance_phantom_5hz/act_proprio_history_5
+
+python -m versatil.endpoints.train \
+    --config-name end_to_end_training_runs/endoscope_guidance_phantom_5hz/smolvla_lora_language_proprio_history_5
+```
+
+Presets cover ACT, phase ACT, BC transformers, flow MMDiT, GPT with FAST actions,
+pi0-FAST, and SmolVLA. The `_proprio_history_1`, `_proprio_history_2`, and
+`_proprio_history_5` variants select the observation history; each predicts ten
+action steps. The SmolVLA LoRA variants adapt vision backbones and connectors
+while keeping text-model weights frozen.
+
+CSV schema groups are also available as `endoscope_guidance_phantom_5hz` and
+`endoscope_guidance_phantom_5hz_phase`. They use
+`VERSATIL_ENDOSCOPE_GUIDANCE_PHANTOM_5HZ_DIR`, stereo image paths, camera-frame
+position columns, and `relative_pivot_roll`. Compose them with the matching CSV
+observation spaces, on-the-fly action spaces, action heads, and losses; their
+action keys follow the source observation keys rather than LeRobot's
+`position`/`orientation` keys.
+
+For custom configs, scalar roll uses `RELATIVE_PIVOT_ROLL` and the `ROLL`
+orientation representation. The old TSO Cartesian orientation enum members
+have been removed. The shared `stereo_rgb_language_encoder` now produces full
+language-model features; set `encoders.instruction.use_embeddings_only: true`
+on that pipeline to retain embedding-only behavior in an existing experiment.
+
 ## CLI Overrides
 
 Hydra allows overriding any configuration parameter from the command line without editing YAML files.
