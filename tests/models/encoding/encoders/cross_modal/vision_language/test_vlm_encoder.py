@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -22,6 +22,7 @@ from versatil.data.metadata import BaseMetadata, CameraMetadata, RGBCameraMetada
 from versatil.models.adaptation.constants import PEFTTargetModulePreset
 from versatil.models.adaptation.lora import LoRAAdaptation
 from versatil.models.encoding.encoders.constants import (
+    AttentionImplementation,
     EncoderOutputKeys,
     ImageTextModelType,
     PoolingMethod,
@@ -69,7 +70,23 @@ def _create_mock_encoder() -> MagicMock:
 
 
 @pytest.fixture
-def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
+def vlm_loader_factory() -> Callable[[], MagicMock]:
+    def factory() -> MagicMock:
+        loaders = MagicMock()
+        encoder = _create_mock_encoder()
+        loaders.config.return_value = MagicMock()
+        loaders.pretrained_model.return_value = encoder
+        loaders.model_from_config.return_value = encoder
+        loaders.image_processor.return_value = MagicMock(side_effect=_process_images)
+        return loaders
+
+    return factory
+
+
+@pytest.fixture
+def vlm_encoder_factory(
+    vlm_loader_factory: Callable[[], MagicMock],
+) -> Callable[..., VLMEncoder]:
     """Factory for VLMEncoder with mocked HuggingFace model downloads."""
 
     def factory(
@@ -79,29 +96,30 @@ def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
         pooling_method: str = PoolingMethod.DEFAULT.value,
         model_name: str = ImageTextModelType.CLIP_VITB32.value,
         lora_config: LoRAAdaptation | None = None,
+        attention_type: str = AttentionImplementation.SDPA.value,
+        loaders: MagicMock | None = None,
     ) -> VLMEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value]
-        mock_encoder = _create_mock_encoder()
-        mock_config = MagicMock()
-        mock_image_processor = MagicMock(side_effect=_process_images)
+        if loaders is None:
+            loaders = vlm_loader_factory()
 
         with (
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoConfig.from_pretrained",
-                return_value=mock_config,
+                new=loaders.config,
             ),
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoModel.from_pretrained",
-                return_value=mock_encoder,
+                new=loaders.pretrained_model,
             ),
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoModel.from_config",
-                return_value=mock_encoder,
+                new=loaders.model_from_config,
             ),
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.AutoImageProcessor.from_pretrained",
-                return_value=mock_image_processor,
+                new=loaders.image_processor,
             ),
         ):
             return VLMEncoder(
@@ -111,6 +129,7 @@ def vlm_encoder_factory() -> Callable[..., VLMEncoder]:
                 pooling_method=pooling_method,
                 model_name=model_name,
                 lora_config=lora_config,
+                attention_type=attention_type,
             )
 
     return factory
@@ -234,6 +253,86 @@ def real_vlm_encoder_factory() -> Callable[..., VLMEncoder]:
 
 
 class TestVLMEncoderInitialization:
+    @pytest.mark.parametrize("pretrained", [False, True])
+    @pytest.mark.parametrize(
+        "model_name, attention_type",
+        [
+            (ImageTextModelType.CLIP_VITB32.value, AttentionImplementation.SDPA.value),
+            (
+                ImageTextModelType.SIGLIP_SO400M.value,
+                AttentionImplementation.EAGER.value,
+            ),
+        ],
+    )
+    def test_loads_model_and_processor_with_requested_configuration(
+        self,
+        vlm_encoder_factory: Callable[..., VLMEncoder],
+        vlm_loader_factory: Callable[[], MagicMock],
+        pretrained: bool,
+        model_name: str,
+        attention_type: str,
+    ) -> None:
+        loaders = vlm_loader_factory()
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.apply_lora_config",
+                side_effect=_return_model,
+            ) as apply_lora,
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.create_token_pooling_head",
+                return_value=MagicMock(output_dim=32),
+            ) as create_pooling_head,
+        ):
+            encoder = vlm_encoder_factory(
+                pretrained=pretrained,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                model_name=model_name,
+                attention_type=attention_type,
+                lora_config=None,
+                loaders=loaders,
+            )
+
+        loaders.config.assert_called_once_with(model_name)
+        if pretrained:
+            loaders.pretrained_model.assert_called_once_with(
+                model_name, attn_implementation=attention_type
+            )
+            loaders.model_from_config.assert_not_called()
+        else:
+            loaders.model_from_config.assert_called_once_with(
+                loaders.config.return_value, attn_implementation=attention_type
+            )
+            loaders.pretrained_model.assert_not_called()
+        loaders.image_processor.assert_called_once_with(
+            model_name,
+            do_rescale=False,
+            do_normalize=False,
+            do_convert_rgb=False,
+            do_resize=False,
+        )
+        apply_lora.assert_called_once_with(
+            model=loaders.model_from_config.return_value,
+            lora_config=None,
+            frozen=False,
+            scoped_modules=[loaders.model_from_config.return_value.vision_model],
+        )
+        assert create_pooling_head.call_args_list == [
+            call(
+                pooling_method=PoolingMethod.DEFAULT.value,
+                input_dimension=HIDDEN_VISION_DIM,
+                num_prefix_tokens=1,
+            ),
+            call(
+                pooling_method=PoolingMethod.DEFAULT.value,
+                input_dimension=HIDDEN_LANGUAGE_DIM,
+                sequence_length=MAX_TEXT_LENGTH,
+                num_prefix_tokens=0,
+            ),
+        ]
+        assert encoder.encoder == loaders.model_from_config.return_value
+        assert encoder.image_processor == loaders.image_processor.return_value
+
     def test_has_encoder_interface(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],

@@ -420,15 +420,23 @@ def vlm_input_factory(
         sequence_length: int = 10,
         vocabulary_size: int = 1000,
         include_padding_mask: bool = False,
+        image_value: float | None = None,
+        token_value: int | None = None,
     ) -> dict[str, torch.Tensor]:
         image_shape = (batch_size, time_steps, channels, height, width)
         text_shape = (batch_size, time_steps, sequence_length)
         result = {
-            camera_key: torch.from_numpy(
-                rng.standard_normal(image_shape).astype(np.float32)
+            camera_key: (
+                torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
+                if image_value is None
+                else torch.full(image_shape, image_value, dtype=torch.float32)
             ),
-            SampleKey.TOKENIZED_OBSERVATIONS.value: torch.from_numpy(
-                rng.integers(low=0, high=vocabulary_size, size=text_shape)
+            SampleKey.TOKENIZED_OBSERVATIONS.value: (
+                torch.from_numpy(
+                    rng.integers(low=0, high=vocabulary_size, size=text_shape)
+                )
+                if token_value is None
+                else torch.full(text_shape, token_value, dtype=torch.long)
             ),
         }
         if include_padding_mask:

@@ -984,6 +984,8 @@ class TestPrismaticVLMForward:
 @pytest.mark.parametrize("lora_enabled", [False, True])
 def test_forward_pass_with_real_tiny_modules(
     lora_config_factory: Callable[..., LoRAAdaptation],
+    vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+    padding_mask_factory: Callable[..., torch.Tensor],
     tiny_prismatic_backbone_factory: Callable[..., PrismaticVLM],
     lora_enabled: bool,
     parameter_count: Callable[[torch.nn.Module], int],
@@ -1001,31 +1003,27 @@ def test_forward_pass_with_real_tiny_modules(
         else None
     )
     backbone = tiny_prismatic_backbone_factory(lora_config=lora_config)
-    inputs = {
-        Cameras.LEFT.value: torch.zeros(
-            batch_size,
-            3,
-            backbone.image_size,
-            backbone.image_size,
-        ),
-        SampleKey.TOKENIZED_OBSERVATIONS.value: torch.zeros(
-            batch_size,
-            4,
-            dtype=torch.long,
-        ),
-    }
+    inputs = vlm_input_factory(
+        batch_size=batch_size,
+        time_steps=1,
+        height=backbone.image_size,
+        width=backbone.image_size,
+        sequence_length=4,
+        image_value=0.0,
+        token_value=0,
+    )
+    image_conditioned_inputs = vlm_input_factory(
+        batch_size=batch_size,
+        time_steps=1,
+        height=backbone.image_size,
+        width=backbone.image_size,
+        sequence_length=4,
+        image_value=1.0,
+        token_value=0,
+    )
 
     with torch.no_grad():
         output = backbone(inputs=inputs)
-        image_conditioned_inputs = {
-            **inputs,
-            Cameras.LEFT.value: torch.ones(
-                batch_size,
-                3,
-                backbone.image_size,
-                backbone.image_size,
-            ),
-        }
         image_conditioned_output = backbone(inputs=image_conditioned_inputs)
 
     fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
@@ -1035,15 +1033,20 @@ def test_forward_pass_with_real_tiny_modules(
     padding_mask = output[backbone.padding_mask_name]
     assert fused.shape == (
         batch_size,
+        1,
         backbone.num_image_tokens_per_camera + backbone.max_text_length,
         TINY_PRISMATIC_HIDDEN_DIMENSION,
     )
     assert padding_mask.shape == (
         batch_size,
+        1,
         backbone.num_image_tokens_per_camera + backbone.max_text_length,
     )
-    expected_padding_mask = torch.zeros_like(padding_mask)
-    expected_padding_mask[:, -2:] = True
+    expected_padding_mask = padding_mask_factory(
+        batch_size=batch_size,
+        sequence_length=backbone.num_image_tokens_per_camera + backbone.max_text_length,
+        mask_last_n=2,
+    ).unsqueeze(dim=1)
     torch.testing.assert_close(padding_mask, expected_padding_mask)
     assert not torch.allclose(fused, image_conditioned_fused)
     if lora_enabled:
@@ -1103,7 +1106,7 @@ def test_vision_lora_receives_gradients_from_real_tiny_modules(
             and parameter.grad.abs().sum() > 0
             for name, parameter in trainable_parameters
         )
-        for scope in ("vision_encoders.", "projector.")
+        for scope in ("vision_encoders.0.", "vision_encoders.1.", "projector.")
     )
     assert not any(
         name.startswith("language_model.") for name, _ in trainable_parameters

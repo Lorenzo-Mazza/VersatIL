@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 import pytest
+import torch
 
 from versatil.data.constants import Cameras
 from versatil.models.adaptation.lora import LoRAAdaptation
@@ -17,6 +18,26 @@ from versatil.training.constants import PrecisionType
 VLM_INPUT_KEYS = [
     Cameras.LEFT.value,
 ]
+
+
+@pytest.fixture
+def language_input_factory(
+    padding_mask_factory: Callable[..., torch.Tensor],
+) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
+    def factory(
+        token_ids: list[int],
+        batch_size: int = 1,
+        padded_from: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        tokens = torch.tensor(token_ids, dtype=torch.long).repeat(batch_size, 1)
+        padding_mask = padding_mask_factory(
+            batch_size=batch_size,
+            sequence_length=len(token_ids),
+            padded_from=padded_from,
+        )
+        return tokens, (~padding_mask).to(dtype=torch.long)
+
+    return factory
 
 
 def _lora_cache_key(

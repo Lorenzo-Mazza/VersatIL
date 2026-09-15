@@ -815,6 +815,7 @@ class TestPaliGemmaVLMIntegration:
     def test_forward_language_model_with_real_peft_resized_vocabulary(
         self,
         lora_config_factory: Callable[..., LoRAAdaptation],
+        language_input_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
         real_paligemma_backbone: Callable[..., PaliGemmaVLM],
     ) -> None:
         lora_config = lora_config_factory(
@@ -833,13 +834,20 @@ class TestPaliGemmaVLMIntegration:
         backbone.eval()
         resized_vocab_size = backbone.get_vocab_size() + 1
         backbone.resize_token_embeddings(vocabulary_size=resized_vocab_size)
-        token_ids = torch.tensor([[0, resized_vocab_size - 1]], dtype=torch.long)
-        attention_mask = torch.ones_like(token_ids)
+        token_ids, attention_mask = language_input_factory(
+            token_ids=[0, resized_vocab_size - 1],
+        )
         inputs_embeds = backbone.embed_input_ids(token_ids=token_ids)
 
         with torch.no_grad():
             output = backbone.forward_language_model(
                 inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                use_cache=True,
+            )
+
+            output_from_token_ids = backbone.forward_language_model(
+                input_ids=token_ids,
                 attention_mask=attention_mask,
                 use_cache=True,
             )
@@ -851,6 +859,7 @@ class TestPaliGemmaVLMIntegration:
         )
         assert output.hidden_states[-1].shape == inputs_embeds.shape
         assert output.past_key_values is not None
+        torch.testing.assert_close(output.logits, output_from_token_ids.logits)
 
     @pytest.mark.integration
     def test_backbone_accessors_return_real_modules(
