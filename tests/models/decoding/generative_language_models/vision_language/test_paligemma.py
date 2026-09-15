@@ -102,11 +102,13 @@ def paligemma_backbone_factory(
         input_keys: str | list[str] | None = None,
         pretrained: bool = False,
         frozen: bool = False,
+        lora_config: LoRAAdaptation | None = None,
+        model: MagicMock | None = None,
     ) -> PaliGemmaVLM:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value]
         mock_config = _create_mock_config()
-        mock_vlm = mock_vlm_factory()
+        mock_vlm = mock_vlm_factory() if model is None else model
 
         with (
             patch(
@@ -127,6 +129,7 @@ def paligemma_backbone_factory(
                 pretrained=pretrained,
                 frozen=frozen,
                 model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
+                lora_config=lora_config,
             )
 
     return factory
@@ -188,6 +191,44 @@ def _setup_mock_vlm_for_batch(
 
 @pytest.mark.unit
 class TestPaliGemmaVLMInitialization:
+    @pytest.mark.parametrize("pretrained", [False, True])
+    def test_applies_lora_to_loaded_vlm(
+        self,
+        lora_config_factory: Callable[..., LoRAAdaptation],
+        mock_vlm_factory: Callable[..., MagicMock],
+        paligemma_backbone_factory: Callable[..., PaliGemmaVLM],
+        pretrained: bool,
+    ) -> None:
+        model = mock_vlm_factory()
+        adapted_model = mock_vlm_factory()
+        lora_config = lora_config_factory(
+            enabled=True,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        )
+        with patch(
+            "versatil.models.decoding.generative_language_models.vision_language.huggingface.apply_lora_config",
+            autospec=True,
+            return_value=adapted_model,
+        ) as apply_lora:
+            backbone = paligemma_backbone_factory(
+                pretrained=pretrained,
+                frozen=False,
+                lora_config=lora_config,
+                model=model,
+            )
+
+        apply_lora.assert_called_once_with(
+            model=model,
+            lora_config=lora_config,
+            frozen=False,
+            scoped_modules=[
+                model.model.vision_tower,
+                model.model.multi_modal_projector,
+            ],
+        )
+        assert backbone.vlm == adapted_model
+        assert backbone.lora_config == lora_config
+
     @pytest.mark.parametrize(
         "input_keys, expected_camera_count",
         [

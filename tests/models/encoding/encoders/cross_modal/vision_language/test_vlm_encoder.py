@@ -78,6 +78,7 @@ def vlm_loader_factory() -> Callable[[], MagicMock]:
         loaders.pretrained_model.return_value = encoder
         loaders.model_from_config.return_value = encoder
         loaders.image_processor.return_value = MagicMock(side_effect=_process_images)
+        loaders.pooling_head.output_dim = 32
         return loaders
 
     return factory
@@ -280,7 +281,7 @@ class TestVLMEncoderInitialization:
             ) as apply_lora,
             patch(
                 "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.create_token_pooling_head",
-                return_value=MagicMock(output_dim=32),
+                return_value=loaders.pooling_head,
             ) as create_pooling_head,
         ):
             encoder = vlm_encoder_factory(
@@ -394,29 +395,48 @@ class TestVLMEncoderInitialization:
         )
         assert encoder.padding_mask_name == expected
 
+    @pytest.mark.parametrize("pretrained", [False, True])
     def test_applies_lora_to_loaded_model(
         self,
         lora_config_factory: Callable[..., LoRAAdaptation],
+        vlm_loader_factory: Callable[[], MagicMock],
         vlm_encoder_factory: Callable[..., VLMEncoder],
+        pretrained: bool,
     ) -> None:
+        loaders = vlm_loader_factory()
+        model = loaders.model_from_config.return_value
+        adapted_model = vlm_loader_factory().model_from_config.return_value
         lora_config = lora_config_factory(
             enabled=True,
-            target_modules=PEFTTargetModulePreset.ALL_LINEAR.value,
+            target_modules=PEFTTargetModulePreset.VLM_VISION_MODULES.value,
         )
 
-        with patch(
-            "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.apply_lora_config",
-            side_effect=_return_model,
-        ) as mock_apply_lora:
-            encoder = vlm_encoder_factory(lora_config=lora_config)
+        with (
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.apply_lora_config",
+                autospec=True,
+                return_value=adapted_model,
+            ) as mock_apply_lora,
+            patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.vlm_encoder.create_token_pooling_head",
+                return_value=loaders.pooling_head,
+            ),
+        ):
+            encoder = vlm_encoder_factory(
+                pretrained=pretrained,
+                frozen=False,
+                lora_config=lora_config,
+                loaders=loaders,
+            )
 
-        mock_apply_lora.assert_called_once()
-        assert mock_apply_lora.call_args.kwargs["lora_config"] is lora_config
-        assert mock_apply_lora.call_args.kwargs["frozen"] is False
-        assert mock_apply_lora.call_args.kwargs["scoped_modules"] == [
-            encoder.encoder.vision_model
-        ]
-        assert encoder.lora_config is lora_config
+        mock_apply_lora.assert_called_once_with(
+            model=model,
+            lora_config=lora_config,
+            frozen=False,
+            scoped_modules=[model.vision_model],
+        )
+        assert encoder.encoder == adapted_model
+        assert encoder.lora_config == lora_config
 
 
 class TestVLMEncoderPadTextInputs:
