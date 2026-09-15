@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Pin Hydra to 1.4.0.dev5 and OmegaConf to 2.4.0.dev12.
 - Updated PyTorch to 2.13, TorchVision to 0.28, TorchAO to 0.18 and ExecuTorch
   to 1.4.1, with ExecuTorch wheel installation on Python 3.13 and 3.14.
 - Newly materialized Zarr datasets group image chunks into configurable storage
