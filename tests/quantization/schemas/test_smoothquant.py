@@ -9,8 +9,17 @@ import numpy as np
 import pytest
 import torch
 from torch import nn
-from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+from torchao.core.config import AOBaseConfig
+from torchao.quantization import (
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
+    quantize_,
+)
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
+from torchao.quantization.quantize_.workflows.int4.int4_packing_format import (
+    Int4PackingFormat,
+)
 
 from versatil.quantization.schemas.smoothquant import SmoothQuantSchema
 
@@ -24,6 +33,7 @@ def variable_length_linear_factory(
     def factory(
         input_shapes: list[tuple[int, ...]],
         device: torch.device,
+        dtype: torch.dtype,
     ) -> tuple[nn.Module, list[torch.Tensor]]:
         model = nn.Sequential(
             nn.Linear(in_features=32, out_features=16, bias=False)
@@ -33,10 +43,10 @@ def variable_length_linear_factory(
         )  # (output_channels, input_channels)
         with torch.no_grad():
             model[0].weight.copy_(weight)  # (output_channels, input_channels)
-        model.to(device=device)
+        model.to(device=device, dtype=dtype)
         inputs = [
             torch.from_numpy(rng.standard_normal(shape).astype(np.float32)).to(
-                device=device
+                device=device, dtype=dtype
             )  # (..., input_channels)
             for shape in input_shapes
         ]
@@ -48,14 +58,51 @@ def variable_length_linear_factory(
 @pytest.mark.integration
 @pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0])
 @pytest.mark.parametrize(
-    "input_shapes,device",
+    "input_shapes, device, deployment_device, weight_bits, dtype",
     [
-        pytest.param([(2, 3, 32), (2, 1, 32), (2, 32)], torch.device("cpu"), id="cpu"),
+        pytest.param(
+            [(2, 3, 32), (2, 1, 32), (2, 32)],
+            torch.device("cpu"),
+            torch.device("cpu"),
+            8,
+            torch.float32,
+            id="cpu",
+        ),
         pytest.param(
             [(2, 16, 32), (2, 24, 32), (32, 32)],
             torch.device("cuda"),
+            torch.device("cuda"),
+            8,
+            torch.float32,
             marks=pytest.mark.requires_gpu,
             id="cuda",
+        ),
+        pytest.param(
+            [(2, 16, 32), (2, 24, 32), (32, 32)],
+            torch.device("cuda"),
+            torch.device("cpu"),
+            8,
+            torch.float32,
+            marks=pytest.mark.requires_gpu,
+            id="cuda_to_cpu",
+        ),
+        pytest.param(
+            [(2, 3, 32), (2, 1, 32), (2, 32)],
+            torch.device("cuda"),
+            torch.device("cuda"),
+            4,
+            torch.bfloat16,
+            marks=pytest.mark.requires_gpu,
+            id="int4_cuda",
+        ),
+        pytest.param(
+            [(2, 3, 32), (2, 1, 32), (2, 32)],
+            torch.device("cpu"),
+            torch.device("cuda"),
+            4,
+            torch.bfloat16,
+            marks=pytest.mark.requires_gpu,
+            id="int4_cpu_to_cuda",
         ),
     ],
 )
@@ -64,12 +111,26 @@ def test_variable_length_calibration_preserves_channel_maxima_and_smoothing_fact
     alpha: float,
     input_shapes: list[tuple[int, ...]],
     device: torch.device,
+    deployment_device: torch.device,
+    weight_bits: int,
+    dtype: torch.dtype,
 ) -> None:
     model, inputs = variable_length_linear_factory(
-        input_shapes=input_shapes, device=device
+        input_shapes=input_shapes, device=device, dtype=dtype
     )
     schema = SmoothQuantSchema(
-        base_config=Int8DynamicActivationInt8WeightConfig(version=2), alpha=alpha
+        base_config=(
+            Int4WeightOnlyConfig(
+                version=2,
+                group_size=32,
+                int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D,
+            )
+            if weight_bits == 4
+            else Int8DynamicActivationInt8WeightConfig(
+                version=2, weight_only_decode=False
+            )
+        ),
+        alpha=alpha,
     )
     flat_inputs = [
         activation.reshape(-1, 32) for activation in inputs
@@ -93,19 +154,61 @@ def test_variable_length_calibration_preserves_channel_maxima_and_smoothing_fact
     torch.testing.assert_close(stored_maxima, activation_maxima)
     assert model[0].obs.calibration_count == len(inputs)
     schema.validate_calibration(model=model, module_names={"0"})
+    model.to(device=deployment_device)
+    schema.move_calibration_state(
+        model=model, module_names={"0"}, device=deployment_device
+    )
     quantize_(model=model, config=schema.conversion_config(is_qat=False))
-    torch.testing.assert_close(model[0].weight.act_pre_scale, expected_scale)
+    torch.testing.assert_close(
+        model[0].weight.act_pre_scale, expected_scale.to(device=deployment_device)
+    )
     with torch.no_grad():
         for activation in inputs:
             output = model(
-                activation
+                activation.to(device=deployment_device)
             )  # (..., input_channels) -> (..., output_channels)
             assert output.shape == (*activation.shape[:-1], 16)
             assert torch.isfinite(output).all()
+            assert output.device.type == deployment_device.type
 
 
 @pytest.mark.unit
 class TestSmoothQuantSchema:
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:1")])
+    def test_observer_uses_destination_device_and_current_weight_without_moving_statistics(
+        self,
+        smoothquant_base_config_factory: Callable[..., MagicMock],
+        observed_model_factory: Callable[..., MagicMock],
+        device: torch.device,
+    ) -> None:
+        schema = SmoothQuantSchema(
+            base_config=smoothquant_base_config_factory(
+                version=2, weight_only_decode=False
+            ),
+            alpha=0.5,
+        )
+        model = observed_model_factory(prepared=True, observed=True)
+        layer = model.get_submodule.return_value
+        layer.weight = MagicMock(spec=torch.Tensor)
+        layer.weight.device = device
+        layer.obs.weight = MagicMock(spec=torch.Tensor)
+        layer.obs.device = torch.device("cuda:0")
+        statistics = MagicMock(spec=torch.Tensor)
+        statistics.device = torch.device("cpu")
+        layer.obs.x_abs_max = statistics
+
+        schema.move_calibration_state(
+            model=model, module_names={"decoder.projection"}, device=device
+        )
+
+        model.get_submodule.assert_called_once_with("decoder.projection")
+        assert layer.obs.device == device
+        assert layer.obs.weight is layer.weight
+        assert layer.obs.x_abs_max is statistics
+        assert layer.obs.x_abs_max.device.type == "cpu"
+        statistics.to.assert_not_called()
+        assert layer.obs.calibration_count == 2
+
     @pytest.mark.parametrize("alpha", [-0.1, 0.0, 0.5, 1.0, 1.1, float("nan")])
     def test_smoothing_exponent_must_be_in_closed_unit_interval(
         self, smoothquant_base_config_factory: Callable[..., MagicMock], alpha: float
@@ -130,26 +233,63 @@ class TestSmoothQuantSchema:
             assert schema.parameters == {"alpha": str(alpha)}
             assert schema.needs_calibration is True
 
-    @pytest.mark.parametrize("version, weight_only_decode", [(1, False), (2, True)])
-    def test_rejects_base_configurations_without_the_supported_w8a8_format(
+    @pytest.mark.parametrize(
+        "config_type, version, weight_only_decode, packing_format, supported",
+        [
+            (Int8DynamicActivationInt8WeightConfig, 2, False, None, True),
+            (Int8DynamicActivationInt8WeightConfig, 1, False, None, False),
+            (Int8DynamicActivationInt8WeightConfig, 2, True, None, False),
+            (Int4WeightOnlyConfig, 2, False, Int4PackingFormat.TILE_PACKED_TO_4D, True),
+            (
+                Int4WeightOnlyConfig,
+                1,
+                False,
+                Int4PackingFormat.TILE_PACKED_TO_4D,
+                False,
+            ),
+            (Int4WeightOnlyConfig, 2, False, Int4PackingFormat.PLAIN, False),
+            (Int4WeightOnlyConfig, 2, False, Int4PackingFormat.PLAIN_INT32, False),
+            (Int4WeightOnlyConfig, 2, False, Int4PackingFormat.PRESHUFFLED, False),
+            (Int8WeightOnlyConfig, 2, False, None, False),
+        ],
+    )
+    def test_accepts_supported_formats_before_initializing_base_schema(
         self,
-        smoothquant_base_config_factory: Callable[..., MagicMock],
+        schema_base_config_factory: Callable[..., MagicMock],
+        config_type: type[AOBaseConfig],
         version: int,
         weight_only_decode: bool,
+        packing_format: Int4PackingFormat | None,
+        supported: bool,
     ) -> None:
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                "SmoothQuantSchema requires Int8DynamicActivationInt8WeightConfig "
-                "with version=2 and weight_only_decode=False."
-            ),
-        ):
-            SmoothQuantSchema(
-                base_config=smoothquant_base_config_factory(
-                    version=version, weight_only_decode=weight_only_decode
+        config = schema_base_config_factory(config_type=config_type)
+        config.version = version
+        config.weight_only_decode = weight_only_decode
+        config.int4_packing_format = packing_format
+        expectation = (
+            does_not_raise()
+            if supported
+            else pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "SmoothQuantSchema requires version=2 with either "
+                    "Int8DynamicActivationInt8WeightConfig(weight_only_decode=False) or "
+                    "Int4WeightOnlyConfig(int4_packing_format='tile_packed_to_4d')."
                 ),
-                alpha=0.5,
             )
+        )
+        with (
+            patch(
+                f"{SMOOTHQUANT_SCHEMA_MODULE}.QuantizationSchema.__init__",
+                return_value=None,
+            ) as initialize,
+            expectation,
+        ):
+            SmoothQuantSchema(base_config=config, alpha=0.5)
+        if supported:
+            initialize.assert_called_once_with(base_config=config)
+        else:
+            initialize.assert_not_called()
 
     @pytest.mark.parametrize(
         "step", [QuantizationStep.PREPARE, QuantizationStep.CONVERT]

@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Callable, Iterator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -692,6 +692,50 @@ class TestCompileForBenchmark:
 
 @pytest.mark.unit
 class TestInferenceTiming:
+    @pytest.mark.parametrize("device", ["cpu", "cuda:1"])
+    def test_synchronizes_cuda_at_timing_boundaries(self, device: str) -> None:
+        inputs = MagicMock(spec=torch.Tensor)
+        inputs.device = torch.device(device)
+        float_model = MagicMock(spec=nn.Module)
+        quantized_model = MagicMock(spec=nn.Module)
+        report = QuantizationReport(
+            float_model=float_model,
+            quantized_model=quantized_model,
+            example_inputs=(inputs,),
+            action_keys=["position"],
+            quantization_workflow=QuantizationWorkflow.EAGER.value,
+        )
+        execution = MagicMock()
+        execution.attach_mock(float_model, "float_forward")
+        execution.attach_mock(quantized_model, "quantized_forward")
+        with (
+            patch(f"{REPORT_MODULE}.torch.cuda.synchronize") as synchronize,
+            patch(
+                f"{REPORT_MODULE}.time.perf_counter", side_effect=[0.0, 2.0, 2.0, 3.0]
+            ) as timer,
+        ):
+            execution.attach_mock(synchronize, "synchronize")
+            execution.attach_mock(timer, "timer")
+            timing = report.compute_inference_timing(warmup_runs=1, benchmark_runs=1)
+
+        expected_calls = [call.float_forward(inputs), call.quantized_forward(inputs)]
+        synchronize_calls = (
+            [call.synchronize(device=inputs.device)]
+            if device.startswith("cuda")
+            else []
+        )
+        expected_calls += synchronize_calls + [call.timer(), call.float_forward(inputs)]
+        expected_calls += synchronize_calls + [
+            call.timer(),
+            call.timer(),
+            call.quantized_forward(inputs),
+        ]
+        expected_calls += synchronize_calls + [call.timer()]
+        assert execution.mock_calls == expected_calls
+        assert timing[ReportMetricKey.FLOAT_MS.value] == 2000.0
+        assert timing[ReportMetricKey.QUANTIZED_MS.value] == 1000.0
+        assert timing[ReportMetricKey.SPEEDUP.value] == 2.0
+
     def test_returns_positive_timing_values(
         self,
         report_factory: Callable[..., QuantizationReport],

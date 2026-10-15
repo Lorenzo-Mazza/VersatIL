@@ -86,6 +86,7 @@ class QuantizationSchema(ABC):
         label: str,
         activation_dtype: torch.dtype | None = None,
         for_conversion: bool = True,
+        conversion_device: torch.device | None = None,
     ) -> None:
         """Check TorchAO settings and selected weights against format requirements.
 
@@ -96,6 +97,8 @@ class QuantizationSchema(ABC):
             activation_dtype: Known input dtype for the converted linear layers.
             for_conversion: Apply conversion-device and inference-dtype checks.
                 QAT preparation uses the numerical configuration checks.
+            conversion_device: Destination for weight conversion and packing.
+                None uses each selected weight's current device for validation.
 
         Raises:
             ValueError: If a numerical setting, weight device or dtype conflicts
@@ -138,7 +141,8 @@ class QuantizationSchema(ABC):
             ):
                 for name in sorted(module_names):
                     weight = model.get_submodule(name).weight
-                    if weight.device.type != "cuda":
+                    device = conversion_device or weight.device
+                    if device.type != "cuda":
                         raise ValueError(
                             f"Module '{name}': {config.int4_packing_format} INT4 requires CUDA weights at conversion."
                         )
@@ -160,6 +164,29 @@ class QuantizationSchema(ABC):
             raise ValueError(
                 f"Target '{label}': Int8DynamicActivationIntxWeightConfig requires version=2 and asymmetric activations in TorchAO 0.18."
             )
+
+    def move_calibration_state(
+        self, model: nn.Module, module_names: set[str], device: torch.device
+    ) -> None:
+        """Update calibration "state" after transferring model tensors to another device.
+
+        Args:
+            model: Model whose parameters and registered buffers are already on
+                ``device``.
+            module_names: Fully qualified names of layers prepared for calibration.
+            device: Destination device for quantization and weight packing,
+                such as CPU or CUDA.
+
+        Note:
+            Calibration "state" includes the activation statistics collected by
+            observers (e.g. per-channel maxima), plus the weight references and
+            device settings used to compute quantization parameters.
+            As calibration and quantization can run on different devices,
+            observer state stored in ordinary attributes needs an explicit
+            update, so schemas override this hook to prepare it for quantization on
+            the destination device.
+        """
+        return None
 
     @abstractmethod
     def preparation_config(self, is_qat: bool) -> AOBaseConfig | None:

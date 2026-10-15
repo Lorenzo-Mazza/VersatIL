@@ -6,7 +6,10 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from versatil.post_training_compression.constants import ArtifactFormat
+from versatil.post_training_compression.constants import (
+    ArtifactFormat,
+    CompressionDeviceType,
+)
 from versatil.quantization.constants import QuantizationMode
 from versatil.quantization.module_target import EagerQuantizationModuleTarget
 
@@ -31,6 +34,22 @@ class DeploymentBackend(ABC):
     model_filename: str
     supported_quantization_modes: tuple[str, ...] = ()
     supported_pt2e_backends: tuple[str, ...] = ()
+    supported_device_types: tuple[str, ...] = (CompressionDeviceType.CPU.value,)
+
+    def validate_device(self, device: torch.device) -> None:
+        """Require an execution device supported by this deployment backend.
+
+        Args:
+            device: Device on which the exported artifact will execute.
+
+        Raises:
+            ValueError: If the device conflicts with this backend\'s requirements.
+        """
+        if device.type not in self.supported_device_types:
+            raise ValueError(
+                f"Deployment backend {self.name} supports devices "
+                f"{self.supported_device_types}, got '{device}'."
+            )
 
     def validate_quantization(
         self, mode: str, pt2e_backend_names: tuple[str, ...] = ()
@@ -64,6 +83,7 @@ class DeploymentBackend(ABC):
         target: EagerQuantizationModuleTarget,
         module_names: set[str],
         for_conversion: bool = True,
+        conversion_device: torch.device | None = None,
     ) -> None:
         """Apply deployment-specific requirements to selected eager layers.
 
@@ -72,6 +92,8 @@ class DeploymentBackend(ABC):
             target: Quantization schema and module scope selected by the workflow.
             module_names: Fully qualified names of the selected linear layers.
             for_conversion: Whether to check the device requirements for conversion.
+            conversion_device: Device used for final weight conversion and packing.
+                None uses each selected weight's current device for validation.
 
         Note:
             Numerical requirements belong to the target's quantization schema.

@@ -1,16 +1,16 @@
 """Eager torchao quantization workflow."""
 
 import logging
-from dataclasses import dataclass, field
+from contextlib import nullcontext
 
 import torch
 import torch.nn as nn
-from torchao.core.config import AOBaseConfig
 from torchao.quantization import quantize_
 
 from versatil.models.exportable.base import ExportablePolicy
 from versatil.models.policy import Policy
 from versatil.post_training_compression.constants import (
+    CompressionDeviceType,
     QuantizationWorkflow,
 )
 from versatil.post_training_compression.deployment_backends.base import (
@@ -19,6 +19,7 @@ from versatil.post_training_compression.deployment_backends.base import (
 from versatil.post_training_compression.export import (
     build_example_inputs,
     export_policy,
+    move_exported_model,
 )
 from versatil.post_training_compression.policy_loading import (
     load_float_policy_context,
@@ -34,33 +35,19 @@ from versatil.quantization.metadata import (
     QuantizationTargetMetadata,
 )
 from versatil.quantization.module_target import EagerQuantizationModuleTarget
+from versatil.quantization.resolution import (
+    ResolvedQuantizationTarget,
+    resolve_quantization_targets,
+    validate_target_configuration,
+)
 from versatil.quantization.workflows.base import (
     BaseQuantizationWorkflow,
     PolicyContext,
     QuantizedContext,
 )
+from versatil.training.constants import PrecisionType
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class _PreparedEagerTarget:
-    """Selected layer names and TorchAO configurations for a module target.
-
-    Attributes:
-        target: Layer scope and quantization schema used for preparation and conversion.
-        module_names: Fully qualified layer names resolved before preparation.
-        preparation_config: Observer or fake-quant configuration, or None when
-            the schema supplies a direct PTQ conversion configuration.
-        conversion_config: Configuration that produces the quantized weights.
-        skipped: Excluded layer names and their dimension mismatch reasons.
-    """
-
-    target: EagerQuantizationModuleTarget
-    module_names: set[str]
-    preparation_config: AOBaseConfig | None
-    conversion_config: AOBaseConfig
-    skipped: dict[str, str] = field(default_factory=dict)
 
 
 class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
@@ -89,7 +76,7 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         self._targets = targets
         self._is_qat = is_qat
         self.auto_filter_incompatible_linears = auto_filter_incompatible_linears
-        self._prepared_targets: list[_PreparedEagerTarget] = []
+        self._prepared_targets: list[ResolvedQuantizationTarget] = []
 
     @property
     def targets(self) -> list[EagerQuantizationModuleTarget]:
@@ -110,12 +97,14 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         self,
         checkpoint_path: str,
         checkpoint_name: str,
+        device: torch.device = torch.device(CompressionDeviceType.CPU.value),
     ) -> PolicyContext:
         """Load a float or QAT-prepared checkpoint.
 
         Args:
             checkpoint_path: Directory containing the training checkpoint.
             checkpoint_name: Checkpoint filename to load from the directory.
+            device: Device for the restored policy and preprocessing state.
 
         Returns:
             Float policy context for PTQ, or QAT-prepared policy context for
@@ -126,10 +115,12 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
                 checkpoint_path=checkpoint_path,
                 checkpoint_name=checkpoint_name,
                 quantization=self,
+                device=device,
             )
         return load_float_policy_context(
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
+            device=device,
         )
 
     def quantize(
@@ -138,6 +129,7 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         exportable: ExportablePolicy,
         calibration_steps: int,
         deployment_backend: DeploymentBackend | None = None,
+        deployment_device: torch.device | None = None,
     ) -> QuantizedContext:
         """Apply eager quantization and export the policy.
 
@@ -150,6 +142,9 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             deployment_backend: Backend selected for the exported artifact. When
                 provided, its representation and conversion-device requirements
                 are checked before quantization preparation and conversion.
+            deployment_device: Destination for final weight conversion and export.
+                Calibration uses the loaded policy's device. None uses that device
+                for conversion as well.
 
         Returns:
             Exported eager-quantized model and example inputs for deployment.
@@ -158,10 +153,25 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             Floating export initializes dynamically created layers. PTQ then resolves
             the complete layer selection and validates every target before quantization.
         """
+        source_device = self._resolve_deployment_device(
+            device=context.policy.device, source_device=context.policy.device
+        )
+        device = self._resolve_deployment_device(
+            device=deployment_device, source_device=source_device
+        )
+        execution_precision = context.precision or context.autocast_precision
+        activation_dtype = (
+            execution_precision.get_model_dtype()
+            if execution_precision is not None
+            else None
+        )
         if self.is_qat:
             prepared_targets = self._prepared_targets
             self._validate_prepared_targets(
-                model=context.policy, deployment_backend=deployment_backend
+                model=context.policy,
+                deployment_backend=deployment_backend,
+                activation_dtype=activation_dtype,
+                conversion_device=device,
             )
         calibration = self._build_calibration(
             context=context, calibration_steps=calibration_steps
@@ -171,25 +181,45 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
+            device=context.policy.device,
         )  # (batch, ...)
         # Export the float baseline before quantize_() mutates the policy.
         float_exported = export_policy(
             exportable=exportable, example_inputs=example_inputs
         )
+        if device != source_device:
+            float_exported = move_exported_model(
+                model=float_exported, example_inputs=example_inputs, device=device
+            )
         if self.is_qat:
+            self._move_for_conversion(
+                model=context.policy, prepared_targets=prepared_targets, device=device
+            )
             quantization_targets = self._convert_targets(
                 model=context.policy, prepared_targets=prepared_targets
             )
             calibration_batches = 0
         else:
-            prepared_targets = self._resolve_targets(
-                model=context.policy, deployment_backend=deployment_backend
+            prepared_targets = resolve_quantization_targets(
+                model=context.policy,
+                targets=self.targets,
+                is_qat=self.is_qat,
+                auto_filter_incompatible_linears=self.auto_filter_incompatible_linears,
+                deployment_backend=deployment_backend,
+                activation_dtype=activation_dtype,
+                conversion_device=device,
             )
             calibration_batches, quantization_targets = self._execute_ptq(
                 model=context.policy,
                 prepared_targets=prepared_targets,
                 calibration=calibration,
+                conversion_device=device,
+                autocast_precision=context.autocast_precision,
             )
+        if device != source_device:
+            example_inputs = tuple(
+                tensor.to(device=device) for tensor in example_inputs
+            )  # each (batch, ...)
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
         return QuantizedContext(
             float_model=float_exported,
@@ -244,7 +274,13 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         """
         if not self.is_qat:
             raise ValueError("prepare_model() requires is_qat=True.")
-        prepared_targets = self._resolve_targets(model=model, for_conversion=False)
+        prepared_targets = resolve_quantization_targets(
+            model=model,
+            targets=self.targets,
+            is_qat=self.is_qat,
+            auto_filter_incompatible_linears=self.auto_filter_incompatible_linears,
+            for_conversion=False,
+        )
         for prepared in prepared_targets:
             self._prepare_target(model=model, prepared=prepared)
         self._prepared_targets = prepared_targets
@@ -268,12 +304,16 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         self,
         model: nn.Module,
         deployment_backend: DeploymentBackend | None = None,
+        activation_dtype: torch.dtype | None = None,
+        conversion_device: torch.device | None = None,
     ) -> None:
         """Check conversion requirements for layers already prepared for QAT.
 
         Args:
             model: Model with its restored fake-quantization layers.
             deployment_backend: Backend selected for the exported artifact.
+            activation_dtype: Configured floating-point input dtype for conversion.
+            conversion_device: Destination for final weight conversion and packing.
 
         Raises:
             ValueError: If preparation is required or a conversion requirement fails.
@@ -281,68 +321,14 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         if not self._prepared_targets:
             raise ValueError("QAT convert_model() requires prepare_model() first.")
         for prepared in self._prepared_targets:
-            self._validate_target(
+            validate_target_configuration(
                 model=model,
                 target=prepared.target,
                 module_names=prepared.module_names,
                 deployment_backend=deployment_backend,
-            )
-
-    def _resolve_targets(
-        self,
-        model: nn.Module,
-        activation_dtype: torch.dtype | None = None,
-        deployment_backend: DeploymentBackend | None = None,
-        for_conversion: bool = True,
-    ) -> list[_PreparedEagerTarget]:
-        """Resolve layer names and validate every target before quantization mutation.
-
-        Args:
-            model: Policy or module containing the floating-point layers.
-            activation_dtype: Known dtype of inputs to the selected linear layers.
-            deployment_backend: Backend selected for the exported artifact.
-            for_conversion: Apply weight-device and dtype requirements for the
-                conversion. QAT preparation checks configuration and dimensions.
-
-        Returns:
-            Selected and excluded layer names, with preparation and conversion configs.
-
-        Raises:
-            ValueError: If target paths overlap, a target selects no eligible
-                layers, or a dimension, representation or device requirement fails.
-        """
-        self.validate_targets(model=model)
-        prepared_targets = []
-        for target in self.targets:
-            selected, skipped = target.select_modules(
-                model=model,
-                auto_filter_incompatible=self.auto_filter_incompatible_linears,
-            )
-            module_names = set(selected)
-            self._validate_target(
-                model=model,
-                target=target,
-                module_names=module_names,
                 activation_dtype=activation_dtype,
-                deployment_backend=deployment_backend,
-                for_conversion=for_conversion,
+                conversion_device=conversion_device,
             )
-            prepared_targets.append(
-                _PreparedEagerTarget(
-                    target=target,
-                    module_names=module_names,
-                    preparation_config=target.schema.preparation_config(
-                        is_qat=self.is_qat
-                    ),
-                    conversion_config=target.schema.conversion_config(
-                        is_qat=self.is_qat
-                    ),
-                    skipped=skipped,
-                )
-            )
-            for name, reason in skipped.items():
-                logger.info(f"Skipping quantization module {name}: {reason}")
-        return prepared_targets
 
     def _apply_ptq(
         self,
@@ -384,8 +370,11 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             raise ValueError(
                 "_apply_ptq() requires is_qat=False; use prepare_model() and convert_model() for QAT."
             )
-        prepared_targets = self._resolve_targets(
+        prepared_targets = resolve_quantization_targets(
             model=model,
+            targets=self.targets,
+            is_qat=self.is_qat,
+            auto_filter_incompatible_linears=self.auto_filter_incompatible_linears,
             activation_dtype=activation_dtype,
             deployment_backend=deployment_backend,
         )
@@ -396,8 +385,10 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
     def _execute_ptq(
         self,
         model: nn.Module,
-        prepared_targets: list[_PreparedEagerTarget],
+        prepared_targets: list[ResolvedQuantizationTarget],
         calibration: CalibrationDataProvider | None,
+        conversion_device: torch.device | None = None,
+        autocast_precision: PrecisionType | None = None,
     ) -> tuple[int, list[QuantizationTargetMetadata]]:
         """Prepare, calibrate and convert the previously validated layer selection.
 
@@ -405,6 +396,10 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             model: Model whose selected floating-point weights will be converted.
             prepared_targets: Resolved layer names and TorchAO configurations.
             calibration: Representative observations for calibrated schemas.
+            conversion_device: Destination for final conversion and packing after
+                calibration. None retains the model's current device.
+            autocast_precision: Checkpoint precision used to execute mixed-dtype
+                layers during calibration. None uses ordinary tensor dispatch.
 
         Returns:
             Consumed observation batches and successful target conversion metadata.
@@ -429,19 +424,51 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
             self._prepare_target(model=model, prepared=prepared)
         calibration_batches = 0
         if requires_calibration:
-            calibration_batches = calibrate_policy(
-                policy=model, calibration=calibration
-            )
+            with (
+                autocast_precision.autocast(device_type=model.device.type)
+                if autocast_precision is not None
+                else nullcontext()
+            ):
+                calibration_batches = calibrate_policy(
+                    policy=model, calibration=calibration
+                )
         for prepared in prepared_targets:
             prepared.target.schema.validate_calibration(
                 model=model, module_names=prepared.module_names
+            )
+        if conversion_device is not None:
+            self._move_for_conversion(
+                model=model,
+                prepared_targets=prepared_targets,
+                device=conversion_device,
             )
         return calibration_batches, self._convert_targets(
             model=model, prepared_targets=prepared_targets
         )
 
+    @staticmethod
+    def _move_for_conversion(
+        model: nn.Module,
+        prepared_targets: list[ResolvedQuantizationTarget],
+        device: torch.device,
+    ) -> None:
+        """Move prepared weights and calibration state before runtime packing.
+
+        Args:
+            model: Policy with calibrated observers or restored fake-quant layers.
+            prepared_targets: Resolved layer selection and its schemas.
+            device: Destination for conversion and execution.
+        """
+        model.to(device=device)
+        if isinstance(model, Policy):
+            model.device = device
+        for prepared in prepared_targets:
+            prepared.target.schema.move_calibration_state(
+                model=model, module_names=prepared.module_names, device=device
+            )
+
     def _convert_targets(
-        self, model: nn.Module, prepared_targets: list[_PreparedEagerTarget]
+        self, model: nn.Module, prepared_targets: list[ResolvedQuantizationTarget]
     ) -> list[QuantizationTargetMetadata]:
         """Convert the resolved layers and describe their weight representations.
 
@@ -477,7 +504,7 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
         return metadata
 
     @staticmethod
-    def _prepare_target(model: nn.Module, prepared: _PreparedEagerTarget) -> None:
+    def _prepare_target(model: nn.Module, prepared: ResolvedQuantizationTarget) -> None:
         """Install observer or fake-quant modules using the schema's configuration.
 
         Args:
@@ -491,39 +518,4 @@ class EagerQuantizationWorkflow(BaseQuantizationWorkflow):
                 filter_fn=lambda module, module_name, names=prepared.module_names: (
                     module_name in names
                 ),
-            )
-
-    @staticmethod
-    def _validate_target(
-        model: nn.Module,
-        target: EagerQuantizationModuleTarget,
-        module_names: set[str],
-        activation_dtype: torch.dtype | None = None,
-        deployment_backend: DeploymentBackend | None = None,
-        for_conversion: bool = True,
-    ) -> None:
-        """Run schema and deployment checks for the resolved layer selection.
-
-        Args:
-            model: Model containing the selected layers.
-            target: Module scope and quantization schema.
-            module_names: Fully qualified names selected for this target.
-            activation_dtype: Known input dtype for quantized linear layers.
-            deployment_backend: Backend responsible for artifact requirements.
-            for_conversion: Check the weight placement required for conversion.
-                QAT preparation checks numerical settings and dimensions.
-        """
-        target.schema.validate_configuration(
-            model=model,
-            module_names=module_names,
-            label=target.label,
-            activation_dtype=activation_dtype,
-            for_conversion=for_conversion,
-        )
-        if deployment_backend is not None:
-            deployment_backend.validate_eager_target(
-                model=model,
-                target=target,
-                module_names=module_names,
-                for_conversion=for_conversion,
             )

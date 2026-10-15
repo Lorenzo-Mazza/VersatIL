@@ -1,16 +1,21 @@
 """Post-training compression orchestration."""
 
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import torch
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
 from versatil.configs.post_training_compression import PreparationConfig
+from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.models.exportable.factory import create_exportable_policy
+from versatil.models.exportable.metadata import POLICY_EXPORT_PRECISION_VERSION
 from versatil.post_training_compression.compression_target import CompressionTarget
+from versatil.post_training_compression.constants import CompressionDeviceType
 from versatil.post_training_compression.deployment_backends.base import (
     DeploymentBackend,
 )
@@ -26,7 +31,7 @@ from versatil.post_training_compression.report import QuantizationReport
 from versatil.post_training_compression.serialization import save_compressed_model
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
-from versatil.training.constants import CheckpointFilename
+from versatil.training.constants import CheckpointFilename, PrecisionType
 
 
 class PostTrainingCompressor:
@@ -48,6 +53,9 @@ class PostTrainingCompressor:
         pruning: list[BasePruner] | None = None,
         quantization: BaseQuantizationWorkflow | None = None,
         deployment_backend: DeploymentBackend | None = None,
+        device: str = CompressionDeviceType.CPU.value,
+        precision: str | None = None,
+        deployment_device: str | None = None,
     ) -> None:
         """Initialize the compression pipeline.
 
@@ -68,6 +76,16 @@ class PostTrainingCompressor:
                 float model without quantization.
             deployment_backend: Deployment backend that owns artifact format and
                 lowering. Defaults to torch inductor.
+            device: Device for checkpoint loading, preparation and calibration.
+            deployment_device: Device for runtime weight packing, final export and
+                report measurements. None uses the compression device.
+            precision: Floating-point precision: 32, 16-true or bf16-true.
+                None preserves the loaded model and input dtypes.
+
+        Note:  Some formats require a specific precision both when lowering and executing
+            (e.g. TorchAO's tile-packed INT4 requires BF16 source weights
+            for packing and BF16 activations in its inference kernel).
+            That's why why need to pass an explicit precision when lowering the artifact.
         """
         self.checkpoint_path = checkpoint_path
         self.checkpoint_name = checkpoint_name
@@ -79,6 +97,22 @@ class PostTrainingCompressor:
         self.pruning: list[BasePruner] = pruning or []
         self.quantization = quantization
         self.deployment_backend = deployment_backend or TorchInductorBackend()
+        self.device = torch.device(device)
+        self.deployment_device = (
+            torch.device(deployment_device)
+            if deployment_device is not None
+            else self.device
+        )
+        self.precision = PrecisionType(precision) if precision is not None else None
+        if self.precision is not None and self.precision not in (
+            PrecisionType.FP32,
+            PrecisionType.FP16_TRUE,
+            PrecisionType.BF16_TRUE,
+        ):
+            raise ValueError(
+                "Compression precision must be 32, 16-true or bf16-true, "
+                f"got '{precision}'."
+            )
 
     def compress(self, hydra_config: DictConfig) -> str:
         """Run the full compression pipeline.
@@ -89,6 +123,12 @@ class PostTrainingCompressor:
 
         Returns:
             Path to the saved compressed model directory.
+
+        Note:
+            Explicit precision applies to the exported prediction components.
+            Normalization statistics retain their checkpoint values and dtypes;
+            training loss state and action denoising thresholds retain their
+            original precision. Normalizer tensors keep their original shapes.
         """
         modules = self.resolve_modules()
         quantization_workflow = self._resolve_quantization_workflow()
@@ -96,15 +136,44 @@ class PostTrainingCompressor:
             mode=quantization_workflow.quantization_mode,
             pt2e_backend_names=quantization_workflow.pt2e_backend_names,
         )
+        self.deployment_backend.validate_device(device=self.deployment_device)
+        quantization_workflow.validate_deployment_device(device=self.deployment_device)
         context = quantization_workflow.load_policy_context(
             checkpoint_path=self.checkpoint_path,
             checkpoint_name=self.checkpoint_name,
+            device=self.device,
         )
         policy = context.policy
         self.validate(policy=policy, modules=modules)
         quantization_workflow.validate_targets(model=policy)
         self._prepare_and_prune(policy=policy, modules=modules)
         exportable = create_exportable_policy(policy=policy)
+        if self.precision is not None:
+            normalizer_states = [
+                (
+                    module,
+                    module.dtype,
+                    {
+                        name: tensor.detach().clone()  # (...)
+                        for name, tensor in module.state_dict().items()
+                    },
+                )
+                for module in exportable.modules()
+                if isinstance(module, LinearNormalizer)
+            ]
+            dtype = self.precision.get_model_dtype()
+            exportable.to(dtype=dtype)
+            for normalizer, original_dtype, state in normalizer_states:
+                normalizer.to(dtype=original_dtype)
+                normalizer.load_state_dict(state_dict=state, assign=True)
+            policy.encoding_pipeline.set_output_dtype(output_dtype=dtype)
+            context.precision = self.precision
+            exportable.export_metadata = replace(
+                exportable.export_metadata,
+                precision=self.precision,
+                version=POLICY_EXPORT_PRECISION_VERSION,
+            )
+        exportable.autocast_precision = context.autocast_precision
         logging.info(f"Input keys: {exportable.observation_keys}")
         logging.info(f"Output keys: {exportable.action_keys}")
         quantized = quantization_workflow.quantize(
@@ -112,6 +181,7 @@ class PostTrainingCompressor:
             exportable=exportable,
             calibration_steps=self.calibration_steps,
             deployment_backend=self.deployment_backend,
+            deployment_device=self.deployment_device,
         )
         deployment_artifact = self.deployment_backend.export(
             model=quantized.quantized_model,

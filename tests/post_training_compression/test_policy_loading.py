@@ -13,6 +13,7 @@ POLICY_LOADING_MODULE = "versatil.post_training_compression.policy_loading"
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:1")])
 @pytest.mark.parametrize(
     "function_name, loader_name, uses_quantization",
     [
@@ -22,9 +23,10 @@ POLICY_LOADING_MODULE = "versatil.post_training_compression.policy_loading"
     ids=["float", "qat"],
 )
 def test_policy_context_loaders_build_context(
-    function_name,
-    loader_name,
-    uses_quantization,
+    function_name: str,
+    loader_name: str,
+    uses_quantization: bool,
+    device: torch.device,
 ) -> None:
     checkpoint_path = "/tmp/checkpoint"
     checkpoint_name = CheckpointFilename.DEFAULT_CHECKPOINT.value
@@ -46,15 +48,17 @@ def test_policy_context_loaders_build_context(
                 checkpoint_path=checkpoint_path,
                 checkpoint_name=checkpoint_name,
                 quantization=quantization,
+                device=device,
             )
         else:
             context = load_context(
                 checkpoint_path=checkpoint_path,
                 checkpoint_name=checkpoint_name,
+                device=device,
             )
 
     expected_call_kwargs = {
-        "device": torch.device("cpu"),
+        "device": device,
         "checkpoint_path": checkpoint_path,
         "checkpoint_name": checkpoint_name,
     }

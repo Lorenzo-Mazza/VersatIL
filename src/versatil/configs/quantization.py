@@ -106,8 +106,8 @@ class SmoothQuantSchemaConfig(QuantizationSchemaConfig):
 
     Attributes:
         _target_: Quantization schema class instantiated by Hydra.
-        base_config: TorchAO configuration for INT8 weights and dynamic INT8
-            activations.
+        base_config: TorchAO configuration for dynamic W8A8 or tile-packed INT4
+            weights with BF16 activations.
         alpha: Smoothing exponent between zero and one.
     """
 

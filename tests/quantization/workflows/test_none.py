@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 
 from versatil.post_training_compression.constants import QuantizationWorkflow
 from versatil.quantization.constants import QuantizationMode
@@ -14,7 +15,7 @@ NO_WORKFLOW_MODULE = "versatil.quantization.workflows.none"
 
 @pytest.mark.unit
 class TestNoQuantizationWorkflow:
-    def test_properties_identify_no_quantization(self):
+    def test_properties_identify_no_quantization(self) -> None:
         workflow = NoQuantizationWorkflow()
 
         assert isinstance(workflow, BaseQuantizationWorkflow)
@@ -22,7 +23,7 @@ class TestNoQuantizationWorkflow:
         assert workflow.quantization_workflow == QuantizationWorkflow.NONE.value
         assert workflow.is_qat is False
 
-    def test_prepare_model_leaves_model_unchanged(self):
+    def test_prepare_model_leaves_model_unchanged(self) -> None:
         workflow = NoQuantizationWorkflow()
         model = MagicMock()
 
@@ -30,7 +31,7 @@ class TestNoQuantizationWorkflow:
 
         model.assert_not_called()
 
-    def test_load_policy_context_delegates_to_float_context_loader(self):
+    def test_load_policy_context_delegates_to_float_context_loader(self) -> None:
         workflow = NoQuantizationWorkflow()
         expected_context = MagicMock()
 
@@ -46,10 +47,11 @@ class TestNoQuantizationWorkflow:
         mock_loader.assert_called_once_with(
             checkpoint_path="/tmp/checkpoint",
             checkpoint_name="last.ckpt",
+            device=torch.device("cpu"),
         )
         assert result is expected_context
 
-    def test_quantize_exports_float_model(self):
+    def test_quantize_exports_float_model(self) -> None:
         workflow = NoQuantizationWorkflow()
         context = MagicMock()
         context.observation_space = MagicMock()
@@ -80,6 +82,7 @@ class TestNoQuantizationWorkflow:
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
+            device=context.policy.device,
         )
         mock_export.assert_called_once_with(
             exportable=exportable,

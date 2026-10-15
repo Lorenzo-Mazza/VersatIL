@@ -1,11 +1,18 @@
 """Schema for SmoothQuant calibration, rescaling and weight conversion."""
 
+import torch
 import torch.nn as nn
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.smoothquant.api import SmoothQuantConfig
 from torchao.prototype.smoothquant.core import SmoothQuantObservedLinear
-from torchao.quantization import Int8DynamicActivationInt8WeightConfig
+from torchao.quantization import (
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
+)
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
+from torchao.quantization.quantize_.workflows.int4.int4_packing_format import (
+    Int4PackingFormat,
+)
 
 from versatil.quantization.schemas.base import QuantizationSchema
 
@@ -14,33 +21,43 @@ class SmoothQuantSchema(QuantizationSchema):
     """Supply SmoothQuant configurations and validate observed linear inputs.
 
     Note:
-        The configurations select INT8 weights and dynamic INT8 activations.
-        TorchAO's observers collect one absolute maximum per linear input channel.
-        Its conversion rescales the weights and stores the corresponding activation
-        scaling factors in the Int8Tensor representation.
+        Smoothing rescales weights using calibrated input-channel maxima. Inference
+        must apply the reciprocal scales to inputs to preserve the linear operation,
+        so the converted weight format must store and apply those scales. Supported
+        formats are dynamic W8A8 and tile-packed INT4 with BF16 activations.
     """
 
     def __init__(self, base_config: AOBaseConfig, alpha: float = 0.5) -> None:
         """Configure smoothing and the final quantization representation.
 
         Args:
-            base_config: Int8DynamicActivationInt8WeightConfig with version 2,
-                whose weight tensor supports activation channel scaling.
+            base_config: Version 2 Int8DynamicActivationInt8WeightConfig with
+                weight_only_decode=False, or version 2 Int4WeightOnlyConfig with
+                TILE_PACKED_TO_4D packing.
             alpha: Exponent between zero and one controlling how activation and
                 weight channel maxima determine the smoothing factors.
 
         Raises:
             ValueError: If alpha is outside its range or the base configuration
-                is outside this schema's supported dynamic W8A8 path.
+                uses an unsupported weight format.
         """
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"SmoothQuant alpha must be between 0 and 1, got {alpha}.")
-        if not isinstance(base_config, Int8DynamicActivationInt8WeightConfig) or (
-            base_config.version != 2 or base_config.weight_only_decode
-        ):
+        dynamic_int8 = (
+            isinstance(base_config, Int8DynamicActivationInt8WeightConfig)
+            and base_config.version == 2
+            and not base_config.weight_only_decode
+        )
+        tile_packed_int4 = (
+            isinstance(base_config, Int4WeightOnlyConfig)
+            and base_config.version == 2
+            and base_config.int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D
+        )
+        if not (dynamic_int8 or tile_packed_int4):
             raise ValueError(
-                "SmoothQuantSchema requires Int8DynamicActivationInt8WeightConfig "
-                "with version=2 and weight_only_decode=False."
+                "SmoothQuantSchema requires version=2 with either "
+                "Int8DynamicActivationInt8WeightConfig(weight_only_decode=False) or "
+                "Int4WeightOnlyConfig(int4_packing_format='tile_packed_to_4d')."
             )
         super().__init__(base_config=base_config)
         self.alpha = alpha
@@ -122,6 +139,26 @@ class SmoothQuantSchema(QuantizationSchema):
                     f"SmoothQuant layer '{name}' received no calibration inputs. "
                     "Use observations that execute this layer or exclude it from the target."
                 )
+
+    def move_calibration_state(
+        self, model: nn.Module, module_names: set[str], device: torch.device
+    ) -> None:
+        """Align SmoothQuant's observer device and weight reference with conversion.
+
+        Args:
+            model: Prepared policy after its tensors move to the destination.
+            module_names: Fully qualified names of observed linear layers.
+            device: Device for smoothing and final weight packing.
+
+        Note:
+            TorchAO keeps running statistics on CPU and copies them to the observer's
+            stored device when calculating smoothing factors. That device attribute
+            requires an explicit update after ``model.to()``.
+        """
+        for name in module_names:
+            module = model.get_submodule(name)
+            module.obs.device = device
+            module.obs.weight = module.weight
 
     @staticmethod
     def _validate_mode(is_qat: bool) -> None:

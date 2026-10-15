@@ -5,11 +5,13 @@ import logging
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.export.passes import move_to_device_pass
 
 from versatil.data.constants import SampleKey
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.exportable.base import ExportablePolicy
+from versatil.post_training_compression.constants import CompressionDeviceType
 
 
 def _export_with_dynamic_batch(
@@ -33,6 +35,11 @@ def _export_with_dynamic_batch(
 
     Raises:
         ValueError: If ``max_batch_size`` is invalid for the example inputs.
+
+    Note:
+        CUDA exports without an explicit batch bound infer valid dynamic ranges
+        from the selected operators. Attention kernels can impose device-specific
+        batch limits. Explicit bounds retain their strict range validation.
     """
     if max_batch_size is not None:
         if max_batch_size < 1:
@@ -44,7 +51,13 @@ def _export_with_dynamic_batch(
                 f"max_batch_size {max_batch_size} is smaller than example "
                 f"batch size {largest_example_batch}."
             )
-    batch_dim = torch.export.Dim("batch", min=1, max=max_batch_size)
+    if max_batch_size is None and any(
+        tensor.device.type == CompressionDeviceType.CUDA.value
+        for tensor in example_inputs
+    ):
+        batch_dim = torch.export.Dim.DYNAMIC(min=1)
+    else:
+        batch_dim = torch.export.Dim("batch", min=1, max=max_batch_size)
     per_input_shapes = tuple({0: batch_dim} for _ in range(len(example_inputs)))
     if dynamic_shapes_key is not None:
         dynamic_shapes = {dynamic_shapes_key: per_input_shapes}
@@ -56,6 +69,30 @@ def _export_with_dynamic_batch(
         dynamic_shapes=dynamic_shapes,
         strict=False,
     )
+
+
+def move_exported_model(
+    model: nn.Module,
+    example_inputs: tuple[torch.Tensor, ...],
+    device: torch.device,
+) -> nn.Module:
+    """Move an exported graph and its tensor state to the deployment device.
+
+    Args:
+        model: Exported module on the compression device.
+        example_inputs: Representative inputs on that same device.
+        device: Destination for the graph's execution.
+
+    Returns:
+        Graph module with relocated state, constants and operator device arguments.
+
+    Note:
+        PyTorch's export pass also updates tensor metadata and device arguments
+        captured by tensor factories. The caller supplies destination inputs for
+        final export and validates the selected operators on that device.
+    """
+    program = _export_with_dynamic_batch(model=model, example_inputs=example_inputs)
+    return move_to_device_pass(ep=program, location=device).module()
 
 
 def export_policy(
@@ -75,16 +112,25 @@ def export_policy(
 
     Returns:
         Exported FX GraphModule.
+
+    Note:
+        Mixed-precision checkpoints need autocast to run their layers together.
+        Export captures that context as a wrapper; decomposing it records explicit
+        dtype casts so the saved graph runs independently of runtime autocast and
+        can move between CPU and CUDA.
     """
     logging.info("Materializing lazy modules with eager forward pass...")
     with torch.no_grad():
         exportable(*example_inputs)
 
-    return _export_with_dynamic_batch(
+    program = _export_with_dynamic_batch(
         model=exportable,
         example_inputs=example_inputs,
         dynamic_shapes_key="observation_tensors",
-    ).module()
+    )
+    if exportable.autocast_precision is not None:
+        program = program.run_decompositions({})
+    return program.module()
 
 
 def build_example_inputs(
@@ -92,6 +138,7 @@ def build_example_inputs(
     observation_space: ObservationSpace,
     observation_horizon: int,
     tokenizer: Tokenizer | None = None,
+    device: torch.device | None = None,
 ) -> tuple[torch.Tensor, ...]:
     """Build example inputs from observation space metadata.
 
@@ -100,6 +147,7 @@ def build_example_inputs(
         observation_space: Observation space with camera/proprio metadata.
         observation_horizon: Number of temporal observation frames.
         tokenizer: Tokenizer for language token sequence length.
+        device: Device for observations and noise. None uses the torch default.
 
     Returns:
         Tuple of example input tensors matching exportable.observation_keys.
@@ -138,4 +186,5 @@ def build_example_inputs(
         observation_shapes=observation_shapes,
         observation_dtypes=observation_dtypes,
         batch_size=2,
+        device=device,
     )

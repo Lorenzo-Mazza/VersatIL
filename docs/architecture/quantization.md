@@ -59,6 +59,8 @@ Each policy uses one quantization workflow.
   torchao quantizers and configure PT2E-specific settings.
 - **`src/versatil/quantization/module_target.py`**: layer selection, group-size
   filtering and metadata construction for each configured target.
+- **`src/versatil/quantization/resolution.py`**: for eager configurations, target-path validation and resolved
+  layer selections with their preparation/conversion configurations.
 - **`src/versatil/quantization/schemas/`**: TorchAO preparation/conversion settings and
   numerical, dtype, device and calibration checks for the eager workflow.
 - **`src/versatil/quantization/metadata.py`**: data-only records of target settings,
@@ -148,14 +150,16 @@ registers the concrete schema configurations under `quantization/schema`.
 
 ### Validation and measurements
 
-The workflow coordinates validation before weight conversion: targets check
-their paths and eligible layers, schemas check quantization requirements, and
-the deployment backend checks its supported workflow and representation.
+Before the workflow modifies weights, `resolution.py` checks target paths and
+overlaps, resolves eligible layers, and coordinates schema and backend checks
+for each selection. Schemas check quantization requirements; deployment backends
+check their supported representations.
 Invalid settings raise an error identifying the target and conflicting
 requirement. Configurations needing execution tests produce a logged warning.
 
-Each target resolves layer selection once. The workflow reuses those names for
-preparation and conversion, validating every target before quantization starts.
+Resolution records layer selections and preparation/conversion configurations in
+`ResolvedQuantizationTarget`. The workflow reuses those names for preparation and
+conversion, validating every target before quantization starts.
 Its result includes per-target conversion metadata and the number
 of calibration batches consumed. Compression saves these under
 `quantization_targets` and `calibration_batches` in `compression_metadata.json`.
@@ -348,13 +352,17 @@ preparation; the workflow reuses those names for conversion.
 
 ### SmoothQuant
 
-`SmoothQuantSchema` supplies configurations for TorchAO's SmoothQuant
-observers and conversion. The eager workflow uses them to collect linear input
-statistics, rescale input channels and weights, and apply
-`Int8DynamicActivationInt8WeightConfig(version=2)`. W8A8 means
-INT8 weights and INT8 activations at the selected linear operations; other policy
-operations retain their existing precision. The converted weight stores the input
-rescaling factors, so inference applies the same transformation.
+`SmoothQuantSchema` supplies configurations for TorchAO's SmoothQuant observers
+and conversion. The eager workflow collects linear input statistics, rescales
+weights, and applies the selected base quantizer. The converted weight stores the
+reciprocal input scales, so inference applies the same transformation. Supported
+configurations are:
+
+- Dynamic W8A8: `Int8DynamicActivationInt8WeightConfig(version=2)` selects INT8
+  weights and dynamic INT8 activations.
+- W4A16: `Int4WeightOnlyConfig(version=2, int4_packing_format="tile_packed_to_4d")`
+  selects packed INT4 weights and BF16 activations. Packing and execution require
+  CUDA; source weights must be BF16.
 
 Compress a trained policy with:
 
@@ -368,7 +376,6 @@ python -m versatil.endpoints.post_training_compress \
 
 This preset selects linear layers under `decoder`, uses `alpha=0.5`, and writes
 a Torch Export `.pt2` artifact through the `torch_inductor` deployment backend.
-Compression and calibration use the existing CPU checkpoint-loading path.
 The artifact requires PyTorch at inference; compilation is controlled by the
 compressed runtime's existing settings.
 
@@ -384,9 +391,7 @@ one absolute maximum per input channel, so inputs with different token lengths
 contribute to the same statistics. The observer stores one maximum per selected
 input channel throughout calibration.
 
-Small flow, DDIM and DDPM regression tests cover SmoothQuant conversion, export
-and reload. A separate binned-token decoder test covers SmoothQuant calibration,
-conversion and generation. The binned-token artifact route is described under
+The binned-token artifact route is described under
 [Policy Artifacts](#policy-artifacts). Evaluate trained-policy accuracy and
 inference speed with representative observations.
 
@@ -396,8 +401,6 @@ the original policy separately: small floating-point differences can change INT8
 rounding and accumulate across denoising steps. Evaluate the resulting action
 drift against the policy's accuracy requirements.
 
-The SmoothQuant schema supports PTQ with dynamic W8A8. The Torch Export/Inductor
-deployment backend accepts this representation.
 TorchAO also provides static W8A8 configurations. Static conversion with the running
 observer requires an upstream fix: the observer expects a dictionary, while the
 base configuration supplies a typed parameter object.

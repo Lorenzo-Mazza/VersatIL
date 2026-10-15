@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compression preserves checkpoint autocast when keeping mixed weight dtypes,
+  and records explicit casts so exported models run without runtime autocast.
+- Fixed SmolVLM image-padding handling that discarded all-zero camera images,
+  breaking export with zero-filled examples and causing exported models to fail
+  at batch size 1.
+- ExecuTorch export decomposes tensor splits to preserve dynamic batch execution.
 - ExecuTorch export preserves quantized embedding lookups with padding indices.
 - Fix SmolVLA inference with non-contiguous camera tensors.
 - SmolVLA's shared action head derives its input dimension from the selected
@@ -38,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- SmoothQuant W4A16 with TorchAO's tile-packed INT4 format and a CUDA/BF16 preset.
+- Independent CPU/CUDA calibration and decoupling from deployment devices, explicit floating
+  precision, and precision-aware reload, including GPU calibration for CPU artifacts.
 - Embedding PTQ/QAT targets and a preset combining INT4 embeddings with W4A8 linears.
 - Policy export adapters and saved input/output metadata for token
   generation and explicit-noise flow/diffusion sampling.
@@ -48,13 +57,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Extracted quantization target resolution and validation into
+  `quantization/resolution.py`, with separate tests.
 - Pin `versatil-constants` to 0.3.0 and support its orientation action metadata.
 - Eager quantization separates workflow execution, target selection, Direct and
   SmoothQuant schemas, and deployment validation, with typed conversion metadata.
 - Compressed runtimes restore observation/action spaces and preprocessing assets
   directly from the compressed checkpoint.
 - Updated PyTorch to 2.13, TorchVision to 0.28, TorchAO to 0.18 and ExecuTorch
-  to 1.4.1, with ExecuTorch wheel installation on Python 3.13 and 3.14.
+  to 1.5.1, with ExecuTorch wheel installation on Python 3.13 and 3.14.
 - Newly materialized Zarr datasets group image chunks into configurable storage
   shards (`task.dataloader.image_frames_per_shard`, 256 frames by default), and
   replay-buffer copies and rewrites preserve existing shard layouts.

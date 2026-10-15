@@ -13,6 +13,7 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (
 from versatil.models.exportable.base import ExportablePolicy
 from versatil.models.exportable.metadata import PolicyExportMetadata
 from versatil.post_training_compression.constants import (
+    CompressionDeviceType,
     QuantizationWorkflow,
 )
 from versatil.post_training_compression.deployment_backends.base import (
@@ -21,6 +22,7 @@ from versatil.post_training_compression.deployment_backends.base import (
 from versatil.post_training_compression.export import (
     build_example_inputs,
     export_policy,
+    move_exported_model,
 )
 from versatil.post_training_compression.policy_loading import load_float_policy_context
 from versatil.quantization.calibration import (
@@ -88,12 +90,14 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         self,
         checkpoint_path: str,
         checkpoint_name: str,
+        device: torch.device = torch.device(CompressionDeviceType.CPU.value),
     ) -> PolicyContext:
         """Load the policy checkpoint required by PT2E quantization.
 
         Args:
             checkpoint_path: Directory containing the training checkpoint.
             checkpoint_name: Checkpoint filename to load from the directory.
+            device: Device for the restored policy and preprocessing state.
 
         Returns:
             Float policy context used for PT2E export, preparation,
@@ -102,6 +106,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         return load_float_policy_context(
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
+            device=device,
         )
 
     def quantize(
@@ -110,6 +115,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         exportable: ExportablePolicy,
         calibration_steps: int,
         deployment_backend: DeploymentBackend | None = None,
+        deployment_device: torch.device | None = None,
     ) -> QuantizedContext:
         """Export, prepare, optionally calibrate, and convert with PT2E.
 
@@ -121,6 +127,8 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
                 static PT2E calibration.
             deployment_backend: Destination selected by compression, which checks
                 compatibility with the configured PT2E quantizers.
+            deployment_device: Device for the converted graph's export and execution.
+                None uses the loaded policy's device.
 
         Returns:
             Float exported model, PT2E-converted model, and example inputs.
@@ -128,6 +136,13 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
         Raises:
             ValueError: If a target path is invalid or targets overlap.
         """
+        source_device = self._resolve_deployment_device(
+            device=context.policy.device, source_device=context.policy.device
+        )
+        device = self._resolve_deployment_device(
+            device=deployment_device, source_device=source_device
+        )
+        self.validate_deployment_device(device=device)
         self.validate_targets(model=context.policy)
         calibration = self._build_calibration(
             context=context,
@@ -144,6 +159,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
+            device=context.policy.device,
         )  # (batch, ...)
         exported = export_policy(exportable=exportable, example_inputs=example_inputs)
         # prepare_pt2e/convert_pt2e mutate the exported graph in place; keep a
@@ -158,6 +174,16 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             observation_keys=exportable.observation_keys,
             export_metadata=exportable.export_metadata,
         )
+        if device != source_device:
+            float_exported = move_exported_model(
+                model=float_exported, example_inputs=example_inputs, device=device
+            )
+            converted = move_exported_model(
+                model=converted, example_inputs=example_inputs, device=device
+            )
+            example_inputs = tuple(
+                tensor.to(device=device) for tensor in example_inputs
+            )  # each (B, ...)
         return QuantizedContext(
             float_model=float_exported,
             quantized_model=converted,
@@ -200,8 +226,25 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             context=context,
             observation_keys=exportable.observation_keys,
             num_calibration_steps=calibration_steps,
-            device=torch.device("cpu"),
+            device=context.policy.device,
         )
+
+    def validate_deployment_device(self, device: torch.device) -> None:
+        """Require an execution device supported by every configured PT2E backend.
+
+        Args:
+            device: Device for the final artifact's execution.
+
+        Raises:
+            ValueError: If a target requires another device type.
+        """
+        for target in self.targets:
+            backend = target.pt2e_backend
+            if device.type not in backend.supported_device_types:
+                raise ValueError(
+                    f"PT2E backend {backend.name} supports deployment devices "
+                    f"{backend.supported_device_types}, got '{device}'."
+                )
 
     @staticmethod
     def _convert_exported_model(
@@ -219,6 +262,7 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             dynamic activation quantization, including weights shared across
             denoising steps. Static calibration appends the noise inputs described
             by the policy export metadata to each observation batch.
+            Quantizer-created constants use the calibration device during preparation.
             ``B`` denotes batch size. Output dimensions depend on whether the
             exported policy produces action tensors or action-token IDs.
 
@@ -254,25 +298,22 @@ class PT2EQuantizationWorkflow(BaseQuantizationWorkflow):
             logger.info(f"PT2E target: {target.label}")
 
         composed = ComposableQuantizer(quantizers)
-        first_backend = targets[0].pt2e_backend
-        with first_backend.environment_context():
+        with example_inputs[0].device:
             prepared = prepare_pt2e(exported, composed)
-            if calibration is not None:
-                logger.info("Calibrating PT2E...")
-                export_metadata = export_metadata or PolicyExportMetadata()
-                with torch.no_grad():
-                    for observation in calibration:
-                        inputs = export_metadata.prepare_inputs(
-                            observations=tuple(
-                                observation[key] for key in observation_keys
-                            )
-                        )  # (B, ...)
-                        prepared(*inputs)  # (B, ...)
-            else:
-                logger.info("Initializing PT2E weight observers with export inputs.")
-                with torch.no_grad():
-                    prepared(*example_inputs)  # (B, ...)
-            converted = convert_pt2e(prepared)
+        if calibration is not None:
+            logger.info("Calibrating PT2E...")
+            export_metadata = export_metadata or PolicyExportMetadata()
+            with torch.no_grad():
+                for observation in calibration:
+                    inputs = export_metadata.prepare_inputs(
+                        observations=tuple(observation[key] for key in observation_keys)
+                    )  # (B, ...)
+                    prepared(*inputs)  # (B, ...)
+        else:
+            logger.info("Initializing PT2E weight observers with export inputs.")
+            with torch.no_grad():
+                prepared(*example_inputs)  # (B, ...)
+        converted = convert_pt2e(prepared)
         static_op_count = str(converted.graph).count(
             FXNodePattern.QUANTIZE_PER_TENSOR.value
         )

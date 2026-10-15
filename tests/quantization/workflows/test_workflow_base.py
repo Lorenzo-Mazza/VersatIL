@@ -1,98 +1,44 @@
 """Tests for versatil.quantization.workflows.base module."""
 
-import re
-from collections.abc import Callable
-from contextlib import nullcontext as does_not_raise
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 import torch.nn as nn
 
-from versatil.quantization.module_target import EagerQuantizationModuleTarget
-from versatil.quantization.workflows.base import validate_quantization_targets
+from versatil.quantization.workflows.base import (
+    BaseQuantizationWorkflow,
+)
 
 
-class QuantizationValidationModel(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.encoder = nn.Sequential(nn.Linear(4, 8), nn.ReLU())
-        self.decoder = nn.Linear(8, 2)
-
-
-@pytest.fixture
-def eager_target_factory() -> Callable[[str], EagerQuantizationModuleTarget]:
-    """Factory for eager targets used by shared validator tests."""
-
-    def factory(module_path: str) -> EagerQuantizationModuleTarget:
-        return EagerQuantizationModuleTarget(
-            module_path=module_path,
-            quantize_config=MagicMock(spec=[]),
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "requested, expected",
+    [(None, "cuda:1"), ("cpu", "cpu"), ("cuda", "cuda:0"), ("cuda:1", "cuda:1")],
+)
+def test_deployment_device_resolves_current_cuda_index(
+    requested: str | None, expected: str
+) -> None:
+    with patch(
+        "versatil.quantization.workflows.base.torch.cuda.current_device", return_value=0
+    ) as current_device:
+        device = BaseQuantizationWorkflow._resolve_deployment_device(
+            device=torch.device(requested) if requested is not None else None,
+            source_device=torch.device("cuda:1"),
         )
-
-    return factory
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "module_path, expectation",
-    [
-        ("", does_not_raise()),
-        ("encoder", does_not_raise()),
-        ("encoder.0", does_not_raise()),
-        (
-            "missing",
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    "Quantization target 'missing' not found in model. "
-                    "Available top-level modules: ['encoder', 'decoder']."
-                ),
-            ),
-        ),
-    ],
-)
-def test_validate_quantization_targets_checks_module_paths(
-    eager_target_factory: Callable[[str], EagerQuantizationModuleTarget],
-    module_path: str,
-    expectation,
-) -> None:
-    model = QuantizationValidationModel()
-    targets = [eager_target_factory(module_path)]
-
-    with expectation:
-        validate_quantization_targets(model=model, targets=targets)
+    assert device == torch.device(expected)
+    if requested == "cuda":
+        current_device.assert_called_once_with()
+    else:
+        current_device.assert_not_called()
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "module_paths, expectation",
-    [
-        (["encoder", "decoder"], does_not_raise()),
-        (
-            ["encoder", "encoder.0"],
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    "Quantization targets overlap: 'encoder' and 'encoder.0'."
-                ),
-            ),
-        ),
-        (
-            ["", "decoder"],
-            pytest.raises(
-                ValueError,
-                match=re.escape("Quantization targets overlap: '' and 'decoder'."),
-            ),
-        ),
-    ],
-)
-def test_validate_quantization_targets_rejects_overlapping_paths(
-    eager_target_factory: Callable[[str], EagerQuantizationModuleTarget],
-    module_paths: list[str],
-    expectation,
-) -> None:
-    model = QuantizationValidationModel()
-    targets = [eager_target_factory(module_path) for module_path in module_paths]
-
-    with expectation:
-        validate_quantization_targets(model=model, targets=targets)
+def test_validate_targets_delegates_to_resolution() -> None:
+    workflow = MagicMock(spec=BaseQuantizationWorkflow)
+    model = MagicMock(spec=nn.Module)
+    with patch(
+        "versatil.quantization.workflows.base.validate_quantization_targets"
+    ) as validate:
+        BaseQuantizationWorkflow.validate_targets(workflow, model=model)
+    validate.assert_called_once_with(model=model, targets=workflow.targets)

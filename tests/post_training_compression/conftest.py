@@ -124,6 +124,9 @@ def compressor_factory() -> Callable[..., PostTrainingCompressor]:
         pruning: list[BasePruner] | None = None,
         quantization: BaseQuantizationWorkflow | None = None,
         deployment_backend: DeploymentBackend | None = None,
+        device: str = "cpu",
+        precision: str | None = None,
+        deployment_device: str | None = None,
     ) -> PostTrainingCompressor:
         return PostTrainingCompressor(
             checkpoint_path=checkpoint_path,
@@ -135,6 +138,9 @@ def compressor_factory() -> Callable[..., PostTrainingCompressor]:
             pruning=pruning,
             quantization=quantization,
             deployment_backend=deployment_backend,
+            device=device,
+            precision=precision,
+            deployment_device=deployment_device,
         )
 
     return factory

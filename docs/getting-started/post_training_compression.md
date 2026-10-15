@@ -1,8 +1,8 @@
 # Compressing a Trained Policy
 
-Post-training compression (PTC) shrinks a trained checkpoint and speeds up
-CPU inference for deployment on edge or resource-constrained hardware,
-without retraining. A compression run executes a pipeline of stages, each of
+Post-training compression (PTC) prepares trained checkpoints for CPU or CUDA
+deployment, with optional pruning and quantization to reduce model size.
+A compression run executes a pipeline of stages, each of
 them optional: preparation, pruning, quantization, and export to a
 deployable artifact. Internals live in the
 [post-training compression](../architecture/post_training_compression.md) and
@@ -48,8 +48,23 @@ Useful fields at this stage:
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `checkpoint_name` | `last.ckpt` | Checkpoint file inside the directory. |
+| `device` | `cpu` | Device for checkpoint loading, preparation, and calibration. |
+| `deployment_device` | `null` | Device for the exported artifact, runtime weight packing, and reports. `null` uses `device`. |
+| `precision` | `null` | Floating model/input precision: `"32"`, `16-true`, or `bf16-true`. `null` preserves the loaded precision. |
 | `output_directory` | `compressed/<timestamp>` | Where the artifact is written. |
 | `generate_report` | `false` | Write a compression report: op coverage, size reduction, output divergence vs the float policy. |
+
+For a CUDA BF16 floating baseline, use the same config with
+`device=cuda precision=bf16-true`.
+
+Some quantization formats constrain floating-point precision during both lowering
+and execution. For example, TorchAO's tile-packed INT4 requires BF16 source weights
+for packing and runs its matrix multiplication with BF16 activations.
+
+To calibrate on GPU and deploy on CPU, select a CPU-compatible quantization
+recipe and set `device=cuda deployment_device=cpu`.
+The x86 Inductor and XNNPACK PT2E backends target CPU execution and support GPU
+calibration with this device split.
 
 ## Step 2: Add Pruning
 
@@ -213,8 +228,6 @@ python -m versatil.endpoints.post_training_compress \
 
 ## Known Limitations
 
-- PT2E export and calibration run on CPU: `torch.export` bakes device
-  metadata into the graph, so the prepared model must not be moved to CUDA.
 - `torch.export` specializes `batch=1` to a constant; dynamic batch dims
   need `batch>=2`.
 - The first inference call of a compiled artifact is slow while the inductor

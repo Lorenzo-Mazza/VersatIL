@@ -2,6 +2,7 @@
 
 import hydra
 import pytest
+import torch
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
@@ -17,6 +18,7 @@ from versatil.post_training_compression.compressor import (
     PostTrainingCompressor,
 )
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
+from versatil.training.constants import PrecisionType
 
 HYDRA_CONFIG_DIR = str(get_hydra_configs_dir())
 
@@ -25,7 +27,7 @@ HYDRA_CONFIG_DIR = str(get_hydra_configs_dir())
 class TestPreparationConfig:
     @pytest.mark.parametrize("replace_bn", [True, False])
     @pytest.mark.parametrize("fuse_conv", [True, False])
-    def test_stores_configuration(self, replace_bn, fuse_conv):
+    def test_stores_configuration(self, replace_bn: bool, fuse_conv: bool) -> None:
         config = PreparationConfig(
             replace_frozen_batchnorm=replace_bn,
             fuse_conv_batchnorm=fuse_conv,
@@ -37,22 +39,19 @@ class TestPreparationConfig:
 
 @pytest.mark.unit
 class TestCompressionTargetConfig:
-    def test_stores_module_path(self):
+    def test_stores_module_path(self) -> None:
         config = CompressionTargetConfig(
             module_path="encoding_pipeline.encoders.left.backbone",
         )
 
         assert config.module_path == "encoding_pipeline.encoders.left.backbone"
 
-    def test_defaults_to_interpolation_for_inheritance(self):
+    def test_defaults_to_interpolation_for_inheritance(self) -> None:
         config = CompressionTargetConfig(
             module_path="decoder",
         )
-        omega = OmegaConf.structured(config)
-
         assert config.preparation == "${preparation}"
         assert config.pruning == "${pruning}"
-        assert "quantization" not in omega
 
 
 @pytest.mark.unit
@@ -72,7 +71,7 @@ class TestExecutorchXNNPACKBackendConfig:
 @pytest.mark.unit
 class TestPostTrainingCompressorConfig:
     @pytest.mark.parametrize("calibration_steps", [64, 256])
-    def test_stores_configuration(self, calibration_steps):
+    def test_stores_configuration(self, calibration_steps: int) -> None:
         config = PostTrainingCompressorConfig(
             checkpoint_path="/tmp/ckpt",
             calibration_steps=calibration_steps,
@@ -81,7 +80,49 @@ class TestPostTrainingCompressorConfig:
         assert config.checkpoint_path == "/tmp/ckpt"
         assert config.calibration_steps == calibration_steps
 
-    def test_omegaconf_roundtrip(self):
+    @pytest.mark.parametrize("device", ["cpu", "cuda:1"])
+    @pytest.mark.parametrize("deployment_device", [None, "cpu"])
+    @pytest.mark.parametrize("precision", [None, "bf16-true"])
+    def test_stores_execution_settings(
+        self, device: str, deployment_device: str | None, precision: str | None
+    ) -> None:
+        config = PostTrainingCompressorConfig(
+            checkpoint_path="/tmp/ckpt",
+            device=device,
+            deployment_device=deployment_device,
+            precision=precision,
+        )
+
+        assert config.device == device
+        assert config.deployment_device == deployment_device
+        assert config.precision == precision
+
+
+@pytest.mark.integration
+class TestPostTrainingCompressorConfigurationIntegration:
+    @pytest.mark.parametrize("device", ["cpu", "cuda:1"])
+    @pytest.mark.parametrize("deployment_device", [None, "cpu", "cuda:1"])
+    @pytest.mark.parametrize("precision", ["32", "16-true", "bf16-true"])
+    def test_hydra_overrides_reach_compressor_execution_settings(
+        self, device: str, precision: str, deployment_device: str | None
+    ) -> None:
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            config = compose(
+                config_name="post_training_compression",
+                overrides=[
+                    "checkpoint_path=/tmp/ckpt",
+                    f"device={device}",
+                    f"precision={precision}",
+                    f"deployment_device={deployment_device or 'null'}",
+                ],
+            )
+        compressor = hydra.utils.instantiate(config)
+
+        assert compressor.device == torch.device(device)
+        assert compressor.deployment_device == torch.device(deployment_device or device)
+        assert compressor.precision == PrecisionType(precision)
+
+    def test_omegaconf_roundtrip(self) -> None:
         config = PostTrainingCompressorConfig(
             checkpoint_path="/tmp/ckpt",
             calibration_steps=64,
@@ -92,10 +133,7 @@ class TestPostTrainingCompressorConfig:
         assert omega.calibration_steps == 64
         assert omega.modules == []
 
-
-@pytest.mark.unit
-class TestPerModuleYamlQuantizationTarget:
-    def test_top_level_workflow_owns_quantization_targets(self):
+    def test_top_level_workflow_owns_quantization_targets(self) -> None:
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             yaml_config = compose(
                 config_name="end_to_end_ptq/unstructured_prune_x86_decoder_only",
@@ -110,3 +148,4 @@ class TestPerModuleYamlQuantizationTarget:
         assert [target.module_path for target in compressor.quantization.targets] == [
             "decoder"
         ]
+        assert "quantization" not in yaml_config.modules[0]

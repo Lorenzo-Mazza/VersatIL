@@ -19,7 +19,12 @@ focused on current problems and their available workarounds.
 ### Docstrings
 
 Describe what the code does, what each non-obvious argument means, what it returns,
-and what it raises. Use direct, affirmative descriptions.
+and what it raises. For notes explaining unexpected code or workarounds, state the
+intended behavior, how a dependency or constraint interferes, and why this code
+achieves the intended result. Make that causal chain explicit. Use concrete words
+and direct verbs, with a brief example when useful. Keep each note beside the
+relevant argument or behavior, focused on one reader question; omit repetition and
+details that do not help explain the decision.
 
 Put every explanatory remark, caveat and notation definition in a Google-style
 `Note:` section. This includes definitions of tensor-shape symbols. Keep argument
@@ -65,7 +70,7 @@ uv sync --python "$PYTHON_VERSION" --extra gpu
 # For CPU-only environments:
 # uv sync --python "$PYTHON_VERSION" --extra cpu
 
-# Optional ExecuTorch 1.4.1 wheel, available on Python 3.13 and 3.14.
+# Optional ExecuTorch 1.5.1 wheel, available on Python 3.13 and 3.14.
 PYTHON_VERSION=3.14
 uv sync --frozen --python "$PYTHON_VERSION" --extra cpu --extra executorch
 
@@ -77,9 +82,10 @@ Requirements: Python 3.13 or 3.14. CUDA is optional; the `gpu` extra installs
 the CUDA 13.0 PyTorch wheel set.
 
 The supported release combination is PyTorch 2.13, TorchVision 0.28,
-TorchAO 0.18 and optional ExecuTorch 1.4.1. Standard ExecuTorch installation uses
+TorchAO 0.18 and optional ExecuTorch 1.5.1. Standard ExecuTorch installation uses
 the published wheel on both supported Python versions. A CUDA-enabled native
-ExecuTorch runtime requires a separate build from the matching release source.
+ExecuTorch runtime supports CUDA-delegated artifacts; VersatIL's ExecuTorch
+adapter uses XNNPACK on CPU.
 The `gpu` extra selects CUDA-enabled PyTorch wheels.
 
 `uv sync` installs the `dev` dependency group (pytest, pytest-cov, ruff,
@@ -363,18 +369,18 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 
 #### 9. Post-Training Compression
 
-The post-training compression (PTC) package reduces model size and improves CPU inference efficiency for deployment on edge or resource-constrained hardware, without retraining.
+The post-training compression (PTC) package prepares trained checkpoints for CPU or CUDA deployment, with optional pruning and quantization to reduce model size.
 
 **Pipeline** (`PostTrainingCompressor.compress()`):
 ```
-Load policy (CPU)
+Load policy (configured device, CPU by default)
   → Resolve compression targets (per-module or global fallback)
   → Validate module paths and strategy compatibility
   → Per-target: BN replacement → Conv+BN fusion → Pruning (sequential list)
-  → Selected workflow (CPU, dynamic batch):
-      none: floating-point export
-      eager: module conversion → export
-      PT2E: export → graph preparation/calibration/conversion
+  → Selected workflow (independent calibration and deployment devices, dynamic batch):
+      none: move to deployment device → floating-point export
+      eager: prepare/calibrate → move state → convert/pack on deployment device → export
+      PT2E: export → graph preparation/calibration/conversion → move graph for deployment
   → Deployment backend: .pt2 or .pte artifact
   → Save artifact + normalizer + metadata → compressed/<timestamp>/
   → (Optional) Generate report: op coverage, size reduction, output divergence
@@ -396,8 +402,8 @@ export; PT2E quantization operates on the exported graph.
 numerical, dtype, device and calibration checks. `direct.py` defines
 `DirectQuantizationSchema`, which supplies a base PTQ configuration or matching
 QAT preparation/conversion configurations. `smoothquant.py` defines
-`SmoothQuantSchema`, which supplies PTQ settings for dynamic INT8 activations and
-INT8 weights (`Int8DynamicActivationInt8WeightConfig`, version 2). Import classes
+`SmoothQuantSchema`, which supplies PTQ settings for dynamic W8A8 or tile-packed
+INT4 weights with BF16 activations (TorchAO version 2 configurations). Import classes
 from these defining modules. Each target accepts either `quantize_config` for
 direct conversion or an explicit `schema`; Hydra registers concrete schemas
 under `quantization/schema`.
@@ -411,19 +417,18 @@ conversion and export. `EagerQuantizationModuleTarget` resolves its layer scope,
 selects linear or embedding layers through `module_type` and constructs
 conversion metadata. Targets with different layer types can share a module path.
 Embedding targets use `IntxWeightOnlyConfig`; QAT requires embedding forward
-lookups. The workflow validates all targets before quantization, prepares all
-targets, runs required calibration,
+lookups. The workflow prepares all targets, runs required calibration,
 then converts all targets using the recorded selection. QAT optimization remains
 in the trainer. Deployment backends validate allowed workflow modes, PT2E
 pairings and eager representations through `validate_quantization()` and
-`validate_eager_target()`. SmoothQuant deployment uses Torch Export/Inductor.
-The `end_to_end_ptq/smoothquant_int8` preset uses CPU compression and `.pt2` export.
+`validate_eager_target()`.
 SmoothQuant uses TorchAO's running-maximum observer, retaining one maximum per
 selected input channel throughout calibration.
 
 **Calibration inputs**: `CalibrationDataProvider` yields dictionaries of model
 observations using the dataset's normalization and tokenization. It preserves
-tensor dtypes when moving observations to the requested device, limits batch
+integer and Boolean tensor dtypes when moving observations to the requested device,
+applies explicit compression precision to floating observations, limits batch
 consumption, and rejects empty data or missing inputs. `build_calibration_data()`
 uses the checkpoint's dataset configuration, normalizer and tokenizer with image
 augmentation and batch shuffling disabled. PT2E arranges these named observations
@@ -496,10 +501,6 @@ optional measurements of numerical differences, graph coverage, size and executi
 **Deployment backends**: `TorchInductorBackend` saves Torch Export `.pt2` artifacts. `ExecutorchXNNPACKBackend` lowers exported programs to ExecuTorch XNNPACK `.pte` artifacts. PT2E quantizer backends, such as `X86InductorBackend`, live under `src/versatil/quantization/pt2e/`.
 
 **Known limitations**:
-- **Compression device**: current checkpoint-context and example-input builders
-  use CPU. Export and calibration require consistent devices because captured
-  graphs record device-specific operations. GPU compression requires device-aware
-  context and input construction.
 - **Dynamic batch dimension**: `torch.export` with `batch=1` specializes to a constant. Always use `batch>=2` for dynamic dims.
 - **First inference latency**: `torch.compile` with inductor backend generates and compiles C++ kernels on the first forward pass. Compilation time depends on model size and quantized op count.
 

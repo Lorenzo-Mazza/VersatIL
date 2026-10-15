@@ -132,7 +132,7 @@ Both source setup paths install:
 
 ### Optional ExecuTorch Dependency
 
-ExecuTorch 1.4.1 provides wheels for Python 3.13 and 3.14. Install it through
+ExecuTorch 1.5.1 provides wheels for Python 3.13 and 3.14. Install it through
 the optional extra:
 
 ```bash
@@ -150,7 +150,7 @@ The lockfile selects the following versions together:
 | PyTorch | 2.13.0 |
 | TorchVision | 0.28.0 |
 | TorchAO | 0.18.0 |
-| ExecuTorch | 1.4.1 |
+| ExecuTorch | 1.5.1 |
 
 Check the installed dependencies and run the ExecuTorch tests with:
 
@@ -165,12 +165,11 @@ The `gpu` extra installs CUDA-enabled PyTorch. The `executorch` extra installs
 ExecuTorch's Python export tools and packaged CPU runtime.
 
 CUDA deployment uses AOTInductor to compile the exported model and a native
-ExecuTorch runtime built with `-DEXECUTORCH_BUILD_CUDA=ON`. Follow the
-[CUDA backend build instructions for ExecuTorch 1.4.1](https://github.com/pytorch/executorch/blob/v1.4.1/docs/source/backends/cuda/cuda-overview.md)
-with a matching `v1.4.1` source checkout. Build that runtime separately from the
-standard Python wheel installation. Its build environment requires the CUDA
-toolkit, including `nvcc`, and a C++ compiler. PyTorch wheels supply the CUDA
-libraries used during execution.
+ExecuTorch runtime with CUDA support. For a source build, follow the
+[CUDA backend build instructions for ExecuTorch 1.5.1](https://github.com/pytorch/executorch/blob/v1.5.1/docs/source/backends/cuda/cuda-overview.md)
+with a matching `v1.5.1` source checkout and `-DEXECUTORCH_BUILD_CUDA=ON`.
+The source build requires the CUDA toolkit, including `nvcc`, and a C++ compiler.
+PyTorch wheels supply the CUDA libraries used during execution.
 
 VersatIL's ExecuTorch deployment adapter targets XNNPACK on CPU. CUDA integration
 requires a deployment adapter for export and a CUDA-enabled runtime for execution.

@@ -40,6 +40,23 @@ def test_torch_inductor_backend_returns_pt2_artifact_descriptor():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("device", ["cpu", "cuda:1"])
+def test_graph_executes_without_gradients_before_export(device: str) -> None:
+    inputs = MagicMock(spec=torch.Tensor)
+    inputs.device = torch.device(device)
+    model = MagicMock(spec=nn.Module)
+    gradients_enabled = []
+    model.side_effect = lambda observation: gradients_enabled.append(
+        torch.is_grad_enabled()
+    )
+
+    TorchInductorBackend().export(model=model, example_inputs=(inputs,))
+
+    model.assert_called_once_with(inputs)
+    assert gradients_enabled == [False]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("mode", [*list(QuantizationMode), "unsupported"])
 def test_declares_supported_quantization_workflows(mode: str) -> None:
     backend = TorchInductorBackend()
