@@ -106,7 +106,7 @@ gpu = [
   "torchvision>=0.28,<0.29",
 ]
 executorch = [
-  "executorch>=1.4.1,<1.5",
+  "executorch>=1.5.1,<1.6",
 ]
 docs = [
   "mkdocs-material",

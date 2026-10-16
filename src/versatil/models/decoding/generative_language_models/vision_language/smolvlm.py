@@ -108,8 +108,9 @@ class SmolVLM(HuggingFaceGenerativeVLM):
 
         Note:
             B is batch size, N is camera count, C is channel count, and H and W
-            are image height and width. The contiguous camera stack supports
-            Idefics3's view-based flattening of the batch and camera axes.
+            are image height and width. HuggingFace's image helper removes
+            zero-valued images as padding, so its output shape depends on image
+            contents: we need to call the vision encoder directly to avoid this.
         """
         camera_images = []
         for camera_key in self.camera_keys:
@@ -121,12 +122,23 @@ class SmolVLM(HuggingFaceGenerativeVLM):
                 )
             )
         num_cameras = len(self.camera_keys)
-        pixel_values = torch.stack(
-            tensors=camera_images, dim=1
-        ).contiguous()  # (B, N, C, H, W)
-        image_features = self.vlm.get_image_features(pixel_values)
-        # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dimension)
-        image_embeddings = image_features.pooler_output
+        image_model = (
+            self.vlm.model.model
+            if self.lora_config is not None and self.lora_config.enabled
+            else self.vlm.model
+        )
+        pixel_values = (
+            torch.stack(tensors=camera_images, dim=1)
+            .flatten(0, 1)
+            .to(dtype=image_model.dtype)
+            .contiguous()
+        )  # (B, N, C, H, W) -> (B * N, C, H, W)
+        image_features = image_model.vision_model(
+            pixel_values=pixel_values, return_dict=True
+        )
+        image_embeddings = image_model.connector(
+            image_features.last_hidden_state
+        )  # (B * N, patches, vision_dimension) -> (B * N, tokens, hidden_dimension)
         # SmolVLM convention: scale image embeddings by sqrt(hidden_dimension) to match
         # the magnitude of the language-model token embeddings.
         image_embeddings = image_embeddings * math.sqrt(image_embeddings.shape[-1])
@@ -146,13 +158,13 @@ class SmolVLM(HuggingFaceGenerativeVLM):
     def get_explainability_targets(self) -> list[VisionExplanationTarget]:
         """Return the connector output used by SmolVLA as visual context.
 
-        SmolVLM stacks cameras before image encoding, and HuggingFace flattens
-        the stack to ``B * num_cameras`` while producing one token sequence per
-        camera. The explainability package splits this stacked batch back into
-        camera-specific heatmaps through ``is_stacked_camera_batch``.
-
         Returns:
             One token-sequence target over SmolVLM image tokens.
+
+        Note:
+            SmolVLM flattens cameras into a batch of ``B * num_cameras`` before
+            image encoding. The explainability package splits this batch back
+            into camera-specific heatmaps through ``is_stacked_camera_batch``.
         """
         return [
             VisionExplanationTarget(

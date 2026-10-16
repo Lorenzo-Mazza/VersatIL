@@ -102,6 +102,26 @@ def pt2e_export_metadata_factory() -> Callable[..., MagicMock]:
 
 @pytest.mark.unit
 class TestPT2EQuantizationWorkflow:
+    def test_cuda_deployment_rejected_independently_of_checkpoint_loading(
+        self, mock_pt2e_backend_factory: Callable[..., MagicMock]
+    ) -> None:
+        workflow = PT2EQuantizationWorkflow(
+            targets=[
+                PT2EQuantizationModuleTarget(
+                    module_path="", pt2e_backend=mock_pt2e_backend_factory()
+                )
+            ]
+        )
+        with (
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "PT2E backend x86_inductor supports deployment devices ('cpu',), got 'cuda'."
+                ),
+            ),
+        ):
+            workflow.validate_deployment_device(device=torch.device("cuda"))
+
     def test_requires_at_least_one_target(self):
         with pytest.raises(
             ValueError,
@@ -151,10 +171,12 @@ class TestPT2EQuantizationWorkflow:
             PT2EBackendName.XNNPACK.value,
         )
 
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:1")])
     def test_load_policy_context_delegates_to_float_context_loader(
         self,
-        mock_pt2e_backend_factory,
-    ):
+        mock_pt2e_backend_factory: Callable[..., MagicMock],
+        device: torch.device,
+    ) -> None:
         target = PT2EQuantizationModuleTarget(
             module_path="",
             pt2e_backend=mock_pt2e_backend_factory(),
@@ -169,11 +191,13 @@ class TestPT2EQuantizationWorkflow:
             result = workflow.load_policy_context(
                 checkpoint_path="/tmp/checkpoint",
                 checkpoint_name="last.ckpt",
+                device=device,
             )
 
         mock_loader.assert_called_once_with(
             checkpoint_path="/tmp/checkpoint",
             checkpoint_name="last.ckpt",
+            device=device,
         )
         assert result is expected_context
 
@@ -233,6 +257,7 @@ class TestPT2EQuantizationWorkflow:
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
+            device=context.policy.device,
         )
         mock_export.assert_called_once_with(
             exportable=exportable,
@@ -312,6 +337,7 @@ class TestPT2EQuantizationWorkflow:
             observation_space=context.observation_space,
             observation_horizon=context.observation_horizon,
             tokenizer=context.tokenizer,
+            device=context.policy.device,
         )
         mock_export.assert_called_once_with(
             exportable=exportable,

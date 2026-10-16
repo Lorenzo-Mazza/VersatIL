@@ -6,6 +6,10 @@ from typing import Any
 
 import torch
 
+from versatil.training.constants import PrecisionType
+
+POLICY_EXPORT_PRECISION_VERSION = 2
+
 
 class PredictionOutput(StrEnum):
     """Meaning of a policy graph's output tensors."""
@@ -71,6 +75,7 @@ class PolicyExportMetadata:
         noise_inputs: Optional noise input descriptions for diffusion and flow,
             in graph input order after observations.
         version: Version of the metadata format used to save these fields.
+        precision: Optional floating-point dtype for observations and sampled noise.
 
     Raises:
         ValueError: If the format version is unsupported or noise input names repeat.
@@ -79,12 +84,27 @@ class PolicyExportMetadata:
     output: PredictionOutput = PredictionOutput.ACTIONS
     noise_inputs: tuple[NoiseInput, ...] = field(default_factory=tuple)
     version: int = 1
+    precision: PrecisionType | None = None
 
     def __post_init__(self) -> None:
         """Validate the metadata version and noise input names."""
-        if self.version != 1:
+        if self.version not in (1, POLICY_EXPORT_PRECISION_VERSION):
             raise ValueError(
                 f"Unsupported policy export metadata version {self.version}."
+            )
+        if (
+            self.precision is not None
+            and self.version < POLICY_EXPORT_PRECISION_VERSION
+        ):
+            raise ValueError("Policy export precision requires metadata version 2.")
+        if self.precision is not None and self.precision not in (
+            PrecisionType.FP32,
+            PrecisionType.FP16_TRUE,
+            PrecisionType.BF16_TRUE,
+        ):
+            raise ValueError(
+                "Policy export precision must be 32, 16-true or bf16-true, "
+                f"got '{self.precision}'."
             )
         names = tuple(noise.name for noise in self.noise_inputs)
         if len(names) != len(set(names)):
@@ -95,7 +115,7 @@ class PolicyExportMetadata:
     def prepare_inputs(
         self, observations: tuple[torch.Tensor, ...]
     ) -> tuple[torch.Tensor, ...]:
-        """Sample the required noise tensors and append them to the observations.
+        """Apply floating-point precision and append required noise tensors.
 
         Args:
             observations: Preprocessed tensors in the saved observation-key order.
@@ -109,11 +129,21 @@ class PolicyExportMetadata:
                 observation tuple is empty, or the reference tensor is scalar.
 
         Note:
+            Configured precision casts floating-point observations and preserves
+            integer token IDs and boolean masks. Batch denotes the leading batch
+            dimension; remaining dimensions follow each observation's metadata.
             Noise uses the first floating-point observation's batch size, device
             and dtype. When all observations have integer or boolean dtypes,
             noise uses the first observation's batch size and device with float32
-            dtype.
+            dtype, or the configured floating-point precision.
         """
+        if self.precision is not None:
+            observations = tuple(
+                tensor.to(dtype=self.precision.get_model_dtype())  # (batch, ...)
+                if tensor.is_floating_point()
+                else tensor
+                for tensor in observations
+            )
         if not self.noise_inputs:
             return observations
         if not observations:
@@ -130,7 +160,13 @@ class PolicyExportMetadata:
                 "tensor with a batch dimension."
             )
         noise_dtype = (
-            reference.dtype if reference.is_floating_point() else torch.float32
+            reference.dtype
+            if reference.is_floating_point()
+            else (
+                self.precision.get_model_dtype()
+                if self.precision is not None
+                else torch.float32
+            )
         )
         return observations + tuple(
             torch.randn(
@@ -143,7 +179,10 @@ class PolicyExportMetadata:
 
     def to_dict(self) -> dict[str, Any]:
         """Return the output type, noise input descriptions and format version as a dict."""
-        return asdict(self)
+        metadata = asdict(self)
+        if self.precision is None:
+            metadata.pop("precision")
+        return metadata
 
     @classmethod
     def from_dict(cls, metadata: dict[str, Any]) -> "PolicyExportMetadata":
@@ -168,4 +207,9 @@ class PolicyExportMetadata:
                 for entry in metadata.get("noise_inputs", [])
             ),
             version=metadata.get("version", 1),
+            precision=(
+                PrecisionType(metadata["precision"])
+                if metadata.get("precision") is not None
+                else None
+            ),
         )

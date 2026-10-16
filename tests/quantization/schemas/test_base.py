@@ -151,6 +151,48 @@ def test_weight_group_size_resolves_configuration_and_granularity_fields(
 
 @pytest.mark.unit
 class TestConfigurationValidation:
+    @pytest.mark.parametrize(
+        "source_device, conversion_device, valid",
+        [("cpu", "cuda:1", True), ("cuda:1", "cpu", False)],
+    )
+    def test_int4_packing_validates_the_conversion_destination(
+        self,
+        validation_schema_factory: Callable[..., MagicMock],
+        weight_property_model_factory: Callable[..., MagicMock],
+        source_device: str,
+        conversion_device: str,
+        valid: bool,
+    ) -> None:
+        schema = validation_schema_factory(
+            config_type=Int4WeightOnlyConfig,
+            group_size=32,
+            packing=Int4PackingFormat.TILE_PACKED_TO_4D,
+        )
+        model = weight_property_model_factory(
+            device=source_device, dtype=torch.bfloat16
+        )
+        expectation = (
+            does_not_raise()
+            if valid
+            else pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "Module 'decoder.projection': Int4PackingFormat.TILE_PACKED_TO_4D "
+                    "INT4 requires CUDA weights at conversion."
+                ),
+            )
+        )
+        with expectation:
+            QuantizationSchema.validate_configuration(
+                schema,
+                model=model,
+                module_names={"decoder.projection"},
+                label="decoder",
+                activation_dtype=torch.bfloat16,
+                conversion_device=torch.device(conversion_device),
+            )
+        model.to.assert_not_called()
+
     @pytest.mark.parametrize("group_size", [0, -32])
     def test_nonpositive_group_size_fails_before_weight_inspection(
         self,

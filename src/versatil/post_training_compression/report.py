@@ -11,7 +11,10 @@ from versatil.models.exportable.metadata import (
     PolicyExportMetadata,
     PredictionOutput,
 )
-from versatil.post_training_compression.constants import QuantizationWorkflow
+from versatil.post_training_compression.constants import (
+    CompressionDeviceType,
+    QuantizationWorkflow,
+)
 from versatil.quantization.constants import (
     FXNodeOp,
     FXNodePattern,
@@ -200,24 +203,41 @@ class QuantizationReport:
         Returns:
             Dict with "float_milliseconds", "quantized_milliseconds",
             "speedup".
+
+        Note:
+            CUDA timings include completed device execution. Warmup work finishes
+            before timing begins, and each model's timed calls finish before the
+            elapsed time is read.
         """
         if self._quantization_workflow == QuantizationWorkflow.PT2E.value:
             quantized_model = self._compile_for_benchmark()
         else:
             quantized_model = self._quantized_model
 
+        cuda_devices = {
+            tensor.device
+            for tensor in self._example_inputs
+            if tensor.device.type == CompressionDeviceType.CUDA.value
+        }
+
         with torch.no_grad():
             for _ in range(warmup_runs):
                 self._float_model(*self._example_inputs)
                 quantized_model(*self._example_inputs)
+            for device in cuda_devices:
+                torch.cuda.synchronize(device=device)
             start = time.perf_counter()
             for _ in range(benchmark_runs):
                 self._float_model(*self._example_inputs)
+            for device in cuda_devices:
+                torch.cuda.synchronize(device=device)
             float_time = (time.perf_counter() - start) / benchmark_runs
 
             start = time.perf_counter()
             for _ in range(benchmark_runs):
                 quantized_model(*self._example_inputs)
+            for device in cuda_devices:
+                torch.cuda.synchronize(device=device)
             quantized_time = (time.perf_counter() - start) / benchmark_runs
 
         return {

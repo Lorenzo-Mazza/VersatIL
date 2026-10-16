@@ -5,6 +5,7 @@ from typing import Any
 
 from omegaconf import MISSING
 
+from versatil.post_training_compression.constants import CompressionDeviceType
 from versatil.training.constants import CheckpointFilename
 
 
@@ -133,6 +134,11 @@ class PostTrainingCompressorConfig:
     Attributes:
         _target_: Import path instantiated by Hydra.
         checkpoint_path: Path to the training checkpoint directory.
+        device: Device for loading, preparation and calibration.
+        deployment_device: Device for the exported model and runtime weight packing.
+            None uses the compression device.
+        precision: Floating-point precision for compression and artifact inputs.
+            Accepts 32, 16-true and bf16-true; None preserves loaded weights.
         checkpoint_name: Checkpoint filename inside the directory.
         output_directory: Where to save compressed output. Defaults to
             checkpoint_path/compressed/<timestamp>.
@@ -154,6 +160,9 @@ class PostTrainingCompressorConfig:
         "versatil.post_training_compression.compressor.PostTrainingCompressor"
     )
     checkpoint_path: str = MISSING
+    device: str = CompressionDeviceType.CPU.value
+    deployment_device: str | None = None
+    precision: str | None = None
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value
     output_directory: str | None = None
     calibration_steps: int = 32

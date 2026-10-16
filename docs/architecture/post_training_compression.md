@@ -36,8 +36,10 @@ PostTrainingCompressor.compress()
 +-- _resolve_quantization_workflow()      none, eager, or pt2e path
 +-- deployment_backend.validate_quantization()
 |   Validate workflow mode and PT2E backend names
++-- deployment_backend.validate_device()  Check the requested deployment device
++-- workflow.validate_deployment_device() Check PT2E target execution requirements
 |
-+-- workflow.load_policy_context()        Load float or QAT-prepared checkpoint
++-- workflow.load_policy_context()        Load checkpoint on the compression device
 +-- validate()                            Check preparation/pruning module paths
 +-- workflow.validate_targets()           Check quantization target paths
 |
@@ -48,6 +50,7 @@ PostTrainingCompressor.compress()
 |
 +-- create_exportable_policy()           Adapter for the policy's prediction procedure
 +-- workflow.quantize()                  Quantize/export; validate eager target formats
+|   Calibration uses device; packing and final graphs use deployment_device
 +-- deployment_backend.export()          Build .pt2 descriptor or .pte bytes
 +-- save_compressed_model()               Artifact, metadata, normalizer, tokenizer
 |
@@ -123,8 +126,9 @@ calibration, and PT2E backend details.
 
 ## Deployment Backends
 
-The compressor calls `DeploymentBackend.validate_quantization()` before loading
-the checkpoint. This checks the workflow mode and selected PT2E backend names.
+The compressor calls `DeploymentBackend.validate_quantization()` and
+`validate_device()` before loading the checkpoint. These check the workflow mode,
+selected PT2E backend names, and requested deployment device.
 It also passes the backend instance to `workflow.quantize()`, where
 `validate_eager_target()` checks representation-specific requirements before
 eager conversion. Artifact generation runs after the workflow returns a
@@ -138,6 +142,18 @@ eager conversion. Artifact generation runs after the workflow returns a
 The deployment backend is stored in metadata so inference can load the artifact according to its file format.
 For PT2E quantization, `TorchInductorBackend` pairs with `X86InductorBackend`,
 and `ExecutorchXNNPACKBackend` pairs with `XNNPACKPT2EBackend`.
+
+`device` selects checkpoint loading, preparation and calibration.
+`deployment_device` selects final artifact execution and defaults to `device`.
+The x86 Inductor and XNNPACK PT2E targets require CPU deployment; calibration
+can run on CUDA. CPU compiler settings apply during lowering and runtime compilation.
+
+Eager workflows validate packing requirements against the destination device,
+then move prepared weights and schema-owned observer state after calibration and
+before conversion. PT2E moves converted graphs with PyTorch's
+`move_to_device_pass`, which updates tensors, constants, operator device arguments
+and tensor metadata. Floating reference graphs follow the same transfer so that the final
+performance reports measure both models on the deployment device.
 
 ## Compressed Checkpoints
 
@@ -232,6 +248,5 @@ an eager or PT2E workflow as described in [Quantization](quantization.md).
 - A compression run uses one quantization workflow: `none`, `eager`, or `pt2e`.
 - `modules` configures preparation and pruning; `quantization.targets` configures
   module-level quantization.
-- The current compressor builds its policy context and example inputs on CPU.
-  Export and calibration use that same device, matching the device-specific
-  operations recorded in the graph.
+- Checkpoint loading and calibration use `device`; final graphs, example inputs,
+  noise and report execution use `deployment_device`.

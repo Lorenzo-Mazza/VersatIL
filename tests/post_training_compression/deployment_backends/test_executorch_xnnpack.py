@@ -1,7 +1,7 @@
 """Tests for versatil.post_training_compression.deployment_backends.executorch_xnnpack module."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Int4WeightOnlyConfig,
@@ -26,6 +27,7 @@ from torchao.quantization.quantize_.workflows.intx.intx_packing_format import (
     IntxPackingFormat,
 )
 
+from versatil.data.constants import SampleKey
 from versatil.inference.policy_runtime.executorch_adapter import ExecuTorchModuleAdapter
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
@@ -36,13 +38,20 @@ from versatil.post_training_compression.deployment_backends.executorch_xnnpack i
     ExecutorchXNNPACKBackend,
     _lower_exported_program,
 )
-from versatil.post_training_compression.export import _export_with_dynamic_batch
+from versatil.post_training_compression.export import (
+    _export_with_dynamic_batch,
+    move_exported_model,
+)
+from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.constants import (
     FXNodeOp,
     PT2EBackendName,
     QuantizationMode,
     QuantizationModuleType,
 )
+from versatil.quantization.module_target import PT2EQuantizationModuleTarget
+from versatil.quantization.pt2e.backends.xnnpack import XNNPACKPT2EBackend
+from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
 
 XNNPACK_MODULE = (
     "versatil.post_training_compression.deployment_backends.executorch_xnnpack"
@@ -53,6 +62,7 @@ XNNPACK_MODULE = (
 def exported_embedding_graph_factory() -> Callable[..., MagicMock]:
     def factory(gradient_args: tuple[int | bool, ...]) -> MagicMock:
         exported_program = MagicMock(spec=torch.export.ExportedProgram)
+        exported_program.range_constraints = {}
         weights = MagicMock(spec=torch.fx.Node)
         indices = MagicMock(spec=torch.fx.Node)
         embedding = MagicMock(spec=torch.fx.Node)
@@ -111,8 +121,8 @@ def xnnpack_quantization_config_factory() -> Callable[..., MagicMock]:
 @pytest.fixture
 def eager_xnnpack_model_factory(
     rng: np.random.Generator,
-) -> Callable[[], nn.Module]:
-    def factory() -> nn.Module:
+) -> Callable[..., nn.Module]:
+    def factory(quantized: bool = True) -> nn.Module:
         model = nn.Sequential(
             nn.Linear(in_features=64, out_features=32),
             nn.ReLU(),
@@ -123,14 +133,36 @@ def eager_xnnpack_model_factory(
                 data = rng.standard_normal(parameter.shape).astype(np.float32)
                 parameter.copy_(torch.from_numpy(data))
         model.eval()
-        quantize_(
-            model=model,
-            config=Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int4,
-                weight_granularity=PerGroup(32),
-            ),
-        )
+        if quantized:
+            quantize_(
+                model=model,
+                config=Int8DynamicActivationIntxWeightConfig(
+                    weight_dtype=torch.int4,
+                    weight_granularity=PerGroup(32),
+                ),
+            )
         return model
+
+    return factory
+
+
+@pytest.fixture
+def split_model_factory() -> Callable[[str], nn.Module]:
+    def factory(operation: str) -> nn.Module:
+        class SplitModel(nn.Module):
+            def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+                reshaped = inputs.reshape(-1, 32)  # (B, 64) -> (2 * B, 32)
+                if operation == "chunk":
+                    pieces = reshaped.chunk(4, dim=-1)  # each (2 * B, 8)
+                elif operation == "split":
+                    pieces = reshaped.split(8, dim=-1)  # each (2 * B, 8)
+                else:
+                    pieces = reshaped.split([8, 8, 8, 8], dim=-1)  # each (2 * B, 8)
+                first, second, third, fourth = pieces
+                combined = first + 2 * second - third + fourth  # (2 * B, 8)
+                return combined.reshape(inputs.shape[0], 16)  # (B, 16)
+
+        return SplitModel().eval()
 
     return factory
 
@@ -498,7 +530,10 @@ class TestExecutorchXNNPACKQuantizationValidation:
             )
             model.get_submodule.assert_called_once_with("projection")
 
-    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    @pytest.mark.parametrize(
+        "device, conversion_device",
+        [("cpu", None), ("cuda", None), ("cuda", "cpu"), ("cpu", "cuda")],
+    )
     @pytest.mark.parametrize("for_conversion", [True, False])
     def test_conversion_checks_selected_weight_devices(
         self,
@@ -506,6 +541,7 @@ class TestExecutorchXNNPACKQuantizationValidation:
         deployment_model_factory: Callable[..., MagicMock],
         xnnpack_quantization_config_factory: Callable[..., MagicMock],
         device: str,
+        conversion_device: str | None,
         for_conversion: bool,
     ) -> None:
         config = xnnpack_quantization_config_factory(
@@ -522,7 +558,7 @@ class TestExecutorchXNNPACKQuantizationValidation:
                     "Target '(root)': this XNNPACK export workflow requires CPU weights."
                 ),
             )
-            if for_conversion and device == "cuda"
+            if for_conversion and (conversion_device or device) == "cuda"
             else does_not_raise()
         )
 
@@ -532,9 +568,14 @@ class TestExecutorchXNNPACKQuantizationValidation:
                 target=target,
                 module_names={"projection"},
                 for_conversion=for_conversion,
+                conversion_device=(
+                    torch.device(conversion_device)
+                    if conversion_device is not None
+                    else None
+                ),
             )
 
-        if for_conversion:
+        if for_conversion and conversion_device is None:
             model.get_submodule.assert_called_once_with("projection")
         else:
             model.get_submodule.assert_not_called()
@@ -578,6 +619,103 @@ class TestExecutorchXNNPACKQuantizationValidation:
 @pytest.mark.integration
 @pytest.mark.requires_executorch
 class TestExecutorchXNNPACKBackendIntegration:
+    @pytest.mark.parametrize("operation", ["chunk", "split", "split_with_sizes"])
+    def test_split_outputs_preserve_dynamic_batch_execution(
+        self,
+        split_model_factory: Callable[[str], nn.Module],
+        xnnpack_example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+        executorch_runtime_factory: Callable[..., ExecuTorchModuleAdapter],
+        operation: str,
+    ) -> None:
+        model = split_model_factory(operation=operation)
+        artifact = ExecutorchXNNPACKBackend(max_batch_size=4).export(
+            model=model, example_inputs=xnnpack_example_inputs_factory(batch_size=2)
+        )
+        runtime = executorch_runtime_factory(
+            model_bytes=artifact.model_bytes, filename="split.pte"
+        )
+
+        for batch_size in (1, 4, 3, 2):
+            inputs = xnnpack_example_inputs_factory(batch_size=batch_size)
+            with torch.no_grad():
+                expected = model(*inputs)  # (B, 16)
+                actual = runtime(observation_tensors=inputs)[0]  # (B, 16)
+            torch.testing.assert_close(actual, expected)
+
+    @pytest.mark.requires_gpu
+    def test_gpu_calibrated_pt2e_model_executes_in_cpu_runtime(
+        self,
+        eager_xnnpack_model_factory: Callable[..., nn.Module],
+        xnnpack_example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+        executorch_runtime_factory: Callable[..., ExecuTorchModuleAdapter],
+    ) -> None:
+        model = eager_xnnpack_model_factory(quantized=False).to(device="cuda")
+        inputs = tuple(
+            tensor.to(device="cuda")
+            for tensor in xnnpack_example_inputs_factory(batch_size=2)
+        )  # each (2, 64)
+        calibration = CalibrationDataProvider(
+            dataloader=DataLoader(
+                [{SampleKey.OBSERVATION.value: {"features": inputs[0]}}],
+                batch_size=None,
+            ),
+            observation_keys=["features"],
+            num_calibration_steps=1,
+            device=torch.device("cuda"),
+        )
+        exported = _export_with_dynamic_batch(
+            model=model, example_inputs=inputs
+        ).module()
+        observed_batches = []
+        original_iter = CalibrationDataProvider.__iter__
+
+        def record_calibration(
+            provider: CalibrationDataProvider,
+        ) -> Iterator[dict[str, torch.Tensor]]:
+            for observations in original_iter(provider):
+                observed_batches.append(observations)
+                yield observations
+
+        with patch.object(CalibrationDataProvider, "__iter__", record_calibration):
+            converted = PT2EQuantizationWorkflow._convert_exported_model(
+                exported=exported,
+                targets=[
+                    PT2EQuantizationModuleTarget(
+                        module_path="", pt2e_backend=XNNPACKPT2EBackend()
+                    )
+                ],
+                calibration=calibration,
+                example_inputs=inputs,
+                observation_keys=["features"],
+            )
+        assert len(observed_batches) == 1
+        assert observed_batches[0]["features"].device.type == "cuda"
+        torch.testing.assert_close(observed_batches[0]["features"], inputs[0])
+        operators = {
+            node.target
+            for node in converted.graph.nodes
+            if node.op == FXNodeOp.CALL_FUNCTION.value
+        }
+        assert torch.ops.quantized_decomposed.quantize_per_tensor.default in operators
+        assert torch.ops.quantized_decomposed.dequantize_per_tensor.default in operators
+        cpu_model = move_exported_model(
+            model=converted, example_inputs=inputs, device=torch.device("cpu")
+        )
+        artifact = ExecutorchXNNPACKBackend(max_batch_size=4).export(
+            model=cpu_model,
+            example_inputs=tuple(tensor.cpu() for tensor in inputs),  # each (2, 64)
+        )
+        runtime = executorch_runtime_factory(
+            model_bytes=artifact.model_bytes, filename="gpu_calibrated.pte"
+        )
+        for batch_size in (1, 3):
+            observations = xnnpack_example_inputs_factory(batch_size=batch_size)
+            with torch.no_grad():
+                expected = cpu_model(*observations)  # (B, 16)
+                actual = runtime(observation_tensors=observations)[0]  # (B, 16)
+            assert actual.device.type == "cpu"
+            torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
+
     @pytest.mark.parametrize(
         "batch_size, expectation",
         [
@@ -653,6 +791,62 @@ class TestExecutorchXNNPACKBackendIntegration:
 
 @pytest.mark.unit
 class TestLowerExportedProgram:
+    @pytest.mark.parametrize("dynamic", [False, True])
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            torch.ops.aten.chunk.default,
+            torch.ops.aten.split.Tensor,
+            torch.ops.aten.split_with_sizes.default,
+        ],
+    )
+    def test_decomposes_splits_before_edge_validation(
+        self,
+        exported_embedding_graph_factory: Callable[..., MagicMock],
+        lowering_dependencies_factory: Callable[..., tuple[MagicMock, MagicMock]],
+        operation: torch._ops.OpOverload,
+        dynamic: bool,
+    ) -> None:
+        exported_program = exported_embedding_graph_factory(gradient_args=())
+        exported_program.range_constraints = {"batch": (1, 4)} if dynamic else {}
+        split = MagicMock(spec=torch.fx.Node)
+        split.op = FXNodeOp.CALL_FUNCTION.value
+        split.target = operation
+        exported_program.graph.nodes.append(split)
+        decomposed = MagicMock(spec=torch.export.ExportedProgram)
+        decomposed.graph.nodes = []
+        exported_program.run_decompositions.return_value = decomposed
+        executorch_exir, xnnpack_partitioner = lowering_dependencies_factory(
+            model_bytes=b"pte"
+        )
+        decompositions = {operation: MagicMock()}
+
+        with patch(
+            f"{XNNPACK_MODULE}.get_decompositions", return_value=decompositions
+        ) as get_decompositions:
+            _lower_exported_program(
+                exported_program=exported_program,
+                executorch_exir=executorch_exir,
+                xnnpack_partitioner=xnnpack_partitioner,
+            )
+
+        if dynamic:
+            get_decompositions.assert_called_once_with(
+                (
+                    torch.ops.aten.chunk.default,
+                    torch.ops.aten.split.Tensor,
+                    torch.ops.aten.split_with_sizes.default,
+                )
+            )
+            exported_program.run_decompositions.assert_called_once_with(decompositions)
+        else:
+            get_decompositions.assert_not_called()
+            exported_program.run_decompositions.assert_not_called()
+        executorch_exir.to_edge_transform_and_lower.assert_called_once_with(
+            decomposed if dynamic else exported_program,
+            partitioner=[xnnpack_partitioner.XnnpackPartitioner.return_value],
+        )
+
     @pytest.mark.parametrize("gradient_args", [(), (0,), (0, True, True)])
     def test_export_canonicalizes_embedding_gradient_arguments(
         self,
@@ -699,6 +893,7 @@ class TestLowerExportedProgram:
             exported_program,
             partitioner=[partitioner],
         )
+        exported_program.run_decompositions.assert_not_called()
         executorch_exir.ExecutorchBackendConfig.assert_called_once_with(
             do_quant_fusion_and_const_prop=True
         )

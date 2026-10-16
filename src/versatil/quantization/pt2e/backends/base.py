@@ -32,7 +32,7 @@ class BasePT2EBackend(ABC):
     @property
     @abstractmethod
     def supported_device_types(self) -> tuple[str, ...]:
-        """Device types this backend supports (e.g., ('cpu',) for x86)."""
+        """Execution device types supported by this backend's deployed kernels."""
 
     @abstractmethod
     def create_quantizer(self, module_path: str) -> Quantizer:

@@ -22,6 +22,7 @@ from versatil.quantization.calibration import (
     build_calibration_data,
     calibrate_policy,
 )
+from versatil.training.constants import PrecisionType
 
 CALIBRATION_MODULE = "versatil.quantization.calibration"
 
@@ -253,15 +254,20 @@ class TestCalibrationDataProvider:
 @pytest.mark.unit
 class TestBuildCalibrationData:
     @pytest.mark.parametrize("batch_size, observation_horizon", [(2, 1), (4, 3)])
+    @pytest.mark.parametrize("precision", [None, PrecisionType.BF16_TRUE])
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:1")])
     def test_uses_checkpoint_preprocessing_without_augmentation_or_shuffle(
         self,
         calibration_context_factory: Callable[..., MagicMock],
         batch_size: int,
         observation_horizon: int,
+        precision: PrecisionType | None,
+        device: torch.device,
     ) -> None:
         context = calibration_context_factory(
             batch_size=batch_size, observation_horizon=observation_horizon
         )
+        context.precision = precision
         with (
             patch(f"{CALIBRATION_MODULE}.EpisodicDataset") as dataset_factory,
             patch(f"{CALIBRATION_MODULE}.DataLoader") as loader_factory,
@@ -271,7 +277,7 @@ class TestBuildCalibrationData:
                 context=context,
                 observation_keys=["left", "right"],
                 num_calibration_steps=8,
-                device=torch.device("cpu"),
+                device=device,
             )
 
         dataset_factory.assert_called_once_with(
@@ -297,7 +303,8 @@ class TestBuildCalibrationData:
             dataloader=loader_factory.return_value,
             observation_keys=["left", "right"],
             num_calibration_steps=8,
-            device=torch.device("cpu"),
+            device=device,
+            dtype=precision.get_model_dtype() if precision is not None else None,
         )
         assert result is provider_factory.return_value
 
@@ -413,3 +420,38 @@ def test_module_observers_see_denoising_steps_and_generated_tokens(
         for inputs in observer.inputs:
             assert torch.isfinite(inputs).all()
             assert not inputs.requires_grad
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("source_dtype", [torch.float32, torch.int64, torch.bool])
+@pytest.mark.parametrize("target_dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize(
+    "device",
+    [
+        torch.device("cpu"),
+        pytest.param(torch.device("cuda"), marks=pytest.mark.requires_gpu),
+    ],
+)
+def test_calibration_precision_casts_only_floating_observations(
+    observation_batch_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    source_dtype: torch.dtype,
+    target_dtype: torch.dtype,
+    device: torch.device,
+) -> None:
+    batch = observation_batch_factory(
+        observation_keys=["observation"], dtype=source_dtype
+    )
+    provider = CalibrationDataProvider(
+        dataloader=DataLoader(dataset=[batch], batch_size=None),
+        observation_keys=["observation"],
+        num_calibration_steps=1,
+        device=device,
+        dtype=target_dtype,
+    )
+    actual = next(iter(provider))["observation"]  # (2, 4)
+    expected_dtype = target_dtype if source_dtype.is_floating_point else source_dtype
+    expected = batch[SampleKey.OBSERVATION.value]["observation"].to(
+        device=device, dtype=expected_dtype
+    )  # (2, 4)
+    assert actual.device.type == device.type
+    torch.testing.assert_close(actual, expected)

@@ -10,6 +10,7 @@ import pytest
 import torch
 import torch.nn as nn
 from hydra import compose, initialize_config_dir
+from torchao.core.config import AOBaseConfig
 
 import versatil.configs  # noqa: F401
 from versatil.configs.paths import get_hydra_configs_dir
@@ -41,17 +42,97 @@ from versatil.models.exportable.metadata import PolicyExportMetadata
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.policy import Policy
+from versatil.post_training_compression.deployment_backends.base import (
+    DeploymentBackend,
+)
 from versatil.post_training_compression.policy_context import PolicyContext
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.constants import PT2EBackendName
+from versatil.quantization.metadata import QuantizationTargetMetadata
+from versatil.quantization.module_target import EagerQuantizationModuleTarget
 from versatil.quantization.pt2e.backends.base import BasePT2EBackend
 from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
+from versatil.quantization.schemas.base import QuantizationSchema
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 
 HYDRA_CONFIGS_ROOT = str(get_hydra_configs_dir())
 LANGUAGE_ACTION_TRANSFORMER_TINY_CONFIG = (
     "end_to_end_training_runs/libero_lerobot/bcat_language_tiny"
 )
+
+
+@pytest.fixture
+def schema_target_factory(
+    quantization_target_metadata_factory: Callable[..., QuantizationTargetMetadata],
+) -> Callable[..., MagicMock]:
+    def factory(
+        module_path: str,
+        needs_calibration: bool,
+        needs_preparation: bool = False,
+    ) -> MagicMock:
+        schema = MagicMock(spec=QuantizationSchema)
+        schema.base_config = MagicMock(spec=AOBaseConfig)
+        schema.parameters = {}
+        schema.needs_calibration = needs_calibration
+        schema.preparation_config.return_value = (
+            MagicMock(spec=AOBaseConfig)
+            if needs_preparation or needs_calibration
+            else None
+        )
+        schema.conversion_config.return_value = MagicMock(spec=AOBaseConfig)
+        target = MagicMock(spec=EagerQuantizationModuleTarget)
+        target.module_path = module_path
+        target.label = module_path or "(root)"
+        target.schema = schema
+        layer_name = f"{module_path}.projection" if module_path else "projection"
+        target.select_modules.return_value = ([layer_name], {})
+        target.build_metadata.return_value = quantization_target_metadata_factory(
+            module_path=module_path, selected=[]
+        )
+        return target
+
+    return factory
+
+
+@pytest.fixture
+def selection_policy_factory() -> Callable[..., MagicMock]:
+    def factory(
+        modules: tuple[tuple[str, int], ...] = (("projection", 64),),
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+        tokenized_actions: bool = False,
+    ) -> MagicMock:
+        policy = MagicMock(spec=Policy)
+        module_map = {}
+        for name, in_features in modules:
+            layer = MagicMock(spec=nn.Linear)
+            layer.in_features = in_features
+            layer.out_features = 32
+            layer.weight = MagicMock(spec=torch.Tensor)
+            layer.weight.device = torch.device(device)
+            layer.weight.dtype = dtype
+            module_map[name] = layer
+            parent = name.rpartition(".")[0]
+            if parent:
+                module_map.setdefault(parent, MagicMock(spec=nn.Module))
+        policy.named_modules.return_value = list(module_map.items())
+        policy.get_submodule.side_effect = module_map.__getitem__
+        policy.decoder = MagicMock(spec=nn.Module)
+        policy.decoder.requires_tokenized_actions = tokenized_actions
+        policy.training = False
+        policy.device = torch.device(device)
+        policy.input_keys = ["observations"]
+        return policy
+
+    return factory
+
+
+@pytest.fixture
+def deployment_backend_factory() -> Callable[[], MagicMock]:
+    def factory() -> MagicMock:
+        return MagicMock(spec=DeploymentBackend)
+
+    return factory
 
 
 @pytest.fixture
@@ -62,6 +143,7 @@ def calibration_context_factory(
         context = MagicMock(spec=PolicyContext)
         context.policy = mock_policy_factory(observation_horizon=observation_horizon)
         context.policy.normalizer = MagicMock()
+        context.policy.device = torch.device("cpu")
         context.tokenizer = MagicMock()
         context.observation_space = context.policy.observation_space
         context.observation_horizon = observation_horizon
@@ -70,6 +152,8 @@ def calibration_context_factory(
         context.config.task.dataset_schema.zarr_path = "/dataset.zarr"
         context.config.task.prediction_horizon = 4
         context.config.experiment.seed = 42
+        context.precision = None
+        context.autocast_precision = None
         return context
 
     return factory
@@ -106,6 +190,7 @@ def quantization_policy_factory(
         batch_size: int = 2,
         scheduler_type: str = SchedulerType.DDIM.value,
         decoder_architecture: str = "transformer",
+        embedding_dimension: int = 32,
     ) -> tuple[Policy, dict[str, torch.Tensor]]:
         key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
         prediction_horizon = 4 if decoder_architecture == "unet" else 2
@@ -130,15 +215,17 @@ def quantization_policy_factory(
                 action_space=action_space,
                 observation_space=observation_space,
                 action_heads={
-                    DecoderOutputKey.ACTION_LOGITS.value: ActionHead(input_dimension=32)
+                    DecoderOutputKey.ACTION_LOGITS.value: ActionHead(
+                        input_dimension=embedding_dimension
+                    )
                 },
                 observation_horizon=1,
                 prediction_horizon=2,
                 device=str(device),
-                embedding_dimension=32,
+                embedding_dimension=embedding_dimension,
                 number_of_heads=2,
                 number_of_layers=1,
-                feedforward_dimension=64,
+                feedforward_dimension=2 * embedding_dimension,
                 max_seq_len=32,
                 dropout_rate=0.0,
                 attention_dropout=0.0,
@@ -163,7 +250,7 @@ def quantization_policy_factory(
                     observation_horizon=1,
                     prediction_horizon=prediction_horizon,
                     device=str(device),
-                    embedding_dimension=32,
+                    embedding_dimension=embedding_dimension,
                     down_dimensions=[16, 32],
                     kernel_size=3,
                     num_groups=4,
@@ -176,17 +263,18 @@ def quantization_policy_factory(
                     observation_space=observation_space,
                     action_heads={
                         key: ConditionalActionHead(
-                            input_dimension=32, conditioning_dimension=32
+                            input_dimension=embedding_dimension,
+                            conditioning_dimension=embedding_dimension,
                         )
                     },
                     observation_horizon=1,
                     prediction_horizon=prediction_horizon,
                     device=str(device),
-                    embedding_dimension=32,
-                    timestep_embedding_dimension=32,
+                    embedding_dimension=embedding_dimension,
+                    timestep_embedding_dimension=embedding_dimension,
                     number_of_heads=2,
                     number_of_layers=1,
-                    feedforward_dimension=64,
+                    feedforward_dimension=2 * embedding_dimension,
                     max_sequence_length=32,
                     dropout_rate=0.0,
                     attention_dropout=0.0,
@@ -368,6 +456,7 @@ def mock_pt2e_backend_factory() -> Callable[..., MagicMock]:
         backend.name = PT2EBackendName.X86_INDUCTOR.value
         backend.is_dynamic = is_dynamic
         backend.is_qat = is_qat
+        backend.supported_device_types = ("cpu",)
         backend.create_quantizer.return_value = MagicMock()
         backend.environment_context.return_value = does_not_raise()
         return backend

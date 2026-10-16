@@ -99,7 +99,7 @@ class _QATCheckpointLoader(BaseCheckpointLoader):
             observation_space=self.observation_space,
             observation_horizon=self.observation_horizon,
             tokenizer=self.tokenizer,
+            device=self._device,
         )
-        example_inputs = tuple(tensor.to(self._device) for tensor in example_inputs)
         with torch.no_grad():
             exportable(*example_inputs)

@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import numpy as np
@@ -13,7 +14,7 @@ from transformers import (
     Idefics3ForConditionalGeneration,
     PretrainedConfig,
 )
-from transformers.modeling_outputs import BaseModelOutput, BaseModelOutputWithPooling
+from transformers.modeling_outputs import BaseModelOutput
 from transformers.models.llama.modeling_llama import LlamaModel
 
 from versatil.data.constants import Cameras, SampleKey
@@ -31,6 +32,7 @@ from versatil.models.encoding.explainability import (
     ActivationLayout,
     ExplanationTargetKind,
 )
+from versatil.post_training_compression.export import _export_with_dynamic_batch
 from versatil.training.constants import PrecisionType
 
 HIDDEN_DIM = 64
@@ -41,6 +43,28 @@ NUM_IMAGE_TOKENS = 1  # (56/14)^2 / 4^2 = 16/16
 MAX_TEXT_LENGTH = 128
 VOCAB_SIZE = 32000
 DEFAULT_INPUT_KEYS = [Cameras.LEFT.value]
+
+
+class _CameraEncoder(nn.Module):
+    """Expose the two-camera image path for export tests."""
+
+    def __init__(self, backbone: SmolVLM) -> None:
+        """Store the backbone whose image features are exported."""
+        super().__init__()
+        self.backbone = backbone
+
+    def forward(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+        """Encode both cameras into one token sequence per observation.
+
+        Note:
+            B is batch size, T is the combined camera token count, and D is the
+            backbone's hidden dimension. Images have shape (B, 3, 56, 56).
+        """
+        embeddings, _ = self.backbone._embed_images(
+            inputs={Cameras.LEFT.value: left, Cameras.RIGHT.value: right},
+            batch_size=left.shape[0],
+        )  # embeddings[0]: (B, T, D)
+        return embeddings[0]  # (B, T, D)
 
 
 def _create_mock_config() -> MagicMock:
@@ -70,16 +94,19 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         text_model.layers = [MagicMock(spec=nn.Module)]
         text_model.rotary_emb = MagicMock(spec=nn.Module)
         mock_vlm.model = MagicMock(spec=nn.Module)
+        mock_vlm.model.dtype = torch.float32
         mock_vlm.model.text_model = text_model
-        mock_vlm.model.vision_model = nn.Identity()
-        mock_vlm.model.connector = nn.Identity()
+        mock_vlm.model.vision_model = MagicMock(spec=nn.Module)
+        mock_vlm.model.connector = MagicMock(spec=nn.Module)
 
-        mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
-        # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dimension)
-        mock_image_output.pooler_output = torch.zeros(
+        mock_image_output = MagicMock(spec=BaseModelOutput)
+        mock_image_output.last_hidden_state = torch.zeros(
+            batch_size * num_cameras, NUM_IMAGE_TOKENS * SCALE_FACTOR**2, HIDDEN_DIM
+        )  # (B * N, patches, vision_dimension)
+        mock_vlm.model.vision_model.return_value = mock_image_output
+        mock_vlm.model.connector.return_value = torch.zeros(
             batch_size * num_cameras, NUM_IMAGE_TOKENS, HIDDEN_DIM
-        )
-        mock_vlm.get_image_features.return_value = mock_image_output
+        )  # (B * N, tokens, hidden_dimension)
 
         mock_embed = MagicMock(spec=nn.Embedding)
         mock_embed.return_value = torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
@@ -174,20 +201,91 @@ def smolvlm_input_factory(
     return factory
 
 
+@pytest.fixture
+def camera_batch_factory(
+    smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+) -> Callable[..., tuple[torch.Tensor, ...]]:
+    def factory(
+        batch_size: int,
+        device: str = "cpu",
+        zero_cameras: int = 0,
+    ) -> tuple[torch.Tensor, ...]:
+        images = []
+        for index, key in enumerate((Cameras.LEFT.value, Cameras.RIGHT.value)):
+            observations = smolvlm_input_factory(
+                camera_key=key,
+                batch_size=batch_size,
+                height=IMAGE_SIZE,
+                width=IMAGE_SIZE,
+                time_steps=1,
+            )
+            image = (
+                observations[key].squeeze(dim=1).to(device=device)
+            )  # (B, 1, 3, 56, 56) -> (B, 3, 56, 56)
+            if index < zero_cameras:
+                image.zero_()  # (B, 3, 56, 56)
+            images.append(image)
+        return tuple(images)
+
+    return factory
+
+
+@pytest.fixture
+def camera_encoder_factory(
+    tiny_smolvlm_backbone_factory: Callable[..., SmolVLM],
+    lora_config_factory: Callable[..., LoRAAdaptation],
+    rng: np.random.Generator,
+) -> Callable[..., _CameraEncoder]:
+    def factory(device: str, target_modules: str | None) -> _CameraEncoder:
+        lora_config = (
+            lora_config_factory(
+                enabled=True,
+                rank=2,
+                alpha=4,
+                target_modules=target_modules,
+                init_lora_weights="gaussian",
+            )
+            if target_modules is not None
+            else None
+        )
+        backbone = tiny_smolvlm_backbone_factory(
+            input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
+            model_dtype=PrecisionType.FP32.value,
+            frozen=False,
+            lora_config=lora_config,
+        )
+        with torch.no_grad():
+            for name, parameter in backbone.vlm.named_parameters():
+                if "lora_B" in name:
+                    values = torch.from_numpy(
+                        rng.normal(loc=0.0, scale=0.05, size=parameter.shape).astype(
+                            np.float32
+                        )
+                    )  # (output_dimension, rank)
+                    parameter.copy_(values)  # (output_dimension, rank)
+        return _CameraEncoder(backbone=backbone).to(device=device).eval()
+
+    return factory
+
+
 def _setup_mock_vlm_for_batch(
     backbone: SmolVLM,
     effective_batch_size: int,
 ) -> None:
     num_cameras = len(backbone.camera_keys)
     total_image_tokens = backbone.total_image_tokens
-    mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
-    # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dimension)
-    mock_image_output.pooler_output = torch.zeros(
+    mock_image_output = MagicMock(spec=BaseModelOutput)
+    mock_image_output.last_hidden_state = torch.zeros(
+        effective_batch_size * num_cameras,
+        backbone.num_image_tokens_per_camera * SCALE_FACTOR**2,
+        HIDDEN_DIM,
+    )  # (B * N, patches, vision_dimension)
+    backbone.vlm.model.vision_model.return_value = mock_image_output
+    backbone.vlm.model.connector.return_value = torch.zeros(
         effective_batch_size * num_cameras,
         backbone.num_image_tokens_per_camera,
         HIDDEN_DIM,
-    )
-    backbone.vlm.get_image_features.return_value = mock_image_output
+    )  # (B * N, tokens, hidden_dimension)
 
     mock_embed = MagicMock(spec=nn.Embedding)
     mock_embed.return_value = torch.zeros(
@@ -406,9 +504,7 @@ class TestSmolVLMForward:
                 np.float32
             )
         )
-        mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
-        mock_image_output.pooler_output = raw_image_embeddings.clone()
-        backbone.vlm.get_image_features.return_value = mock_image_output
+        backbone.vlm.model.connector.return_value = raw_image_embeddings.clone()
         mock_embed = MagicMock(spec=nn.Embedding)
         mock_embed.return_value = torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
         backbone.vlm.model.text_model.get_input_embeddings.return_value = mock_embed
@@ -449,11 +545,9 @@ class TestSmolVLMForward:
                 np.float32
             )
         )
-        mock_image_output = MagicMock(spec=BaseModelOutputWithPooling)
-        mock_image_output.pooler_output = torch.zeros(
+        backbone.vlm.model.connector.return_value = torch.zeros(
             batch_size, NUM_IMAGE_TOKENS, HIDDEN_DIM
         )
-        backbone.vlm.get_image_features.return_value = mock_image_output
         mock_embed = MagicMock(spec=nn.Embedding)
         mock_embed.return_value = raw_language_embeddings.clone()
         backbone.vlm.model.text_model.get_input_embeddings.return_value = mock_embed
@@ -476,7 +570,7 @@ class TestSmolVLMForward:
             language_portion, raw_language_embeddings * expected_scale, atol=1e-5
         )
 
-    def test_images_stacked_along_num_images_dim_for_idefics3(
+    def test_vision_encoder_receives_flattened_camera_batch(
         self,
         smolvlm_backbone_factory: Callable[..., SmolVLM],
         smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -499,11 +593,10 @@ class TestSmolVLMForward:
             include_padding_mask=False,
         )
         backbone(inputs=inputs)
-        call_args = backbone.vlm.get_image_features.call_args
-        pixel_values = call_args[0][0]
-        # Single camera → (B, 1, C, H, W)
-        assert pixel_values.ndim == 5
-        assert pixel_values.shape[1] == 1
+        call_args = backbone.vlm.model.vision_model.call_args
+        pixel_values = call_args.kwargs["pixel_values"]
+        assert pixel_values.shape == (batch_size, 3, IMAGE_SIZE, IMAGE_SIZE)
+        assert call_args.kwargs["return_dict"] is True
 
     def test_text_model_attention_mask_marks_auto_padded_text_tokens(
         self,
@@ -582,16 +675,16 @@ class TestSmolVLMForward:
 
         backbone(inputs=inputs)
 
-        assert backbone.vlm.get_image_features.call_count == 1
-        call_args = backbone.vlm.get_image_features.call_args
-        pixel_values = call_args[0][0]
-        assert pixel_values.shape[1] == 2
+        assert backbone.vlm.model.vision_model.call_count == 1
+        call_args = backbone.vlm.model.vision_model.call_args
+        pixel_values = call_args.kwargs["pixel_values"]
+        assert pixel_values.shape == (2 * batch_size, 3, IMAGE_SIZE, IMAGE_SIZE)
         torch.testing.assert_close(
-            pixel_values[:, 0],
+            pixel_values[0::2],
             inputs[Cameras.LEFT.value].squeeze(1),
         )
         torch.testing.assert_close(
-            pixel_values[:, 1],
+            pixel_values[1::2],
             inputs[Cameras.RIGHT.value].squeeze(1),
         )
 
@@ -636,16 +729,16 @@ class TestSmolVLMForward:
             )
             for camera_key in camera_keys
         ]
-        backbone.vlm.get_image_features.assert_called_once()
-        pixel_values = backbone.vlm.get_image_features.call_args.args[0]
+        backbone.vlm.model.vision_model.assert_called_once()
+        pixel_values = backbone.vlm.model.vision_model.call_args.kwargs["pixel_values"]
         assert pixel_values.is_contiguous()
-        flattened = pixel_values.view(
-            4, 3, IMAGE_SIZE, IMAGE_SIZE
-        )  # (2, 2, 3, 56, 56) -> (4, 3, 56, 56)
         expected = torch.stack(list(inputs.values()), dim=1).reshape(
             4, 3, IMAGE_SIZE, IMAGE_SIZE
         )  # (2, 2, 3, 56, 56) -> (4, 3, 56, 56)
-        torch.testing.assert_close(flattened, expected)
+        torch.testing.assert_close(pixel_values, expected)
+        backbone.vlm.model.connector.assert_called_once_with(
+            backbone.vlm.model.vision_model.return_value.last_hidden_state
+        )
         assert embeddings[0].shape == (2, 2 * NUM_IMAGE_TOKENS, HIDDEN_DIM)
         assert masks[0].shape == (2, 2 * NUM_IMAGE_TOKENS)
         assert not masks[0].any()
@@ -879,6 +972,93 @@ class TestSmolVLMBackboneAccessors:
             frozen=False,
         )
         assert backbone.get_backbone_hidden_dim() == HIDDEN_DIM
+
+
+@pytest.mark.integration
+class TestSmolVLMImageExport:
+    @pytest.mark.parametrize(
+        "target_modules",
+        [
+            None,
+            PEFTTargetModulePreset.VLM_TEXT_MODEL_ATTENTION_AND_FEEDFORWARD.value,
+            PEFTTargetModulePreset.VLM_VISION_MODULES.value,
+        ],
+    )
+    def test_image_embeddings_match_huggingface_with_lora(
+        self,
+        camera_encoder_factory: Callable[..., _CameraEncoder],
+        camera_batch_factory: Callable[..., tuple[torch.Tensor, ...]],
+        target_modules: str | None,
+    ) -> None:
+        model = camera_encoder_factory(device="cpu", target_modules=target_modules)
+        backbone = model.backbone
+        inputs = camera_batch_factory(batch_size=3)
+
+        with torch.no_grad():
+            expected = backbone.vlm.get_image_features(
+                pixel_values=torch.stack(inputs, dim=1)  # (B, 2, 3, 56, 56)
+            ).pooler_output  # (2 * B, tokens_per_camera, hidden_dimension)
+            expected = (expected * backbone.hidden_dimension**0.5).reshape(
+                3, backbone.total_image_tokens, backbone.hidden_dimension
+            )  # (2 * B, tokens_per_camera, hidden_dimension) -> (B, total_tokens, hidden_dimension)
+            actual = model(*inputs)  # (B, total_tokens, hidden_dimension)
+
+        torch.testing.assert_close(actual, expected)
+
+    @pytest.mark.parametrize(
+        "device", ["cpu", pytest.param("cuda", marks=pytest.mark.requires_gpu)]
+    )
+    @pytest.mark.parametrize("with_lora", [False, True])
+    def test_export_preserves_camera_batches_including_zero_images(
+        self,
+        camera_encoder_factory: Callable[..., _CameraEncoder],
+        camera_batch_factory: Callable[..., tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+        device: str,
+        with_lora: bool,
+    ) -> None:
+        model = camera_encoder_factory(
+            device=device,
+            target_modules=(
+                PEFTTargetModulePreset.VLM_VISION_MODULES.value if with_lora else None
+            ),
+        )
+        backbone = model.backbone
+        if with_lora:
+            probe_inputs = camera_batch_factory(
+                batch_size=2, device=device, zero_cameras=0
+            )
+            with torch.no_grad():
+                adapted = model(*probe_inputs)  # (2, total_tokens, hidden_dimension)
+            with torch.no_grad(), backbone.vlm.disable_adapter():
+                baseline = model(*probe_inputs)  # (2, total_tokens, hidden_dimension)
+            assert not torch.allclose(adapted, baseline)
+        example_inputs = camera_batch_factory(
+            batch_size=2, device=device, zero_cameras=2
+        )
+        with torch.no_grad():
+            program = _export_with_dynamic_batch(
+                model=model, example_inputs=example_inputs, max_batch_size=4
+            )
+        artifact = tmp_path / "cameras.pt2"
+        torch.export.save(program, artifact)
+        reloaded = torch.export.load(artifact).module()
+
+        for batch_size in (1, 3, 2):
+            for zero_cameras in (0, 1, 2):
+                inputs = camera_batch_factory(
+                    batch_size=batch_size, device=device, zero_cameras=zero_cameras
+                )
+                with torch.no_grad():
+                    expected = model(*inputs)  # (B, total_tokens, hidden_dimension)
+                    actual = reloaded(*inputs)  # (B, total_tokens, hidden_dimension)
+
+                assert actual.shape == (
+                    batch_size,
+                    backbone.total_image_tokens,
+                    backbone.hidden_dimension,
+                )
+                torch.testing.assert_close(actual, expected)
 
 
 class TestSmolVLMIntegration:

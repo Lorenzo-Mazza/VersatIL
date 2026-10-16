@@ -16,6 +16,7 @@ from versatil.models.exportable.metadata import (
     PredictionOutput,
     SamplingInput,
 )
+from versatil.training.constants import PrecisionType
 
 
 @pytest.fixture
@@ -24,6 +25,7 @@ def export_metadata_factory() -> Callable[..., PolicyExportMetadata]:
         output: PredictionOutput,
         noise_specs: tuple[tuple[str, tuple[int, ...]], ...],
         version: int = 1,
+        precision: PrecisionType | None = None,
     ) -> PolicyExportMetadata:
         return PolicyExportMetadata(
             output=output,
@@ -31,6 +33,7 @@ def export_metadata_factory() -> Callable[..., PolicyExportMetadata]:
                 NoiseInput(name=name, shape=shape) for name, shape in noise_specs
             ),
             version=version,
+            precision=precision,
         )
 
     return factory
@@ -165,8 +168,97 @@ def test_serialization_preserves_output_and_ordered_noise_shapes(
     assert restored == export_metadata
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "precision", [PrecisionType.FP32, PrecisionType.FP16_TRUE, PrecisionType.BF16_TRUE]
+)
+def test_saved_precision_casts_float_inputs_and_preserves_tokens_and_masks(
+    inference_observations_factory: Callable[..., tuple[torch.Tensor, ...]],
+    precision: PrecisionType,
+) -> None:
+    observations = inference_observations_factory(
+        batch_size=2, dtypes=(torch.float32, torch.int64, torch.bool)
+    )
+    observations[0].fill_(0.1234567)  # (2, 1, 3)
+    observations[1].fill_(17)  # (2, 1, 3)
+    observations[2].fill_(True)  # (2, 1, 3)
+    original = tuple(tensor.clone() for tensor in observations)  # each (2, 1, 3)
+    metadata = PolicyExportMetadata(precision=precision, version=2)
+    restored = PolicyExportMetadata.from_dict(
+        metadata=json.loads(json.dumps(metadata.to_dict()))
+    )
+
+    inputs = restored.prepare_inputs(observations=observations)  # (2, 1, 3)
+
+    assert inputs[0].dtype == precision.get_model_dtype()
+    torch.testing.assert_close(
+        inputs[0], observations[0].to(dtype=precision.get_model_dtype())
+    )  # (2, 1, 3)
+    torch.testing.assert_close(inputs[1], observations[1])  # (2, 1, 3)
+    torch.testing.assert_close(inputs[2], observations[2])  # (2, 1, 3)
+    torch.testing.assert_close(observations, original, rtol=0, atol=0)
+
+
 @pytest.mark.unit
-@pytest.mark.parametrize("version", [0, 2])
+@pytest.mark.parametrize(
+    "dtypes", [(torch.float32, torch.int64), (torch.int64, torch.bool)]
+)
+@pytest.mark.parametrize(
+    "precision", [PrecisionType.FP16_TRUE, PrecisionType.BF16_TRUE]
+)
+def test_precision_controls_noise_for_float_and_integer_observations(
+    inference_observations_factory: Callable[..., tuple[torch.Tensor, ...]],
+    sampled_noise_factory: Callable[..., tuple[torch.Tensor, ...]],
+    noise_sampler_factory: Callable[..., MagicMock],
+    dtypes: tuple[torch.dtype, ...],
+    precision: PrecisionType,
+) -> None:
+    observations = inference_observations_factory(batch_size=2, dtypes=dtypes)
+    dtype = precision.get_model_dtype()
+    noise = sampled_noise_factory(batch_size=2, shapes=((3, 4),), dtype=dtype)
+    sampler = noise_sampler_factory(outputs=noise)
+    metadata = PolicyExportMetadata(
+        noise_inputs=(
+            NoiseInput(name=SamplingInput.INITIAL_NOISE.value, shape=(3, 4)),
+        ),
+        precision=precision,
+        version=2,
+    )
+
+    inputs = metadata.prepare_inputs(observations=observations)
+
+    sampler.assert_called_once_with(
+        (2, 3, 4), device=observations[0].device, dtype=dtype
+    )
+    torch.testing.assert_close(inputs[-1], noise[0])  # (2, 3, 4)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("precision", [PrecisionType.INT8, PrecisionType.BF16_MIXED])
+def test_saved_precision_requires_an_explicit_float_dtype(
+    precision: PrecisionType,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "Policy export precision must be 32, 16-true or bf16-true, "
+            f"got '{precision}'."
+        ),
+    ):
+        PolicyExportMetadata(precision=precision, version=2)
+
+
+@pytest.mark.unit
+def test_precision_requires_a_version_that_older_runtimes_reject() -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape("Policy export precision requires metadata version 2."),
+    ):
+        PolicyExportMetadata(precision=PrecisionType.BF16_TRUE, version=1)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("version", [0, 3])
 def test_metadata_rejects_unsupported_format_versions(version: int) -> None:
     with pytest.raises(
         ValueError,

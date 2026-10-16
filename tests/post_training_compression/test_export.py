@@ -2,7 +2,8 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -19,7 +20,9 @@ from versatil.post_training_compression.export import (
     _export_with_dynamic_batch,
     build_example_inputs,
     export_policy,
+    move_exported_model,
 )
+from versatil.training.constants import PrecisionType
 
 EXPORT_MODULE = "versatil.post_training_compression.export"
 
@@ -93,12 +96,74 @@ def simple_exportable_model(
     return model
 
 
+@pytest.fixture
+def device_allocating_model_factory() -> Callable[..., nn.Module]:
+    class DeviceAllocatingModel(nn.Module):
+        def __init__(self, device: torch.device) -> None:
+            super().__init__()
+            self.register_buffer("offset", torch.full((8,), 0.25, device=device))
+
+        def forward(self, observations: torch.Tensor) -> torch.Tensor:
+            positions = torch.arange(
+                observations.shape[-1], device=observations.device
+            )  # (8,)
+            return observations + positions + self.offset  # (B, 8)
+
+    def factory(device: torch.device) -> nn.Module:
+        return DeviceAllocatingModel(device=device)
+
+    return factory
+
+
+@pytest.mark.integration
+@pytest.mark.requires_gpu
+@pytest.mark.parametrize(
+    "source_device, target_device", [("cuda", "cpu"), ("cpu", "cuda")]
+)
+def test_graph_transfer_retargets_tensor_factories_and_survives_reload(
+    device_allocating_model_factory: Callable[..., nn.Module],
+    flat_input_factory: Callable[..., tuple[torch.Tensor, ...]],
+    source_device: str,
+    target_device: str,
+    tmp_path: Path,
+) -> None:
+    model = device_allocating_model_factory(device=torch.device(source_device))
+    source_inputs = tuple(
+        tensor.to(device=source_device) for tensor in flat_input_factory(batch_size=2)
+    )  # each (2, 8)
+    exported = _export_with_dynamic_batch(
+        model=model, example_inputs=source_inputs
+    ).module()
+    moved = move_exported_model(
+        model=exported, example_inputs=source_inputs, device=torch.device(target_device)
+    )
+    target_inputs = tuple(
+        tensor.to(device=target_device) for tensor in source_inputs
+    )  # each (2, 8)
+    artifact = tmp_path / "moved.pt2"
+    torch.export.save(
+        _export_with_dynamic_batch(model=moved, example_inputs=target_inputs), artifact
+    )
+    reloaded = torch.export.load(artifact).module()
+    for batch_size in (1, 4):
+        observations = flat_input_factory(batch_size=batch_size)[0]  # (B, 8)
+        with torch.no_grad():
+            expected = model(observations.to(device=source_device)).to(
+                device=target_device
+            )  # (B, 8)
+            actual = reloaded(observations.to(device=target_device))  # (B, 8)
+        torch.testing.assert_close(actual, expected)
+        assert actual.device.type == target_device
+
+
 @pytest.mark.unit
 class TestBuildExampleInputs:
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:1")])
     def test_camera_shapes_from_metadata_and_config(
         self,
-        observation_space_factory,
-    ):
+        observation_space_factory: Callable[..., ObservationSpace],
+        device: torch.device,
+    ) -> None:
         cameras = {
             "left": CameraMetadata(
                 camera_key="agentview_rgb",
@@ -115,10 +180,12 @@ class TestBuildExampleInputs:
             exportable=exportable,
             observation_space=obs_space,
             observation_horizon=1,
+            device=device,
         )
 
         call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
         assert call_shapes["left"] == (1, 3, 48, 64)
+        assert exportable.get_example_inputs.call_args.kwargs["device"] == device
 
     def test_numerical_state_shapes_from_metadata(
         self,
@@ -384,47 +451,37 @@ class TestExportWithDynamicBatch:
 
 
 @pytest.mark.unit
-class TestExportPolicy:
-    def test_eager_forward_runs_before_export(self):
-        call_order = []
+@pytest.mark.parametrize("autocast_precision", [None, PrecisionType.BF16_MIXED])
+def test_export_materializes_layers_then_records_autocast_as_explicit_casts(
+    flat_input_factory: Callable[..., tuple[torch.Tensor, ...]],
+    autocast_precision: PrecisionType | None,
+) -> None:
+    exportable = MagicMock(spec=ExportablePolicy)
+    exportable.autocast_precision = autocast_precision
+    inputs = flat_input_factory(batch_size=2, feature_dimension=8)
+    program = MagicMock(spec=torch.export.ExportedProgram)
+    decomposed = program.run_decompositions.return_value
+    selected_program = decomposed if autocast_precision is not None else program
+    execution = MagicMock()
+    execution.attach_mock(exportable, "materialize")
+    execution.attach_mock(program.run_decompositions, "decompose")
+    execution.attach_mock(selected_program.module, "module")
+    with patch(
+        f"{EXPORT_MODULE}._export_with_dynamic_batch", return_value=program
+    ) as export:
+        execution.attach_mock(export, "export")
+        result = export_policy(exportable=exportable, example_inputs=inputs)
 
-        exportable = MagicMock(spec=ExportablePolicy)
-        exportable.side_effect = lambda *args, **kwargs: call_order.append("eager")
-
-        mock_exported_program = MagicMock()
-        mock_exported_program.module.return_value = MagicMock()
-
-        def mock_torch_export(*args, **kwargs):
-            call_order.append("export")
-            return mock_exported_program
-
-        with patch(
-            f"{EXPORT_MODULE}.torch.export.export",
-            side_effect=mock_torch_export,
-        ):
-            export_policy(
-                exportable=exportable,
-                example_inputs=(torch.zeros(2, 3),),
-            )
-
-        assert call_order == ["eager", "export"]
-
-    def test_returns_module_and_passes_correct_kwargs(self):
-        exportable = MagicMock(spec=ExportablePolicy)
-        mock_graph_module = MagicMock()
-        mock_exported_program = MagicMock()
-        mock_exported_program.module.return_value = mock_graph_module
-
-        with patch(
-            f"{EXPORT_MODULE}.torch.export.export",
-            return_value=mock_exported_program,
-        ) as mock_export:
-            result = export_policy(
-                exportable=exportable,
-                example_inputs=(torch.zeros(2, 3),),
-            )
-
-        assert result is mock_graph_module
-        call_kwargs = mock_export.call_args[1]
-        assert call_kwargs["strict"] is False
-        assert "observation_tensors" in call_kwargs["dynamic_shapes"]
+    expected = [
+        call.materialize(*inputs),
+        call.export(
+            model=exportable,
+            example_inputs=inputs,
+            dynamic_shapes_key="observation_tensors",
+        ),
+    ]
+    if autocast_precision is not None:
+        expected.append(call.decompose({}))
+    expected.append(call.module())
+    assert execution.mock_calls == expected
+    assert result is selected_program.module.return_value

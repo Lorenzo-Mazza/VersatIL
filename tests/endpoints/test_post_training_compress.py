@@ -1,6 +1,7 @@
 """Tests for versatil.endpoints.post_training_compress module."""
 
 import gc
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -59,6 +60,7 @@ from versatil.data.processing.transform import (
     normalize_observation,
     tokenize_observation,
 )
+from versatil.endpoints import post_training_compress
 from versatil.inference.inference_client import InferenceClient
 from versatil.inference.policy_runtime.compressed_runtime import CompressedPolicyRuntime
 from versatil.inference.policy_runtime.float_runtime import FloatPolicyRuntime
@@ -75,6 +77,7 @@ from versatil.models.exportable.factory import create_exportable_policy
 from versatil.post_training_compression.compressor import PostTrainingCompressor
 from versatil.post_training_compression.constants import (
     CompressionFilename,
+    CompressionMetadataKey,
     QuantizationWorkflow,
 )
 from versatil.post_training_compression.export import (
@@ -94,6 +97,7 @@ from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.module_target import PT2EQuantizationModuleTarget
 from versatil.quantization.pt2e.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.workflows.pt2e import PT2EQuantizationWorkflow
+from versatil.training.constants import PrecisionType
 from versatil.workspace import Workspace
 
 IMAGE_HEIGHT = 32
@@ -239,10 +243,12 @@ def rgb_policy_configuration() -> Callable[[DictConfig], None]:
 @pytest.fixture
 def trained_binned_checkpoint(
     trained_checkpoint: Callable[..., Path],
-) -> Callable[[], Path]:
+    rng: np.random.Generator,
+) -> Callable[..., Path]:
     """Build a factory that trains a proprioceptive GPT on fixed action chunks."""
 
     def configure(config: DictConfig) -> None:
+        torch.manual_seed(int(rng.integers(low=0, high=2**31)))
         observation_metadata = config.task.observation_space.observations_metadata
         action_metadata = config.task.action_space.actions_metadata
         config.task.observation_space.observations_metadata = {
@@ -255,7 +261,11 @@ def trained_binned_checkpoint(
         }
         config.policy.encoding_pipeline.encoders = {}
 
-    def factory() -> Path:
+    def factory(
+        embedding_dimension: int = 32,
+        learning_rate: float = 0.01,
+        num_epochs: int = 5,
+    ) -> Path:
         tokenizer = "task.dataloader.tokenization.action_tokenizer"
         return trained_checkpoint(
             config_name="end_to_end_training_runs/libero_lerobot/gpt_transformer",
@@ -267,11 +277,11 @@ def trained_binned_checkpoint(
                 f"{tokenizer}.action_discretizer.num_bins=16",
                 f"{tokenizer}.max_token_len=7",
                 f"policy.decoder.input_keys=[{ProprioKey.EE_POS.value}]",
-                "policy.decoder.embedding_dimension=32",
+                f"policy.decoder.embedding_dimension={embedding_dimension}",
                 "policy.decoder.number_of_heads=2",
                 "policy.decoder.number_of_key_value_heads=2",
                 "policy.decoder.number_of_layers=1",
-                "policy.decoder.feedforward_dimension=64",
+                f"policy.decoder.feedforward_dimension={2 * embedding_dimension}",
                 "policy.decoder.max_seq_len=32",
                 "policy.decoder.dropout_rate=0.0",
                 "policy.decoder.attention_dropout=0.0",
@@ -280,8 +290,8 @@ def trained_binned_checkpoint(
                 "policy.loss.loss_modules.token_loss.label_smoothing=0.0",
                 "task.prediction_horizon=2",
                 "task.dataloader.num_workers=0",
-                "training.num_epochs=5",
-                "training.optimizer.lr=0.01",
+                f"training.num_epochs={num_epochs}",
+                f"training.optimizer.lr={learning_rate}",
                 "training.optimizer.param_groups=[]",
                 "training.use_ema=false",
                 "experiment.device=cpu",
@@ -289,6 +299,22 @@ def trained_binned_checkpoint(
             action_values={ProprioKey.EE_POS_ACTION.value: [0.25, -0.5, 0.75]},
             configure=configure,
         )
+
+    return factory
+
+
+@pytest.fixture(scope="module")
+def ptq_preset_checkpoint_factory() -> Callable[..., Path]:
+    """Reuse one trained checkpoint across compression presets in this module."""
+    checkpoint_directory: Path | None = None
+
+    def factory(training_factory: Callable[..., Path]) -> Path:
+        nonlocal checkpoint_directory
+        if checkpoint_directory is None:
+            checkpoint_directory = training_factory(
+                embedding_dimension=128, learning_rate=0.001, num_epochs=10
+            )
+        return checkpoint_directory
 
     return factory
 
@@ -603,6 +629,127 @@ def _prune_backbones(policy: torch.nn.Module) -> None:
             pruner = UnstructuredPruner(amount=0.3)
             _, zeroed = pruner.prune(module=encoder.backbone)
             assert zeroed > 0
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "config_name, calibration_device, deployment_device",
+    [
+        pytest.param(PTQ_X86_CONFIG_NAME, "cpu", "cpu", id="x86"),
+        pytest.param(
+            "end_to_end_ptq/smoothquant_int8",
+            "cpu",
+            "cpu",
+            id="smoothquant_int8",
+        ),
+        pytest.param(
+            PTQ_EAGER_XNNPACK_CONFIG_NAME,
+            "cpu",
+            "cpu",
+            marks=pytest.mark.requires_executorch,
+            id="eager_xnnpack",
+        ),
+        pytest.param(
+            PTQ_PT2E_XNNPACK_CONFIG_NAME,
+            "cpu",
+            "cpu",
+            marks=pytest.mark.requires_executorch,
+            id="pt2e_xnnpack",
+        ),
+        pytest.param(
+            "end_to_end_ptq/smoothquant_int4",
+            "cuda",
+            "cuda",
+            marks=pytest.mark.requires_gpu,
+            id="smoothquant_int4",
+        ),
+        pytest.param(
+            "end_to_end_ptq/smoothquant_int8",
+            "cuda",
+            "cpu",
+            marks=pytest.mark.requires_gpu,
+            id="smoothquant_int8_cuda_to_cpu",
+        ),
+    ],
+)
+def test_compression_presets_reconstruct_trained_actions(
+    trained_binned_checkpoint: Callable[..., Path],
+    ptq_preset_checkpoint_factory: Callable[..., Path],
+    binned_policy_observation_factory: Callable[..., dict[str, torch.Tensor]],
+    config_name: str,
+    calibration_device: str,
+    deployment_device: str,
+    tmp_path: Path,
+) -> None:
+    checkpoint_directory = ptq_preset_checkpoint_factory(
+        training_factory=trained_binned_checkpoint
+    )
+    with LEROBOT_METADATA_PATCH:
+        reference = FloatPolicyRuntime(
+            device=torch.device("cpu"),
+            checkpoint_path=str(checkpoint_directory),
+            checkpoint_name="last.ckpt",
+            compile_model=False,
+        )
+    trained_action = torch.tensor(
+        [0.3125, -0.4375, 0.8125], dtype=torch.float32
+    ).reshape(1, 1, 3)  # (position_dim,) -> (1, 1, position_dim)
+    expected_batches = []
+    for batch_size in (1, 3):
+        observations = binned_policy_observation_factory(batch_size=batch_size)
+        expected = reference.run_inference(obs_dict=observations)
+        torch.testing.assert_close(
+            expected[ProprioKey.EE_POS_ACTION.value],
+            trained_action.expand(batch_size, 2, 3),  # (1, 1, 3) -> (B, H, 3)
+        )
+        expected_batches.append((observations, expected))
+    compressed_directory = tmp_path / "compressed"
+    with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+        config = compose(
+            config_name=config_name,
+            overrides=[
+                f"checkpoint_path={checkpoint_directory}",
+                f"output_directory={compressed_directory}",
+                f"device={calibration_device}",
+                f"deployment_device={deployment_device}",
+                "calibration_steps=2",
+                "generate_report=false",
+            ],
+        )
+    with LEROBOT_METADATA_PATCH:
+        post_training_compress.main(config)
+        runtime = CompressedPolicyRuntime(
+            device=torch.device(deployment_device),
+            checkpoint_path=str(compressed_directory),
+            compile_model=False,
+        )
+    metadata = json.loads(
+        (
+            compressed_directory / CompressionFilename.COMPRESSION_METADATA.value
+        ).read_text()
+    )
+    if "smoothquant" in config_name:
+        assert metadata[CompressionMetadataKey.CALIBRATION_BATCHES.value] == 2
+        targets = metadata[CompressionMetadataKey.QUANTIZATION_TARGETS.value]
+        assert targets[0]["selected"]
+        expected_weight = (
+            "Int4TilePackedTo4dTensor"
+            if config_name.endswith("smoothquant_int4")
+            else "Int8Tensor"
+        )
+        assert set(targets[0]["weight_representations"].values()) == {expected_weight}
+    if config_name.endswith("smoothquant_int4"):
+        assert targets[0]["group_size"] == 128
+        assert (
+            runtime.checkpoint_loader.export_metadata.precision
+            == PrecisionType.BF16_TRUE
+        )
+    for observations, expected in expected_batches:
+        actual = runtime.run_inference(obs_dict=observations)
+        torch.testing.assert_close(
+            {key: action.cpu() for key, action in actual.items()}, expected
+        )
 
 
 @pytest.mark.slow

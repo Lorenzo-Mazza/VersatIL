@@ -1,10 +1,11 @@
-"""Torch Inductor deployment backend for .pt2 artifacts, to deploy policies on x86 CPUs with optimized C++/Triton kernels, ref. https://docs.pytorch.org/ao/stable/pt2e_quantization/pt2e_quant_x86_inductor.html."""
+"""Torch Export artifact backend for PyTorch CPU and CUDA runtimes."""
 
 import torch
 import torch.nn as nn
 
 from versatil.post_training_compression.constants import (
     ArtifactFormat,
+    CompressionDeviceType,
     CompressionFilename,
     DeploymentBackendName,
 )
@@ -27,13 +28,35 @@ class TorchInductorBackend(DeploymentBackend):
         QuantizationMode.EAGER.value,
     )
     supported_pt2e_backends = (PT2EBackendName.X86_INDUCTOR.value,)
+    supported_device_types = (
+        CompressionDeviceType.CPU.value,
+        CompressionDeviceType.CUDA.value,
+    )
 
     def export(
         self,
         model: nn.Module,
         example_inputs: tuple[torch.Tensor, ...],
     ) -> DeploymentArtifact:
-        """Return a .pt2 deployment artifact descriptor."""
+        """Validate graph execution and return an artifact descriptor.
+
+        Args:
+            model: Exported model selected for deployment.
+            example_inputs: Representative tensors on the export device.
+
+        Returns:
+            Artifact descriptor ready for serialization.
+
+        Note:
+            Some quantized operations use a fallback for shapes their kernel
+            cannot handle. Export can capture the direct kernel call, so we run
+            the exported graph with the example inputs on the deployment device
+            before saving to catch those failures during compression.
+
+            B denotes batch size.
+        """
+        with torch.no_grad():
+            model(*example_inputs)  # (B, ...)
         return DeploymentArtifact(
             converted_model=model,
             example_inputs=example_inputs,

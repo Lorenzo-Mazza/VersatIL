@@ -1,0 +1,18 @@
+defaults:
+  - /quantization/workflow@_here_: eager
+  - _self_
+
+targets:
+  - _target_: versatil.quantization.module_target.EagerQuantizationModuleTarget
+    module_path: decoder
+    schema:
+      _target_: versatil.quantization.schemas.smoothquant.SmoothQuantSchema
+      alpha: 0.5
+      base_config:
+        _target_: torchao.quantization.Int4WeightOnlyConfig
+        version: 2
+        group_size: 128
+        int4_packing_format: tile_packed_to_4d
+
+is_qat: false
+auto_filter_incompatible_linears: true

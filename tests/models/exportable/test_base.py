@@ -1,9 +1,14 @@
 """Tests for versatil.models.exportable.base module."""
 
 import re
+from collections.abc import Callable
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import torch
+
+from versatil.models.exportable.base import ExportablePolicy
+from versatil.training.constants import PrecisionType
 
 
 @pytest.mark.unit
@@ -39,6 +44,60 @@ class TestExportablePolicyInit:
 
 @pytest.mark.unit
 class TestExportablePolicyForward:
+    @pytest.mark.parametrize("precision", [None, PrecisionType.BF16_MIXED])
+    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    def test_checkpoint_autocast_wraps_encoding_and_prediction_on_input_device(
+        self,
+        exportable_factory: Callable[..., ExportablePolicy],
+        precision: PrecisionType | None,
+        device: str,
+    ) -> None:
+        exportable = exportable_factory(
+            observation_keys=["observation"], action_keys=["position"]
+        )
+        exportable.autocast_precision = precision
+        exportable.algorithm.injected_feature_keys.return_value = ()
+        observation = MagicMock(spec=torch.Tensor)
+        observation.device = torch.device(device)
+        features = {"encoded": MagicMock(spec=torch.Tensor)}
+        output = MagicMock(spec=torch.Tensor)
+        execution = MagicMock()
+        with (
+            patch(
+                "versatil.models.exportable.base.build_algorithm_features",
+                return_value=features,
+            ) as build,
+            patch.object(
+                exportable, "_predict", return_value={"position": output}
+            ) as predict,
+            patch.object(PrecisionType, "autocast") as autocast,
+        ):
+            execution.attach_mock(autocast, "autocast")
+            execution.attach_mock(autocast.return_value.__enter__, "enter")
+            execution.attach_mock(autocast.return_value.__exit__, "exit")
+            execution.attach_mock(build, "encode")
+            execution.attach_mock(predict, "predict")
+            result = exportable(observation)
+
+        expected = []
+        if precision is not None:
+            expected.extend([call.autocast(device_type=device), call.enter()])
+        expected.extend(
+            [
+                call.encode(
+                    observation={"observation": observation},
+                    encoding_pipeline=exportable.encoding_pipeline,
+                    decoder=exportable.decoder,
+                    algorithm_injected_keys=(),
+                ),
+                call.predict(features=features, sampling_inputs=()),
+            ]
+        )
+        if precision is not None:
+            expected.append(call.exit(None, None, None))
+        assert execution.mock_calls == expected
+        assert result == (output,)
+
     def test_reconstructs_observation_dict_from_positional_tensors(
         self,
         exportable_factory,

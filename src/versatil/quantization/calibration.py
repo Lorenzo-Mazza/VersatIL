@@ -18,7 +18,8 @@ class CalibrationDataProvider:
     Note:
         The dataset must apply the policy's normalization and tokenization.
         This provider selects observations and moves them to the chosen device,
-        preserving their values, shapes and dtypes.
+        preserving shapes. Calibration floating-point data dtype is aligned with the
+        compression policy dtype.
     """
 
     def __init__(
@@ -27,6 +28,7 @@ class CalibrationDataProvider:
         observation_keys: list[str],
         num_calibration_steps: int = 128,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
     ) -> None:
         """Initialize calibration data provider.
 
@@ -35,6 +37,9 @@ class CalibrationDataProvider:
             observation_keys: Model input keys to select from each observation.
             num_calibration_steps: Maximum number of calibration batches.
             device: Device for calibration tensors. Defaults to CPU.
+            dtype: Target floating-point dtype of the quantization,
+                to apply for floating-point observations. None preserves the dataloader's
+                original dtypes.
 
         Raises:
             ValueError: If the batch limit is less than one.
@@ -49,6 +54,7 @@ class CalibrationDataProvider:
         if device is None:
             device = torch.device("cpu")
         self.device = device
+        self.dtype = dtype
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
         """Yield selected observations on the configured device.
@@ -74,7 +80,14 @@ class CalibrationDataProvider:
                 )
             consumed_batches += 1
             yield {
-                key: observation[key].to(device=self.device)  # (B, ...)
+                key: observation[key].to(
+                    device=self.device,
+                    dtype=(
+                        self.dtype
+                        if observation[key].is_floating_point()
+                        else observation[key].dtype
+                    ),
+                )  # (B, ...)
                 for key in self._observation_keys
             }
         if consumed_batches == 0:
@@ -133,6 +146,11 @@ def build_calibration_data(
         observation_keys=observation_keys,
         num_calibration_steps=num_calibration_steps,
         device=device,
+        dtype=(
+            context.precision.get_model_dtype()
+            if context.precision is not None
+            else None
+        ),
     )
 
 

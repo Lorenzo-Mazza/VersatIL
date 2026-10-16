@@ -1,5 +1,7 @@
 """Tensor input and output adapter for continuous-action policy export."""
 
+from contextlib import nullcontext
+
 import torch
 import torch.nn as nn
 
@@ -8,6 +10,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.exportable.metadata import PolicyExportMetadata
 from versatil.models.policy import Policy, build_algorithm_features
+from versatil.training.constants import PrecisionType
 
 
 class ExportablePolicy(nn.Module):
@@ -40,6 +43,7 @@ class ExportablePolicy(nn.Module):
         self._observation_keys = observation_keys
         self._action_keys = action_keys
         self.export_metadata = export_metadata or PolicyExportMetadata()
+        self.autocast_precision: PrecisionType | None = None
 
     @property
     def observation_keys(self) -> list[str]:
@@ -79,15 +83,23 @@ class ExportablePolicy(nn.Module):
                 strict=True,
             )
         )
-        features = build_algorithm_features(
-            observation=observation_dict,
-            encoding_pipeline=self.encoding_pipeline,
-            decoder=self.decoder,
-            algorithm_injected_keys=self.algorithm.injected_feature_keys(),
-        )  # (batch, ...)
-        predictions = self._predict(
-            features=features, sampling_inputs=observation_tensors[observation_count:]
-        )  # (batch, ...)
+        with (
+            self.autocast_precision.autocast(
+                device_type=observation_tensors[0].device.type
+            )
+            if self.autocast_precision is not None
+            else nullcontext()
+        ):
+            features = build_algorithm_features(
+                observation=observation_dict,
+                encoding_pipeline=self.encoding_pipeline,
+                decoder=self.decoder,
+                algorithm_injected_keys=self.algorithm.injected_feature_keys(),
+            )  # (batch, ...)
+            predictions = self._predict(
+                features=features,
+                sampling_inputs=observation_tensors[observation_count:],
+            )  # (batch, ...)
         return tuple(predictions[key] for key in self._action_keys)  # (batch, ...)
 
     def _predict(
@@ -139,6 +151,7 @@ class ExportablePolicy(nn.Module):
         observation_shapes: dict[str, tuple[int, ...]],
         batch_size: int = 1,
         observation_dtypes: dict[str, torch.dtype] | None = None,
+        device: torch.device | None = None,
     ) -> tuple[torch.Tensor, ...]:
         """Generate example inputs with correct shapes for torch.export.
 
@@ -148,6 +161,7 @@ class ExportablePolicy(nn.Module):
             batch_size: Batch dimension size.
             observation_dtypes: Optional mapping from observation key to
                 torch dtype. Defaults to torch.float32 for all keys.
+            device: Device for observations and noise. None uses the torch default.
 
         Returns:
             Observation tensors in key order, followed by required noise inputs.
@@ -169,7 +183,7 @@ class ExportablePolicy(nn.Module):
             shape = (batch_size, *observation_shapes[key])
             dtype = observation_dtypes.get(key, torch.float32)
             example_tensors.append(
-                torch.zeros(shape, dtype=dtype)
+                torch.zeros(shape, dtype=dtype, device=device)
             )  # (batch, *observation_shape)
 
         return self.export_metadata.prepare_inputs(

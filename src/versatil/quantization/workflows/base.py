@@ -7,12 +7,14 @@ import torch
 import torch.nn as nn
 
 from versatil.models.exportable.base import ExportablePolicy
+from versatil.post_training_compression.constants import CompressionDeviceType
 from versatil.post_training_compression.deployment_backends.base import (
     DeploymentBackend,
 )
 from versatil.post_training_compression.policy_context import PolicyContext
 from versatil.quantization.metadata import QuantizationTargetMetadata
 from versatil.quantization.module_target import QuantizationModuleTarget
+from versatil.quantization.resolution import validate_quantization_targets
 
 
 class BaseQuantizationWorkflow(ABC):
@@ -28,12 +30,14 @@ class BaseQuantizationWorkflow(ABC):
         self,
         checkpoint_path: str,
         checkpoint_name: str,
+        device: torch.device = torch.device(CompressionDeviceType.CPU.value),
     ) -> PolicyContext:
         """Load the policy context required by this workflow.
 
         Args:
             checkpoint_path: Directory containing the training checkpoint.
             checkpoint_name: Checkpoint filename to load from the directory.
+            device: Device for the restored policy and preprocessing state.
 
         Returns:
             Policy context with the loaded policy, metadata, normalizer, and
@@ -47,6 +51,7 @@ class BaseQuantizationWorkflow(ABC):
         exportable: ExportablePolicy,
         calibration_steps: int,
         deployment_backend: DeploymentBackend | None = None,
+        deployment_device: torch.device | None = None,
     ) -> "QuantizedContext":
         """Run the workflow and return exported deployment inputs.
 
@@ -59,11 +64,50 @@ class BaseQuantizationWorkflow(ABC):
             deployment_backend: Destination used to validate backend-specific
                 quantization requirements. None leaves those checks to the
                 deployment caller.
+            deployment_device: Device for final conversion, export and execution.
+                None uses the loaded policy's device.
 
         Returns:
             Quantized context containing the float export, selected deployment
             model, example inputs, and serialized workflow name.
         """
+
+    def validate_deployment_device(self, device: torch.device) -> None:
+        """Check workflow-specific requirements for the artifact's execution device.
+
+        Args:
+            device: Device on which the deployed graph will execute.
+
+        Note:
+            Deployment backends and eager schemas apply their own execution and
+            packing requirements. PT2E workflows also check their quantizer target.
+        """
+        return None
+
+    @staticmethod
+    def _resolve_deployment_device(
+        device: torch.device | None, source_device: torch.device
+    ) -> torch.device:
+        """Resolve the destination to a concrete device before comparing placements.
+
+        Args:
+            device: Requested deployment device, or None to retain the source.
+            source_device: Device of the loaded policy's tensors.
+
+        Returns:
+            Destination with an explicit CUDA index when CUDA is requested.
+
+        Note:
+            Resolving the current CUDA device avoids transferring graphs between
+            equivalent ``cuda`` and ``cuda:0`` device names.
+        """
+        if device is None:
+            return source_device
+        if device.type == CompressionDeviceType.CUDA.value and device.index is None:
+            return torch.device(
+                CompressionDeviceType.CUDA.value, torch.cuda.current_device()
+            )
+        return device
 
     @property
     def is_qat(self) -> bool:
@@ -105,39 +149,6 @@ class BaseQuantizationWorkflow(ABC):
             ValueError: If a target path does not exist or two targets overlap.
         """
         validate_quantization_targets(model=model, targets=self.targets)
-
-
-def validate_quantization_targets(
-    model: nn.Module,
-    targets: list[QuantizationModuleTarget],
-) -> None:
-    """Validate quantization target paths and overlap.
-
-    Args:
-        model: Policy model whose submodule tree should contain every target.
-        targets: Module targets configured for one quantization workflow.
-
-    Raises:
-        ValueError: If a target path does not exist or two targets overlap.
-    """
-    for target in targets:
-        if target.module_path == "":
-            continue
-        try:
-            model.get_submodule(target.module_path)
-        except AttributeError as error:
-            available = list(dict(model.named_children()).keys())
-            raise ValueError(
-                f"Quantization target '{target.module_path}' not found in model. "
-                f"Available top-level modules: {available}."
-            ) from error
-    for index, target in enumerate(targets):
-        for other in targets[index + 1 :]:
-            if target.overlaps(other=other):
-                raise ValueError(
-                    "Quantization targets overlap: "
-                    f"'{target.module_path}' and '{other.module_path}'."
-                )
 
 
 @dataclass

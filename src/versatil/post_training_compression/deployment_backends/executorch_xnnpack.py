@@ -6,6 +6,7 @@ from types import ModuleType
 
 import torch
 import torch.nn as nn
+from torch._decomp import get_decompositions
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Int4WeightOnlyConfig,
@@ -70,6 +71,7 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
         target: EagerQuantizationModuleTarget,
         module_names: set[str],
         for_conversion: bool = True,
+        conversion_device: torch.device | None = None,
     ) -> None:
         """Check the weight representation and device used for XNNPACK export.
 
@@ -78,6 +80,8 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
             target: Quantization schema and module scope selected by the workflow.
             module_names: Fully qualified names of the selected layers.
             for_conversion: Require CPU weights when converting for XNNPACK export.
+            conversion_device: Destination for weight conversion and packing.
+                None uses each selected weight's current device for validation.
 
         Raises:
             ValueError: If the schema, weight format, group size or conversion
@@ -133,7 +137,7 @@ class ExecutorchXNNPACKBackend(DeploymentBackend):
                 f"Target '{label}': XNNPACK lowering for {config_name} is unverified."
             )
         if for_conversion and any(
-            model.get_submodule(name).weight.device.type != "cpu"
+            (conversion_device or model.get_submodule(name).weight.device).type != "cpu"
             for name in module_names
         ):
             raise ValueError(
@@ -211,10 +215,27 @@ def _lower_exported_program(
     """Lower an exported inference program using imported ExecuTorch modules.
 
     Note:
+        ExecuTorch 1.5.1 locks the batch size to the example input when
+        validating split outputs. We therefore decompose split operations
+        into individual tensor operations before lowering so the exported
+        model can run with different batch sizes.
+
         Embedding padding and gradient flags control backward computation.
         Removing those arguments preserves lookup values and enables fusion
         into packed quantized embedding operators.
     """
+    split_operations = (
+        torch.ops.aten.chunk.default,
+        torch.ops.aten.split.Tensor,
+        torch.ops.aten.split_with_sizes.default,
+    )
+    if exported_program.range_constraints and any(
+        node.op == FXNodeOp.CALL_FUNCTION.value and node.target in split_operations
+        for node in exported_program.graph.nodes
+    ):
+        exported_program = exported_program.run_decompositions(
+            get_decompositions(split_operations)
+        )
     for node in exported_program.graph.nodes:
         if (
             node.op == FXNodeOp.CALL_FUNCTION.value

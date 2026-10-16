@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 
 from versatil.configs.post_training_compression import PreparationConfig
+from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.models.exportable.metadata import PolicyExportMetadata, PredictionOutput
 from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.post_training_compression.compressor import PostTrainingCompressor
@@ -31,6 +32,7 @@ from versatil.quantization.metadata import QuantizationTargetMetadata
 from versatil.quantization.workflows.base import BaseQuantizationWorkflow
 from versatil.quantization.workflows.eager import EagerQuantizationWorkflow
 from versatil.quantization.workflows.none import NoQuantizationWorkflow
+from versatil.training.constants import PrecisionType
 
 COMPRESSOR_MODULE = "versatil.post_training_compression.compressor"
 
@@ -49,6 +51,25 @@ def policy_with_submodules() -> nn.Module:
             return self.decoder(self.backbone(x))
 
     return Policy()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "precision",
+    [PrecisionType.FP16_MIXED, PrecisionType.BF16_MIXED, PrecisionType.INT8],
+)
+def test_compression_requires_explicit_float_precision(
+    compressor_factory: Callable[..., PostTrainingCompressor],
+    precision: PrecisionType,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "Compression precision must be 32, 16-true or bf16-true, "
+            f"got '{precision}'."
+        ),
+    ):
+        compressor_factory(precision=precision.value)
 
 
 @pytest.mark.unit
@@ -395,6 +416,29 @@ class TestQuantizationSelection:
 
 @pytest.mark.unit
 class TestCompressOrchestration:
+    def test_device_rejection_precedes_checkpoint_loading(
+        self,
+        compressor_factory: Callable[..., PostTrainingCompressor],
+    ) -> None:
+        quantization = MagicMock(spec=BaseQuantizationWorkflow)
+        backend = MagicMock(spec=DeploymentBackend)
+        message = "This deployment backend requires CPU deployment."
+        backend.validate_device.side_effect = ValueError(message)
+        compressor = compressor_factory(
+            quantization=quantization,
+            deployment_backend=backend,
+            device="cpu",
+            deployment_device="cuda:1",
+        )
+
+        with pytest.raises(ValueError, match=re.escape(message)):
+            compressor.compress(hydra_config=MagicMock())
+
+        backend.validate_device.assert_called_once_with(device=torch.device("cuda:1"))
+        quantization.load_policy_context.assert_not_called()
+        quantization.quantize.assert_not_called()
+        backend.export.assert_not_called()
+
     def test_backend_rejection_precedes_checkpoint_loading(
         self,
         compressor_factory: Callable[..., PostTrainingCompressor],
@@ -425,21 +469,34 @@ class TestCompressOrchestration:
         "workflow_type", [BaseQuantizationWorkflow, EagerQuantizationWorkflow]
     )
     @pytest.mark.parametrize("output", list(PredictionOutput))
+    @pytest.mark.parametrize("precision", [None, PrecisionType.BF16_TRUE.value])
+    @pytest.mark.parametrize(
+        "device, deployment_device",
+        [("cpu", None), ("cuda:1", None), ("cuda:1", "cpu")],
+    )
     def test_validates_quantization_targets_before_workflow_export(
         self,
         compressor_factory: Callable[..., PostTrainingCompressor],
         quantization_target_metadata_factory: Callable[..., QuantizationTargetMetadata],
         workflow_type: type[BaseQuantizationWorkflow],
         output: PredictionOutput,
+        precision: str | None,
+        device: str,
+        deployment_device: str | None,
     ) -> None:
         quantization = MagicMock(spec=workflow_type)
         quantization.quantization_mode = QuantizationMode.EAGER.value
         quantization.pt2e_backend_names = ()
         context = MagicMock()
+        context.autocast_precision = (
+            PrecisionType.BF16_MIXED if precision is None else None
+        )
         policy = MagicMock(spec=nn.Module)
         policy.input_keys = ["observation"]
         policy.output_keys = ["action"]
-        policy.normalizer = MagicMock()
+        policy.normalizer = MagicMock(spec=LinearNormalizer)
+        policy.normalizer.dtype = torch.float32
+        policy.encoding_pipeline = MagicMock()
         policy.get_denoising_thresholds = MagicMock(return_value={"delta_pos": 0.01})
         context.policy = policy
         quantization.load_policy_context.return_value = context
@@ -467,6 +524,7 @@ class TestCompressOrchestration:
             backend_name=DeploymentBackendName.TORCH_INDUCTOR.value,
         )
         exportable = MagicMock()
+        exportable.modules.return_value = [exportable, policy.normalizer]
         exportable.observation_keys = ["observation"]
         exportable.action_keys = ["action"]
         if output == PredictionOutput.ACTION_TOKENS:
@@ -477,9 +535,16 @@ class TestCompressOrchestration:
             quantization=quantization,
             deployment_backend=backend,
             output_directory="/tmp/compressed",
+            precision=precision,
+            device=device,
+            deployment_device=deployment_device,
         )
         execution = MagicMock()
         execution.attach_mock(backend.validate_quantization, "validate_backend")
+        execution.attach_mock(backend.validate_device, "validate_device")
+        execution.attach_mock(
+            quantization.validate_deployment_device, "validate_workflow_device"
+        )
         execution.attach_mock(quantization.load_policy_context, "load_checkpoint")
 
         with (
@@ -491,21 +556,41 @@ class TestCompressOrchestration:
         ):
             result = compressor.compress(hydra_config=hydra_config)
 
-        assert execution.mock_calls[:2] == [
+        assert execution.mock_calls[:4] == [
             call.validate_backend(
                 mode=QuantizationMode.EAGER.value, pt2e_backend_names=()
             ),
+            call.validate_device(device=compressor.deployment_device),
+            call.validate_workflow_device(device=compressor.deployment_device),
             call.load_checkpoint(
                 checkpoint_path=compressor.checkpoint_path,
                 checkpoint_name=compressor.checkpoint_name,
+                device=compressor.device,
             ),
         ]
         backend.validate_quantization.assert_called_once_with(
             mode=QuantizationMode.EAGER.value, pt2e_backend_names=()
         )
+        if precision is not None:
+            exportable.to.assert_called_once_with(dtype=torch.bfloat16)
+            policy.normalizer.to.assert_called_once_with(dtype=torch.float32)
+            policy.normalizer.load_state_dict.assert_called_once_with(
+                state_dict={}, assign=True
+            )
+            policy.encoding_pipeline.set_output_dtype.assert_called_once_with(
+                output_dtype=torch.bfloat16
+            )
+            assert context.precision == PrecisionType.BF16_TRUE
+            assert exportable.export_metadata.precision == PrecisionType.BF16_TRUE
+        else:
+            exportable.to.assert_not_called()
+            policy.normalizer.load_state_dict.assert_not_called()
+        policy.to.assert_not_called()
+        assert exportable.autocast_precision == context.autocast_precision
         quantization.load_policy_context.assert_called_once_with(
             checkpoint_path=compressor.checkpoint_path,
             checkpoint_name=compressor.checkpoint_name,
+            device=compressor.device,
         )
         quantization.validate_targets.assert_called_once_with(model=policy)
         mock_exportable_factory.assert_called_once_with(policy=policy)
@@ -514,6 +599,7 @@ class TestCompressOrchestration:
             exportable=exportable,
             calibration_steps=compressor.calibration_steps,
             deployment_backend=backend,
+            deployment_device=compressor.deployment_device,
         )
         backend.export.assert_called_once_with(
             model=quantized.quantized_model,

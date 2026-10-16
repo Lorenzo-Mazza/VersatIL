@@ -5,6 +5,13 @@ from enum import StrEnum
 from torch import nn
 
 
+class CompressionDeviceType(StrEnum):
+    """Execution devices supported by compression workflows."""
+
+    CPU = "cpu"
+    CUDA = "cuda"
+
+
 class QuantizationWorkflow(StrEnum):
     """Quantization workflow used during compression."""
 

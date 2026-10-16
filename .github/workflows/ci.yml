@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 env:
   CUDA_VISIBLE_DEVICES: ""
@@ -171,6 +170,18 @@ jobs:
         run: |
           source .venv/bin/activate
           python -m pytest tests/ -m "requires_executorch and not slow and not requires_gpu" --cov=versatil --cov-report=xml:coverage-executorch.xml --tb=short -q --junitxml=report-executorch.xml
+      - name: Run PTQ preset smoke tests
+        if: matrix.python-version == '3.14'
+        timeout-minutes: 10
+        run: |
+          source .venv/bin/activate
+          python -m pytest tests/endpoints/test_post_training_compress.py::test_compression_presets_reconstruct_trained_actions -m "not requires_gpu" --durations=5 --tb=short -q --junitxml=report-ptq-smoke.xml
+      - name: Upload PTQ smoke test report
+        if: always() && matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptq-smoke-test-report
+          path: report-ptq-smoke.xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
