@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CI runs for PRs targeting any branch and includes a small PTQ preset suite.
 - Compression preserves checkpoint autocast when keeping mixed weight dtypes,
   and records explicit casts so exported models run without runtime autocast.
 - Fixed SmolVLM image-padding handling that discarded all-zero camera images,
